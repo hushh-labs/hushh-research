@@ -46,6 +46,7 @@ import { trackEvent } from "@/lib/observability/client";
 import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import { cn } from "@/lib/utils";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 type OnboardingScreen = OneLocationOnboardingScreen;
 
@@ -246,7 +247,7 @@ function PrimaryButton({
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       className={cn(
-        "w-full disabled:cursor-not-allowed disabled:opacity-50",
+        "mx-auto flex w-[244px] disabled:cursor-not-allowed disabled:opacity-50",
         inverse
           ? "bg-white text-[color:var(--app-accent-deep)] hover:bg-white/90 hover:text-[color:var(--app-accent-deep)] dark:bg-white dark:hover:bg-white/90 dark:text-[#07111f] dark:hover:text-[#07111f]"
           : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
@@ -526,14 +527,15 @@ function WelcomeScreen({
 }
 
 /** Minimal, stylised street-map backdrop used behind the share / check-in art. */
-function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
-  const park = tone === "checkin" ? "#dcecd8" : "#dfeede";
+function MapBackdrop({ tone }: { tone: "share" | "checkin" | "sms" }) {
+  const park = tone === "sms" ? "#f4dedd" : "#dcecd8";
   return (
     <svg
       viewBox="0 0 200 168"
       preserveAspectRatio="xMidYMid slice"
       className="absolute inset-0 h-full w-full"
       aria-hidden="true"
+      data-one-feature-map={tone}
     >
       <rect
         width="200"
@@ -660,7 +662,7 @@ function ShareLocationFeatureCard() {
       data-one-feature-card="share"
     >
       <MapBackdrop tone="share" />
-      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)] from-[35%] via-[color:var(--app-primary-surface)] via-[51%] to-transparent" />
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)]/95 from-[25%] via-[color:var(--app-primary-surface)]/80 via-[51%] to-transparent" />
       <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
         <span
           className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
@@ -729,13 +731,13 @@ function ShareLocationFeatureCard() {
 function CheckInFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
+      className="relative flex aspect-[0.62/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-checkin"
       data-one-use-case-card
       data-one-feature-card="checkin"
     >
       <div
-        className="relative z-20 bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)] to-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4"
+        className="relative z-20 bg-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4"
         data-one-feature-copy
       >
         <span
@@ -745,7 +747,7 @@ function CheckInFeatureCard() {
           Check in
         </span>
         <FeatureTitle
-          lines={["At the venue,", "but can't find", "each other?"]}
+          lines={["At the venue, but", "can't find each other?"]}
           className="text-[19px]"
         />
         <p
@@ -763,7 +765,7 @@ function CheckInFeatureCard() {
         <MapBackdrop tone="checkin" />
       </div>
       <span
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[68%] bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)] to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[62%] bg-gradient-to-b from-[color:var(--app-primary-surface)]/80 to-transparent"
         aria-hidden="true"
       />
       <div
@@ -771,21 +773,17 @@ function CheckInFeatureCard() {
         data-one-use-case-art
         aria-hidden="true"
       >
-        <span className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)]/85 to-transparent" />
         <span
           className="absolute bottom-[18%] left-1/2 flex h-[64px] w-[64px] -translate-x-1/2 items-center justify-center rounded-full bg-white/90 shadow-[0_8px_22px_rgba(24,57,91,0.16)] ring-1 ring-white/80 dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
           data-one-checkin-destination
         >
-          <MapPin
-            className="h-9 w-9 text-[color:var(--app-accent)]"
-            strokeWidth={2.4}
+          {/* eslint-disable-next-line @next/next/no-img-element -- Local Maps-style artwork must render in Capacitor static export. */}
+          <img
+            src="/one-location/onboarding/check-in-location-pin.svg"
+            alt=""
+            className="h-10 w-10"
+            data-one-checkin-pin
           />
-          <span
-            className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[color:var(--app-success)] text-white ring-[3px] ring-white dark:ring-[color:var(--app-secondary-surface)]"
-            data-one-checkin-illustration
-          >
-            <Check className="h-3.5 w-3.5" strokeWidth={3.2} />
-          </span>
         </span>
       </div>
     </article>
@@ -795,12 +793,13 @@ function CheckInFeatureCard() {
 function SaveMySoulFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
+      className="relative flex w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-sos"
       data-one-use-case-card
       data-one-feature-card="sms"
     >
-      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
+      <MapBackdrop tone="sms" />
+      <div className="relative z-20 bg-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4" data-one-feature-copy>
         <span
           className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
           data-one-use-case-tag
@@ -819,7 +818,7 @@ function SaveMySoulFeatureCard() {
         </p>
       </div>
       <div
-        className="relative z-10 flex min-h-0 flex-1 items-center justify-center"
+        className="relative z-10 flex min-h-[116px] flex-1 items-center justify-center"
         data-one-feature-art-region
       >
         <div
@@ -834,12 +833,12 @@ function SaveMySoulFeatureCard() {
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full border-2 border-[#ff3b30]/30 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+              className="absolute inset-0 rounded-full"
             />
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-[10px] rounded-full border-2 border-[#ff3b30]/25 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+              className="absolute inset-0 rounded-full"
             />
             <span
               data-one-sms-core
@@ -905,7 +904,7 @@ function FeaturesScreen({
         currentStep={1}
         onBack={onBack}
         onSkip={onSkip}
-        disabled={leaving}
+        disabled={leaving || permissionBusy}
         busy={leaving}
         /* Same rail as the header and card grid below (both max-w-[700px]).
            Without it the nav was the only full-width row on the screen, so past
@@ -939,7 +938,7 @@ function FeaturesScreen({
         >
           <ShareLocationFeatureCard />
           <div
-            className="grid grid-cols-2 items-start gap-3"
+            className="grid grid-cols-2 items-stretch gap-3"
             data-one-feature-lower-grid
           >
             <CheckInFeatureCard />
@@ -974,12 +973,19 @@ function FeaturesScreen({
       </div>
       <style>{`
         @keyframes oneSmsRadar {
-          0% { transform: scale(0.55); opacity: 0.65; }
-          80% { opacity: 0; }
+          0% { transform: scale(0.72); opacity: 0.7; }
           100% { transform: scale(1.35); opacity: 0; }
+        }
+        [data-one-sms-radar-ring] {
+          border: 2px solid #ff3b30;
+          animation: oneSmsRadar 2.4s ease-out infinite;
+        }
+        [data-one-sms-radar-ring]:nth-child(2) {
+          animation-delay: -1.2s;
         }
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
+          [data-one-sms-radar-ring] { opacity: 0; }
         }
         [data-one-feature-heading] {
           --type-agent-title-size: 31px;
@@ -992,6 +998,9 @@ function FeaturesScreen({
           align-items: flex-start;
           gap: var(--one-feature-copy-gap);
         }
+        [data-one-feature-card="checkin"] [data-one-feature-title] {
+          font-size: clamp(11px, 7.6cqw, 19px);
+        }
         @media (max-width: 430px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
           [data-one-feature-heading] { --type-agent-title-size: 31px; }
@@ -1001,7 +1010,6 @@ function FeaturesScreen({
           [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
           [data-one-feature-grid] { gap: 10px; }
           [data-one-feature-lower-grid] { gap: 10px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] {
             font-size: 17px;
           }
@@ -1025,7 +1033,6 @@ function FeaturesScreen({
           [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12.5px; line-height: 1.34; }
           [data-one-feature-card="checkin"] [data-one-feature-copy],
           [data-one-feature-card="sms"] [data-one-feature-copy] { padding: 12px 12px 0; gap: 7px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
           [data-one-feature-card="checkin"] [data-one-feature-body],
           [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; line-height: 1.3; }
@@ -1143,11 +1150,6 @@ function formatCircleCode(code: string): string {
  * can set up their One account and later join the Location Circle with it. The
  * code is member-visible only and is never placed in a URL.
  */
-// Mirrored by contacts_disclosure_message in the Android strings.xml; keep both
-// true to lib/marketplace/contact-matching.ts (hash + last four digits only).
-export const CONTACTS_PRIVACY_DISCLOSURE =
-  "Phone numbers are standardized on your device and turned into one-way codes. Only those codes and the last four digits are checked for matches. One never stores your contacts' names or numbers, and nobody is contacted for you.";
-
 /**
  * Find the people you already know who are already on One.
  *
@@ -1273,21 +1275,14 @@ function ContactsScreen({
                     <p className="max-w-[320px] text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
                       Connect contacts to see who is already here.
                     </p>
-                    {/* Play prominent disclosure: must render above the button
-                        that raises the OS contacts prompt. */}
-                    <p
-                      className="max-w-[320px] text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]"
-                      data-testid="onboarding-contacts-privacy-disclosure"
-                    >
-                      {CONTACTS_PRIVACY_DISCLOSURE}
-                    </p>
-                    <PrimaryButton
-                      className="mx-auto max-w-[360px]"
+                    <button
+                      type="button"
+                      className="min-h-11 px-2 text-[15px] font-semibold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
                       onClick={onSync}
                       disabled={leaving}
                     >
                       Check my contacts
-                    </PrimaryButton>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1455,7 +1450,6 @@ function ContactsScreen({
             nobody, or a plugin failure must never be a dead end. */}
           <div className="mx-auto w-full max-w-[520px]">
             <PrimaryButton
-              className={primed && state.kind === "idle" ? "max-w-none" : ""}
               onClick={onContinue}
               disabled={navigationDisabled}
               inverse={primed && state.kind === "idle"}
@@ -1619,6 +1613,7 @@ function ReadyScreen({
         <button
           type="button"
           onClick={onBack}
+          disabled={leaving || completing || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0}
           className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:text-[color:var(--app-label)] dark:shadow-[var(--app-glass-shadow)]"
           aria-label="Go back"
         >
@@ -1941,6 +1936,7 @@ function ReadyScreen({
               granted permission and saved a place, so finishing is the honest
               outcome. Retrying the code lives inside the card above. */}
           <PrimaryButton
+            className="mx-auto flex max-w-[244px]"
             onClick={onContinue}
             busy={completing}
             disabled={leaving}
@@ -2118,6 +2114,8 @@ export function OneLocationOnboardingFlow({
   const locationPreparationInFlightRef = useRef<Promise<boolean> | null>(null);
   const completionInFlightRef = useRef(false);
   const [locationPreparationBusy, setLocationPreparationBusy] = useState(false);
+  const [locationRequestBusy, setLocationRequestBusy] = useState(false);
+  const locationRequestInFlightRef = useRef(false);
   const [locationPreparationRetry, setLocationPreparationRetry] =
     useState(false);
 
@@ -2472,7 +2470,7 @@ export function OneLocationOnboardingFlow({
   }, [leaving, onComplete, reportOutcome, settlementRetryCount]);
 
   const runSkip = async (settleCircle = false) => {
-    if (leaving || (settleCircle && completionInFlightRef.current)) return;
+    if (leaving || locationBusy || locationRequestInFlightRef.current || locationPreparationBusy || (settleCircle && completionInFlightRef.current)) return;
     if (settleCircle) {
       completionInFlightRef.current = true;
       setCompletionBusy(true);
@@ -2505,31 +2503,45 @@ export function OneLocationOnboardingFlow({
     setScreen("features");
   };
 
-  const backFromFeatures = () => {
-    if (startAt === "permissions") {
-      void runBack();
-      return;
-    }
-    setScreen("welcome");
-  };
-
   const continueFromFeatures = () => {
-    if (locationBusy || locationPreparationBusy) return;
+    if (leaving || locationBusy || locationPreparationBusy || locationRequestInFlightRef.current) return;
+    locationRequestInFlightRef.current = true;
+    setLocationRequestBusy(true);
     setLocationPreparationRetry(false);
     void (async () => {
-      let permissionReady = locationGranted;
-      if (!permissionReady) {
-        try {
-          permissionReady = (await onRequestLocation()) === true;
-        } catch {
-          permissionReady = false;
+      try {
+        let permissionReady = locationGranted;
+        if (!permissionReady) {
+          try {
+            permissionReady = (await onRequestLocation()) === true;
+          } catch {
+            permissionReady = false;
+          }
         }
+        if (!permissionReady) return;
+        const prepared = await prepareSavedLocation(true);
+        if (prepared) setScreen("place");
+      } finally {
+        locationRequestInFlightRef.current = false;
+        setLocationRequestBusy(false);
       }
-      if (!permissionReady) return;
-      const prepared = await prepareSavedLocation(true);
-      if (prepared) setScreen("place");
     })();
   };
+
+  // All Back surfaces unwind the same local flow, including native Back and
+  // legacy/controlled entries that start directly on the feature screen.
+  const handleFlowBack = () => {
+    if (leaving || completionBusy || locationBusy || locationRequestInFlightRef.current || locationPreparationBusy || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0) return true;
+    if (screen === "welcome") {
+      void runBack();
+    } else if (screen === "ready" && activeReadyDisclosure) {
+      setActiveReadyDisclosure(null);
+    } else {
+      setScreen(screen === "ready" ? "place" : screen === "place" ? "features" : "welcome");
+    }
+    return true;
+  };
+  useBackLayer(nativeTest.routeId, activeReadyDisclosure ? 2 : 1, handleFlowBack);
 
   return (
     <main
@@ -2568,7 +2580,7 @@ export function OneLocationOnboardingFlow({
       >
         {screen === "welcome" ? (
           <WelcomeScreen
-            onBack={() => void runBack()}
+            onBack={handleFlowBack}
             onSkip={() => void runSkip()}
             onStart={openFeatures}
             leaving={leaving}
@@ -2578,10 +2590,10 @@ export function OneLocationOnboardingFlow({
           <FeaturesScreen
             locationGranted={locationGranted}
             locationBlocked={locationBlocked}
-            locationBusy={locationBusy}
+            locationBusy={locationBusy || locationRequestBusy}
             locationPreparationBusy={locationPreparationBusy}
             locationPreparationRetry={locationPreparationRetry}
-            onBack={backFromFeatures}
+            onBack={handleFlowBack}
             onSkip={() => void runSkip()}
             leaving={leaving}
             onContinue={continueFromFeatures}
@@ -2617,7 +2629,7 @@ export function OneLocationOnboardingFlow({
             onRetry={() => void prepareCircleInvite()}
             onCopy={handleCopyCircleInvite}
             onShare={handleShareCircleInvite}
-            onBack={() => setScreen("place")}
+            onBack={handleFlowBack}
             onContinue={finishFromInvite}
             leaving={leaving}
             completeLabel={completeLabel}

@@ -1,8 +1,18 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode, TextareaHTMLAttributes } from "react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type { ComponentProps, ReactNode, TextareaHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  realDialogs: false,
+  answerGates: vi.fn(),
+  answerCreate: vi.fn(),
   search: "",
   vaultKey: null as string | null,
   vaultOwnerToken: null as string | null,
@@ -69,27 +79,56 @@ vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
   },
 }));
 
-function mockCurrentGrant(requestId: string, bundleId: string, scopeRef = "scope-0") {
+function mockCurrentGrant(
+  requestId: string,
+  bundleId: string,
+  scopeRef = "scope-0",
+) {
   mocks.getInformationRequest.mockResolvedValue({
-    bundleId, personRef: "actual-public-ref", purpose: "Synthetic review", durationSeconds: 86400,
+    bundleId,
+    personRef: "actual-public-ref",
+    purpose: "Synthetic review",
+    durationSeconds: 86400,
     cancelled: false,
-    items: [{ requestId, scopeRef, label: "Synthetic detail", sensitivity: "standard", status: "granted" }],
+    items: [
+      {
+        requestId,
+        scopeRef,
+        label: "Synthetic detail",
+        sensitivity: "standard",
+        status: "granted",
+      },
+    ],
   });
   return {
-    requestId, scopeRef,
+    requestId,
+    scopeRef,
     encryptedExport: {
-      request_id: requestId, scope: "attr.professional.synthetic", export_revision: 1,
-      export_envelope: { version: 2, export_id: "synthetic-export", aad: {
-        version: 2, app_id: "agent_one", grant_id: requestId, export_id: "synthetic-export",
-        revision: 1, machine_scope: "attr.professional.synthetic", payload_algorithm: "AES-256-GCM",
-        expires_at_ms: Date.now() + 3_600_000,
-      } },
+      request_id: requestId,
+      scope: "attr.professional.synthetic",
+      export_revision: 1,
+      export_envelope: {
+        version: 2,
+        export_id: "synthetic-export",
+        aad: {
+          version: 2,
+          app_id: "agent_one",
+          grant_id: requestId,
+          export_id: "synthetic-export",
+          revision: 1,
+          machine_scope: "attr.professional.synthetic",
+          payload_algorithm: "AES-256-GCM",
+          expires_at_ms: Date.now() + 3_600_000,
+        },
+      },
     },
   };
 }
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: ReactNode }) => <main>{children}</main>,
+  AppPageShell: ({ children }: { children: ReactNode }) => (
+    <main>{children}</main>
+  ),
 }));
 
 vi.mock("@/components/app-ui/page-sections", () => ({
@@ -118,28 +157,31 @@ vi.mock("@/lib/morphy-ux/button", () => ({
   }) => (asChild ? <>{children}</> : <button {...props}>{children}</button>),
 }));
 
-vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({
-    children,
-    open,
-  }: {
-    children: ReactNode;
-    open?: boolean;
-  }) => (open === false ? null : <>{children}</>),
-  DialogContent: ({ children }: { children: ReactNode }) => <section>{children}</section>,
-  DialogDescription: ({ children }: { children: ReactNode }) => <p>{children}</p>,
-  DialogFooter: ({ children }: { children: ReactNode }) => <footer>{children}</footer>,
-  DialogHeader: ({ children }: { children: ReactNode }) => <header>{children}</header>,
-  DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-}));
+vi.mock("@/components/ui/dialog", async (original) => {
+  const actual = await original<typeof import("@/components/ui/dialog")>();
+  return {
+    ...actual,
+    Dialog: (props: ComponentProps<typeof actual.Dialog>) => mocks.realDialogs ? <actual.Dialog {...props} /> : props.open === false ? null : <>{props.children}</>,
+    DialogTrigger: (props: ComponentProps<typeof actual.DialogTrigger>) => mocks.realDialogs ? <actual.DialogTrigger {...props} /> : <>{props.children}</>,
+    DialogContent: (props: ComponentProps<typeof actual.DialogContent>) => mocks.realDialogs ? <actual.DialogContent {...props} /> : <section>{props.children}</section>,
+    DialogDescription: (props: ComponentProps<typeof actual.DialogDescription>) => mocks.realDialogs ? <actual.DialogDescription {...props} /> : <p>{props.children}</p>,
+    DialogFooter: (props: ComponentProps<typeof actual.DialogFooter>) => mocks.realDialogs ? <actual.DialogFooter {...props} /> : <footer>{props.children}</footer>,
+    DialogHeader: (props: ComponentProps<typeof actual.DialogHeader>) => mocks.realDialogs ? <actual.DialogHeader {...props} /> : <header>{props.children}</header>,
+    DialogTitle: (props: ComponentProps<typeof actual.DialogTitle>) => mocks.realDialogs ? <actual.DialogTitle {...props} /> : <h2>{props.children}</h2>,
+  };
+});
 
 vi.mock("@/components/ui/textarea", () => ({
-  Textarea: (props: TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...props} />,
+  Textarea: (props: TextareaHTMLAttributes<HTMLTextAreaElement>) => (
+    <textarea {...props} />
+  ),
 }));
 
 vi.mock("@/lib/morphy-ux/ui/surface-primitives", () => ({
   AvatarBubble: () => <span data-testid="avatar" />,
-  SectionCard: ({ children }: { children: ReactNode }) => <section>{children}</section>,
+  SectionCard: ({ children }: { children: ReactNode }) => (
+    <section>{children}</section>
+  ),
   StatusPill: ({
     children,
     className,
@@ -153,7 +195,7 @@ vi.mock("@/lib/agent/local-onboarding-actions", () => ({
   useLocalOnboardingActionHandler: vi.fn(),
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
 }));
 
@@ -164,7 +206,23 @@ vi.mock("sonner", () => ({
   },
 }));
 
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: { getIdToken: async () => mocks.user?.getIdToken() ?? null },
+}));
+vi.mock("@/lib/services/answer-request-service", async (original) => ({
+  ...(await original<typeof import("@/lib/services/answer-request-service")>()),
+  AnswerRequestService: { gates: mocks.answerGates, create: mocks.answerCreate },
+}));
+
+beforeEach(() => {
+  mocks.realDialogs = false;
+  mocks.answerGates.mockReset().mockResolvedValue({ requests: false, payments: false, payouts: false });
+  mocks.answerCreate.mockReset();
+});
+
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { PersonProfilePage } from "@/components/connections/person-profile-page";
+import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
 
 function viewerProfile(overrides = {}) {
   return {
@@ -211,7 +269,9 @@ describe("PersonProfilePage native profile route", () => {
       verifiedRole: null,
     });
     mocks.getViewer.mockResolvedValue(null);
-    mocks.getRequestHistory.mockRejectedValue(new Error("History service unavailable in legacy fixture"));
+    mocks.getRequestHistory.mockRejectedValue(
+      new Error("History service unavailable in legacy fixture"),
+    );
     mocks.pathname = "/people/actual-public-ref";
     mocks.native = true;
     mocks.platform = "ios";
@@ -225,6 +285,59 @@ describe("PersonProfilePage native profile route", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it.each(["connected", "none", "pending_incoming", "pending_outgoing"])("shows contact details only for an accepted connection (%s)", async (status) => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      relationship: { status, connectionId: null, connectedAt: null, requestId: null },
+      contactEmail: "friend@example.test", contactPhoneNumber: "+919876543210",
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByLabelText("Relationship actions");
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalled());
+    if (status === "connected") {
+      const email = await screen.findByRole("link", { name: "friend@example.test" });
+      const phone = screen.getByRole("link", { name: "+919876543210" });
+      expect(phone).toHaveAttribute("href", "tel:+919876543210");
+      expect(email.compareDocumentPosition(phone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } else {
+      await screen.findByText(status === "none" ? "Not connected" : "Request pending");
+      expect(screen.queryByText("friend@example.test")).toBeNull();
+      expect(screen.queryByText("+919876543210")).toBeNull();
+    }
+  });
+
+  it("finishes the authenticated profile read if the vault changes while loading", async () => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    let resolveViewer!: (value: unknown) => void;
+    mocks.getViewer.mockImplementationOnce(() => new Promise(resolve => { resolveViewer = resolve; }));
+    const rendered = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(1));
+    mocks.isVaultUnlocked = false;
+    rendered.rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await act(async () => { resolveViewer(viewerProfile({ contactPhoneNumber: "+919876543210" })); });
+    expect(await screen.findByRole("link", { name: "+919876543210" })).toHaveAttribute("href", "tel:+919876543210");
+  });
+
+  it("clears contact details on connection changes and ignores late profile reads", async () => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    const connected = viewerProfile({ contactEmail: "friend@example.test", contactPhoneNumber: "+919876543210" });
+    let resolveOld!: (value: unknown) => void;
+    mocks.getViewer.mockResolvedValueOnce(connected)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockResolvedValueOnce(viewerProfile({ relationship: { status: "none" } }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("link", { name: "+919876543210" });
+    const changed = (changedAt: number) => window.dispatchEvent(new CustomEvent(CONNECTION_GRAPH_CHANGED_EVENT, { detail: { userId: "viewer", changedAt } }));
+    act(() => { changed(1); });
+    expect(screen.queryByText("+919876543210")).toBeNull();
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
+    act(() => { changed(2); });
+    await screen.findByText("Not connected");
+    await act(async () => { resolveOld(connected); });
+    expect(screen.queryByText("+919876543210")).toBeNull();
+    expect(screen.queryByText("friend@example.test")).toBeNull();
   });
 
   it("uses the real iOS pathname person ref when native serves the static export shell", async () => {
@@ -241,7 +354,9 @@ describe("PersonProfilePage native profile route", () => {
     expect(mocks.getPublic).not.toHaveBeenCalledWith(
       "00000000-0000-4000-8000-000000000001",
     );
-    expect(await screen.findByRole("heading", { name: "Actual Person" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Actual Person" }),
+    ).toBeInTheDocument();
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
@@ -250,10 +365,7 @@ describe("PersonProfilePage native profile route", () => {
     mocks.platform = "web";
 
     render(
-      <PersonProfilePage
-        personRef="server-public-ref"
-        initialProfile={null}
-      />,
+      <PersonProfilePage personRef="server-public-ref" initialProfile={null} />,
     );
 
     await waitFor(() => {
@@ -278,9 +390,13 @@ describe("PersonProfilePage native profile route", () => {
       await screen.findByRole("heading", { name: "Divya Rajendran" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Verified advisor")).toBeInTheDocument();
-    expect(document.querySelector('[data-avatar-size="profile"]')).not.toBeNull();
     expect(
-      document.querySelector('[data-photo-url="https://cdn.example.test/divya.jpg"]'),
+      document.querySelector('[data-avatar-size="profile"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector(
+        '[data-photo-url="https://cdn.example.test/divya.jpg"]',
+      ),
     ).not.toBeNull();
   });
 
@@ -319,7 +435,9 @@ describe("PersonProfilePage native profile route", () => {
     const shareButton = await screen.findByRole("button", {
       name: "Share profile",
     });
-    expect(shareButton.querySelector(".inline-flex.items-center.gap-2")).not.toBeNull();
+    expect(
+      shareButton.querySelector(".inline-flex.items-center.gap-2"),
+    ).not.toBeNull();
   });
 
   it("opens a direct message draft only for an accepted connection", async () => {
@@ -341,8 +459,8 @@ describe("PersonProfilePage native profile route", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Message" }));
-    expect(mocks.push).toHaveBeenCalledWith(
+    expect(screen.queryByRole("button", { name: "Message" })).toBeNull();
+    expect(mocks.push).not.toHaveBeenCalledWith(
       "/one/messages?person=actual-public-ref",
     );
   });
@@ -382,7 +500,9 @@ describe("PersonProfilePage native profile route", () => {
     // One level in: the leaves, and a back control named for where it returns
     // to rather than the word "Back".
     expect(screen.getByText("Risk profile")).toBeTruthy();
-    expect(screen.getByTestId("person-profile-scope-back")).toHaveTextContent("All");
+    expect(screen.getByTestId("person-profile-scope-back")).toHaveTextContent(
+      "All",
+    );
   });
 
   it("renders Review request after History without sticky viewport positioning", async () => {
@@ -407,12 +527,20 @@ describe("PersonProfilePage native profile route", () => {
     const reviewButton = await screen.findByRole("button", {
       name: "Review request",
     });
-    const historyHeading = screen.getByRole("heading", { name: "Request history" });
+    const historyHeading = screen.getByRole("heading", {
+      name: "Request history",
+    });
     expect(reviewButton).toBeDisabled();
-    const actions = document.querySelectorAll('[aria-label="Relationship actions"] button');
-    expect(Array.from(actions, (button) => button.getAttribute("aria-label") || button.textContent?.trim())).toEqual([
-      "Request", "Share profile", "Message", "Manage access",
-    ]);
+    const actions = document.querySelectorAll(
+      '[aria-label="Relationship actions"] button',
+    );
+    expect(
+      Array.from(
+        actions,
+        (button) =>
+          button.getAttribute("aria-label") || button.textContent?.trim(),
+      ),
+    ).toEqual(["Request", "Share profile", "Manage access"]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
@@ -422,41 +550,76 @@ describe("PersonProfilePage native profile route", () => {
   });
 
   it("sends one eligible Professional root request instead of twelve child requests", async () => {
-    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
-    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
-    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    const { PersonProfileService } =
+      await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } =
+      await import("@/lib/services/one-kyc-client-zk-service");
+    mocks.user = {
+      uid: "viewer",
+      getIdToken: vi.fn().mockResolvedValue("viewer-token"),
+    };
     mocks.vaultKey = "synthetic-vault-key";
     mocks.vaultOwnerToken = "synthetic-owner-token";
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "synthetic-connector" });
-    (PersonProfileService.createInformationRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ bundleId: "synthetic-bundle" });
-    mocks.getViewer.mockResolvedValue(viewerProfile({
-      requestableScopes: [
-        { scopeRef: "opaque-professional-root", label: "Professional Domain", description: null, domain: "professional", sensitivity: "standard", wildcard: true, pathSegments: [] },
-        ...Array.from({ length: 12 }, (_, index) => ({
-          scopeRef: `opaque-professional-child-${index}`,
-          label: `Professional detail ${index + 1}`,
-          description: null,
-          domain: "professional",
-          sensitivity: "standard",
-          wildcard: false,
-          pathSegments: ["details", `item_${index + 1}`],
-        })),
-      ],
-    }));
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
-    fireEvent.click(screen.getByTestId("person-profile-scope-group-toggle-professional"));
-    fireEvent.click(screen.getByRole("button", { name: "Review request (1)" }));
-    expect(screen.getByText("This includes all available information in this area, not just one detail.")).toBeInTheDocument();
-    fireEvent.change(screen.getByTestId("person-profile-purpose"), { target: { value: "Review synthetic professional information" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
-    await waitFor(() => expect(PersonProfileService.createInformationRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        personRef: "actual-public-ref",
-        scopeRefs: ["opaque-professional-root"],
+    (
+      OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ connector_key_id: "synthetic-connector" });
+    (
+      PersonProfileService.createInformationRequest as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ bundleId: "synthetic-bundle" });
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: [
+          {
+            scopeRef: "opaque-professional-root",
+            label: "Professional Domain",
+            description: null,
+            domain: "professional",
+            sensitivity: "standard",
+            wildcard: true,
+            pathSegments: [],
+          },
+          ...Array.from({ length: 12 }, (_, index) => ({
+            scopeRef: `opaque-professional-child-${index}`,
+            label: `Professional detail ${index + 1}`,
+            description: null,
+            domain: "professional",
+            sensitivity: "standard",
+            wildcard: false,
+            pathSegments: ["details", `item_${index + 1}`],
+          })),
+        ],
       }),
-    ));
+    );
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open Professional" }),
+    );
+    fireEvent.click(
+      screen.getByTestId("person-profile-scope-group-toggle-professional"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Review request (1)" }));
+    expect(
+      screen.getByText(
+        "This includes all available information in this area, not just one detail.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("person-profile-purpose"), {
+      target: { value: "Review synthetic professional information" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() =>
+      expect(
+        PersonProfileService.createInformationRequest,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          personRef: "actual-public-ref",
+          scopeRefs: ["opaque-professional-root"],
+        }),
+      ),
+    );
   });
 
   it("does not open an unusable review dialog while the vault token is still loading", async () => {
@@ -478,14 +641,18 @@ describe("PersonProfilePage native profile route", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open Financial" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open Financial" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: /Risk profile/ }));
     const reviewButton = await screen.findByRole("button", {
       name: "Review request (1)",
     });
     fireEvent.click(reviewButton);
 
-    expect(screen.queryByRole("button", { name: "Send request" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Send request" }),
+    ).not.toBeInTheDocument();
     const { toast } = await import("sonner");
     expect(toast.error).toHaveBeenCalledWith(
       "Your vault is still getting ready. Try again in a moment.",
@@ -496,11 +663,17 @@ describe("PersonProfilePage native profile route", () => {
 describe("PersonProfilePage request catalog tools", () => {
   it("distinguishes an unavailable catalog from an empty one and allows retry", async () => {
     mocks.getViewer.mockRejectedValueOnce(new Error("temporary failure"));
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
     // The retry card carries the shipped copy ("We couldn't load your connection
     // with <name> right now") and stays identity-scoped to this viewer.
-    expect(await screen.findByRole("alert")).toHaveTextContent("couldn’t load your connection");
-    expect(screen.queryByRole("heading", { name: "Available to request" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "couldn’t load your connection",
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Available to request" }),
+    ).not.toBeInTheDocument();
     mocks.getViewer.mockResolvedValue(viewerProfile());
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await screen.findByRole("heading", { name: "Available to request" });
@@ -508,12 +681,21 @@ describe("PersonProfilePage request catalog tools", () => {
   });
 
   it("does not reuse the previous viewer's catalog while another account loads", async () => {
-    const { rerender } = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    const { rerender } = render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
     await screen.findByRole("heading", { name: "Available to request" });
-    mocks.user = { uid: "different-viewer", getIdToken: async () => "different-token" };
+    mocks.user = {
+      uid: "different-viewer",
+      getIdToken: async () => "different-token",
+    };
     mocks.getViewer.mockImplementation(() => new Promise(() => {}));
-    rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    expect(screen.queryByRole("heading", { name: "Available to request" })).not.toBeInTheDocument();
+    rerender(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Available to request" }),
+    ).not.toBeInTheDocument();
   });
 
   function manyScopes(count: number) {
@@ -534,8 +716,12 @@ describe("PersonProfilePage request catalog tools", () => {
       photoUrl: null,
       verifiedRole: null,
     });
-    mocks.getViewer.mockResolvedValue(viewerProfile({ requestableScopes: manyScopes(9) }));
-    mocks.getRequestHistory.mockRejectedValue(new Error("History service unavailable in legacy fixture"));
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({ requestableScopes: manyScopes(9) }),
+    );
+    mocks.getRequestHistory.mockRejectedValue(
+      new Error("History service unavailable in legacy fixture"),
+    );
     mocks.pathname = "/people/actual-public-ref";
     mocks.native = false;
     mocks.platform = "web";
@@ -553,7 +739,9 @@ describe("PersonProfilePage request catalog tools", () => {
   });
 
   it("loads the initial request catalog through the bounded first page", async () => {
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
 
     await screen.findByRole("heading", { name: "Available to request" });
     expect(mocks.getViewer).toHaveBeenCalledWith(
@@ -568,9 +756,13 @@ describe("PersonProfilePage request catalog tools", () => {
     // navigation; the level view navigates for real. Search survives because it
     // answers a different question -- someone typing has already said they do
     // not know where the thing lives, so search deliberately flattens.
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
 
-    const professional = await screen.findByRole("button", { name: "Open Professional" });
+    const professional = await screen.findByRole("button", {
+      name: "Open Professional",
+    });
     expect(screen.queryByText("Employment status")).toBeNull();
 
     fireEvent.click(professional);
@@ -579,7 +771,9 @@ describe("PersonProfilePage request catalog tools", () => {
 
     fireEvent.click(screen.getByTestId("person-profile-scope-back"));
     expect(screen.queryByText("Employment status")).toBeNull();
-    expect(screen.getByRole("button", { name: "Open Professional" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Open Professional" }),
+    ).toBeTruthy();
 
     // Search reaches a leaf without navigating to it.
     const search = screen.getByTestId("person-profile-scope-search");
@@ -590,33 +784,60 @@ describe("PersonProfilePage request catalog tools", () => {
     expect(screen.getByTestId("person-profile-scope-no-match")).toBeTruthy();
 
     fireEvent.change(search, { target: { value: "" } });
-    expect(screen.getByRole("button", { name: "Open Professional" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Open Professional" }),
+    ).toBeTruthy();
   });
 
   it("offers an access duration inside the review sheet and sends it in hours", async () => {
-    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
-    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
-    (PersonProfileService.createInformationRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ bundleId: "b1" });
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+    const { PersonProfileService } =
+      await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } =
+      await import("@/lib/services/one-kyc-client-zk-service");
+    (
+      OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ connector_key_id: "ck_1" });
+    (
+      PersonProfileService.createInformationRequest as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ bundleId: "b1" });
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open Professional" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: /Employment status/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Review request \(1\)/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Review request \(1\)/ }),
+    );
     const sendRequest = screen.getByRole("button", { name: "Send request" });
     expect(sendRequest).toBeDisabled();
-    const duration = screen.getByTestId("person-profile-duration-select") as HTMLSelectElement;
+    const duration = screen.getByTestId(
+      "person-profile-duration-select",
+    ) as HTMLSelectElement;
     expect(duration.value).toBe("168");
     fireEvent.change(duration, { target: { value: "24" } });
     // The sheet no longer recites the duration; it says what the other person
     // will see, in the owner's words, and the select carries the number.
-    expect(screen.getByText("They will see exactly what you asked for, why, and for how long.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "They will see exactly what you asked for, why, and for how long.",
+      ),
+    ).toBeTruthy();
     expect(duration.value).toBe("24");
-    fireEvent.change(screen.getByTestId("person-profile-purpose"), { target: { value: "Checking references for a role" } });
+    fireEvent.change(screen.getByTestId("person-profile-purpose"), {
+      target: { value: "Checking references for a role" },
+    });
     expect(sendRequest).toBeEnabled();
     fireEvent.click(sendRequest);
     await waitFor(() =>
-      expect(PersonProfileService.createInformationRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ durationSeconds: 24 * 3600, scopeRefs: ["scope-0"] }),
+      expect(
+        PersonProfileService.createInformationRequest,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          durationSeconds: 24 * 3600,
+          scopeRefs: ["scope-0"],
+        }),
       ),
     );
   });
@@ -625,38 +846,60 @@ describe("PersonProfilePage request catalog tools", () => {
     mocks.getViewer.mockResolvedValue(
       viewerProfile({
         requestableScopes: manyScopes(2),
-        grants: [{
-          scopeRef: "scope-0",
-          label: "Employment status",
-          domain: "professional",
-          requestId: "req-shared",
-          issuedAt: null,
-          expiresAt: null,
-          status: "granted",
-          encryptedExportAvailable: true,
-        }],
+        grants: [
+          {
+            scopeRef: "scope-0",
+            label: "Employment status",
+            domain: "professional",
+            requestId: "req-shared",
+            issuedAt: null,
+            expiresAt: null,
+            status: "granted",
+            encryptedExportAvailable: true,
+          },
+        ],
       }),
     );
 
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
-    const sharedField = screen.getByRole("checkbox", { name: "Employment status" });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open Professional" }),
+    );
+    const sharedField = screen.getByRole("checkbox", {
+      name: "Employment status",
+    });
     expect(sharedField).toBeDisabled();
   });
 
   it("opens a shared record in the secure card and copies one value, confirmed in one word", async () => {
-    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
-    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    const { PersonProfileService } =
+      await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } =
+      await import("@/lib/services/one-kyc-client-zk-service");
     const { toast } = await import("sonner");
-    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
-    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      mockCurrentGrant("req-grant", "bundle-grant"),
-    ]);
-    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({ city: "Pune" });
+    (
+      OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ connector_key_id: "ck_1" });
+    (
+      PersonProfileService.getInformationRequestExports as ReturnType<
+        typeof vi.fn
+      >
+    ).mockResolvedValue([mockCurrentGrant("req-grant", "bundle-grant")]);
+    (
+      OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ city: "Pune" });
     const writeText = vi.fn().mockResolvedValue(undefined);
-    const clipboardBefore = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const clipboardBefore = Object.getOwnPropertyDescriptor(
+      navigator,
+      "clipboard",
+    );
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
     try {
       mocks.getViewer.mockResolvedValue(
         viewerProfile({
@@ -690,19 +933,32 @@ describe("PersonProfilePage request catalog tools", () => {
         }),
       );
 
-      render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+      render(
+        <PersonProfilePage
+          personRef="actual-public-ref"
+          initialProfile={null}
+        />,
+      );
 
       const value = await screen.findByTestId("shared-with-you-values");
       expect(value).toHaveTextContent("Pune");
-      expect(screen.getByText(/End-to-end encrypted information shared with your account/)).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /End-to-end encrypted information shared with your account/,
+        ),
+      ).toBeInTheDocument();
       expect(screen.queryByText("Zero-knowledge verified")).toBeNull();
       // The same card as chat: no raw record, no JSON control, no grant wording.
       expect(screen.queryByRole("button", { name: /json/i })).toBeNull();
-      expect(screen.getByTestId("shared-with-you-card").textContent).not.toMatch(/grant|domain|scope/i);
+      expect(
+        screen.getByTestId("shared-with-you-card").textContent,
+      ).not.toMatch(/grant|domain|scope/i);
 
       fireEvent.click(screen.getByRole("button", { name: "Copy City" }));
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("Pune"));
-      await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Copied", expect.anything()));
+      await waitFor(() =>
+        expect(toast.success).toHaveBeenCalledWith("Copied", expect.anything()),
+      );
     } finally {
       // Put the stub back so it cannot leak into a later test in this file.
       if (clipboardBefore) {
@@ -714,153 +970,258 @@ describe("PersonProfilePage request catalog tools", () => {
   });
 
   it("does not decrypt a late export after the vault locks", async () => {
-    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
-    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    const { PersonProfileService } =
+      await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } =
+      await import("@/lib/services/one-kyc-client-zk-service");
     mockCurrentGrant("req-late", "bundle-late");
-    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (
+      OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ connector_key_id: "ck_1" });
     let resolveExports!: (value: unknown[]) => void;
-    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>)
-      .mockReturnValue(new Promise(done => { resolveExports = done; }));
-    mocks.getViewer.mockResolvedValue(viewerProfile({
-      grants: [{
-        bundleId: "bundle-late", scopeRef: "scope-0", label: "Synthetic detail", domain: "Professional",
-        requestId: "req-late", issuedAt: null, expiresAt: null, status: "granted",
-        encryptedExportAvailable: true, exportRevision: 1,
-      }],
-      requestHistory: [],
-    }));
-    const view = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    await waitFor(() => expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalled());
+    (
+      PersonProfileService.getInformationRequestExports as ReturnType<
+        typeof vi.fn
+      >
+    ).mockReturnValue(
+      new Promise((done) => {
+        resolveExports = done;
+      }),
+    );
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        grants: [
+          {
+            bundleId: "bundle-late",
+            scopeRef: "scope-0",
+            label: "Synthetic detail",
+            domain: "Professional",
+            requestId: "req-late",
+            issuedAt: null,
+            expiresAt: null,
+            status: "granted",
+            encryptedExportAvailable: true,
+            exportRevision: 1,
+          },
+        ],
+        requestHistory: [],
+      }),
+    );
+    const view = render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
+    await waitFor(() =>
+      expect(
+        PersonProfileService.getInformationRequestExports,
+      ).toHaveBeenCalled(),
+    );
     mocks.isVaultUnlocked = false;
-    view.rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    view.rerender(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
     await act(async () => resolveExports([]));
     expect(OneKycClientZkService.decryptScopedExport).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("shared-with-you-values")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("shared-with-you-values"),
+    ).not.toBeInTheDocument();
   });
 
   it("unwraps the domain envelope before rendering an encrypted grant", async () => {
-    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
-    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
-    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
-    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      mockCurrentGrant("req-domain", "bundle-domain"),
-    ]);
-    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
+    const { PersonProfileService } =
+      await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } =
+      await import("@/lib/services/one-kyc-client-zk-service");
+    (
+      OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ connector_key_id: "ck_1" });
+    (
+      PersonProfileService.getInformationRequestExports as ReturnType<
+        typeof vi.fn
+      >
+    ).mockResolvedValue([mockCurrentGrant("req-domain", "bundle-domain")]);
+    (
+      OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({
       professional: { summary: "Synthetic approved detail" },
       __export_metadata: { source_domain: "professional" },
     });
     mocks.getViewer.mockResolvedValue(
       viewerProfile({
         requestableScopes: manyScopes(2),
-        grants: [{
-          scopeRef: "scope-0",
-          label: "Professional detail",
-          domain: "Professional",
-          requestId: "req-domain",
-          issuedAt: null,
-          expiresAt: null,
-          status: "granted",
-          encryptedExportAvailable: true,
-        }],
-        requestHistory: [{
-          bundleId: "bundle-domain",
-          requestId: "req-domain",
-          scopeRef: "scope-0",
-          label: "Professional detail",
-          sensitivity: "standard",
-          purpose: "Reviewing a professional detail",
-          durationSeconds: 24 * 3600,
-          createdAt: null,
-          expiresAt: null,
-          status: "approved",
-        }],
+        grants: [
+          {
+            scopeRef: "scope-0",
+            label: "Professional detail",
+            domain: "Professional",
+            requestId: "req-domain",
+            issuedAt: null,
+            expiresAt: null,
+            status: "granted",
+            encryptedExportAvailable: true,
+          },
+        ],
+        requestHistory: [
+          {
+            bundleId: "bundle-domain",
+            requestId: "req-domain",
+            scopeRef: "scope-0",
+            label: "Professional detail",
+            sensitivity: "standard",
+            purpose: "Reviewing a professional detail",
+            durationSeconds: 24 * 3600,
+            createdAt: null,
+            expiresAt: null,
+            status: "approved",
+          },
+        ],
       }),
     );
 
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-
-    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent(
-      "Synthetic approved detail",
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+
+    expect(
+      await screen.findByTestId("shared-with-you-values"),
+    ).toHaveTextContent("Synthetic approved detail");
   });
 
   it("opens an old active grant from its bound bundle even after recent history is truncated", async () => {
-    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
-    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
-    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
-    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      mockCurrentGrant("req-old", "bundle-old"),
-    ]);
-    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
+    const { PersonProfileService } =
+      await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } =
+      await import("@/lib/services/one-kyc-client-zk-service");
+    (
+      OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ connector_key_id: "ck_1" });
+    (
+      PersonProfileService.getInformationRequestExports as ReturnType<
+        typeof vi.fn
+      >
+    ).mockResolvedValue([mockCurrentGrant("req-old", "bundle-old")]);
+    (
+      OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({
       professional: { role: "Synthetic reviewer" },
     });
-    mocks.getViewer.mockResolvedValue(viewerProfile({
-      grants: [{ bundleId: "bundle-old", scopeRef: "scope-0", label: "Professional role", domain: "Professional",
-        requestId: "req-old", issuedAt: null, expiresAt: null, status: "granted", encryptedExportAvailable: true, exportRevision: 1 }],
-      requestHistory: [],
-    }));
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic reviewer");
-    expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledWith({ bundleId: "bundle-old", vaultOwnerToken: "owner-token" });
-    mocks.getViewer.mockResolvedValue(viewerProfile({ grants: [], requestHistory: [] }));
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        grants: [
+          {
+            bundleId: "bundle-old",
+            scopeRef: "scope-0",
+            label: "Professional role",
+            domain: "Professional",
+            requestId: "req-old",
+            issuedAt: null,
+            expiresAt: null,
+            status: "granted",
+            encryptedExportAvailable: true,
+            exportRevision: 1,
+          },
+        ],
+        requestHistory: [],
+      }),
+    );
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
+    expect(
+      await screen.findByTestId("shared-with-you-values"),
+    ).toHaveTextContent("Synthetic reviewer");
+    expect(
+      PersonProfileService.getInformationRequestExports,
+    ).toHaveBeenCalledWith({
+      bundleId: "bundle-old",
+      vaultOwnerToken: "owner-token",
+    });
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({ grants: [], requestHistory: [] }),
+    );
     act(() => window.dispatchEvent(new Event("consent-state-changed")));
-    await waitFor(() => expect(screen.queryByTestId("shared-with-you-values")).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByTestId("shared-with-you-values")).toBeNull(),
+    );
   });
 
   it("keeps nested approved summaries visible in an encrypted grant", async () => {
-    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
-    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
-    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
-    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      mockCurrentGrant("req-nested", "bundle-nested"),
-    ]);
-    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
+    const { PersonProfileService } =
+      await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } =
+      await import("@/lib/services/one-kyc-client-zk-service");
+    (
+      OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ connector_key_id: "ck_1" });
+    (
+      PersonProfileService.getInformationRequestExports as ReturnType<
+        typeof vi.fn
+      >
+    ).mockResolvedValue([mockCurrentGrant("req-nested", "bundle-nested")]);
+    (
+      OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({
       professional: { profile: { summary: "Synthetic nested detail" } },
       __export_metadata: { source_domain: "professional" },
     });
     mocks.getViewer.mockResolvedValue(
       viewerProfile({
         requestableScopes: manyScopes(2),
-        grants: [{
-          scopeRef: "scope-0",
-          label: "Professional detail",
-          domain: "Professional",
-          requestId: "req-nested",
-          issuedAt: null,
-          expiresAt: null,
-          status: "granted",
-          encryptedExportAvailable: true,
-        }],
-        requestHistory: [{
-          bundleId: "bundle-nested",
-          requestId: "req-nested",
-          scopeRef: "scope-0",
-          label: "Professional detail",
-          sensitivity: "standard",
-          purpose: "Reviewing a professional detail",
-          durationSeconds: 24 * 3600,
-          createdAt: null,
-          expiresAt: null,
-          status: "approved",
-        }],
+        grants: [
+          {
+            scopeRef: "scope-0",
+            label: "Professional detail",
+            domain: "Professional",
+            requestId: "req-nested",
+            issuedAt: null,
+            expiresAt: null,
+            status: "granted",
+            encryptedExportAvailable: true,
+          },
+        ],
+        requestHistory: [
+          {
+            bundleId: "bundle-nested",
+            requestId: "req-nested",
+            scopeRef: "scope-0",
+            label: "Professional detail",
+            sensitivity: "standard",
+            purpose: "Reviewing a professional detail",
+            durationSeconds: 24 * 3600,
+            createdAt: null,
+            expiresAt: null,
+            status: "approved",
+          },
+        ],
       }),
     );
 
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-
-    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent(
-      "Synthetic nested detail",
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+
+    expect(
+      await screen.findByTestId("shared-with-you-values"),
+    ).toHaveTextContent("Synthetic nested detail");
   });
 
   it("keeps a backend detail out of the card when shared information cannot be opened", async () => {
-    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
-    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    const { PersonProfileService } =
+      await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } =
+      await import("@/lib/services/one-kyc-client-zk-service");
     const { toast } = await import("sonner");
-    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (
+      OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ connector_key_id: "ck_1" });
     mockCurrentGrant("req-grant-fail", "bundle-grant");
-    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("psycopg2.errors.UndefinedColumn: column consent_exports.sealed does not exist"),
+    (
+      PersonProfileService.getInformationRequestExports as ReturnType<
+        typeof vi.fn
+      >
+    ).mockRejectedValue(
+      new Error(
+        "psycopg2.errors.UndefinedColumn: column consent_exports.sealed does not exist",
+      ),
     );
     mocks.getViewer.mockResolvedValue(
       viewerProfile({
@@ -894,19 +1255,30 @@ describe("PersonProfilePage request catalog tools", () => {
       }),
     );
 
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
 
-    await waitFor(() => expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute("data-status", "error"));
+    await waitFor(() =>
+      expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute(
+        "data-status",
+        "error",
+      ),
+    );
     const shown = screen.getByTestId("shared-with-you-card").textContent ?? "";
     expect(shown).toContain("couldn’t be opened");
     expect(shown).not.toMatch(/psycopg2|column|export/i);
-    expect(JSON.stringify((toast.error as ReturnType<typeof vi.fn>).mock.calls)).not.toMatch(/psycopg2|column/i);
+    expect(
+      JSON.stringify((toast.error as ReturnType<typeof vi.fn>).mock.calls),
+    ).not.toMatch(/psycopg2|column/i);
     expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
   });
 
   it("stops automatic grant retries after a bounded failure and leaves a manual retry", async () => {
-    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
-    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    const { PersonProfileService } =
+      await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } =
+      await import("@/lib/services/one-kyc-client-zk-service");
     const { toast } = await import("sonner");
     mocks.user = {
       uid: "viewer",
@@ -914,46 +1286,73 @@ describe("PersonProfilePage request catalog tools", () => {
     };
     mocks.vaultKey = "vault-key";
     mocks.vaultOwnerToken = "owner-token";
-    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (
+      OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ connector_key_id: "ck_1" });
     mockCurrentGrant("req-grant-fail", "bundle-grant");
-    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("psycopg2.errors.SerializationFailure: temporary export failure"),
+    (
+      PersonProfileService.getInformationRequestExports as ReturnType<
+        typeof vi.fn
+      >
+    ).mockRejectedValue(
+      new Error(
+        "psycopg2.errors.SerializationFailure: temporary export failure",
+      ),
     );
     mocks.getViewer.mockResolvedValue(
       viewerProfile({
-        grants: [{
-          scopeRef: "scope-0",
-          label: "City",
-          domain: "location",
-          requestId: "req-grant-fail",
-          issuedAt: null,
-          expiresAt: null,
-          status: "granted",
-          encryptedExportAvailable: true,
-        }],
-        requestHistory: [{
-          bundleId: "bundle-grant",
-          requestId: "req-grant-fail",
-          scopeRef: "scope-0",
-          label: "City",
-          sensitivity: "standard",
-          purpose: "Delivery",
-          durationSeconds: 24 * 3600,
-          createdAt: null,
-          expiresAt: null,
-          status: "approved",
-        }],
+        grants: [
+          {
+            scopeRef: "scope-0",
+            label: "City",
+            domain: "location",
+            requestId: "req-grant-fail",
+            issuedAt: null,
+            expiresAt: null,
+            status: "granted",
+            encryptedExportAvailable: true,
+          },
+        ],
+        requestHistory: [
+          {
+            bundleId: "bundle-grant",
+            requestId: "req-grant-fail",
+            scopeRef: "scope-0",
+            label: "City",
+            sensitivity: "standard",
+            purpose: "Delivery",
+            durationSeconds: 24 * 3600,
+            createdAt: null,
+            expiresAt: null,
+            status: "approved",
+          },
+        ],
       }),
     );
 
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
 
-    await waitFor(() => expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute("data-status", "error"));
+    await waitFor(() =>
+      expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute(
+        "data-status",
+        "error",
+      ),
+    );
     // One calm retry the person chooses; the card never loops on its own.
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
-    expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(
+      PersonProfileService.getInformationRequestExports,
+    ).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        PersonProfileService.getInformationRequestExports,
+      ).toHaveBeenCalledTimes(2),
+    );
     expect(toast.error).not.toHaveBeenCalled();
   });
 
@@ -961,7 +1360,9 @@ describe("PersonProfilePage request catalog tools", () => {
     mocks.search = "request=1";
     const scrolled = vi.fn();
     window.HTMLElement.prototype.scrollIntoView = scrolled;
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
     await screen.findByTestId("person-profile-available");
     await waitFor(() => expect(scrolled).toHaveBeenCalled());
   });
@@ -992,67 +1393,112 @@ describe("PersonProfilePage request catalog tools", () => {
       purpose: "Checking references",
       durationSeconds: 7 * 24 * 3600,
       cancelled: false,
-      items: [{ requestId: "req-1", scopeRef: "scope-0", label: "Employment status", sensitivity: "standard", status: "pending" }],
+      items: [
+        {
+          requestId: "req-1",
+          scopeRef: "scope-0",
+          label: "Employment status",
+          sensitivity: "standard",
+          status: "pending",
+        },
+      ],
     });
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Details for Employment status" }));
-    expect(await screen.findByTestId("person-profile-bundle-details")).toHaveTextContent("Employment status (waiting) · 7 days");
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Details for Employment status",
+      }),
+    );
+    expect(
+      await screen.findByTestId("person-profile-bundle-details"),
+    ).toHaveTextContent("Employment status (waiting) · 7 days");
   });
 
   // Localhost run 4 (S3): the history read "Tax Record Domain" beside a raw "granted" pill.
   it("names a history row and its state in human words, never a machine label or state", async () => {
-    mocks.getViewer.mockResolvedValue(viewerProfile({
-      requestHistory: [{
-        bundleId: "bundle-tax", requestId: "req-tax", scopeRef: "scope-tax", label: "Tax Record Domain",
-        sensitivity: "sensitive", purpose: "To ensure information sharing works", durationSeconds: 7 * 24 * 3600,
-        createdAt: null, expiresAt: null, status: "granted",
-      }],
-    }));
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestHistory: [
+          {
+            bundleId: "bundle-tax",
+            requestId: "req-tax",
+            scopeRef: "scope-tax",
+            label: "Tax Record Domain",
+            sensitivity: "sensitive",
+            purpose: "To ensure information sharing works",
+            durationSeconds: 7 * 24 * 3600,
+            createdAt: null,
+            expiresAt: null,
+            status: "granted",
+          },
+        ],
+      }),
+    );
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
     expect(await screen.findByText("Tax record")).toBeInTheDocument();
     expect(screen.getByText("Shared")).toBeInTheDocument();
-    const history = screen.getByRole("heading", { name: "Request history" }).closest("section")!;
+    const history = screen
+      .getByRole("heading", { name: "Request history" })
+      .closest("section")!;
     expect(history.textContent).not.toMatch(/domain|granted/i);
   });
 
   it("groups a multi-field request into one history row with one action", async () => {
-    mocks.getViewer.mockResolvedValue(viewerProfile({
-      requestHistory: Array.from({ length: 12 }, (_, index) => ({
-        bundleId: "bundle-professional",
-        requestId: `request-${index}`,
-        scopeRef: `scope-${index}`,
-        label: `Professional detail ${index + 1}`,
-        sensitivity: "standard",
-        purpose: "Review professional information",
-        durationSeconds: 7 * 24 * 3600,
-        createdAt: null,
-        expiresAt: null,
-        status: "granted",
-      })),
-    }));
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestHistory: Array.from({ length: 12 }, (_, index) => ({
+          bundleId: "bundle-professional",
+          requestId: `request-${index}`,
+          scopeRef: `scope-${index}`,
+          label: `Professional detail ${index + 1}`,
+          sensitivity: "standard",
+          purpose: "Review professional information",
+          durationSeconds: 7 * 24 * 3600,
+          createdAt: null,
+          expiresAt: null,
+          status: "granted",
+        })),
+      }),
+    );
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
 
-    expect(await screen.findByText("Professional detail 1 and 11 more")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Details for Professional detail 1 and 11 more" })).toHaveLength(1);
+    expect(
+      await screen.findByText("Professional detail 1 and 11 more"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", {
+        name: "Details for Professional detail 1 and 11 more",
+      }),
+    ).toHaveLength(1);
     expect(screen.queryByText("Professional detail 2")).toBeNull();
   });
 
   it("pages request bundles instead of growing the history indefinitely", async () => {
-    mocks.getViewer.mockResolvedValue(viewerProfile({
-      requestHistory: Array.from({ length: 9 }, (_, index) => ({
-        bundleId: `bundle-${index}`,
-        requestId: `request-${index}`,
-        scopeRef: `scope-${index}`,
-        label: `History item ${index + 1}`,
-        sensitivity: "standard",
-        purpose: "Checking history",
-        durationSeconds: 3600,
-        createdAt: null,
-        expiresAt: null,
-        status: "granted",
-      })),
-    }));
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestHistory: Array.from({ length: 9 }, (_, index) => ({
+          bundleId: `bundle-${index}`,
+          requestId: `request-${index}`,
+          scopeRef: `scope-${index}`,
+          label: `History item ${index + 1}`,
+          sensitivity: "standard",
+          purpose: "Checking history",
+          durationSeconds: 3600,
+          createdAt: null,
+          expiresAt: null,
+          status: "granted",
+        })),
+      }),
+    );
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
 
     expect(await screen.findByText("History item 1")).toBeInTheDocument();
     expect(screen.queryByText("History item 9")).toBeNull();
@@ -1063,17 +1509,49 @@ describe("PersonProfilePage request catalog tools", () => {
 
   it("uses server bundle pages so a large request is never truncated into smaller history rows", async () => {
     mocks.getViewer.mockResolvedValue(viewerProfile({ requestHistory: [] }));
-    mocks.getRequestHistory.mockImplementation(async ({ cursor }: { cursor?: string }) => cursor
-      ? { bundles: [{ bundleId: "older", purpose: "Older request", durationSeconds: 3600, createdAt: "2026-09-19T10:00:00+00:00", cancelled: false, itemCount: 2 }], nextCursor: null }
-      : { bundles: [{ bundleId: "large", purpose: "Professional review", durationSeconds: 3600, createdAt: "2026-09-20T10:00:00+00:00", cancelled: false, itemCount: 150 }], nextCursor: "next-page" });
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    mocks.getRequestHistory.mockImplementation(
+      async ({ cursor }: { cursor?: string }) =>
+        cursor
+          ? {
+              bundles: [
+                {
+                  bundleId: "older",
+                  purpose: "Older request",
+                  durationSeconds: 3600,
+                  createdAt: "2026-09-19T10:00:00+00:00",
+                  cancelled: false,
+                  itemCount: 2,
+                },
+              ],
+              nextCursor: null,
+            }
+          : {
+              bundles: [
+                {
+                  bundleId: "large",
+                  purpose: "Professional review",
+                  durationSeconds: 3600,
+                  createdAt: "2026-09-20T10:00:00+00:00",
+                  cancelled: false,
+                  itemCount: 150,
+                },
+              ],
+              nextCursor: "next-page",
+            },
+    );
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
     expect(await screen.findByText("150 items")).toBeInTheDocument();
     expect(screen.getByText("Check status")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText("2 items")).toBeInTheDocument();
     expect(screen.queryByText("150 items")).toBeNull();
     expect(mocks.getRequestHistory).toHaveBeenLastCalledWith({
-      personRef: "actual-public-ref", idToken: "id-token", cursor: "next-page", limit: 8,
+      personRef: "actual-public-ref",
+      idToken: "id-token",
+      cursor: "next-page",
+      limit: 8,
     });
   });
 
@@ -1081,34 +1559,186 @@ describe("PersonProfilePage request catalog tools", () => {
   // server now names the request's items, and the row says what was asked for.
   it("titles a server history row by the item labels the server sends", async () => {
     mocks.getViewer.mockResolvedValue(viewerProfile({ requestHistory: [] }));
-    mocks.getRequestHistory.mockResolvedValue({ bundles: [
-      { bundleId: "named", purpose: "Preparing the joint return", durationSeconds: 3600, createdAt: "2026-09-20T10:00:00+00:00",
-        cancelled: false, itemCount: 2, itemLabels: ["Tax record", "Portfolio"] },
-      // Negative control: a row with no labels keeps its count.
-      { bundleId: "unnamed", purpose: "Older request", durationSeconds: 3600, createdAt: "2026-09-19T10:00:00+00:00",
-        cancelled: false, itemCount: 3 },
-    ], nextCursor: null });
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    expect(await screen.findByText("Tax record and Portfolio")).toBeInTheDocument();
+    mocks.getRequestHistory.mockResolvedValue({
+      bundles: [
+        {
+          bundleId: "named",
+          purpose: "Preparing the joint return",
+          durationSeconds: 3600,
+          createdAt: "2026-09-20T10:00:00+00:00",
+          cancelled: false,
+          itemCount: 2,
+          itemLabels: ["Tax record", "Portfolio"],
+        },
+        // Negative control: a row with no labels keeps its count.
+        {
+          bundleId: "unnamed",
+          purpose: "Older request",
+          durationSeconds: 3600,
+          createdAt: "2026-09-19T10:00:00+00:00",
+          cancelled: false,
+          itemCount: 3,
+        },
+      ],
+      nextCursor: null,
+    });
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
+    expect(
+      await screen.findByText("Tax record and Portfolio"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("2 items")).toBeNull();
     expect(screen.getByText("3 items")).toBeInTheDocument();
   });
 
   it("does not display details returned for another person", async () => {
     const { toast } = await import("sonner");
-    mocks.getViewer.mockResolvedValue(viewerProfile({
-      requestHistory: [{
-        bundleId: "bundle-1", requestId: "request-1", scopeRef: "scope-1",
-        label: "Employment status", sensitivity: "standard", purpose: "Checking references",
-        durationSeconds: 3600, createdAt: null, expiresAt: null, status: "pending",
-      }],
-    }));
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestHistory: [
+          {
+            bundleId: "bundle-1",
+            requestId: "request-1",
+            scopeRef: "scope-1",
+            label: "Employment status",
+            sensitivity: "standard",
+            purpose: "Checking references",
+            durationSeconds: 3600,
+            createdAt: null,
+            expiresAt: null,
+            status: "pending",
+          },
+        ],
+      }),
+    );
     mocks.getInformationRequest.mockResolvedValue({
-      personRef: "another-person", bundleId: "bundle-1", items: [],
+      personRef: "another-person",
+      bundleId: "bundle-1",
+      items: [],
     });
-    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Details for Employment status" }));
+    render(
+      <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Details for Employment status",
+      }),
+    );
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(screen.queryByTestId("person-profile-bundle-details")).toBeNull();
   });
+});
+
+
+describe("Request scope during profile authority refresh", () => {
+  const requestId = "33333333-3333-4333-8333-333333333333";
+  const initialProfile = { personRef: "actual-public-ref", displayName: "Actual Person", photoUrl: null, verifiedRole: null };
+  beforeEach(() => {
+    mocks.realDialogs = true;
+    mocks.native = false;
+    mocks.platform = "web";
+    mocks.user = { uid: "viewer", getIdToken: async () => "viewer-token" };
+    mocks.authLoading = false;
+    mocks.getViewer.mockReset().mockResolvedValue(viewerProfile());
+    mocks.getRequestHistory.mockResolvedValue({ bundles: [], hasMore: false, nextCursor: null });
+    mocks.answerGates.mockResolvedValue({ requests: true, payments: false, payouts: false });
+    mocks.answerCreate.mockReset();
+  });
+  afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.realDialogs = false; });
+
+  async function openQuestion() {
+    const rendered = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Request scope", exact: true }));
+    fireEvent.change(await screen.findByLabelText("Question"), { target: { value: "What are your food preferences?" } });
+    return rendered;
+  }
+  function answerDoorbell() {
+    dispatchConsentStateChanged({ userId: "viewer", source: "answer_request_changed", requestId: `answer_request:${requestId}`, messageId: `pkm_answer_requests:${requestId}:awaiting_owner:synthetic-timestamp` });
+  }
+
+  it.each(["connected", "disconnected", "failed"])("retains accepted confirmation through a %s connection refresh", async (outcome) => {
+    let accept!: (value: { requestId: string }) => void;
+    let refresh!: (value: ReturnType<typeof viewerProfile>) => void;
+    let rejectRefresh!: (error: Error) => void;
+    mocks.answerCreate.mockReturnValue(new Promise((resolve) => { accept = resolve; }));
+    await openQuestion();
+    fireEvent.click(screen.getByRole("button", { name: "Send request", exact: true }));
+    await waitFor(() => expect(mocks.answerCreate).toHaveBeenCalledWith("viewer-token", "actual-public-ref", { question: "What are your food preferences?" }));
+    mocks.getViewer.mockReturnValueOnce(new Promise((resolve, reject) => { refresh = resolve; rejectRefresh = reject; }));
+    act(answerDoorbell);
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("button", { name: "Request scope", exact: true })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+    await act(async () => { accept({ requestId }); });
+    expect(await screen.findByText(/Request sent\./)).toBeVisible();
+    expect(screen.getByRole("link", { name: "View request" })).toHaveAttribute("href", expect.stringContaining(requestId));
+    expect(screen.getByRole("button", { name: "Ask another question" })).toBeDisabled();
+    await act(async () => {
+      if (outcome === "failed") rejectRefresh(new Error("Connection refresh unavailable"));
+      else refresh(viewerProfile(outcome === "disconnected" ? { relationship: { status: "none" } } : {}));
+    });
+    const another = screen.getByRole("button", { name: "Ask another question" });
+    if (outcome === "connected") expect(another).toBeEnabled();
+    else expect(another).toBeDisabled();
+    expect(screen.getByText(/Request sent\./)).toBeVisible();
+    expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks a new submission while connection authority is unknown or removed", async () => {
+    await openQuestion();
+    let refresh!: (value: ReturnType<typeof viewerProfile>) => void;
+    mocks.getViewer.mockReturnValueOnce(new Promise((resolve) => { refresh = resolve; }));
+    act(answerDoorbell);
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
+    const send = screen.getByRole("button", { name: "Send request", exact: true });
+    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    expect(send).toBeDisabled();
+    fireEvent.submit(send.closest("form")!);
+    expect(mocks.answerCreate).not.toHaveBeenCalled();
+    await act(async () => { refresh(viewerProfile({ relationship: { status: "none" } })); });
+    expect(send).toBeDisabled();
+    fireEvent.submit(send.closest("form")!);
+    expect(mocks.answerCreate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Request scope", exact: true })).toBeNull();
+    expect(screen.getByRole("button", { name: "Share profile" })).toHaveFocus();
+  });
+
+  it("returns focus to the stable profile action when dismissed during a refresh", async () => {
+    await openQuestion();
+    mocks.getViewer.mockReturnValueOnce(new Promise(() => {}));
+    act(answerDoorbell);
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("button", { name: "Share profile" })).toHaveFocus();
+  });
+
+  it.each(["account", "person"])(
+    "discards the accepted request dialog when its %s changes",
+    async (change) => {
+      mocks.answerCreate.mockResolvedValue({ requestId });
+      const rendered = await openQuestion();
+      fireEvent.click(screen.getByRole("button", { name: "Send request", exact: true }));
+      await screen.findByText(/Request sent\./);
+
+      if (change === "account") {
+        mocks.user = { uid: "another-viewer", getIdToken: async () => "another-token" };
+      }
+      const personRef = change === "person" ? "other-public-ref" : "actual-public-ref";
+      const nextProfile = { ...initialProfile, personRef };
+      mocks.getPublic.mockResolvedValue(nextProfile);
+      mocks.getViewer.mockResolvedValue(viewerProfile({ personRef }));
+      rendered.rerender(<PersonProfilePage personRef={personRef} initialProfile={nextProfile} />);
+
+      await waitFor(() => expect(screen.queryByText(/Request sent\./)).toBeNull());
+      expect(screen.queryByRole("link", { name: "View request" })).toBeNull();
+      fireEvent.click(await screen.findByRole("button", { name: "Request scope", exact: true }));
+      expect(await screen.findByLabelText("Question")).toHaveValue("");
+      expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
+    },
+  );
 });

@@ -2,6 +2,8 @@
 // the navigation pill, the "Talk to One" bar and the live voice dock render
 // from production source; only auth, routing, the microphone owner and the
 // voice socket are replaced, because none of them decide geometry.
+import { useEffect, useSyncExternalStore } from "react";
+
 const noop = () => {};
 const root = () => document.documentElement.dataset;
 const router = { replace: noop, push: noop, prefetch: noop, back: noop };
@@ -44,13 +46,32 @@ const workingCommand = {
   },
   active: true,
 };
-const command = () => (root().command === "working" ? workingCommand : idleCommand);
-export const useLocationCommand = () => command();
-export const useOptionalLocationCommand = () =>
-  root().command === "working" ? workingCommand : null;
+const resultCommand = {
+  ...idleCommand,
+  view: { phase: "result", message: "Fixture command completed", transcript: "" },
+  dismissResult: () => {
+    root().command = "idle";
+    window.dispatchEvent(new Event("fixture-command-change"));
+  },
+};
+const subscribeCommand = (listener: () => void) => {
+  window.addEventListener("fixture-command-change", listener);
+  return () => window.removeEventListener("fixture-command-change", listener);
+};
+const commandSnapshot = () => root().command || "idle";
+function useCommand() {
+  const phase = useSyncExternalStore(subscribeCommand, commandSnapshot);
+  return phase === "working" ? workingCommand : phase === "result" ? resultCommand : idleCommand;
+}
+export const useLocationCommand = useCommand;
+export const useOptionalLocationCommand = () => {
+  const command = useCommand();
+  return command.view.phase === "idle" ? null : command;
+};
 export const useLocationCommandLive = () => ({ level: 0.4, elapsedMs: 4_000 });
 
 const session = {
+  state: { phase: "idle", error: null },
   enabled: true,
   start: async () => {},
   stop: noop,
@@ -66,3 +87,10 @@ export const useOptionalOneLocationInteractionSurface = () => null;
 // The voice panel's tool-result card imports an authenticated action gateway
 // at module initialization. Geometry fixtures never render a tool result.
 export const ToolResultCard = () => null;
+// Direct chat layout fixtures exercise People; CircleChat has its own production
+// fixture. Keeping this pane inert avoids pulling vault/network clients into a
+// geometry test while preserving the shared Chat shell.
+export const CircleMessagesPane = ({ onCircleCountChange }: { onCircleCountChange?: (count: number) => void }) => {
+  useEffect(() => { onCircleCountChange?.(3); }, [onCircleCountChange]);
+  return null;
+};

@@ -1,5 +1,7 @@
 "use client";
 
+import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -8,6 +10,7 @@ import {
   Check,
   ChevronDown,
   Loader2,
+  MessageSquareText,
   RefreshCw,
   Trash2,
   Search as SearchIcon,
@@ -53,7 +56,7 @@ import {
   getAppScrollRoot,
   useScrollReset,
 } from "@/lib/navigation/use-scroll-reset";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -87,7 +90,6 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { isNative } from "@/lib/capacitor/platform";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import {
-  buildDirectMessageRoute,
   buildPersonProfileRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -139,8 +141,8 @@ import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
-} from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/voice-action-card";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
@@ -155,8 +157,6 @@ import {
   CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME,
 } from "./connect-surface-layout";
 import { cn } from "@/lib/utils";
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
-import { MessageBubbleIcon } from "@/components/connections/message-bubble-icon";
 import {
   CONNECT_CONNECTION_LIST_CLASSNAME,
   CONNECT_PAGE_CONTENT_CLASSNAME,
@@ -166,7 +166,6 @@ import {
   CONNECT_SWIPE_CLIP_GUARD_CLASSNAME,
   CONNECT_SWIPE_PANE_INSET_CLASSNAME,
   CONNECT_WRAPPING_TEXT_CLASSNAME,
-  CONNECT_WRAPPING_TITLE_ROW_CLASSNAME,
 } from "./connect-surface-layout";
 
 type ConnectTab = "people" | "advisors" | "nearby";
@@ -266,10 +265,21 @@ const CONNECT_STICKY_HEADER_CLASSNAME =
 const CONNECT_STICKY_SEARCH_CLASSNAME =
   "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] pb-2 pt-0.5";
 
-/** dd/mm/yy in the viewer's local calendar, the same on every device locale. */
+/** Short, unambiguous date in the viewer's local calendar. */
 function formatConnectedDate(date: Date): string {
-  const two = (value: number) => String(value).padStart(2, "0");
-  return `${two(date.getDate())}/${two(date.getMonth() + 1)}/${two(date.getFullYear() % 100)}`;
+  const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getMonth()];
+  return `${date.getDate()} ${month}`;
+}
+
+const CONNECTION_AVATAR_TONES = [
+  "bg-[color:var(--app-accent)]",
+  "bg-[color:var(--app-purple)]",
+  "bg-[color:var(--app-destructive)]",
+] as const;
+
+function connectionAvatarTone(userId: string): string {
+  const hash = [...userId].reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 0);
+  return CONNECTION_AVATAR_TONES[hash % CONNECTION_AVATAR_TONES.length] ?? CONNECTION_AVATAR_TONES[0];
 }
 
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
@@ -2113,6 +2123,13 @@ export default function ConnectPageClient() {
   // it is, so a connection the server has not annotated is simply not an
   // advisor, instead of becoming one by sitting under the advisor tab.
   const sortedConnections = connections;
+  const connectionGroups = useMemo(() => {
+    if (isAdvisorTab) return [{ key: "advisors", label: null, items: sortedConnections }];
+    return [
+      { key: "contacts", label: "From contacts", items: sortedConnections.filter(connection => connection.connectedFromContacts === true) },
+      { key: "other", label: "Other connections", items: sortedConnections.filter(connection => connection.connectedFromContacts !== true) },
+    ].filter(group => group.items.length > 0);
+  }, [isAdvisorTab, sortedConnections]);
   const pendingRemoveConnection = connections.find(
     (connection) => connection.connectionId === pendingRemoveId,
   );
@@ -2425,6 +2442,7 @@ export default function ConnectPageClient() {
             query,
             page,
             limit: DIRECTORY_RESOLVE_PAGE_SIZE,
+            nameOnly: true,
           });
           candidates.push(...result.items);
           if (!result.hasMore) {
@@ -2551,6 +2569,7 @@ export default function ConnectPageClient() {
             query: searchTerm,
             page: pageNumber,
             limit: DIRECTORY_RESOLVE_PAGE_SIZE,
+            nameOnly: true,
           });
           candidates.push(...page.items);
           if (!page.hasMore) break;
@@ -2919,8 +2938,9 @@ export default function ConnectPageClient() {
       ref={directoryMenuRef}
       data-testid="connect-directory-menu-anchor"
       // The 44px tap target centres a ~20px label, so 12px of it is blank
-      // below "People". Pull the description up; the hit area is unchanged.
-      className="relative -mb-3"
+      // below "People". Pull the description up by 8px, leaving a 4px breath;
+      // the hit area is unchanged.
+      className="relative -mb-2"
     >
       {useWebDirectoryPopover ? (
         <Popover open={directoryMenuOpen} onOpenChange={setDirectoryMenuOpen}>
@@ -3095,7 +3115,7 @@ export default function ConnectPageClient() {
                       ) : (
                         <div className="space-y-3 sm:space-y-4">
                           <SettingsGroup
-                            className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-3 sm:p-4"
+                            className="bg-transparent"
                             titleControl={
                               <Button
                                 type="button"
@@ -3110,12 +3130,14 @@ export default function ConnectPageClient() {
                                   )
                                 }
                                 data-testid="connect-my-connections-toggle"
+                                showRipple={false}
                                 // A bare title, like "People" below it: no
                                 // border, fill or padding box of its own, so
                                 // the label starts on the page's column.
                                 className={cn(
                                   CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
                                   CONNECT_SECTION_TITLE_CONTROL_CLASSNAME,
+                                  "!bg-transparent hover:!bg-transparent",
                                 )}
                               >
                                 <span
@@ -3158,17 +3180,17 @@ export default function ConnectPageClient() {
                                 />
                               </Button>
                             }
-                            separatorInset
-                            headingClassName="!mt-0 !mb-0 !px-0 border-b border-[color:var(--app-card-border-standard)]"
+                            separatorInset={false}
+                            headingClassName="!mt-0 !mb-2 !px-0"
                             contentId="connect-my-connections-panel"
                             shellClassName={cn(
+                              "!rounded-none !bg-transparent !shadow-none",
                               !connectionsExpanded && "hidden",
                             )}
-                            contentClassName={
-                              sortedConnections.length > 0
-                                ? CONNECT_CONNECTION_LIST_CLASSNAME
-                                : undefined
-                            }
+                            contentClassName={cn(
+                              "!divide-y-0",
+                              sortedConnections.length > 0 && CONNECT_CONNECTION_LIST_CLASSNAME,
+                            )}
                             testId="connect-my-connections-group"
                           >
                             {connectionsRefreshError && (
@@ -3214,124 +3236,118 @@ export default function ConnectPageClient() {
                                 disabled
                               />
                             ) : (
-                              sortedConnections.map((connection) => (
-                                <SettingsRow
-                                  key={connection.connectionId}
-                                  layout="person"
-                                  leading={
-                                    <ConnectionPersonAvatar
-                                      size="list"
-                                      photoUrl={connection.photoUrl ?? null}
-                                      label={
-                                        connection.displayName ||
-                                        connection.userId
-                                      }
-                                      verified={Boolean(connection.isRia)}
-                                    />
-                                  }
-                                  // Deliberately NOT stackTrailingOnMobile. That prop drops
-                                  // the trailing control onto its own line below the name on
-                                  // every phone (`sm:` is 640px, so "mobile" here is every
-                                  // iPhone), and it was doing so for a single 72px "Remove"
-                                  // that had room to sit inline all along -- a connection
-                                  // read as two rows, and the list lost its right-hand
-                                  // column. The People list below has never stacked; these
-                                  // two lists sit on the same screen and now agree.
-                                  title={
-                                    <span
-                                      className={
-                                        CONNECT_WRAPPING_TITLE_ROW_CLASSNAME
-                                      }
-                                    >
-                                      <span
-                                        className={
-                                          CONNECT_WRAPPING_TEXT_CLASSNAME
-                                        }
-                                      >
-                                        {connection.displayName ||
-                                          connection.userId}
-                                      </span>
-                                      {connection.connectedFromContacts ? (
-                                        <ContactSourceBadge />
-                                      ) : null}
-                                    </span>
-                                  }
-                                  // SettingsRow derives `data-voice-label` from a string
-                                  // title, and this one is an element so it can wrap with
-                                  // its provenance badge.
-                                  // Passing the name keeps the attribute the row already had.
-                                  description={
-                                    connection.createdAt &&
-                                    !Number.isNaN(
-                                      Date.parse(connection.createdAt),
-                                    )
-                                      ? `Connected on ${formatConnectedDate(new Date(connection.createdAt))}`
-                                      : undefined
-                                  }
-                                  voiceLabel={
-                                    connection.displayName || connection.userId
-                                  }
-                                  density="compact"
-                                  onClick={
-                                    connection.publicPersonRef
-                                      ? () =>
-                                          router.push(
-                                            buildPersonProfileRoute(
-                                              connection.publicPersonRef!,
-                                              { from: ROUTES.CONNECT },
-                                            ),
-                                          )
-                                      : undefined
-                                  }
-                                  trailing={
-                                    <span
-                                      className={cn(
-                                        "flex shrink-0 items-center justify-end gap-1 whitespace-nowrap",
-                                        CONNECT_ROW_TRAILING_CLASSNAME,
-                                      )}
-                                    >
-                                      {connection.publicPersonRef ? (
-                                        <Button
-                                          type="button"
-                                          variant="none"
-                                          effect="fade"
-                                          size="compact"
-                                          aria-label={`Message ${connection.displayName || connection.userId}`}
-                                          className="!size-11 !min-w-11 !bg-transparent !p-0"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            router.push(
-                                              buildDirectMessageRoute({
-                                                personRef: connection.publicPersonRef,
-                                              }),
-                                            );
-                                          }}
-                                        >
-                                          <MessageBubbleIcon />
-                                        </Button>
-                                      ) : null}
-                                      <Button
-                                        type="button"
-                                        variant="none"
-                                        effect="fade"
-                                        size="compact"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setPendingRemoveId(
-                                            connection.connectionId,
-                                          );
-                                        }}
-                                        aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                                        className="!size-11 !min-w-11 !bg-transparent !p-0 text-destructive"
-                                      >
-                                        <Trash2
-                                          aria-hidden="true"
-                                          className="size-4"
+                              connectionGroups.map((group) => (
+                                <section key={group.key} aria-label={group.label ?? connectionsHeadingLabel} data-testid={`connection-source-${group.key}`}>
+                                  {group.label ? (
+                                    <div role="heading" aria-level={3} className="flex min-h-11 items-center gap-2.5 pb-1 pt-3 text-[14px] font-medium text-[color:var(--app-secondary-label)]">
+                                      <BookUser aria-hidden="true" className="size-[18px]" color="currentColor" />
+                                      {group.label}
+                                    </div>
+                                  ) : null}
+                                  {group.items.map((connection) => (
+                                    <SettingsRow
+                                      key={connection.connectionId}
+                                      className="!rounded-none border-b border-[color:var(--app-separator)] [--settings-row-px:0px] [--settings-row-py:16px] [--settings-row-gap:12px]"
+                                      leading={
+                                        <ConnectionPersonAvatar
+                                          size="list"
+                                          className="!size-11"
+                                          fallbackClassName={cn("text-[20px] font-medium text-white", connectionAvatarTone(connection.userId))}
+                                          photoUrl={connection.photoUrl ?? null}
+                                          label={
+                                            connection.displayName ||
+                                            connection.userId
+                                          }
+                                          verified={Boolean(connection.isRia)}
                                         />
-                                      </Button>
-                                    </span>
-                                  }
-                                />
+                                      }
+                                      // Deliberately NOT stackTrailingOnMobile. That prop drops
+                                      // the trailing control onto its own line below the name on
+                                      // every phone (`sm:` is 640px, so "mobile" here is every
+                                      // iPhone), and it was doing so for a single 72px "Remove"
+                                      // that had room to sit inline all along -- a connection
+                                      // read as two rows, and the list lost its right-hand
+                                      // column. The People list below has never stacked; these
+                                      // two lists sit on the same screen and now agree.
+                                      title={
+                                        <span
+                                          className="block min-w-0 truncate"
+                                          title={connection.displayName || connection.userId}
+                                        >
+                                            {connection.displayName ||
+                                              connection.userId}
+                                        </span>
+                                      }
+                                      description={
+                                        connection.createdAt &&
+                                        !Number.isNaN(
+                                          Date.parse(connection.createdAt),
+                                        )
+                                          ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}`
+                                          : "Connected"
+                                      }
+                                      voiceLabel={
+                                        connection.displayName || connection.userId
+                                      }
+                                      density="comfortable"
+                                      onClick={
+                                        connection.publicPersonRef
+                                          ? () =>
+                                              router.push(
+                                                buildPersonProfileRoute(
+                                                  connection.publicPersonRef!,
+                                                  { from: ROUTES.CONNECT },
+                                                ),
+                                              )
+                                          : undefined
+                                      }
+                                      trailing={
+                                        <span
+                                          className={cn(
+                                            "flex shrink-0 items-center justify-end gap-0 whitespace-nowrap",
+                                            CONNECT_ROW_TRAILING_CLASSNAME,
+                                          )}
+                                        >
+                                          {connection.publicPersonRef ? (
+                                            <Button
+                                              type="button"
+                                              variant="none"
+                                              effect="fade"
+                                              size="compact"
+                                              aria-label={`Message ${connection.displayName || connection.userId}`}
+                                              className="!size-11 !min-w-11 !bg-transparent !p-0"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
+                                              }}
+                                            >
+                                              <MessageSquareText aria-hidden="true" weight="regular" color="currentColor" className="size-[22px] text-[color:var(--app-accent)]" />
+                                            </Button>
+                                          ) : <span className="size-11 shrink-0" aria-hidden="true" />}
+                                          <Button
+                                            type="button"
+                                            variant="none"
+                                            effect="fade"
+                                            size="compact"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setPendingRemoveId(
+                                                connection.connectionId,
+                                              );
+                                            }}
+                                            aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
+                                            className="!size-11 !min-w-11 !bg-transparent !p-0 text-destructive"
+                                          >
+                                            <Trash2
+                                              aria-hidden="true"
+                                              className="size-[22px]"
+                                            />
+                                          </Button>
+                                        </span>
+                                      }
+                                    />
+                                  ))}
+                                </section>
                               ))
                             )}
                           </SettingsGroup>
@@ -3392,6 +3408,7 @@ export default function ConnectPageClient() {
                                     className={cn(
                                       CONNECT_INLINE_BUTTON_CLASSNAME,
                                       CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
+                                      "!text-[color:var(--app-accent)]",
                                     )}
                                   >
                                     <BookUser
@@ -4203,7 +4220,7 @@ export default function ConnectPageClient() {
                   }
                 }}
               >
-                {busyId === pendingRemoveId ? "Removing…" : "Delete"}
+                {busyId === pendingRemoveId ? "Removing…" : "Remove"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

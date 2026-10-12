@@ -50,9 +50,18 @@ class DirectoryUnavailable(RuntimeError):
 
 
 def _invocation_token(*, local: bool) -> str:
+    # `local` describes the optional reviewer rehearsal, not the runtime.
+    # Ordinary live directory lookup must also work in the local runtime.
+    del local
     account = os.getenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", "").strip()
     if account:
-        if not local or not (
+        local_runtime = (
+            os.getenv("ENVIRONMENT", "").strip().lower() == "development"
+            and os.getenv("APP_RUNTIME_PROFILE", "").strip().lower() == "local"
+            and not os.getenv("HUSHH_DEPLOY_ENV", "").strip()
+            and not os.getenv("K_SERVICE", "").strip()
+        )
+        if not local_runtime or not (
             re.fullmatch(r"[A-Za-z0-9._+%-]+@hushh\.ai", account)
             or account.lower() in _LOCAL_GCLOUD_ALLOWLIST
         ):
@@ -100,9 +109,11 @@ def verified_contacts(
     phone = phone or getattr(record, "phone_number", None)
     if not isinstance(phone, str) or not re.fullmatch(r"\+1[2-9]\d{9}", phone):
         phone = None
+    # Consumer domains cannot prove a business through website-domain
+    # matching, but an exact owner-email evidence row is still a valid,
+    # owner-bound directory signal. Keep the verified email so the directory
+    # can distinguish that exact row without falling back to a fixture.
     email = email.lower() if email else None
-    if email and email.split("@")[1] in _CONSUMER_DOMAINS:
-        email = None
     return (email, phone) if email or phone else None
 
 
@@ -128,11 +139,19 @@ def project_directory_response(
     for row in payload["candidates"]:
         if not isinstance(row, dict) or row.get("ownership_verified") is not False:
             raise DirectoryUnavailable()
+        # Never turn an upstream demo marker into our synthetic:false promise.
+        if (
+            row.get("synthetic", False) is not False
+            or row.get("is_test_profile", False) is not False
+        ):
+            raise DirectoryUnavailable()
         vertical = row.get("vertical")
         if vertical not in _IDENTITIES:
             raise DirectoryUnavailable()
         table, keys = _IDENTITIES[vertical]
         identity = row.get("native_identity")
+        if isinstance(identity, dict) and identity.get("source") in {"uat_fixture", "uat_test"}:
+            raise DirectoryUnavailable()
         draft = row.get("draft")
         name = row.get("name")
         if (

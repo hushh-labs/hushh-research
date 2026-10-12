@@ -1,4 +1,9 @@
 "use client";
+
+import { installOneLocationNotificationSound, stopOneLocationNotificationSound } from "@/lib/one-location/notification-sound";
+import { activeNotificationKeyId } from "@/lib/notifications/preview-keys";
+import { chatAlertIsVisible } from "@/lib/notifications/chat-alert-visibility";
+import { ChatSystemNotifications } from "@/lib/notifications/chat-system-notifications";
 import { dispatchCircleChatChanged } from "@/lib/circle-chat/events";
 
 /**
@@ -32,6 +37,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
+import { HushhNotifications } from "@/lib/capacitor";
 import { useVault } from "@/lib/vault/vault-context";
 import { type PendingConsent } from "@/lib/consent";
 import { ApiService } from "@/lib/services/api-service";
@@ -73,11 +79,14 @@ import {
   buildOneLocationNotificationHref,
   buildOneLocationWorkflowHref,
   dismissOneLocationShareNotification,
+  hasSeenOneLocationNotification,
+  isOneLocationGrantOpened,
   isOneLocationGrantUnwatched,
   isOneLocationSmsEmergencyAlert,
   locationShareNotificationCopy,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
+  markOneLocationNotificationSeen,
   oneLocationSectionForWorkflowNotificationType,
   playOneLocationNotificationSound,
   privacySafeOneLocationNotificationBody,
@@ -626,6 +635,13 @@ function oneLocationPayloadRoute(
   return fallback;
 }
 
+type SmsPresentation = boolean | "ended";
+
+function rememberSmsPresentation(cache: Map<string, SmsPresentation>, grantId: string, state: SmsPresentation) {
+  cache.set(grantId, state);
+  if (cache.size > 500) cache.delete(cache.keys().next().value!);
+}
+
 type OneLocationPresentationOptions = {
   present?: boolean;
   source?: "live" | "reconcile";
@@ -682,9 +698,12 @@ export function ConsentNotificationProvider({
   const [isRetryingPushRegistration, setIsRetryingPushRegistration] =
     useState(false);
   const { user } = useAuth();
+  const requestPushPermissionRef = useRef(false);
   const lastAuthenticatedUidRef = useRef<string | null>(null);
   // Track which message identities have already been ingested this session.
   const ingestedMessageIdsRef = useRef(new Set<string>());
+  // Preserve the live presentation outcome if browser storage is unavailable.
+  const smsPresentationRef = useRef(new Map<string, SmsPresentation>());
   const knownPendingConsentIdsRef = useRef(new Set<string>());
   const acknowledgedNotificationOpenIdsRef = useRef(new Set<string>());
   const notificationOpenAcksInFlightRef = useRef(new Set<string>());
@@ -764,16 +783,40 @@ export function ConsentNotificationProvider({
     [getVaultOwnerToken, isNativePlatform, user?.uid],
   );
 
+  useEffect(() => {
+    if (!user?.uid) return;
+    const release = installOneLocationNotificationSound();
+    return () => {
+      release();
+      if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({}).catch(() => undefined);
+    };
+  }, [isNativePlatform, user?.uid]);
+
   const showOneLocationShareNotification = useCallback(
     (
       data: Record<string, string>,
       options: OneLocationPresentationOptions = {},
     ) => {
-      if (!user?.uid) return;
+      if (!user?.uid) return true;
       const grantId = String(data.grant_id || data.grantId || "").trim();
-      if (!grantId) return;
+      if (!grantId) return true;
+      // A delayed creation push cannot resurrect a share already known to end.
+      if (smsPresentationRef.current.get(grantId) === "ended" ||
+          hasSeenOneLocationNotification(user.uid, `share-ended:${grantId}`) ||
+          hasSeenOneLocationNotification(user.uid, `location_share_revoked:${grantId}`) ||
+          hasSeenOneLocationNotification(user.uid, `location_share_expired:${grantId}`)) return true;
+      const isEmergencySms = isOneLocationSmsEmergencyAlert({
+        shareKind: data.share_kind,
+        notificationProfile: data.notification_profile,
+      });
+      const expiry = String(data.expires_at || "").trim();
+      if (isEmergencySms && expiry && (!Number.isFinite(Date.parse(expiry)) || Date.parse(expiry) <= Date.now())) {
+        rememberSmsPresentation(smsPresentationRef.current, grantId, "ended");
+        markOneLocationNotificationSeen(user.uid, `share-ended:${grantId}`);
+        return true;
+      }
       const ownerLabel = oneLocationOwnerLabel(data);
-      const created = recordOneLocationShareNotification({
+      recordOneLocationShareNotification({
         userId: user.uid,
         grantId,
         ownerLabel,
@@ -787,13 +830,20 @@ export function ConsentNotificationProvider({
         requestId: grantId,
         notificationType: data.type || "location_share_created",
       });
-      const isEmergencySms = isOneLocationSmsEmergencyAlert({
-        shareKind: data.share_kind,
-        notificationProfile: data.notification_profile,
-      });
       // Routine notification cards are owned by Feed. The only foreground
       // popup retained here is the safety-critical Save My Soul alarm.
-      if (!created || options.present === false || !isEmergencySms) return;
+      if (options.present === false || !isEmergencySms ||
+          isOneLocationGrantOpened(user.uid, grantId) ||
+          isOneLocationGrantUnwatched(user.uid, grantId)) return true;
+      // Feed reconciliation is silent and must not consume the live alarm.
+      const presentationId = `sms-presented:${grantId}`;
+      const fallbackId = `sms-system-fallback:${grantId}`;
+      // A toast without audio must keep requesting the system fallback until
+      // the worker records successful presentation. Its retry can follow a
+      // failed showNotification, even when this tab already ingested the event.
+      if (smsPresentationRef.current.has(grantId) || hasSeenOneLocationNotification(user.uid, presentationId)) {
+        return smsPresentationRef.current.get(grantId) !== false && !hasSeenOneLocationNotification(user.uid, fallbackId);
+      }
 
       const toastKey = `one-location-share:${grantId}`;
       const href = oneLocationPayloadRoute(
@@ -826,7 +876,19 @@ export function ConsentNotificationProvider({
         data.share_point_lat,
         data.share_point_lng,
       );
-      playOneLocationNotificationSound(data.share_kind);
+      const sounded = playOneLocationNotificationSound("sos", grantId);
+      if (!sounded && isNativePlatform) {
+        // Invoke the existing bridge directly: no delayed import can outlive Stop.
+        // Native also checks owner, active host and a short execution deadline.
+        void HushhNotifications.playEmergencySmsCue({
+          userId: user.uid,
+          grantId,
+          expiresAt: Math.min(expiry ? Date.parse(expiry) : Infinity, Date.now() + 2000),
+        }).catch(() => undefined); // Older installed wrappers do not expose this method.
+      }
+      rememberSmsPresentation(smsPresentationRef.current, grantId, sounded);
+      if (!sounded) markOneLocationNotificationSeen(user.uid, fallbackId);
+      markOneLocationNotificationSeen(user.uid, presentationId);
 
       toast(
         <EmergencySmsNotificationToast
@@ -836,6 +898,8 @@ export function ConsentNotificationProvider({
           coordinatesFallback={emergencyCoordinatesFallback}
           onOpen={() => {
             markOneLocationGrantOpened(user.uid, grantId);
+            stopOneLocationNotificationSound(grantId);
+            if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({ grantId }).catch(() => undefined);
             toast.dismiss(toastKey);
             router.push(href, { scroll: false });
           }}
@@ -848,8 +912,9 @@ export function ConsentNotificationProvider({
             "one-location-emergency-toast !border-red-500 !bg-red-600 !text-white !shadow-xl !shadow-red-950/25",
         },
       );
+      return sounded;
     },
-    [router, user?.uid],
+    [isNativePlatform, router, user?.uid],
   );
 
   const showOneLocationWorkflowNotification = useCallback(
@@ -857,9 +922,9 @@ export function ConsentNotificationProvider({
       data: Record<string, string>,
       options: OneLocationPresentationOptions = {},
     ) => {
-      if (!user?.uid) return;
+      if (!user?.uid) return true;
       const msgType = data.type;
-      if (!isOneLocationWorkflowNotificationType(msgType)) return;
+      if (!isOneLocationWorkflowNotificationType(msgType)) return true;
 
       const isCircleWorkflow = msgType.startsWith("location_circle_");
       let stateMutationPublished = false;
@@ -900,13 +965,12 @@ export function ConsentNotificationProvider({
         // Owner-originated rename/delete events are still delivered to keep
         // the owner's other sessions current, but they must not create a
         // self-notification or duplicate Feed item.
-        if (String(data.sync_only || "").toLowerCase() === "true") return;
+        if (String(data.sync_only || "").toLowerCase() === "true") return true;
       }
 
       if (msgType === "location_share_created") {
         publishStateMutation();
-        showOneLocationShareNotification(data, options);
-        return;
+        return showOneLocationShareNotification(data, options);
       }
 
       const grantId = String(
@@ -918,15 +982,23 @@ export function ConsentNotificationProvider({
       const connectionId = String(data.connection_id || "").trim();
       const inviteId = String(data.invite_id || "").trim();
       const id = oneLocationNotificationId(data);
-      if (!id) return;
+      if (!id) return true;
 
       if (
         msgType === "location_share_revoked" ||
         msgType === "location_share_expired"
       ) {
+        // Workflow Feed ids may use message_id. Keep terminal state keyed by
+        // grant as well, so a delayed creation cannot sound a stopped alert.
+        if (grantId) {
+          rememberSmsPresentation(smsPresentationRef.current, grantId, "ended");
+          markOneLocationNotificationSeen(user.uid, `share-ended:${grantId}`);
+          stopOneLocationNotificationSound(grantId);
+          if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({ grantId }).catch(() => undefined);
+        }
         if (grantId && isOneLocationGrantUnwatched(user.uid, grantId)) {
           publishStateMutation();
-          return;
+          return true;
         }
         if (grantId) {
           toast.dismiss(`one-location-share:${grantId}`);
@@ -1047,8 +1119,9 @@ export function ConsentNotificationProvider({
           inviteId,
         notificationType: msgType,
       });
+      return true;
     },
-    [showOneLocationShareNotification, user?.uid],
+    [isNativePlatform, showOneLocationShareNotification, user?.uid],
   );
 
   useEffect(() => {
@@ -1110,6 +1183,7 @@ export function ConsentNotificationProvider({
   const retryPushRegistration = useCallback(() => {
     if (!user) return;
     clearPersistedDeliveryState(user.uid);
+    requestPushPermissionRef.current = true;
     setIsRetryingPushRegistration(true);
     setFcmInitGeneration((current) => current + 1);
   }, [user]);
@@ -1132,6 +1206,7 @@ export function ConsentNotificationProvider({
       }
       lastAuthenticatedUidRef.current = null;
       ingestedMessageIdsRef.current = new Set<string>();
+      smsPresentationRef.current.clear();
       knownPendingConsentIdsRef.current = new Set<string>();
       acknowledgedNotificationOpenIdsRef.current = new Set<string>();
       notificationOpenAcksInFlightRef.current = new Set<string>();
@@ -1148,6 +1223,7 @@ export function ConsentNotificationProvider({
     let cancelled = false;
     if (lastAuthenticatedUidRef.current !== user.uid) {
       ingestedMessageIdsRef.current = new Set<string>();
+      smsPresentationRef.current.clear();
       knownPendingConsentIdsRef.current = new Set<string>();
       acknowledgedNotificationOpenIdsRef.current = new Set<string>();
       notificationOpenAcksInFlightRef.current = new Set<string>();
@@ -1155,6 +1231,8 @@ export function ConsentNotificationProvider({
     lastAuthenticatedUidRef.current = user.uid;
     reviewedIdsRef.current = new Set<string>();
 
+    const requestPermission = requestPushPermissionRef.current;
+    requestPushPermissionRef.current = false;
     const run = async () => {
       const shouldRestoreFromSession = fcmInitGeneration === 0;
       if (shouldRestoreFromSession) {
@@ -1176,8 +1254,9 @@ export function ConsentNotificationProvider({
 
       try {
         const idToken = await user.getIdToken();
+        if (cancelled) return;
         const result = await initializeFCM(user.uid, idToken, {
-          requestPermission: fcmInitGeneration > 0,
+          requestPermission,
         });
         if (cancelled) return;
 
@@ -1215,6 +1294,39 @@ export function ConsentNotificationProvider({
       cancelled = true;
     };
   }, [fcmInitGeneration, user]);
+
+  useEffect(() => {
+    if (!user || !Capacitor.isNativePlatform()) return;
+    let disposed = false;
+    let handle: { remove: () => Promise<void> } | undefined;
+    const refresh = () => {
+      if (!disposed) setFcmInitGeneration((value) => value + 1);
+    };
+    void import("@capacitor/app")
+      .then(async ({ App }) => {
+        const listener = await App.addListener(
+          "appStateChange",
+          ({ isActive }) => {
+            if (isActive) refresh();
+            else stopOneLocationNotificationSound();
+          },
+        );
+        if (disposed) await listener.remove();
+        else handle = listener;
+      })
+      .catch(() => {
+        /* The web visibility bridge remains available. */
+      });
+    const visible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      disposed = true;
+      void handle?.remove();
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user || Capacitor.isNativePlatform()) return;
@@ -1304,6 +1416,7 @@ export function ConsentNotificationProvider({
               const preservesDomainType =
                 preservesConnectionType ||
                 payload.type === "information_request_updated" ||
+                payload.type === "answer_request_changed" ||
                 String(payload.type || "").startsWith("location_");
               const type = preservesDomainType
                 ? payload.type
@@ -1640,6 +1753,28 @@ export function ConsentNotificationProvider({
         return;
       }
 
+      if (msgType === "answer_request_changed") {
+        if (
+          !user?.uid ||
+          !data.user_id ||
+          data.user_id !== user.uid ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            data.request_id || "",
+          )
+        )
+          return;
+        detail.accepted = true;
+        CacheSyncService.onConsentMutated(user.uid);
+        dispatchConsentStateChanged({
+          userId: user.uid,
+          source: "answer_request_changed",
+          requestId: `answer_request:${data.request_id}`,
+          messageId: data.event_id,
+        });
+        dispatchFeedStateChanged("arrived");
+        return;
+      }
+
       // Drive-sharing notifications are an intentionally closed, opaque
       // vocabulary. A new `document_share_*` producer cannot make the client
       // refresh consent state or select a review until it is explicitly
@@ -1661,13 +1796,66 @@ export function ConsentNotificationProvider({
       // A reviewed Drive-sharing push stays unacknowledged on purpose: the
       // web worker then shows the normal system notification (with its sound)
       // even while One is open. The Consent Center still refreshes below.
-      if (user?.uid && !documentShareRequestId) detail.accepted = true;
+      if (
+        ["direct_message", "location_circle_message"].includes(msgType ?? "")
+      ) {
+        if (
+          !user?.uid ||
+          (data.recipient_key_id &&
+            data.recipient_key_id !== activeNotificationKeyId(user?.uid)) ||
+          (data.user_id && data.user_id !== user.uid)
+        )
+          return;
+      }
+      if (user?.uid && !documentShareRequestId)
+        detail.accepted = [
+          "direct_message",
+          "location_circle_message",
+        ].includes(msgType ?? "")
+          ? chatAlertIsVisible(data)
+          : true;
+
+      if (
+        ["direct_message_read", "location_circle_chat_read"].includes(
+          msgType ?? "",
+        ) &&
+        user?.uid
+      ) {
+        const keyId = activeNotificationKeyId(user.uid);
+        if (keyId && data.recipient_key_id === keyId)
+          void ChatSystemNotifications.clearRead({
+            threadId: String(data.circle_id || data.conversation_id || ""),
+            keyId,
+            ...(data.chat_sequence
+              ? { sequence: Number(data.chat_sequence) }
+              : {}),
+            ...(data.chat_read_before
+              ? { before: Number(data.chat_read_before) }
+              : {}),
+            ...(data.chat_read_message_id
+              ? { messageId: String(data.chat_read_message_id) }
+              : {}),
+            ...(data.chat_badge_count !== undefined
+              ? { badgeCount: Number(data.chat_badge_count) }
+              : {}),
+            ...(data.chat_badge_version !== undefined
+              ? { badgeVersion: Number(data.chat_badge_version) }
+              : {}),
+          });
+        CacheSyncService.onFeedExternalReadChanged(user.uid);
+        if (msgType === "direct_message_read") {
+          dispatchFeedStateChanged("action");
+          return;
+        }
+      }
 
       // Suppress only identifiable replays. A bare grant/request id is the
       // notification's subject, not a delivery identity, and reusing it here
       // would swallow later valid events for that entity.
       const dedupKey = notificationEventDedupKey(msgType, data);
-      if (dedupKey && ingestedMessageIdsRef.current.has(dedupKey)) return;
+      const smsCreation = msgType === "location_share_created" &&
+        isOneLocationSmsEmergencyAlert({ shareKind: data.share_kind, notificationProfile: data.notification_profile });
+      if (!smsCreation && dedupKey && ingestedMessageIdsRef.current.has(dedupKey)) return;
       if (dedupKey) ingestedMessageIdsRef.current.add(dedupKey);
 
       if (msgType === "location_pkm_changed" && user?.uid) {
@@ -1696,20 +1884,40 @@ export function ConsentNotificationProvider({
       // Preference changes are silent sync doorbells for the owner's other
       // sessions. They are not Feed activity and carry no preference value;
       // mounted consumers repair from their authenticated resources.
-      if ((msgType === "location_circle_message" || msgType === "location_circle_chat_read" || msgType === "location_circle_chat_receipts") && user?.uid) {
+      if (
+        (msgType === "location_circle_message" ||
+          msgType === "location_circle_chat_read" ||
+          msgType === "location_circle_chat_receipts") &&
+        user?.uid
+      ) {
         const circleId = String(data.circle_id || "").trim();
-        if (data.user_id === user.uid && /^[0-9a-f-]{36}$/i.test(circleId)) {
+        const forOwner =
+          data.user_id === user.uid ||
+          (typeof data.recipient_key_id === "string" &&
+            data.recipient_key_id === activeNotificationKeyId(user?.uid));
+        if (forOwner && /^[0-9a-f-]{36}$/i.test(circleId)) {
           dispatchCircleChatChanged(user.uid, circleId);
-          if (msgType === "location_circle_chat_read") CacheSyncService.onFeedExternalReadChanged(user.uid);
-          if (msgType !== "location_circle_chat_receipts") dispatchFeedStateChanged(msgType === "location_circle_chat_read" ? "action" : "arrived");
+          if (msgType === "location_circle_chat_read")
+            CacheSyncService.onFeedExternalReadChanged(user.uid);
+          if (msgType !== "location_circle_chat_receipts")
+            dispatchFeedStateChanged(
+              msgType === "location_circle_chat_read" ? "action" : "arrived",
+            );
         }
         return;
       }
-      if (msgType === "location_circle_photo_updated" && user?.uid && data.user_id === user.uid) {
+      if (
+        msgType === "location_circle_photo_updated" &&
+        user?.uid &&
+        data.user_id === user.uid
+      ) {
         const circleId = String(data.circle_id || "").trim();
-        if (/^[0-9a-f-]{36}$/i.test(circleId)) CacheSyncService.onOneLocationStateMutated(user.uid, ["circles"], {
-          notificationType: msgType, circleId, eventId: String(data.message_id || "").trim() || undefined,
-        });
+        if (/^[0-9a-f-]{36}$/i.test(circleId))
+          CacheSyncService.onOneLocationStateMutated(user.uid, ["circles"], {
+            notificationType: msgType,
+            circleId,
+            eventId: String(data.message_id || "").trim() || undefined,
+          });
         return;
       }
       if (msgType === "location_settings_changed" && user?.uid) {
@@ -1814,10 +2022,13 @@ export function ConsentNotificationProvider({
           ].slice(-50);
           return;
         }
-        showOneLocationWorkflowNotification(locationData, {
+        const sounded = showOneLocationWorkflowNotification(locationData, {
           present: shouldPresent,
           source: "live",
         });
+        // Unsounded alerts keep the OS fallback eligible after a display
+        // failure. The worker owns successful system-presentation deduplication.
+        if (!isNativePlatform && sounded === false) detail.accepted = false;
         return;
       }
 
@@ -2011,6 +2222,18 @@ export function ConsentNotificationProvider({
       const state = await OneLocationStateResource.load(user.uid, () =>
         OneLocationService.getState(vaultOwnerToken),
       );
+      // Feed may omit an ended grant when this owner has another live share.
+      // Alarm suppression is per grant, so retain every authoritative ending
+      // before the Feed projection filters those historical rows.
+      for (const grant of state.receivedGrants ?? []) {
+        if (grant.status === "revoked" || grant.status === "expired") {
+          rememberSmsPresentation(smsPresentationRef.current, grant.id, "ended");
+          markOneLocationNotificationSeen(user.uid, `share-ended:${grant.id}`);
+          stopOneLocationNotificationSound(grant.id);
+          if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({ grantId: grant.id }).catch(() => undefined);
+          toast.dismiss(`one-location-share:${grant.id}`);
+        }
+      }
       // Location owns a single memory-only server-state resource. Publishing
       // reconciliation results here lets the Location route update instantly
       // from the same push/resume read instead of issuing a second foreground
@@ -2051,6 +2274,7 @@ export function ConsentNotificationProvider({
   }, [
     fcmInitStatus,
     getVaultOwnerToken,
+    isNativePlatform,
     isVaultUnlocked,
     showOneLocationWorkflowNotification,
     user?.uid,

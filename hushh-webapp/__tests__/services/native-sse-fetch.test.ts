@@ -174,7 +174,7 @@ describe("nativeStreamFetch", () => {
     expect(plugin.listeners.size).toBe(0);
   });
 
-  it("a 401 for a vault-owner bearer drains the body and asks the vault to lock", async () => {
+  it("a 401 for a vault-owner bearer with an invalid-token body drains the body and asks the vault to lock", async () => {
     openedWith(401, { "content-type": "application/json" });
     const lock = vi.fn();
     window.addEventListener("vault-lock-requested", lock as EventListener, { once: true });
@@ -184,16 +184,35 @@ describe("nativeStreamFetch", () => {
     });
     await Promise.resolve();
     const { streamId } = plugin.open.mock.calls[0][0] as { streamId: string };
-    plugin.emit({ streamId, type: "chunk", base64: b64('{"detail":"Vault owner token rejected"}') });
+    plugin.emit({ streamId, type: "chunk", base64: b64('{"detail":"Token validation failed."}') });
     plugin.emit({ streamId, type: "end" });
     const response = await pending;
     expect(response.status).toBe(401);
-    expect(await response.text()).toContain("rejected");
+    expect(await response.text()).toContain("Token validation failed");
     expect(lock).toHaveBeenCalledTimes(1);
     expect((lock.mock.calls[0][0] as CustomEvent).detail).toEqual({
       reason: "AUTH_VAULT_OWNER_INVALID",
       path: "/api/one/agent-chat",
     });
+  });
+
+  it("a 403 feature refusal after a valid owner check drains the body but does not lock the vault", async () => {
+    openedWith(403, { "content-type": "application/json" });
+    const lock = vi.fn();
+    window.addEventListener("vault-lock-requested", lock as EventListener, { once: true });
+    const pending = nativeStreamFetch("/api/one/agent-chat", {
+      method: "POST",
+      headers: { Authorization: "Bearer HCT:abc" },
+    });
+    await Promise.resolve();
+    const { streamId } = plugin.open.mock.calls[0][0] as { streamId: string };
+    plugin.emit({ streamId, type: "chunk", base64: b64('{"detail":"Drive chat reads are unavailable"}') });
+    plugin.emit({ streamId, type: "end" });
+    const response = await pending;
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain("unavailable");
+    expect(lock).not.toHaveBeenCalled();
+    window.removeEventListener("vault-lock-requested", lock as EventListener);
   });
 
   it("never locks the vault for a stream that another identity started", async () => {
@@ -222,8 +241,21 @@ describe("nativeStreamFetch", () => {
     expect(streamBridgeErrorCode(503, '{"detail":{"code":"AUTH_ACCOUNT_STATUS_UNAVAILABLE"}}')).toBe(
       "AUTH_ACCOUNT_STATUS_UNAVAILABLE",
     );
-    expect(streamBridgeErrorCode(401, '{"detail":"nope"}')).toBe("AUTH_VAULT_OWNER_INVALID");
-    expect(streamBridgeErrorCode(403, "")).toBe("AUTH_VAULT_OWNER_INVALID");
+    // A bare 401/403 with no invalid-owner code or message is an ordinary
+    // feature/permission refusal after a valid owner check: it must not
+    // clear vault custody.
+    expect(streamBridgeErrorCode(401, '{"detail":"nope"}')).toBe("HUSHH_HTTP_401");
+    expect(streamBridgeErrorCode(403, "")).toBe("HUSHH_HTTP_403");
+    expect(streamBridgeErrorCode(403, '{"detail":"Drive chat reads are unavailable"}')).toBe("HUSHH_HTTP_403");
+    // An explicit invalid-owner code, or the backend's known invalid-token
+    // phrasing, still clears the vault.
+    expect(streamBridgeErrorCode(401, '{"detail":"Token validation failed."}')).toBe("AUTH_VAULT_OWNER_INVALID");
+    expect(
+      streamBridgeErrorCode(
+        403,
+        '{"detail":{"code":"AUTH_VAULT_OWNER_INVALID","message":"Vault owner session was revoked. Unlock again to continue."}}',
+      ),
+    ).toBe("AUTH_VAULT_OWNER_INVALID");
     // A chat-key refusal is routed by the chat client, never read as a dead token.
     expect(streamBridgeErrorCode(403, '{"detail":{"code":"CHAT_KEY_REQUIRED"}}')).toBe("CHAT_KEY_REQUIRED");
     expect(streamBridgeErrorCode(403, '{"detail":"x","code":"CHAT_KEY_MISMATCH"}')).toBe("CHAT_KEY_MISMATCH");

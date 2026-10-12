@@ -16,7 +16,14 @@ from ag_ui.core import (
 from hushh_mcp.one_adk.run_errors import is_authored_run_error
 from hushh_mcp.services.chat_key import CHAT_KEY_RECOVERY_MESSAGE, CHAT_KEY_REQUIRED_CODE
 
-_PRIVATE_STATE_KEYS = frozenset({"temp:hussh:mcp_approval"})
+_PRIVATE_STATE_KEYS = frozenset(
+    {
+        "temp:hussh:mcp_approval",
+        "hussh:mail_read_offer",
+        "hussh:calendar_event_read_offer",
+        "hussh:calendar_list_read_offer",
+    }
+)
 
 
 def _public_state(value: Any) -> Any:

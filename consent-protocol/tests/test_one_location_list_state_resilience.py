@@ -207,6 +207,7 @@ def test_list_state_is_read_only_and_projects_expired_invites(monkeypatch):
                         "id": "invite-1",
                         "owner_user_id": "owner",
                         "status": "active",
+                        "expired_by_db_clock": True,
                         "expires_at": datetime.now(timezone.utc) - timedelta(minutes=1),
                     }
                 ]
@@ -289,3 +290,22 @@ def test_list_state_explicit_false_retains_rollback_housekeeping(monkeypatch):
     service = _CompatibilityService()
     service.list_state(user_id="owner")
     assert service.expire_calls == ["owner"]
+
+
+def test_strict_source_state_never_expires_records_even_with_ui_rollback_flag(monkeypatch):
+    from unittest.mock import Mock
+
+    monkeypatch.setenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED", "false")
+    service = _PartialFailureService()
+    service._run_read_queries_parallel = Mock(
+        side_effect=lambda queries, **kwargs: {name: [] for name, _, _ in queries}
+    )
+    service._expire_stale_requests = Mock(side_effect=AssertionError("source write"))
+    service._expire_stale_grants = Mock(side_effect=AssertionError("source write"))
+    member_read = Mock(return_value=[])
+    monkeypatch.setattr(OneLocationCircleService, "list_member_invites", member_read)
+    service.list_state(user_id="owner", require_complete=True)
+    service._expire_stale_requests.assert_not_called()
+    service._expire_stale_grants.assert_not_called()
+    assert member_read.call_args.kwargs["expire_stale"] is False
+    assert member_read.call_args.kwargs["require_complete"] is True

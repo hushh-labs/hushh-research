@@ -171,6 +171,7 @@ def world():
 def _event(order, session, kind="checkout.session.completed", **overrides):
     obj = {
         "object": "checkout.session",
+        "livemode": False,
         "id": session["id"],
         "client_reference_id": order["id"],
         "payment_status": "paid",
@@ -189,7 +190,11 @@ async def test_checkout_only_for_verified_for_sale_packets_and_not_your_own(worl
     assert out["checkoutUrl"].startswith("https://checkout.stripe.com/")
     s = fake.sessions[0]
     assert s["line_items"][0]["price_data"]["unit_amount"] == 300
-    assert s["metadata"] == {"payment_kind": "pkm_packet_order", "order_id": out["orderId"]}
+    assert s["metadata"] == {
+        "payment_kind": "pkm_packet_order",
+        "order_id": out["orderId"],
+        "hussh_environment": "local",
+    }
     assert s["success_url"].startswith(
         "https://uat.hushh.ai/marketplace/white-pages/purchase?order="
     )
@@ -274,6 +279,7 @@ async def test_orphan_paid_order_is_refunded_after_grace(world):
         {
             "id": "o1",
             "status": "paid",
+            "stripe_mode": "test",
             "access_request_id": None,
             "stripe_payment_intent_id": "pi_9",
             "paid_at": (datetime.now(UTC) - timedelta(hours=2)).isoformat(),
@@ -281,6 +287,7 @@ async def test_orphan_paid_order_is_refunded_after_grace(world):
         {
             "id": "o2",
             "status": "paid",
+            "stripe_mode": "test",
             "access_request_id": None,
             "stripe_payment_intent_id": "pi_8",
             "paid_at": datetime.now(UTC).isoformat(),

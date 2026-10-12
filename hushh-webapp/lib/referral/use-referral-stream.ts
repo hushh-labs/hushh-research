@@ -44,6 +44,7 @@ export function useReferralStream(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
     const controller = new AbortController();
+    let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     const scheduleReconnect = () => {
       if (cancelled) return;
@@ -67,12 +68,16 @@ export function useReferralStream(
         });
 
         if (!response.ok || !response.body) throw new Error("stream_unavailable");
-        if (cancelled) return;
+        if (cancelled) {
+          await response.body.cancel();
+          return;
+        }
 
         attempt = 0;
         setConnected(true);
 
         const reader = response.body.getReader();
+        activeReader = reader;
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -103,6 +108,9 @@ export function useReferralStream(
           setConnected(false);
           scheduleReconnect();
         }
+      } finally {
+        activeReader?.releaseLock();
+        activeReader = null;
       }
     };
 
@@ -113,6 +121,9 @@ export function useReferralStream(
       setConnected(false);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       controller.abort();
+      // The transport may detach the caller signal after response headers.
+      // Cancel the body explicitly so navigation always releases the socket.
+      void activeReader?.cancel().catch(() => {});
     };
   }, [user]);
 

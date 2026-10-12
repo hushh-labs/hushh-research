@@ -38,6 +38,11 @@ def test_production_dispatch_is_opt_in_and_worker_precedes_app_traffic():
     assert names.index("Verify production Drive prerequisites before mutation") < names.index(
         "Sync canonical hosted runtime secrets"
     )
+    preflight = steps[names.index("Verify production Drive prerequisites before mutation")]
+    assert (
+        '--domain-catalog "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"'
+        in (preflight["run"])
+    )
     assert names.index("Deploy and attest private production Drive worker") < names.index(
         "Promote deployed revisions to production traffic"
     )
@@ -297,8 +302,14 @@ def test_production_preflight_rejects_unattested_oauth_and_wrong_picker(monkeypa
     values["GOOGLE_DRIVE_OAUTH_CLIENT_ID"] = "client.apps.googleusercontent.com"
     values["DRIVE_DOCUMENT_KEY_V1"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     values["DRIVE_SHARING_KEY_V1"] = base64.b64encode(b"\x01" * 32).decode()
-    values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = base64.b64encode(b"\x02" * 32).decode()
     monkeypatch.setattr(module, "_secret", values.__getitem__)
+    expected_referrers = {
+        "https://one.hushh.ai/*",
+        "https://one.hussh.ai/*",
+        "https://one.hussh.si/*",
+    }
+    referrers = list(expected_referrers)
 
     def fake_gcloud(*args):
         if args[:3] == ("services", "api-keys", "list"):
@@ -309,18 +320,46 @@ def test_production_preflight_rejects_unattested_oauth_and_wrong_picker(monkeypa
                         "displayName": module.PICKER_KEY_NAME,
                         "restrictions": {
                             "apiTargets": [{"service": "picker.googleapis.com"}],
-                            "browserKeyRestrictions": {
-                                "allowedReferrers": ["https://uat.one.hushh.ai/*"]
-                            },
+                            "browserKeyRestrictions": {"allowedReferrers": referrers},
                         },
                     }
                 ]
             )
+        if args[:3] == ("services", "api-keys", "get-key-string"):
+            return json.dumps({"keyString": values["GOOGLE_DRIVE_PICKER_API_KEY"]})
+        if args[:2] == ("projects", "get-iam-policy"):
+            return json.dumps(
+                {
+                    "bindings": [
+                        {
+                            "role": "roles/cloudscheduler.jobRunner",
+                            "members": [f"serviceAccount:{module.RUNTIME_ACCOUNT}"],
+                        }
+                    ]
+                }
+            )
         return "{}"
 
     monkeypatch.setattr(module, "_gcloud", fake_gcloud)
-    with pytest.raises(module.PrerequisiteError, match="restrictions are incomplete"):
-        module.verify(oauth_attested=True)
+    module.verify(oauth_attested=True)
+    for invalid in (
+        ["https://uat.one.hushh.ai/*"],
+        [*expected_referrers, "https://uat.one.hussh.ai/*"],
+        [*expected_referrers, "https://uat.one.hussh.si/*"],
+        [*expected_referrers, "http://one.hushh.ai/*"],
+        [*expected_referrers, "https://*.hussh.ai/*"],
+        ["https://one.hushh.ai/*", "https://one.hussh.ai/*"],
+        ["https://one.hushh.ai/*"],
+    ):
+        referrers[:] = invalid
+        with pytest.raises(module.PrerequisiteError, match="restrictions are incomplete"):
+            module.verify(oauth_attested=True)
+    referrers[:] = expected_referrers
+    for reused in (values["DRIVE_DOCUMENT_KEY_V1"], values["DRIVE_SHARING_KEY_V1"], "\x00" * 32):
+        values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = reused
+        with pytest.raises(module.PrerequisiteError, match="must be distinct"):
+            module.verify(oauth_attested=True)
+    values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = base64.b64encode(b"\x02" * 32).decode()
 
     values["DRIVE_SHARING_KEY_V1"] = values["DRIVE_DOCUMENT_KEY_V1"]
     with pytest.raises(module.PrerequisiteError, match="must be distinct"):
@@ -372,17 +411,23 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         "scripts/ci/resolve-cloud-run-deploy-revision.py",
         "scripts/ci/resolve-uat-verified-image.py",
         "scripts/ci/assert_one_voice_live_probe.py",
+        "scripts/ci/runtime-capacity-budget.py",
+        "config/runtime-capacity.json",
         "deploy/backend.cloudbuild.yaml",
         "scripts/ops/sync_backend_runtime_secrets.py",
+        "hushh-webapp/lib/vault/passkey-domain-aliases.json",
     )
+    catalog_path = old_paths[-1]
+    old_catalog = json.dumps({"production": ["one.hushh.ai", "one.hussh.ai"]})
     for path in old_paths:
-        write(path, "old release tooling\n")
+        write(path, old_catalog if path == catalog_path else "old release tooling\n")
     git("add", ".")
     git("commit", "-qm", "Old application target")
     old_sha = git("rev-parse", "HEAD")
     tools = (
         "resolve_prod_release_mode.py",
         "verify_prod_prerequisites.py",
+        "setup_native_callback_log_exclusion.sh",
         "deploy_worker_service_prod.sh",
         "setup_work_drain_scheduler_prod.sh",
         "work_drain_scheduler_snapshot_prod.py",
@@ -391,6 +436,8 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     current_paths = [
         *old_paths,
         "scripts/ci/verify-prod-places-readiness.py",
+        "scripts/ci/cloudrun-retention.py",
+        "scripts/ops/verify-env-secrets-parity.py",
         *(f"deploy/drive/{name}" for name in tools),
     ]
     for path in current_paths:
@@ -422,6 +469,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
                 "resolve-cloud-run-deploy-revision.py",
                 "resolve-uat-verified-image.py",
                 "verify-prod-places-readiness.py",
+                "passkey-domain-aliases.json",
             )
         ):
             continue
@@ -429,6 +477,12 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     assert (runner / "release-tools/verify-prod-places-readiness.py").read_text() == (
         ROOT / "scripts/ci/verify-prod-places-readiness.py"
     ).read_text()
+    retained_catalog = runner / "release-tools/drive-domain-aliases.json"
+    assert retained_catalog.read_text() == (ROOT / catalog_path).read_text()
+    assert (repo / catalog_path).read_text() == old_catalog
+    preflight_module = _module("verify_prod_prerequisites.py")
+    assert "https://one.hussh.si/*" in preflight_module._picker_referrers(retained_catalog)
+    assert "https://one.hussh.si/*" not in preflight_module._picker_referrers(repo / catalog_path)
     assert not (repo / registry).exists(), (
         "Release tooling must not replace target application code"
     )

@@ -10,7 +10,7 @@ import {
 import {
   getKaiActionById,
   listKaiActionsForSurface,
-} from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/kai-action-gateway";
 
 afterEach(() => {
   document.body.innerHTML = "";

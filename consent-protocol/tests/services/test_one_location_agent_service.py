@@ -560,6 +560,47 @@ def test_nearby_check_in_preferences_default_visible_true_requests_false(
     }
 
 
+@pytest.mark.parametrize("accepts_submission", [True, False])
+def test_location_push_reports_queue_acceptance_not_device_delivery(
+    monkeypatch: pytest.MonkeyPatch, accepts_submission: bool
+) -> None:
+    def submit(deliver):
+        if not accepts_submission:
+            raise RuntimeError("executor unavailable")
+        # Deliberately do not execute: queue acceptance is not device receipt.
+        return object()
+
+    monkeypatch.setattr(
+        one_location_agent_module, "_NOTIFICATION_EXECUTOR", SimpleNamespace(submit=submit)
+    )
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *args: SimpleNamespace(
+                data=[{"token": "test-device-token", "platform": "ios"}]
+            )
+        ),
+    )
+    monkeypatch.setattr(one_location_agent_module, "ensure_firebase_admin", lambda: (True, None))
+    monkeypatch.setattr(
+        one_location_agent_module, "build_push_message", lambda *args, **kwargs: object()
+    )
+
+    assert (
+        OneLocationAgentService()._send_metadata_notification(
+            user_id="test-recipient",
+            notification_type="location_share_created",
+            title="SMS",
+            body="Emergency alert",
+            notification_tag="sms:test",
+            request_url="/one/location",
+            data={"share_kind": "sos"},
+        )
+        is accepts_submission
+    )
+
+
 def test_settings_sync_notification_is_silent_and_metadata_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4297,9 +4338,9 @@ def test_directory_candidate_search_filters_before_pagination(
         "candidate_user_id": None,
         "candidate_user_ids": None,
         "query": "cara",
-        "identifier_search": False,
-        "exact_email": None,
-        "exact_phone": None,
+        "name_search": True,
+        "email_contains": "%cara%",
+        "phone_contains": None,
         "exact_name": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
@@ -4367,23 +4408,27 @@ def test_directory_search_matches_prefixes_not_substrings() -> None:
 @pytest.mark.parametrize(
     ("query", "email", "phone"),
     [
-        ("Friend@Example.test", "friend@example.test", None),
-        ("+1 (555) 010-0002", None, "15550100002"),
+        ("Friend@Example.test", "%friend@example.test%", None),
+        ("friend@", "%friend@%", None),
+        ("friend", "%friend%", None),
+        ("+1 (555) 010-0002", None, "%15550100002%"),
+        ("5550100002", "%5550100002%", "%5550100002%"),
+        ("5", "%5%", "%5%"),
+        ("_!%", "%!_!!!%%", None),
     ],
 )
-def test_directory_identifier_search_is_exact_and_phone_is_verified(
+def test_directory_identifier_search_is_partial_and_phone_is_verified(
     query: str, email: str | None, phone: str | None
 ) -> None:
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query=query)
 
-    assert service.params["identifier_search"] is True
-    assert service.params["exact_email"] == email
-    assert service.params["exact_phone"] == phone
-    assert "LOWER(BTRIM(a.email)) = :exact_email" in service.sql
+    assert service.params["email_contains"] == email
+    assert service.params["phone_contains"] == phone
+    assert "LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'" in service.sql
     assert "a.phone_verified = TRUE" in service.sql
-    assert "REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') = :exact_phone" in service.sql
-    assert ":identifier_search = FALSE AND" in service.sql
+    assert "REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains" in service.sql
+    assert ":name_search = TRUE AND" in service.sql
     assert "LIKE :email_prefix" not in service.sql
 
 
@@ -4787,7 +4832,10 @@ def test_targeted_circle_member_invite_expiry_is_ordered_locked_and_bounded() ->
     assert "WHERE invite.id = candidate.id" in service.sql
 
 
-def test_four_user_location_workflow_contract() -> None:
+def test_four_user_location_workflow_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Stable time prevents fractional timestamp digits resembling a phone suffix.
+    now = datetime.now(timezone.utc).replace(microsecond=222222)
+    monkeypatch.setattr(one_location_agent_module, "_utcnow", lambda: now)
     service = FourUserMemoryService()
     user_a = "user_a"
     user_b = "user_b"
@@ -4838,7 +4886,7 @@ def test_four_user_location_workflow_contract() -> None:
             duration_hours=1,
         )
     assert unverified_share.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
-    assert "verify their phone" in str(unverified_share.value)
+    assert "SMS setup could not be confirmed" in str(unverified_share.value)
 
     request_event_count = sum(
         event["event_type"] == "location_access_request" for event in service.events.values()

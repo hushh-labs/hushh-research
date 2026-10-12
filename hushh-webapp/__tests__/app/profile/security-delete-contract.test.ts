@@ -57,8 +57,9 @@ describe("profile security deletion contract", () => {
     expect(topAppBarSource).toContain("Unlock Vault to Delete Account");
     expect(topAppBarSource).toContain("skipFcmCleanup: true");
     expect(deleteFlowSource).toContain(
-      "result = await AccountService.deleteAccount(",
+      "performDeletion: () => AccountService.deleteAccount(",
     );
+    expect(deleteFlowSource).toContain("result = await params.performDeletion();");
     expect(deleteFlowSource).toContain("confirmDeletionAfterUncertainResponse");
     expect(deleteFlowSource).toContain("account_deletion_uncertain");
     expect(deleteFlowSource).toContain("account_delete_uncertain_unverified");

@@ -111,9 +111,9 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByText("Good to see you, Kushal.")).toBeNull();
     expect(screen.queryByText("Your private agent")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
 
     // Every dashboard tile enters the same static setup workspace as the hub.
     // A resolved journey is redirected by that workspace to the normal product
@@ -122,31 +122,33 @@ describe("OneDashboardPage", () => {
     expect(financeLink.getAttribute("href")).toBe(
       financeSetupFromOne,
     );
-    const expectedAppIcons = [
-      "finance",
-      "wallet",
+    const rosterOrder = [
       "location",
-      "ria",
       "gmail",
       "calendar",
-      "pkm",
+      "finance",
+      "ria",
+      "wallet",
       "consent",
+      "pkm",
+      "messages",
     ] as const;
-    for (const id of expectedAppIcons) {
+    const grid = screen.getByTestId("one-agents-grid");
+    expect(
+      Array.from(grid.querySelectorAll('[data-testid^="one-agent-tile-"]')).map(
+        (tile) => tile.getAttribute("data-testid")?.replace("one-agent-tile-", ""),
+      ),
+    ).toEqual(rosterOrder);
+    for (const id of rosterOrder) {
       const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
-      expect(icon).toBeTruthy();
-      expect(icon).toHaveAttribute("data-agent-icon-kind", "svg");
-      expect(icon.querySelector("svg")).toHaveAttribute("viewBox", "0 0 64 64");
-      expect(icon.querySelector("img, image")).toBeNull();
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "custom");
+      expect(icon).toHaveClass("h-[68px]", "w-[68px]");
+      expect(icon.querySelectorAll("svg")).toHaveLength(1);
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
     // An unfinished workspace keeps its recognizable full-color artwork.
-    expect(financeIcon.querySelector("stop")).toHaveAttribute(
-      "stop-color", "#43CF73",
-    );
-    expect(financeIcon.querySelector("svg")?.className.baseVal).not.toContain(
-      "grayscale",
-    );
+    expect(financeIcon.querySelector("svg")).toBeTruthy();
+    expect(financeIcon.className).not.toContain("grayscale");
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
     const riaLink = screen.getByRole("link", { name: "Open Advisor" });
     expect(riaLink.getAttribute("href")).toBe(
@@ -170,6 +172,9 @@ describe("OneDashboardPage", () => {
       screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),
     ).toBe(ROUTES.ONE_LOCATION);
     expect(screen.queryByRole("link", { name: "Open CRM" })).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Open Messages" }).getAttribute("href"),
+    ).toBe(ROUTES.ONE_MESSAGES);
 
     // The roster shows a concise, numeric action KPI rather than generic
     // progress words such as Ready, Open, or Explore.
@@ -179,7 +184,7 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByText("Explore")).toBeNull();
     // Gmail and Calendar are first-class setup capabilities; Wallet, Memory,
     // and Consent remain direct workspaces and do not inflate setup progress.
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(8);
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
     expect(
       screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
@@ -212,14 +217,12 @@ describe("OneDashboardPage", () => {
     // Completed workspace setup is represented as an operational KPI rather
     // than the generic Ready label.
     expect(countRosterMetrics(container, "0", "actions")).toBe(5);
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
 
     // Completed setup keeps the same capability artwork as unfinished setup.
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    expect(financeIcon.querySelector("stop")).toHaveAttribute(
-      "stop-color", "#43CF73",
-    );
+    expect(financeIcon.querySelector("svg")).toBeTruthy();
     const rosterPaletteOrder = [
       "finance",
       "wallet",
@@ -229,20 +232,17 @@ describe("OneDashboardPage", () => {
       "calendar",
       "pkm",
       "consent",
+      "messages",
     ] as const;
-    const iconBackgrounds = Object.fromEntries(
-      rosterPaletteOrder.map((id) => [
-        id,
-        screen
-          .getAllByTestId(`one-agent-icon-${id}`)[0]
-          .querySelector("stop")?.getAttribute("stop-color"),
-      ]),
+    const iconSources = rosterPaletteOrder.map((id) =>
+      screen
+        .getAllByTestId(`one-agent-icon-${id}`)[0]
+        .querySelector("svg")?.innerHTML,
     );
-    expect(Object.values(iconBackgrounds).every(Boolean)).toBe(true);
-    expect(new Set(Object.values(iconBackgrounds)).size).toBe(
+    expect(iconSources.every(Boolean)).toBe(true);
+    expect(new Set(iconSources).size).toBe(
       rosterPaletteOrder.length,
     );
-    expect(financeIcon.querySelector("svg g")).toHaveAttribute("fill", "white");
   });
 
   it("renders authored setup actions instead of transient checking states", () => {
@@ -254,23 +254,24 @@ describe("OneDashboardPage", () => {
     );
   });
 
-  it("renders the complete roster as a list first and keeps the grid available", () => {
+  it("defaults to the complete three-column grid and keeps the list available", () => {
     const { container } = render(
       <OneDashboardPage displayName="Kushal Trivedi" />,
     );
 
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
-    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
+    expect(screen.getByTestId("one-agent-tile-messages")).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Open Finance" }).getAttribute("href"),
     ).toBe(financeSetupFromOne);
     expect(screen.getByLabelText("Show agent grid view")).toHaveAttribute(
       "aria-pressed",
-      "false",
+      "true",
     );
+    fireEvent.click(screen.getByLabelText("Show agent list view"));
+    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
+    expect(screen.getByTestId("one-agent-list-row-messages")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Show agent grid view"));
-    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
-    expect(screen.getByTestId("one-agent-tile-finance")).toBeTruthy();
     const grid = container.querySelector(
       '[data-agent-roster-layout="grouped-icon-grid"]',
     );
@@ -297,13 +298,13 @@ describe("OneDashboardPage", () => {
     window.localStorage.setItem("hushh:one-agent-roster-view", "grid");
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
-    const heading = screen.getByRole("heading", { name: "Agents (8)" });
+    const heading = screen.getByRole("heading", { name: "Agents (9)" });
     const gridControl = screen.getByLabelText("Show agent grid view");
     const listControl = screen.getByLabelText("Show agent list view");
     const gridContent = screen.getByTestId("one-agents-view-content");
 
     fireEvent.click(listControl);
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBe(heading);
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
     expect(screen.getByLabelText("Show agent grid view")).toBe(gridControl);
     expect(screen.getByLabelText("Show agent list view")).toBe(listControl);
     expect(gridContent.isConnected).toBe(false);
@@ -311,7 +312,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
 
     fireEvent.click(gridControl);
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBe(heading);
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
     expect(screen.queryByTestId("one-agents-list")).toBeNull();
     expect(screen.getAllByTestId("one-agents-grid")).toHaveLength(1);
   });

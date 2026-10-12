@@ -19,6 +19,14 @@ const mapLifecycle = vi.hoisted(() => ({
   unmount: vi.fn(),
 }));
 const publishSpy = vi.hoisted(() => vi.fn());
+const routeHarness = vi.hoisted(() => ({ query: "", nearby: true, replace: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: routeHarness.replace }),
+  useSearchParams: () => new URLSearchParams(routeHarness.query),
+}));
+vi.mock("@/lib/one-location/nearby-check-in-availability", () => ({
+  isOneLocationNearbyCheckInAvailable: () => routeHarness.nearby,
+}));
 
 vi.mock("@/hooks/use-auth", () => ({
   useRequireAuth: () => ({
@@ -49,7 +57,7 @@ vi.mock("@/components/location/map/location-map-screen", () => ({
     createElement("div", { "data-testid": "replacement-your-map" }),
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: (metadata: unknown) => publishSpy(metadata),
 }));
 
@@ -65,6 +73,9 @@ describe("Location map page preserves immersive UI and voice metadata", () => {
     authHarness.isAuthenticated = true;
     authHarness.userId = "test-user";
     voiceHarness.enabled = false;
+    routeHarness.query = "";
+    routeHarness.nearby = true;
+    routeHarness.replace.mockClear();
   });
 
   it("publishes the one_location_map screen with its derived actions when authenticated", () => {
@@ -87,6 +98,15 @@ describe("Location map page preserves immersive UI and voice metadata", () => {
         "location.open_map",
       ].sort(),
     );
+  });
+  it.each(["check-in", "event-check-in"])("redirects legacy %s before mounting Your Map", (action) => {
+    routeHarness.query = `action=${action}&source=map`;
+    render(<OneLocationMapPage />);
+    expect(screen.getByRole("status")).toHaveTextContent("Checking you in");
+    expect(screen.queryByTestId("immersive-your-map")).toBeNull();
+    expect(mapLifecycle.mount).not.toHaveBeenCalled();
+    expect(routeHarness.replace).toHaveBeenCalledWith("/one/location/check-in?source=map", { scroll: false });
+    expect(publishSpy).toHaveBeenCalledWith(null);
   });
 
   it("publishes nothing while auth is still loading", () => {

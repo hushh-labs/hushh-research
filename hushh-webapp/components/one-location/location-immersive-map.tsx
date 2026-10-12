@@ -32,17 +32,11 @@ import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import {
-  MAP_CONSENT_HEADING_ICON_CLASSNAME,
-  MAP_CONSENT_HEADING_ROW_CLASSNAME,
-  MAP_CONSENT_HEADING_TITLE_CLASSNAME,
-  MAP_CONSENT_PANEL_BOTTOM_PADDING,
-  MAP_CONSENT_PANEL_CLASSNAME,
-  MAP_CONSENT_SUPPORTING_LINE,
-  MAP_CONSENT_TITLE,
   MAP_RENDERER_CLASSNAME,
   MAP_SURFACE_CLASSNAME,
 } from "@/components/one-location/map-consent-panel-layout";
 import { MapNameLabels } from "@/components/one-location/map-name-labels";
+import { MapRendererAccess } from "@/components/one-location/map-renderer-access";
 import {
   MapSelfAvatarLegend,
   MapSelfAvatarMarker,
@@ -119,7 +113,7 @@ import type {
 } from "@/lib/one-location/types";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
-import { pushAndroidBackHandler } from "@/lib/navigation/android-back";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import {
   isLocationMapDemoAvailable,
   isLocationMapDemoEnabled,
@@ -813,6 +807,10 @@ export function LocationImmersiveMap({
   // Coordinates stay gated until the server confirms consent for this account.
   // The device mirror must never override a revoked or outdated server value.
   const [acceptedRenderer, setAcceptedRenderer] = useState(false);
+  const [rendererPreparationPending, setRendererPreparationPending] = useState(!initialDemoMode);
+  const [rendererPreparationError, setRendererPreparationError] = useState<string | null>(null);
+  const [rendererPreparationRetry, setRendererPreparationRetry] = useState(0);
+  const rendererAcceptanceInFlightRef = useRef(false);
   const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
     presenceMode: "ghost",
   });
@@ -962,6 +960,7 @@ export function LocationImmersiveMap({
     string | null
   >(null);
   const [nearbyCheckInOpen, setNearbyCheckInOpen] = useState(false);
+  const [checkInStartupReady, setCheckInStartupReady] = useState(false);
   const [nearbySearchPoint, setNearbySearchPoint] =
     useState<PlainLocationPoint | null>(null);
   const [nearbyPlaceFocus, setNearbyPlaceFocus] =
@@ -1164,6 +1163,7 @@ export function LocationImmersiveMap({
     // itself would only stack a duplicate history entry.
     if (isCheckInSurface) {
       checkInSheetDismissedRef.current = false;
+      setCheckInStartupReady(false);
       setNearbyCheckInOpen(true);
       return;
     }
@@ -1430,7 +1430,7 @@ export function LocationImmersiveMap({
     refreshInFlightRef.current = true;
     const refreshGeneration = ++refreshGenerationRef.current;
     const preferenceRevision = preferenceRevisionRef.current;
-    setStatus("loading");
+    setStatus((current) => current === "unavailable" ? current : "loading");
     try {
       if (demoMode) {
         const demoMarkers = locationMapDemoPeople().map((person) => ({
@@ -1440,7 +1440,7 @@ export function LocationImmersiveMap({
         }));
         markerSignatureRef.current = markerSignature(demoMarkers);
         setMarkers(demoMarkers);
-        setStatus("ready");
+        setStatus((current) => current === "unavailable" ? current : "ready");
         return;
       }
       const state = await OneLocationService.getMapState(vaultOwnerToken);
@@ -1492,14 +1492,14 @@ export function LocationImmersiveMap({
         markerSignatureRef.current = nextSignature;
         setMarkers(nextMarkers);
       }
-      setStatus("ready");
+      setStatus((current) => current === "unavailable" ? current : "ready");
     } catch {
       if (
         mountedRef.current &&
         rendererReadyRef.current &&
         refreshGenerationRef.current === refreshGeneration
       ) {
-        setStatus("error");
+        setStatus((current) => current === "unavailable" ? current : "error");
       }
     } finally {
       if (refreshGenerationRef.current === refreshGeneration) {
@@ -1556,9 +1556,15 @@ export function LocationImmersiveMap({
             GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
           setPreferences(next);
           setAcceptedRenderer(accepted);
+          setRendererPreparationPending(false);
+          setRendererPreparationError(null);
           writeCachedRendererConsentAccepted(auth.userId, accepted);
         })
-        .catch(() => undefined);
+        .catch(() => {
+          if (!mountedRef.current || preferenceRevisionRef.current !== revision) return;
+          setRendererPreparationPending(false);
+          setRendererPreparationError("Your map could not be prepared. Check your connection and try again.");
+        });
     });
   }, [auth.userId, demoMode, vaultOwnerToken]);
 
@@ -1596,35 +1602,38 @@ export function LocationImmersiveMap({
     };
   }, []);
 
-  // Renderer consent is durable metadata, not a coordinate permission. Read it
-  // before showing the disclosure so returning people do not have to accept on
-  // every Map entry; no envelope is decrypted in this bootstrap step.
+  // Open the neutral renderer directly, but only read existing acceptance.
+  // Reopening or retrying must never replace revoked/outdated consent.
   useEffect(() => {
-    if (!vaultOwnerToken || !auth.userId) return;
+    const userId = auth.userId;
+    if (!vaultOwnerToken || !userId) return;
     const revision = ++preferenceRevisionRef.current;
     if (demoMode) {
       setPreferences({ presenceMode: "ghost" });
+      setRendererPreparationPending(false);
       return;
     }
     let cancelled = false;
-    void OneLocationService.getMapState(vaultOwnerToken)
-      .then((state) => {
+    setRendererPreparationPending(true);
+    setRendererPreparationError(null);
+    void OneLocationService.getMapPreferences(vaultOwnerToken)
+      .then((current) => {
         if (cancelled || preferenceRevisionRef.current !== revision) return;
-        setPreferences(state.preferences);
-        const accepted =
-          state.preferences.rendererConsentVersion ===
-          GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
+        const accepted = current.rendererConsentVersion === GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
+        setPreferences(current);
         setAcceptedRenderer(accepted);
-        writeCachedRendererConsentAccepted(auth.userId, accepted);
+        setRendererPreparationPending(false);
+        writeCachedRendererConsentAccepted(userId, accepted);
       })
       .catch(() => {
-        // The disclosure remains available; do not misrepresent a transient
-        // bootstrap error as a location or consent failure.
+        if (cancelled || preferenceRevisionRef.current !== revision) return;
+        setRendererPreparationPending(false);
+        setRendererPreparationError("Your map could not be prepared. Check your connection and try again.");
       });
     return () => {
       cancelled = true;
     };
-  }, [auth.userId, demoMode, vaultOwnerToken]);
+  }, [auth.userId, demoMode, rendererPreparationRetry, vaultOwnerToken]);
 
   useEffect(() => {
     markerSignatureRef.current = "";
@@ -3153,24 +3162,41 @@ export function LocationImmersiveMap({
     staleClockMs,
   ]);
 
+  const retryRendererPreparation = useCallback(() => {
+    setRendererPreparationPending(true);
+    setRendererPreparationError(null);
+    setRendererPreparationRetry((attempt) => attempt + 1);
+  }, []);
+
   const acceptRenderer = useCallback(async () => {
-    if (!vaultOwnerToken) return;
+    const userId = auth.userId;
+    if (!vaultOwnerToken || !userId || rendererPreparationPending || rendererAcceptanceInFlightRef.current) return;
+    rendererAcceptanceInFlightRef.current = true;
     const revision = ++preferenceRevisionRef.current;
+    setRendererPreparationPending(true);
+    setRendererPreparationError(null);
     try {
       const next = await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
-      if (!mountedRef.current || preferenceRevisionRef.current !== revision)
-        return;
+      if (!mountedRef.current || preferenceRevisionRef.current !== revision) return;
+      if (next.rendererConsentVersion !== GOOGLE_MAPS_RENDERER_CONSENT_VERSION) {
+        throw new Error("Renderer acceptance was not confirmed");
+      }
       setPreferences(next);
       setAcceptedRenderer(true);
-      writeCachedRendererConsentAccepted(auth.userId, true);
-      if (auth.userId) publishOneLocationMapPreferences(auth.userId, next);
+      setRendererPreparationPending(false);
+      writeCachedRendererConsentAccepted(userId, true);
+      publishOneLocationMapPreferences(userId, next);
     } catch {
-      toast.error("Your Map could not be prepared.");
+      if (!mountedRef.current || preferenceRevisionRef.current !== revision) return;
+      setRendererPreparationPending(false);
+      setRendererPreparationError("Your map could not be prepared. Check your connection and try again.");
+    } finally {
+      rendererAcceptanceInFlightRef.current = false;
     }
-  }, [auth.userId, vaultOwnerToken]);
+  }, [auth.userId, rendererPreparationPending, vaultOwnerToken]);
 
   const setPresence = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -3461,24 +3487,6 @@ export function LocationImmersiveMap({
         ? "Private sharing with 1 person"
         : `Private sharing with ${privateShareCount} people`;
 
-  /**
-   * Only when it adds something the title cannot -- and the outgoing count no
-   * longer qualifies.
-   *
-   * This line used to read "Sharing with 1" under a title reading "No one
-   * sharing yet": two true statements about two different audiences, stacked
-   * as though they were one, which reads as a contradiction and was reported
-   * as one. The fix is not to reword it here. The sheet below now states both
-   * audiences in full, in their own labelled rows -- and this header only
-   * renders while the sheet is expanded, so keeping the count here as well
-   * would print the same fact twice on the same screen.
-   *
-   * What stays is the nearby radius, which nothing else says.
-   */
-  const peopleDrawerSubtitle = nearbyPresenceState.presence
-    ? `Within ${nearbyPresenceState.presence.radiusMeters} m · exact spots stay private`
-    : null;
-
   const privateShareHint = !privateShareCountKnown
     ? "Checking your active shares…"
     : privateShareCount > 0
@@ -3631,18 +3639,19 @@ export function LocationImmersiveMap({
     setClosing(false);
   }, [interactionIntents]);
 
-  // Back goes through the app-wide owner (lib/navigation/android-back.ts),
-  // which closes an open sheet first; this screen only claims what is left.
-  useEffect(() => {
-    if (!isNative() || getPlatform() !== "android") return;
-    return pushAndroidBackHandler(() => {
+  // All Back surfaces share the map owner, after the topmost sheet has dismissed.
+  useBackLayer(
+    isCheckInSurface ? ROUTES.ONE_LOCATION_CHECK_IN : ROUTES.ONE_LOCATION_MAP,
+    100,
+    () => {
       if (nearbyCheckInOpen) {
         closeNearbyCheckIn();
-        return;
+        return true;
       }
       closeMap();
-    });
-  }, [closeMap, closeNearbyCheckIn, nearbyCheckInOpen]);
+      return true;
+    },
+  );
 
   const toggleDemoPeople = useCallback(() => {
     if (!demoAvailable) return;
@@ -4202,7 +4211,7 @@ export function LocationImmersiveMap({
           </span>
         </div>
       ) : null}
-      {status !== "unavailable" && !mapReady ? (
+      {status !== "unavailable" && (!mapReady || rendererPreparationPending || (isCheckInSurface && nearbyCheckInOpen && !checkInStartupReady)) ? (
         // The map now starts initializing as soon as this screen opens --
         // before consent it's a neutral world view with zero markers, no
         // different in privacy terms from Preview-with-fictional-people,
@@ -4217,6 +4226,8 @@ export function LocationImmersiveMap({
         <div
           className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#eef2f7] px-6 text-center dark:bg-[#10151d]"
           data-testid="one-location-map-loading"
+          role="status"
+          aria-live="polite"
         >
           <div
             aria-hidden="true"
@@ -4245,82 +4256,20 @@ export function LocationImmersiveMap({
           )}
         </div>
       ) : null}
-      {/*
-        `status !== "unavailable"` for the same reason as the branch below:
-        consenting to a renderer that cannot start is a decision with no
-        outcome. When the map is broken the screen says so and keeps its close
-        control, instead of offering a Continue that leads back to the same
-        blank canvas.
-      */}
-      {!rendererReady && !isCheckInSurface && status !== "unavailable" ? (
+      {!rendererReady && !rendererPreparationPending && rendererPreparationError ? (
         <section
-          className={MAP_CONSENT_PANEL_CLASSNAME}
-          data-testid="one-location-map-disclosure"
-          style={{ paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING }}
+          role="alert"
+          data-testid="one-location-map-preparation-error"
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-[color:var(--app-primary-surface)] px-6 text-center"
         >
-          {/* The pin and the title on one line. Upstream landed the same
-              fix while this branch was in review -- geometry in
-              `map-consent-panel-layout.ts`, measured by
-              `e2e/one-location-map-consent-panel.layout.spec.ts`. */}
-          <div className={MAP_CONSENT_HEADING_ROW_CLASSNAME}>
-            <MapPin className={MAP_CONSENT_HEADING_ICON_CLASSNAME} />
-            <h1 className={MAP_CONSENT_HEADING_TITLE_CLASSNAME}>
-              {MAP_CONSENT_TITLE}
-            </h1>
-          </div>
-          {/*
-            This is the renderer-consent gate: accepting it writes
-            GOOGLE_MAPS_RENDERER_CONSENT_VERSION. That record is unchanged —
-            what changed is how much of it this screen reads out.
-
-            It used to carry three sentences: private shares are opened on this
-            device, Google Maps is told the minimum, and Nearby Check-In is a
-            separate opt-in. Two of those are not decisions a person standing
-            here can act on, and the third belongs to another feature:
-
-            - The renderer sentence describes how the map is fed. It is true and
-              it is architecture. Nothing on this screen changes because of it.
-            - The Nearby Check-In sentence explains a DIFFERENT feature's
-              consent on the screen before that feature. It is still stated, in
-              its strong form and with "Nearby" and "only" intact, on Location
-              Settings (`redesign/location-redesign-hub.tsx`) — the surface
-              where Check-In is actually turned on. Deleting it there would be a
-              real loss; deleting it here is not.
-
-            What survives is the promise the person is being asked to trust:
-            nothing on this map leaves until they share it. If a disclosure ever
-            has to grow again, it belongs on Location Settings beside the other
-            one, not back in this paragraph.
-          */}
-          <p
-            className="mt-2 text-sm leading-6 text-muted-foreground"
-            data-testid="map-consent-support"
-          >
-            {MAP_CONSENT_SUPPORTING_LINE}
+          <p className="max-w-sm text-sm text-[color:var(--app-secondary-label)]">
+            {rendererPreparationError}
           </p>
-          <Button
-            size="prominent"
-            className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
-            onClick={() => void acceptRenderer()}
-          >
-            Continue
-          </Button>
-          {demoAvailable ? (
-            <Button
-              size="standard"
-              className="mt-2 w-full"
-              variant="secondary"
-              data-testid="one-location-map-demo-preview"
-              onClick={toggleDemoPeople}
-            >
-              <UsersRound className="h-4 w-4" />
-              {/* "not real people" is not lost with the shorter label: tapping
-                  this raises the "Showing fictional people…" toast, and the map
-                  carries a Demo badge for as long as the preview is on. */}
-              See a demo
-            </Button>
-          ) : null}
+          <Button size="standard" onClick={retryRendererPreparation}>Try again</Button>
         </section>
+      ) : null}
+      {!rendererReady && !rendererPreparationPending && !rendererPreparationError && mapReady && status !== "unavailable" && !(isCheckInSurface && nearbyCheckInOpen) ? (
+        <MapRendererAccess onAccept={() => void acceptRenderer()} />
       ) : null}
       {/*
         Was `rendererReady && status === "unavailable"`, which left one state
@@ -4333,8 +4282,11 @@ export function LocationImmersiveMap({
         The placeholder says nothing private -- it is a grid, a pin and "Maps
         isn't available" -- so there is no reason it should have waited for
         consent to say the map is broken.
+
+        A preference-read failure owns the recovery surface until it settles;
+        the unavailable placeholder must not cover that surface's retry action.
       */}
-      {status === "unavailable" ? (
+      {status === "unavailable" && !(!rendererReady && !rendererPreparationPending && rendererPreparationError) ? (
         // Full-bleed styled fallback. Previously only a small bottom card sat
         // over the (blank) native canvas, so most of Your Map read as a blank
         // white screen when the Maps key was missing. Cover the whole surface
@@ -4503,11 +4455,6 @@ export function LocationImmersiveMap({
                     </span>
                   ) : null}
                 </span>
-                {peopleDrawerSubtitle ? (
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {peopleDrawerSubtitle}
-                  </span>
-                ) : null}
               </span>
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] transition-colors group-hover:bg-[var(--app-accent-surface-strong)] dark:text-[var(--app-accent-bright)]">
                 <ChevronDown className="h-4 w-4" />
@@ -5037,6 +4984,9 @@ export function LocationImmersiveMap({
       !demoMode ? (
         <NearbyCheckInSheet
           open={nearbyCheckInOpen}
+          presentationReady={isCheckInSurface ? checkInStartupReady && (mapReady || status === "unavailable") && !rendererPreparationPending && !rendererPreparationError : true}
+          onStartupReadyChange={setCheckInStartupReady}
+          rendererAccess={!rendererReady && !rendererPreparationPending && !rendererPreparationError && mapReady && status !== "unavailable" ? <MapRendererAccess inline onAccept={() => void acceptRenderer()} /> : undefined}
           ownerId={auth.userId}
           vaultOwnerToken={vaultOwnerToken}
           vaultKey={vaultKey}

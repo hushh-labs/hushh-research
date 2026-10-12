@@ -15,6 +15,9 @@ def test_connections_page_is_bounded_stable_and_page_local_for_5000_rows():
     captured: dict = {}
 
     def execute_many(sql, params):
+        if "offset" not in params:
+            # Public person refs are fetched separately for the returned page.
+            return []
         captured.update(sql=sql, params=params)
         return [
             {
@@ -49,7 +52,7 @@ def test_connections_page_is_bounded_stable_and_page_local_for_5000_rows():
     assert result["items"][0]["connectedFromContacts"] is True
     sql = captured["sql"]
     assert sql.index("ria_filter") < sql.index("OFFSET :offset")
-    assert "ORDER BY normalized_name, user_id, connection_id" in sql
+    assert "ORDER BY match_rank, normalized_name, user_id, connection_id" in sql
     assert "contact_origin.connection_id = page_rows.connection_id" in sql
 
 
@@ -103,7 +106,7 @@ def test_circle_member_page_bounds_5000_shape_and_keeps_provenance_on_page_two()
     assert result["totalCount"] == 5000
     assert result["items"][0]["connectedFromContacts"] is True
     assert sql.index("WHERE :query") < sql.index("OFFSET :offset")
-    assert "ORDER BY normalized_name, user_id" in sql
+    assert "ORDER BY match_rank, normalized_name, user_id" in sql
 
 
 def test_eligible_page_filters_and_orders_before_its_bound():
@@ -120,7 +123,7 @@ def test_eligible_page_filters_and_orders_before_its_bound():
     assert params["offset"] == 4900
     assert result == {"items": [], "page": 50, "hasMore": True, "totalCount": 5000}
     assert sql.index("WHERE :query") < sql.index("OFFSET :offset")
-    assert "ORDER BY normalized_name, user_id, connection_id" in sql
+    assert "ORDER BY match_rank, normalized_name, user_id, connection_id" in sql
 
 
 def test_trusted_summary_mode_provisions_without_populating_a_roster():
@@ -151,6 +154,7 @@ def test_location_recipient_page_reuses_authority_and_bounds_5000_shape():
             {
                 "user_id": "contact-101",
                 "display_name": "Alex",
+                "public_person_ref": "11111111-1111-4111-8111-111111111111",
                 "phone_verified": True,
                 "total_count": 5000,
                 "connected_from_contacts": True,
@@ -166,11 +170,17 @@ def test_location_recipient_page_reuses_authority_and_bounds_5000_shape():
     assert captured["params"]["offset"] == 100
     assert result["totalCount"] == 5000
     assert result["items"][0]["connectedFromContacts"] is True
+    assert result["items"][0]["publicPersonRef"] == "11111111-1111-4111-8111-111111111111"
     sql = captured["sql"]
     assert "origin.origin_kind <> 'named_circle'" in sql
     assert "circle.system_kind IS DISTINCT FROM 'trusted'" in sql
     assert sql.index("WHERE :query") < sql.index("OFFSET :offset")
-    assert "ORDER BY normalized_name, user_id" in sql
+    # Chat addresses people by this ref. Keep its projection page-local, so
+    # the picker cannot silently return null refs or change pagination counts.
+    assert "profile.public_person_ref" in sql
+    assert "LEFT JOIN actor_profiles profile ON profile.user_id = page_rows.user_id" in sql
+    assert sql.index("OFFSET :offset") < sql.index("LEFT JOIN actor_profiles profile")
+    assert "ORDER BY match_rank, normalized_name, user_id" in sql
 
 
 def test_location_recipient_route_preserves_no_param_legacy_and_adds_page_mode():

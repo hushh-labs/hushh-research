@@ -85,7 +85,15 @@ class _QueuedDb:
 
     def execute_raw(self, sql: str, params: dict):
         self.raw_calls.append((sql, params))
-        data = self.raw_results.pop(0) if self.raw_results else []
+        if sql.startswith("\nWITH keyed"):
+            query = self.queries.pop(0)
+            data = (
+                [{"unread_count": query.count}]
+                if "SELECT count(*) AS unread_count" in sql
+                else query.data
+            )
+        else:
+            data = self.raw_results.pop(0) if self.raw_results else []
         return SimpleNamespace(data=data)
 
 
@@ -160,17 +168,12 @@ def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> No
     assert [item["id"] for item in result["items"]] == ["10", "9"]
     assert result["next_cursor"] == "9"
     assert result["unread_count"] == 41
-    assert ("eq", ("user_id", "user-1"), {}) in list_query.calls
-    assert (
-        "select",
-        ("id,source_domain,event_type,actor_label,metadata,source_row_id,read_at,created_at",),
-        {},
-    ) in list_query.calls
-    assert ("lt", ("id", 11), {}) in list_query.calls
-    assert ("order", ("id",), {"desc": True}) in list_query.calls
-    assert ("limit", (3,), {}) in list_query.calls
-    assert ("select", ("id",), {"count": "exact"}) in count_query.calls
-    assert ("limit", (0,), {}) in count_query.calls
+    sql, params = service._db.raw_calls[0]
+    assert params == {"user_id": "user-1", "cursor": 11, "page_size": 3}
+    assert "FROM grouped WHERE" in sql
+    assert "row_number() OVER (PARTITION BY thread_key ORDER BY id DESC)" in sql
+    assert "LIMIT :page_size" in sql
+    assert service._db.raw_calls[-1][1] == {"user_id": "user-1"}
 
 
 def test_mark_read_is_tenant_scoped_and_never_unbounded() -> None:
@@ -221,6 +224,149 @@ def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
         "requested_duration_hours": 3,
         "is_extension": True,
     }
+
+
+def test_historical_drive_payment_reads_current_requester_scoped_status() -> None:
+    request_id = "11111111-2222-4333-8444-555555555555"
+    db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "current_request_status": "pending",
+                    "current_request_expires_at": "2026-10-10T00:00:00Z",
+                    "current_request_expired": False,
+                    "current_access_stopped": False,
+                    "current_payment_status": "paid",
+                    "current_checkout_expires_at": "2026-10-09T00:00:00Z",
+                    "current_checkout_expired": True,
+                    "provider_secret": "never-send-this",
+                }
+            ]
+        ]
+    )
+    service = FeedService()
+    service._db = db
+    rows = service._with_drive_payment_status(
+        "requester",
+        [
+            {
+                "event_type": "document_share_payment_ready",
+                "metadata": {"request_id": request_id, "file_name": "private.pdf"},
+            },
+        ],
+    )
+    sql, params = db.raw_calls[0]
+    assert "r.recipient_user_id=:user_id" in sql
+    assert params["user_id"] == "requester"
+    metadata = FeedService._to_item({"id": 1, **rows[0]})["metadata"]
+    assert metadata["current_payment_status"] == "paid"
+    assert metadata["current_checkout_expired"] is True
+    assert "provider_secret" not in str(metadata)
+    assert "private.pdf" not in str(metadata)
+
+
+def test_document_feed_projects_owner_setup_and_exact_partial_refund_only_to_each_party() -> None:
+    request_id = "11111111-2222-4333-8444-555555555555"
+    owner_db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "viewer_is_owner": True,
+                    "owner_payout_status": "awaiting_delivery",
+                    "owner_payout_account_ready": False,
+                    "owner_earning_cents": None,
+                    "current_refund_amount_cents": 500,
+                    "current_payment_amount_cents": 1000,
+                }
+            ]
+        ]
+    )
+    owner = FeedService()
+    owner._db = owner_db
+    row = {"event_type": "document_share_request", "metadata": {"request_id": request_id}}
+    owner_metadata = FeedService._to_item(
+        {"id": 1, **owner._with_drive_payment_status("owner", [row])[0]}
+    )["metadata"]
+    assert owner_metadata["owner_payout_status"] == "awaiting_delivery"
+    assert owner_metadata["owner_payout_account_ready"] is False
+    assert "current_refund_amount_cents" not in owner_metadata
+
+    requester_db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "viewer_is_owner": False,
+                    "owner_payout_status": "transferred",
+                    "owner_earning_cents": 411,
+                    "current_refund_amount_cents": 500,
+                    "current_payment_amount_cents": 1000,
+                }
+            ]
+        ]
+    )
+    requester = FeedService()
+    requester._db = requester_db
+    row = {"event_type": "document_share_payment_refunded", "metadata": {"request_id": request_id}}
+    requester_metadata = FeedService._to_item(
+        {"id": 2, **requester._with_drive_payment_status("requester", [row])[0]}
+    )["metadata"]
+    assert requester_metadata["current_refund_amount_cents"] == 500
+    assert requester_metadata["current_payment_amount_cents"] == 1000
+    assert "owner_payout_status" not in requester_metadata
+
+
+def test_document_feed_projects_setup_before_payout_order_and_waiting_to_requester(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    request_id = "11111111-2222-4333-8444-555555555555"
+    owner_db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "viewer_is_owner": True,
+                    "owner_payout_status": None,
+                    "owner_payout_account_ready": False,
+                }
+            ]
+        ]
+    )
+    owner = FeedService()
+    owner._db = owner_db
+    owner_row = {"event_type": "document_share_request", "metadata": {"request_id": request_id}}
+    owner_metadata = FeedService._to_item(
+        {"id": 1, **owner._with_drive_payment_status("owner", [owner_row])[0]}
+    )["metadata"]
+    assert owner_metadata["owner_payout_account_ready"] is False
+    assert "owner_payout_status" not in owner_metadata
+    assert owner_db.raw_calls[0][1]["payout_rollout"] is True
+
+    requester_db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "viewer_is_owner": False,
+                    "current_owner_payout_account_ready": False,
+                }
+            ]
+        ]
+    )
+    requester = FeedService()
+    requester._db = requester_db
+    requester_row = {
+        "event_type": "document_share_payment_ready",
+        "metadata": {"request_id": request_id},
+    }
+    requester_metadata = FeedService._to_item(
+        {"id": 2, **requester._with_drive_payment_status("requester", [requester_row])[0]}
+    )["metadata"]
+    assert requester_metadata["current_owner_payout_account_ready"] is False
+    assert "owner_payout_account_ready" not in requester_metadata
 
 
 def test_recipient_share_outcome_hides_owner_zero_match_result() -> None:
@@ -310,7 +456,7 @@ def test_direct_message_feed_body_is_only_a_recipient_scoped_transient_preview(
     # The Feed row itself remains plaintext-free; only the authenticated DTO
     # acquires the result of opening the message envelope.
     assert list_query.data[0]["metadata"] == {}
-    sql, params = service._db.raw_calls[0]
+    sql, params = service._db.raw_calls[1]
     assert "feed.user_id = :viewer_user_id" in sql
     assert "conversation.participant_a_user_id = message.sender_user_id" in sql
     assert "conversation.participant_b_user_id = message.sender_user_id" in sql
@@ -426,7 +572,7 @@ def test_list_feed_enriches_connection_rows_with_counterpart_photo() -> None:
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/kushal.jpg"
     )
-    assert "connection_requests" in service._db.raw_calls[0][0]
+    assert "connection_requests" in service._db.raw_calls[1][0]
     assert "counterpart_user_id" not in result["items"][0]["metadata"]
 
 
@@ -467,7 +613,7 @@ def test_list_feed_enriches_location_grant_rows_with_counterpart_photo() -> None
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/ankit.jpg"
     )
-    assert "one_location_share_grants" in service._db.raw_calls[0][0]
+    assert "one_location_share_grants" in service._db.raw_calls[1][0]
 
 
 def test_durable_identity_gives_same_person_photo_to_mixed_feed_events() -> None:
@@ -667,3 +813,46 @@ def test_legacy_duration_event_prefers_its_authoritative_grant_id() -> None:
 
     assert rows[0]["metadata"]["counterpart_photo_url"] == "https://example.test/person.png"
     assert grant_id in service._db.raw_calls[0][1]["grant_ids_json"]
+
+
+def test_grouped_chat_metadata_is_computed_and_not_copied_from_storage():
+    item = FeedService._to_item(
+        {
+            "id": 21,
+            "event_type": "location_circle_message",
+            "metadata": {"chat_unread_count": 9999, "circle_name": "Family"},
+            "thread_key": "circle:c1",
+            "thread_message_count": 12,
+            "thread_unread_count": 3,
+        }
+    )
+
+    assert item["metadata"]["chat_thread_key"] == "circle:c1"
+    assert item["metadata"]["chat_message_count"] == 12
+    assert item["metadata"]["chat_unread_count"] == 3
+    assert (
+        FeedService._to_item(
+            {"id": 1, "metadata": {"chat_thread_key": "direct:foreign", "chat_unread_count": 99}}
+        )["metadata"]
+        == {}
+    )
+
+
+def test_card_share_notice_requires_authoritative_recipient_grant():
+    grant_id = "22222222-2222-4222-8222-222222222222"
+    row = {
+        "id": 22,
+        "event_type": "direct_message_received",
+        "actor_label": "Test sender",
+        "_direct_message_preview": f"[wallet-access:{grant_id}]",
+        "metadata": {"wallet_card_grant_id": grant_id},
+    }
+    assert "wallet_card_grant_id" not in FeedService._to_item(row)["metadata"]
+    verified = FeedService._to_item({**row, "_wallet_card_grant_id": grant_id})
+    assert verified["metadata"]["wallet_card_grant_id"] == grant_id
+    assert verified["metadata"]["message_preview"] == "Test sender shared their card with you"
+    assert (
+        feed_service_module._direct_message_preview(f"[wallet-access:{grant_id}]")
+        == "Shared payment card"
+    )
+    assert feed_service_module._direct_message_preview("Ordinary message") == "Ordinary message"

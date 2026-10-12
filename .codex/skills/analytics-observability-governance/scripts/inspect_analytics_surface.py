@@ -11,9 +11,11 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from google.auth.transport.requests import AuthorizedSession
-from google.oauth2 import service_account
+if TYPE_CHECKING:
+    from google.auth.transport.requests import AuthorizedSession
+
 
 
 DEFAULTS = {
@@ -26,6 +28,13 @@ DEFAULTS = {
     "prod_excluded_streams": ["13702689760"],
     "expected_streams": {
         "production": [
+            {
+                "stream_id": "15395548050",
+                "type": "ANDROID_APP_DATA_STREAM",
+                "firebase_app_id": "1:1006304528804:android:55bde832bb50240acfd931",
+                "package_name": "com.hussh.app",
+                "export_required": True,
+            },
             {
                 "stream_id": "13694989021",
                 "type": "ANDROID_APP_DATA_STREAM",
@@ -233,6 +242,10 @@ def load_service_account_json(args: argparse.Namespace) -> str:
 
 
 def build_session(args: argparse.Namespace, *, readwrite: bool = False) -> AuthorizedSession:
+    # Offline scope acceptance uses only stdlib; load Google auth for live reads.
+    from google.auth.transport.requests import AuthorizedSession
+    from google.oauth2 import service_account
+
     payload = load_service_account_json(args)
     scopes = [
         "https://www.googleapis.com/auth/analytics.readonly",
@@ -435,6 +448,13 @@ def validate(summary: dict) -> dict:
                 findings["high"].append(
                     f"{label}: stream {stream_id} type is {stream.get('type')} not {expected_type}"
                 )
+            package_name = expected_stream.get("package_name")
+            if package_name and stream.get("androidAppStreamData", {}).get("packageName") != package_name:
+                findings["high"].append(f"{label}: stream {stream_id} Android package mismatch")
+            if expected_stream.get("export_required"):
+                resource = stream["name"]
+                if not any(resource in link.get("exportStreams", []) and link.get("dailyExportEnabled") for link in payload["bigquery_links"]):
+                    findings["high"].append(f"{label}: Android stream {stream_id} missing from daily BigQuery export")
             measurement_id = expected_stream.get("measurement_id")
             if measurement_id:
                 actual_measurement_id = (

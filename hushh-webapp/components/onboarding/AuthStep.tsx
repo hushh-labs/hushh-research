@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {

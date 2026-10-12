@@ -11,6 +11,27 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/lib/services/wallet-sharing-service", async (original) => ({ ...await original<object>(), loadWalletSharing: vi.fn() }));
 describe("Wallet Sharing", () => {
+  it("retains confirmed recipients during background refresh and tab changes", async () => {
+    vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [{ id: "grant", scope: "attr.wallet.summary.*", kind: "active_grant", status: "active", action: "grant", counterpart_type: "person", counterpart_label: "Alex" }] });
+    const view = render(<WalletSharing active />);
+    await screen.findByText("Alex");
+    view.rerender(<WalletSharing active={false} />);
+    view.rerender(<WalletSharing active />);
+    expect(loadWalletSharing).toHaveBeenCalledTimes(1);
+    vi.mocked(loadWalletSharing).mockImplementationOnce(() => new Promise(() => {}));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(screen.getByText("Alex")).toBeVisible();
+    expect(screen.queryByText("Loading shared access…")).toBeNull();
+  });
+  it("shows recipients without a second preview or management actions in card details", async () => {
+    vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [{ id: "grant", request_id: "grant", scope: "attr.wallet.summary.*", kind: "active_grant", status: "active", action: "grant", counterpart_type: "person", counterpart_label: "Alex" }] });
+    render(<WalletSharing cardDetails />);
+    expect(await screen.findByText("Alex")).toBeVisible();
+    expect(screen.getByText("These recipients have Wallet-wide access, including this card.")).toBeVisible();
+    expect(screen.getByText("Card summary")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "Agent One Profile" })).toBeNull();
+  });
   beforeEach(() => { vi.clearAllMocks(); mocks.vaultKey = "test-key"; mocks.approve.mockResolvedValue(undefined); mocks.deny.mockResolvedValue(undefined); mocks.revoke.mockResolvedValue(undefined); });
   it("shows current projected artwork and conceals it while locked, retaining the real empty state", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [] });

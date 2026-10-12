@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock
 
@@ -32,6 +33,73 @@ def metadata(**changes):
 @pytest.fixture
 def adapter():
     return drive.GoogleDriveAdapter()
+
+
+@pytest.mark.asyncio
+async def test_search_sessions_reuse_connections_without_cross_task_credentials(
+    adapter, monkeypatch, caplog
+):
+    original = httpx.AsyncClient
+    clients, credentials = [], []
+    caplog.set_level("INFO", logger=drive.__name__)
+
+    def client(**kwargs):
+        own_credentials = []
+        credentials.append(own_credentials)
+
+        def response(request):
+            own_credentials.append(request.headers["Authorization"])
+            return httpx.Response(200, stream=httpx.ByteStream(b'{"files":[]}'))
+
+        result = original(**kwargs, transport=httpx.MockTransport(response))
+        clients.append(result)
+        return result
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    ready = asyncio.Event()
+    entered = 0
+
+    async def search(token):
+        nonlocal entered
+        async with adapter.read_session():
+            entered += 1
+            if entered == 2:
+                ready.set()
+            await ready.wait()
+            for _ in range(2):
+                # Nested scopes borrow the same client without closing it.
+                async with adapter.read_session():
+                    await adapter.list_files(
+                        access_token=token,
+                        query="name = 'private-query'",
+                        page_size=25,
+                        page_token="private-page-token",
+                    )
+
+    await asyncio.gather(search("private-owner-a-token"), search("private-owner-b-token"))
+    assert len(clients) == 2 and all(item.is_closed for item in clients)
+    assert credentials == [
+        ["Bearer private-owner-a-token"] * 2,
+        ["Bearer private-owner-b-token"] * 2,
+    ]
+    await adapter.list_files(
+        access_token="private-third-token", query="trashed = false", page_size=25
+    )
+    assert len(clients) == 3 and clients[-1].is_closed
+    entries = [record.getMessage() for record in caplog.records if record.name == drive.__name__]
+    assert any("headers_ms=" in item and "body_ms=" in item for item in entries)
+    assert all("private-" not in item and "https://" not in item for item in entries)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_search_session_closes_and_resets_client(adapter):
+    client = None
+    with pytest.raises(asyncio.CancelledError):
+        async with adapter.read_session():
+            client = adapter._read_client.get()
+            raise asyncio.CancelledError()
+    assert client.is_closed
+    assert adapter._read_client.get() is None
 
 
 @pytest.mark.parametrize(

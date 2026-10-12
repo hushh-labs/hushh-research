@@ -75,6 +75,7 @@ steps:
   # --max/--min: service-level limits bound aggregate database fan-out across
   # traffic splits. Revision min-instances=0 prevents no-traffic/retired
   # revisions from pinning their own warm database pools.
+  # CPU stays allocated between requests for action-search warmup and chat.
   # Step 3a: Validate the runtime identity + managed-Vertex IAM prerequisites.
   # Split out of the deploy step: Cloud Build caps one step arg at 10,000 chars
   # and the deploy body was 142 over after the INTELLIGENCE_* secret wiring.
@@ -113,6 +114,24 @@ steps:
               ;;
           esac
         fi
+        if [[ -n "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" ]]; then
+          case "${_DEPLOY_ENV}:${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" in
+            uat:hussh-511311) ;;
+            *)
+              echo "One chat Vertex target is not allowlisted." >&2
+              exit 1
+              ;;
+          esac
+        fi
+        if [[ -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+          case "${_DEPLOY_ENV}:${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in
+            uat:hussh-511311) ;;
+            *)
+              echo "One voice Vertex target is not allowlisted." >&2
+              exit 1
+              ;;
+          esac
+        fi
         gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
           --project="$PROJECT_ID" >/dev/null
         vertex_api_name="$(gcloud services list --enabled \
@@ -141,75 +160,22 @@ steps:
             exit 1
           fi
         fi
-    id: "verify-runtime-iam"
-
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: "bash"
-    args:
-      - "-c"
-      - |
-        set -euo pipefail
-        genai_project_id="${_GENAI_PROJECT_ID}"
-        if [[ -z "${genai_project_id}" ]]; then
-          genai_project_id="$PROJECT_ID"
-          if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-            genai_project_id="hushh-pda-uat"
-          fi
-        fi
-        add_secret() {
-          local secret_name="$1"
-          local env_name="$2"
-          [[ -z "${secret_name}" ]] && return
-          if gcloud secrets describe "${secret_name}" --project="$PROJECT_ID" >/dev/null 2>&1; then
-            secrets="${secrets},${env_name}=${secret_name}:latest"
-          fi
-        }
-
-        secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=${_FIREBASE_ADMIN_CREDENTIALS_SECRET}:latest,APP_FRONTEND_ORIGIN=${_APP_FRONTEND_ORIGIN_SECRET}:latest,BACKEND_RUNTIME_CONFIG_JSON=${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
-        if [[ -n "${_PLAID_CLIENT_ID_SECRET}" ]]; then
-          secrets="${secrets},PLAID_CLIENT_ID=${_PLAID_CLIENT_ID_SECRET}:latest"
-        fi
-        if [[ -n "${_PLAID_SECRET_SECRET}" ]]; then
-          secrets="${secrets},PLAID_SECRET=${_PLAID_SECRET_SECRET}:latest"
-        fi
-        if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
-          secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
-        fi
-        if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then
-          for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do
-            if [[ -z "${required_secret}" ]] || ! gcloud secrets describe "${required_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
-              echo "Drive request payments require both Stripe secrets in the deploy project." >&2
+        if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" || "${_ANSWER_WORK_DRAIN_ENABLED}" == "true" ]]; then
+          for answer_secret in "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}"; do
+            if [[ -z "${answer_secret}" ]] || ! gcloud secrets describe "${answer_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+              echo "Answer payments require their own Stripe secret bindings." >&2
               exit 1
             fi
           done
+          if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_PKM_ANSWER_COMPOSER_ENABLED}" != "true" ]]; then
+            echo "Paid answers require the reviewed composer flag." >&2
+            exit 1
+          fi
         fi
-        for n in FINNHUB_API_KEY PMP_API_KEY NEWSAPI_KEY GMAIL_OAUTH_CLIENT_ID GMAIL_OAUTH_CLIENT_SECRET GMAIL_OAUTH_REDIRECT_URI GMAIL_OAUTH_TOKEN_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_REDIRECT_URI GOOGLE_OAUTH_TOKEN_KEY GOOGLE_DRIVE_OAUTH_CLIENT_ID GOOGLE_DRIVE_OAUTH_CLIENT_SECRET GOOGLE_DRIVE_PICKER_API_KEY EXTERNAL_CONNECTOR_CREDENTIAL_KEY DRIVE_DOCUMENT_KEY_V1 DRIVE_SHARING_KEY_V1 STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET OPENAI_API_KEY GOOGLE_MAPS_API_KEY OMNIGATEWAY_CLIENT_ID OMNIGATEWAY_CLIENT_SECRET OMNIGATEWAY_EXT_CRM_CLIENT_ID OMNIGATEWAY_EXT_CRM_CLIENT_SECRET HUSHH_DEVELOPER_TOKEN HUSHH_UAT_PHONE_TEST_NUMBERS HUSHH_UAT_PHONE_TEST_CODE HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET HUSHH_PROD_PHONE_TEST_NUMBERS HUSHH_PROD_PHONE_TEST_CODE HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET REVIEWER_UID REVIEWER_VAULT_PASSPHRASE RIA_INTELLIGENCE_VERIFY_BASE_URL RIA_IDENTITY_BASE_URL RIA_IDENTITY_API_KEY INTELLIGENCE_API_BASE_URL INTELLIGENCE_API_KEY SUPPORT_EMAIL_TEST_TO SUPPORT_EMAIL_MODE SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY RIA_CLAIM_TEST_NUMBERS RIA_CLAIM_TEST_CODE RIA_CLAIM_TEST_EMAILS ONE_EMAIL_WATCH_RENEW_TOKEN WALLET_API_KEY; do
-          v="_${n}_SECRET"
-          add_secret "${!v}" "${n}"
-        done
-        # Curated OAuth connectors (config/curated_connectors/*.json): the deploy
-        # passes the '+'-joined secret names derived from the checked-in manifests.
-        # Secret name == environment variable name, so nothing is mapped per provider.
-        for s in $(echo "${_CURATED_CONNECTOR_SECRETS}" | tr '+' ' '); do
-          add_secret "$s" "$s"
-        done
-        add_secret "${_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET}" "DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
-        add_secret ADVISORS_API_KEY ADVISORS_API_KEY
-        add_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY
-        add_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY
-        add_secret NWS_NEARBY_V4_API_KEY NWS_NEARBY_V4_API_KEY
-        add_secret NWS_NEARBY_V4_ACTOR_HMAC_KEY NWS_NEARBY_V4_ACTOR_HMAC_KEY
-        add_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"
-        add_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"
-        add_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
-        add_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
-        add_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
-
-        runtime_environment="${_RUNTIME_ENVIRONMENT}"
-        if [[ -z "${runtime_environment}" ]]; then
-          runtime_environment="${_DEPLOY_ENV}"
+        if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_PKM_ANSWER_STRIPE_MODE}" == "live" && "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}" != "true" ]]; then
+          echo "Live answers require verified provider retention and owner disclosure before admission." >&2
+          exit 1
         fi
-
         require_non_negative_int() {
           local name="$1"
           local value="$2"
@@ -242,6 +208,84 @@ steps:
           exit 1
         fi
 
+    id: "verify-runtime-iam"
+
+  # Curated OAuth connectors (config/curated_connectors/*.json): the deploy
+  # passes the '+'-joined secret names derived from the checked-in manifests.
+  # Secret name == environment variable name, so nothing is mapped per provider.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        genai_project_id="${_GENAI_PROJECT_ID}"
+        if [[ -z "${genai_project_id}" ]]; then
+          genai_project_id="$PROJECT_ID"
+          if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+            genai_project_id="hushh-pda-uat"
+          fi
+        fi
+        add_secret() {
+          local secret_name="$1"
+          local env_name="$2"
+          [[ -z "${secret_name}" ]] && return
+          if gcloud secrets describe "${secret_name}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            secrets="${secrets},${env_name}=${secret_name}:latest"
+          fi
+        }
+
+        secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=${_FIREBASE_ADMIN_CREDENTIALS_SECRET}:latest,APP_FRONTEND_ORIGIN=${_APP_FRONTEND_ORIGIN_SECRET}:latest,BACKEND_RUNTIME_CONFIG_JSON=${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
+        if [[ -n "${_PLAID_CLIENT_ID_SECRET}" ]]; then
+          secrets="${secrets},PLAID_CLIENT_ID=${_PLAID_CLIENT_ID_SECRET}:latest"
+        fi
+        if [[ -n "${_PLAID_SECRET_SECRET}" ]]; then
+          secrets="${secrets},PLAID_SECRET=${_PLAID_SECRET_SECRET}:latest"
+        fi
+        if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
+          secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
+        fi
+        if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
+          for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do
+            if [[ -z "${required_secret}" ]] || ! gcloud secrets describe "${required_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+              echo "Drive request payments and owner payouts require both Stripe secrets in the deploy project." >&2
+              exit 1
+            fi
+          done
+        fi
+        if [[ "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
+          if [[ -z "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}" ]] || ! gcloud secrets describe "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Document owner payouts require the Stripe Connect webhook secret in the deploy project." >&2
+            exit 1
+          fi
+        fi
+        add_secret "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_SECRET_KEY"
+        add_secret "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_WEBHOOK_SECRET"
+        source deploy/drive/verify_hashcoin_config.sh "$PROJECT_ID"
+        for n in FINNHUB_API_KEY PMP_API_KEY NEWSAPI_KEY GMAIL_OAUTH_CLIENT_ID GMAIL_OAUTH_CLIENT_SECRET GMAIL_OAUTH_REDIRECT_URI GMAIL_OAUTH_TOKEN_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_REDIRECT_URI GOOGLE_OAUTH_TOKEN_KEY GOOGLE_DRIVE_OAUTH_CLIENT_ID GOOGLE_DRIVE_OAUTH_CLIENT_SECRET GOOGLE_DRIVE_PICKER_API_KEY EXTERNAL_CONNECTOR_CREDENTIAL_KEY DRIVE_DOCUMENT_KEY_V1 DRIVE_SHARING_KEY_V1 STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET OPENAI_API_KEY STRIPE_CONNECT_SECRET_KEY STRIPE_CONNECT_TEST_WEBHOOK_SECRET GOOGLE_MAPS_API_KEY OMNIGATEWAY_CLIENT_ID OMNIGATEWAY_CLIENT_SECRET OMNIGATEWAY_EXT_CRM_CLIENT_ID OMNIGATEWAY_EXT_CRM_CLIENT_SECRET HUSHH_DEVELOPER_TOKEN HUSHH_UAT_PHONE_TEST_NUMBERS HUSHH_UAT_PHONE_TEST_CODE HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET HUSHH_PROD_PHONE_TEST_NUMBERS HUSHH_PROD_PHONE_TEST_CODE HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET REVIEWER_UID REVIEWER_VAULT_PASSPHRASE RIA_INTELLIGENCE_VERIFY_BASE_URL RIA_IDENTITY_BASE_URL RIA_IDENTITY_API_KEY INTELLIGENCE_API_BASE_URL INTELLIGENCE_API_KEY SUPPORT_EMAIL_TEST_TO SUPPORT_EMAIL_MODE SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY RIA_CLAIM_TEST_NUMBERS RIA_CLAIM_TEST_CODE RIA_CLAIM_TEST_EMAILS ONE_EMAIL_WATCH_RENEW_TOKEN WALLET_API_KEY; do
+          v="_${n}_SECRET"
+          add_secret "${!v}" "${n}"
+        done
+        for s in $(echo "${_CURATED_CONNECTOR_SECRETS}" | tr '+' ' '); do
+          add_secret "$s" "$s"
+        done
+        add_secret "${_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET}" "DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
+        add_secret ADVISORS_API_KEY ADVISORS_API_KEY
+        add_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY
+        add_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY
+        add_secret NWS_NEARBY_V4_API_KEY NWS_NEARBY_V4_API_KEY
+        add_secret NWS_NEARBY_V4_ACTOR_HMAC_KEY NWS_NEARBY_V4_ACTOR_HMAC_KEY
+        add_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"
+        add_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"
+        add_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
+        add_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
+        add_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
+
+        runtime_environment="${_RUNTIME_ENVIRONMENT}"
+        if [[ -z "${runtime_environment}" ]]; then
+          runtime_environment="${_DEPLOY_ENV}"
+        fi
+
         env_vars=(
           "ENVIRONMENT=${runtime_environment}"
           "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
@@ -270,16 +314,32 @@ steps:
             env_vars+=("${env_name}=${env_value}")
           fi
         }
-        for n in ONE_EMAIL_ADDRESS ONE_EMAIL_DELEGATED_USER ONE_EMAIL_PUBSUB_TOPIC ONE_EMAIL_WEBHOOK_AUDIENCE ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_WEBHOOK_AUTH_ENABLED ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL ACCOUNT_DELETION_CLEANUP_AUDIENCE ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_ENABLED DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE DRIVE_REQUEST_PAYMENTS_ENABLED ONE_EMAIL_KYC_DEFAULT_SCOPE ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED ONE_WALLET_CARD_ENABLED WALLET_PASS_PROVIDER APP_REVIEW_MODE HUSSH_GEMINI_TEXT_MODEL HUSHH_PROD_PHONE_TEST_ENABLED ONE_VOICE_LIVE_ENABLED VERTEX_LIVE_MODEL_ID VERTEX_LIVE_LOCATION; do
+        for n in ONE_EMAIL_ADDRESS ONE_EMAIL_DELEGATED_USER ONE_EMAIL_PUBSUB_TOPIC ONE_EMAIL_WEBHOOK_AUDIENCE ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_WEBHOOK_AUTH_ENABLED ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL ACCOUNT_DELETION_CLEANUP_AUDIENCE ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_ENABLED DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE DRIVE_REQUEST_PAYMENTS_ENABLED DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED DRIVE_REQUEST_HASHCOINS_ENABLED DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED STRIPE_MODE STRIPE_CONNECT_MODE ONE_EMAIL_KYC_DEFAULT_SCOPE ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED ONE_WALLET_CARD_ENABLED WALLET_CARD_ACCESS_ENABLED WALLET_PASS_PROVIDER APP_REVIEW_MODE HUSSH_GEMINI_TEXT_MODEL HUSHH_PROD_PHONE_TEST_ENABLED ONE_VOICE_LIVE_ENABLED ONE_VOICE_CALENDAR_NARRATION_ENABLED VERTEX_LIVE_MODEL_ID VERTEX_LIVE_LOCATION; do
           v="_${n}"
           add_env "${n}" "${!v}"
         done
+        add_env "PKM_ANSWER_REQUESTS_ENABLED" "${_PKM_ANSWER_REQUESTS_ENABLED}"
+        add_env "PKM_ANSWER_PAYMENTS_ENABLED" "${_PKM_ANSWER_PAYMENTS_ENABLED}"
+        add_env "PKM_ANSWER_COMPOSER_ENABLED" "${_PKM_ANSWER_COMPOSER_ENABLED}"
+        add_env "PKM_ANSWER_LIVE_PROVIDER_REVIEWED" "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}"
+        add_env "PKM_ANSWER_STRIPE_MODE" "${_PKM_ANSWER_STRIPE_MODE}"
+        add_env "ANSWER_WORK_DRAIN_ENABLED" "${_ANSWER_WORK_DRAIN_ENABLED}"
+        add_env "ANSWER_WORK_DRAIN_AUDIENCE" "${_ANSWER_WORK_DRAIN_AUDIENCE}"
         add_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
+        add_env "HUSHH_ONE_CHAT_VERTEX_PROJECT" "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}"
+        add_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
         add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
         add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
+        if [[ -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+          deploy_labels="${deploy_labels},one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
+          if [[ -n "${_VERTEX_LIVE_MODEL_ID}" ]]; then
+            live_model_label="$(printf '%s' "${_VERTEX_LIVE_MODEL_ID}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | cut -c1-63)"
+            deploy_labels="${deploy_labels},one-voice-live-model=${live_model_label}"
+          fi
+        fi
 
         image_reference="${_IMAGE_REFERENCE}"
         if [[ -z "${image_reference}" ]]; then
@@ -302,10 +362,6 @@ steps:
           "--cpu=${_CLOUD_RUN_CPU}"
           "--timeout=3600"
           "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
-          # CPU stays allocated between requests. Throttled, the startup
-          # action-search warmup crawled at 37-78s per batch and each new
-          # instance's first chat turn waited 13-50s before its first model
-          # call (measured 2026-09-27).
           "--no-cpu-throttling"
           "--session-affinity"
           "--max=${_CLOUD_RUN_MAX_INSTANCES}"
@@ -350,14 +406,21 @@ steps:
       - "_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
       - "_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE}"
       - "_DRIVE_REQUEST_PAYMENTS_ENABLED=${_DRIVE_REQUEST_PAYMENTS_ENABLED}"
+      - "_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}"
+      - "_STRIPE_MODE=${_STRIPE_MODE}"
+      - "_STRIPE_CONNECT_MODE=${_STRIPE_CONNECT_MODE}"
+      - "_DRIVE_REQUEST_HASHCOINS_ENABLED=${_DRIVE_REQUEST_HASHCOINS_ENABLED}"
+      - "_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED}"
       - "_ONE_EMAIL_KYC_DEFAULT_SCOPE=${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
       - "_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
       - "_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED}"
+      - "_WALLET_CARD_ACCESS_ENABLED=${_WALLET_CARD_ACCESS_ENABLED}"
       - "_WALLET_PASS_PROVIDER=${_WALLET_PASS_PROVIDER}"
       - "_APP_REVIEW_MODE=${_APP_REVIEW_MODE}"
       - "_HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}"
       - "_HUSHH_PROD_PHONE_TEST_ENABLED=${_HUSHH_PROD_PHONE_TEST_ENABLED}"
       - "_ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}"
+      - "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=${_ONE_VOICE_CALENDAR_NARRATION_ENABLED}"
       - "_VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}"
       - "_VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}"
       - "_FINNHUB_API_KEY_SECRET=${_FINNHUB_API_KEY_SECRET}"
@@ -380,6 +443,9 @@ steps:
       - "_DRIVE_SHARING_KEY_V1_SECRET=${_DRIVE_SHARING_KEY_V1_SECRET}"
       - "_STRIPE_SECRET_KEY_SECRET=${_STRIPE_SECRET_KEY_SECRET}"
       - "_STRIPE_WEBHOOK_SECRET_SECRET=${_STRIPE_WEBHOOK_SECRET_SECRET}"
+      - "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}"
+      - "_STRIPE_CONNECT_SECRET_KEY_SECRET=${_STRIPE_CONNECT_SECRET_KEY_SECRET}"
+      - "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET=${_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET}"
       - "_OPENAI_API_KEY_SECRET=${_OPENAI_API_KEY_SECRET}"
       - "_GOOGLE_MAPS_API_KEY_SECRET=${_GOOGLE_MAPS_API_KEY_SECRET}"
       - "_OMNIGATEWAY_CLIENT_ID_SECRET=${_OMNIGATEWAY_CLIENT_ID_SECRET}"
@@ -425,10 +491,13 @@ steps:
       - |
         set -euo pipefail
         case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in
-          true) ;;
+          true) probe_mode=full ;;
           false)
-            echo "Skipping managed Vertex candidate probe: live model checks were not requested."
-            exit 0
+            if [[ -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" && -z "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+              echo "Skipping managed Vertex candidate probe: live model checks were not requested."
+              exit 0
+            fi
+            probe_mode=scoped
             ;;
           *)
             echo "_VERIFY_MANAGED_VERTEX_RUNTIME must be true or false." >&2
@@ -446,7 +515,10 @@ steps:
         if [[ -z "${image_reference}" ]]; then
           image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
         fi
-        job_name="${_BACKEND_SERVICE}-genai-readiness"
+        # One job per Cloud Build keeps a concurrent execution from replacing
+        # this build's verdict while Cloud Logging is ingesting it.
+        job_name="genai-ready-${BUILD_ID}"
+        trap 'gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true' EXIT
         # This isolated model probe sends only synthetic requests. Clear any
         # retained job secrets so it cannot inherit a retired Live key or
         # application signing/vault authority from an earlier deployment.
@@ -458,7 +530,7 @@ steps:
           --clear-secrets \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
@@ -470,7 +542,7 @@ steps:
           --quiet
         execute_status=$?
         set -e
-        if [[ "${execute_status}" -eq 0 ]] \
+        if [[ "${execute_status}" -eq 0 && -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" && -z "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]] \
            && [[ "${_DEPLOY_ENV}" != "production" || "${_ONE_VOICE_LIVE_ENABLED}" != "true" ]]; then
           echo "Managed Vertex candidate probe passed."
           exit 0
@@ -481,10 +553,9 @@ steps:
         # the verdict has to be read back from the job's logs before we can tell
         # a provider outage from a candidate defect.
         #
-        # Scope the read to THIS execution. Filtering only by job name reads
-        # whichever line is newest at query time, and Cloud Logging ingestion
-        # lags the job's exit by seconds -- so the first attempt returned the
-        # PREVIOUS execution's verdict and the build acted on a stale answer.
+        # The job name is unique to this build. Scope the read to its execution:
+        # Cloud Logging ingestion lags the job's exit by seconds, so a job-name
+        # only query could otherwise recover an earlier retry's verdict.
         # Observed 2026-08-20: a run whose 9 probes all classified
         # provider_unavailable was failed on the prior run's application_broken.
         execution_name="$(gcloud run jobs executions list \
@@ -538,6 +609,41 @@ steps:
             --model "${_VERTEX_LIVE_MODEL_ID}" \
             --location "${_VERTEX_LIVE_LOCATION}"
         fi
+        if [[ -n "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" ]]; then
+          PROBE_LINE="${probe_line}" EXPECTED_CHAT_PROJECT="${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" python3 - <<'PY'
+        import json
+        import os
+
+        line = os.environ.get("PROBE_LINE", "")
+        marker = "managed_vertex_probe_result"
+        try:
+            verdict = json.loads(line.split(marker, 1)[1].strip())
+        except (IndexError, json.JSONDecodeError):
+            raise SystemExit("One chat Vertex readiness verdict is missing") from None
+        if verdict.get("one_chat_project") != os.environ["EXPECTED_CHAT_PROJECT"] or verdict.get("one_chat_probe_ok") is not True:
+            raise SystemExit("One chat Vertex target did not pass its runtime-identity probe")
+        PY
+        fi
+        if [[ -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+          PROBE_LINE="${probe_line}" EXPECTED_VOICE_PROJECT="${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}" EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}" python3 - <<'PY'
+        import json
+        import os
+
+        line = os.environ.get("PROBE_LINE", "")
+        marker = "managed_vertex_probe_result"
+        try:
+            verdict = json.loads(line.split(marker, 1)[1].strip())
+        except (IndexError, json.JSONDecodeError):
+            raise SystemExit("One voice Vertex readiness verdict is missing") from None
+        if (
+            verdict.get("one_voice_project") != os.environ["EXPECTED_VOICE_PROJECT"]
+            or verdict.get("live_model") != os.environ["EXPECTED_VOICE_MODEL"]
+            or verdict.get("live_location") != os.environ["EXPECTED_VOICE_LOCATION"]
+            or verdict.get("one_voice_probe_ok") is not True
+        ):
+            raise SystemExit("One voice Vertex target did not pass its runtime-identity probe")
+        PY
+        fi
         if [[ "${execute_status}" -eq 0 ]]; then
           echo "Managed Vertex candidate probe passed."
           exit 0
@@ -578,6 +684,8 @@ substitutions:
   _BACKEND_SERVICE: consent-protocol
   _RUNTIME_SERVICE_ACCOUNT: ""
   _GENAI_PROJECT_ID: ""
+  _HUSHH_ONE_CHAT_VERTEX_PROJECT: ""
+  _HUSHH_ONE_VOICE_VERTEX_PROJECT: ""
   _REGION: us-central1
   _CLOUDSQL_INSTANCES: ""
   _VPC_CONNECTOR: ""
@@ -597,6 +705,7 @@ substitutions:
   # one regional Vertex endpoint. Set all three only after the lane's
   # allowed-models policy admits the id; see scripts/discover_vertex_live_models.py.
   _ONE_VOICE_LIVE_ENABLED: "false"
+  _ONE_VOICE_CALENDAR_NARRATION_ENABLED: "false"
   _VERTEX_LIVE_MODEL_ID: ""
   _VERTEX_LIVE_LOCATION: ""
   _FINNHUB_API_KEY_SECRET: ""
@@ -622,8 +731,28 @@ substitutions:
   _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET: ""
   _DRIVE_DOCUMENT_KEY_V1_SECRET: ""
   _DRIVE_SHARING_KEY_V1_SECRET: ""
+  # Request intake and owner review. Independent of the payment flags and
+  # open by default: an active connection is already the gate for asking, and
+  # a default-closed flag in front of it only ships a dead control. Set the
+  # environment's repository variable to "false" to close intake.
+  _PKM_ANSWER_REQUESTS_ENABLED: "true"
+  _PKM_ANSWER_PAYMENTS_ENABLED: "false"
+  _PKM_ANSWER_COMPOSER_ENABLED: "false"
+  _PKM_ANSWER_LIVE_PROVIDER_REVIEWED: "false"
+  _PKM_ANSWER_STRIPE_MODE: "test"
+  _PKM_ANSWER_STRIPE_SECRET_KEY_SECRET: ""
+  _PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET: ""
+  _ANSWER_WORK_DRAIN_ENABLED: "false"
+  _ANSWER_WORK_DRAIN_AUDIENCE: ""
+  _STRIPE_MODE: ""
+  _STRIPE_CONNECT_MODE: ""
+  _DRIVE_REQUEST_HASHCOINS_ENABLED: "false"
+  _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED: "false"
+  _STRIPE_CONNECT_SECRET_KEY_SECRET: ""
+  _STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET: ""
   _STRIPE_SECRET_KEY_SECRET: ""
   _STRIPE_WEBHOOK_SECRET_SECRET: ""
+  _STRIPE_CONNECT_WEBHOOK_SECRET_SECRET: ""
   _OPENAI_API_KEY_SECRET: ""
   _GOOGLE_MAPS_API_KEY_SECRET: GOOGLE_MAPS_API_KEY
   _OMNIGATEWAY_CLIENT_ID_SECRET: OMNIGATEWAY_CLIENT_ID
@@ -687,12 +816,16 @@ substitutions:
   # New trusted-auto requests are gated only after an operator supplies both
   # Stripe secrets and deliberately enables this per environment.
   _DRIVE_REQUEST_PAYMENTS_ENABLED: "false"
+  # Only newly enrolled orders can settle to owners; production stays off until
+  # a separately governed launch enables it for that environment.
+  _DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED: "false"
   _DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID: ""
   _DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL: ""
   _DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE: ""
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _ONE_WALLET_CARD_ENABLED: ""
+  _WALLET_CARD_ACCESS_ENABLED: "false"
   # Wallet subagent (agent_wallet) roster flag. Empty/false keeps it out of the tree.
   _APP_REVIEW_MODE: ""
   _HUSHH_PROD_PHONE_TEST_ENABLED: ""

@@ -30,7 +30,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds.",
+        "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. Magic Intelligence and public business cards start only after personality onboarding finishes, in a separate follow-up turn. After every selected business detail is confirmed saved, a permanent owner-scoped flag suppresses the automatic business card across sessions and devices; partial or failed saves stay retryable. Business website edits accept bare domains as HTTPS and reject unsafe URLs before preparing details. The public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
         "next_route": "/",
         "return_policy": "resolve_root",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1443,6 +1443,7 @@
       "canonical_screen": "one_agents",
       "voice_contract_file": "app/one/page.voice-action-contract.json",
       "action_ids": [
+        "calendar.read",
         "consent.chat.turn",
         "location.chat.turn",
         "route.one_agents",
@@ -1471,7 +1472,7 @@
       "route_pattern": "/one/calendar",
       "page_file": "app/one/calendar/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.calendar",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1500,14 +1501,16 @@
         "allowed_families": []
       },
       "canonical_screen": "calendar",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "voice_contract_file": "app/one/calendar/page.voice-action-contract.json",
+      "action_ids": [
+        "calendar.read"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "vault",
       "native_surface_id": null
     },
     {
@@ -1687,6 +1690,7 @@
       "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "action_coverage": "inherited",
@@ -1701,13 +1705,13 @@
       "route_pattern": "/one/connected-systems/[systemId]",
       "page_file": "app/one/connected-systems/[systemId]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.connected.systems.systemid",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.connected.systems.systemid",
         "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-        "screen": "app",
+        "screen": "connected_systems",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -1729,15 +1733,18 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "connected_systems",
+      "voice_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
+      "action_ids": [
+        "route.connected_system_list",
+        "route.profile_connected_systems"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": null
     },
     {
@@ -1795,13 +1802,13 @@
       "route_pattern": "/one/email",
       "page_file": "app/one/email/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.email",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.email",
         "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-        "screen": "app",
+        "screen": "email_agent",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -1823,15 +1830,17 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "email_agent",
+      "voice_contract_file": "app/one/email/page.voice-action-contract.json",
+      "action_ids": [
+        "route.mail_connections"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-email-agent"
     },
     {
@@ -3250,13 +3259,13 @@
       "route_pattern": "/one/messages",
       "page_file": "app/one/messages/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.messages",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.messages",
-        "purpose": "Read and send private one-to-one messages with accepted connections.",
-        "screen": "app",
+        "purpose": "Read and send private messages with accepted connections and circles you belong to.",
+        "screen": "one_messages",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -3270,23 +3279,25 @@
           "callback_error": "Keep the message screen open and explain that the update could not be verified.",
           "route_mismatch": "Use only the verified private message route and its generated controls."
         },
-        "completion_boundary": "A send completes only after the server accepts the message for the active connection.",
+        "completion_boundary": "A send completes only after the server accepts the message for the selected connection or circle.",
         "next_route": null,
         "return_policy": "stay",
-        "out_of_scope_behavior": "Do not infer a connection or reveal another person's message history."
+        "out_of_scope_behavior": "Do not infer a connection or circle membership or reveal another person's message history."
       },
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "one_messages",
+      "voice_contract_file": "app/one/messages/page.voice-action-contract.json",
+      "action_ids": [
+        "route.messages_connections"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-direct-messages"
     },
     {
@@ -3298,7 +3309,7 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.pkm",
-        "purpose": "Help the person understand and use the pkm screen through its generated controls.",
+        "purpose": "Memory opens on Soul.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the Soul.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
         "screen": "pkm",
         "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
         "proactivity": "on_entry",
@@ -3518,6 +3529,8 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -3527,9 +3540,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -3539,7 +3555,7 @@
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-profile"
     },
     {
@@ -3666,6 +3682,8 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -3675,9 +3693,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -3728,6 +3749,8 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -3737,9 +3760,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -3787,6 +3813,7 @@
       "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "action_coverage": "none",
@@ -4145,7 +4172,7 @@
       "route_pattern": "/one/profile/my-data",
       "page_file": "app/one/profile/my-data/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.my.data",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4175,20 +4202,22 @@
       },
       "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "route.profile_my_data"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/my-data/domain",
       "page_file": "app/one/profile/my-data/domain/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.my.data.domain",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4218,13 +4247,62 @@
       },
       "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_my_data"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/one/profile/payouts",
+      "page_file": "app/one/profile/payouts/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile.payouts",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.payouts",
+        "purpose": "Help the person use payouts through its generated controls.",
+        "screen": "profile_payouts",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_payouts",
+      "voice_contract_file": null,
+      "action_ids": [
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
+        "route.profile_payouts"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-profile"
     },
     {
@@ -4681,20 +4759,18 @@
     {
       "route_pattern": "/one/profile/referrals",
       "page_file": "app/one/profile/referrals/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "interactive",
-      "instruction_id": "route.profile.support",
-      "context_policy": "publish",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.profile.referrals.redirect",
+      "context_policy": "suppress",
       "voice_playbook": {
-        "playbook_id": "route.profile.support",
-        "purpose": "Help the person understand and use the support screen through its generated controls.",
-        "screen": "profile_referrals_panel",
-        "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
-        "proactivity": "on_entry",
-        "primary_action_id": "route.profile_referrals_panel",
-        "happy_path_action_ids": [
-          "route.profile_referrals_panel"
-        ],
+        "playbook_id": "route.profile.referrals.redirect",
+        "purpose": "Send the person to the dedicated Referrals dashboard.",
+        "screen": "profile_referrals_redirect",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -4704,26 +4780,24 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-        "next_route": "/one/profile/referrals",
-        "return_policy": "stay",
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": "/one/referrals",
+        "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "profile_referrals_panel",
+      "canonical_screen": "profile_referrals_redirect",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.profile_referrals_panel"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
-        "mode": "no_delegation",
+        "mode": "block_delegation",
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "native-route-one-referrals"
     },
     {
       "route_pattern": "/one/profile/regulatory",
@@ -4767,6 +4841,51 @@
       },
       "trust_boundary": "none",
       "native_surface_id": "ria-profile-page"
+    },
+    {
+      "route_pattern": "/one/profile/request-pricing",
+      "page_file": "app/one/profile/request-pricing/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile.request.pricing",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.request.pricing",
+        "purpose": "Help the person use request pricing through its generated controls.",
+        "screen": "profile_request_pricing",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_request_pricing",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.profile_request_pricing"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/security",
@@ -5089,13 +5208,13 @@
       "route_pattern": "/one/puppy",
       "page_file": "app/one/puppy/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.puppy",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.puppy",
         "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-        "screen": "app",
+        "screen": "puppy_one",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -5117,7 +5236,52 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
+      "canonical_screen": "puppy_one",
+      "voice_contract_file": "app/one/puppy/page.voice-action-contract.json",
+      "action_ids": [
+        "route.puppy_agents"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/referrals",
+      "page_file": "app/one/referrals/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.referrals",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.referrals",
+        "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share expands the sharing options; Back closes them. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+        "screen": "one_referrals",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_referrals",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -5126,7 +5290,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-referrals"
     },
     {
       "route_pattern": "/one/setup",
@@ -5733,6 +5897,49 @@
       "native_surface_id": "native-route-ria-onboarding"
     },
     {
+      "route_pattern": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.todos",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.todos",
+        "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-todos"
+    },
+    {
       "route_pattern": "/one/wallet",
       "page_file": "app/one/wallet/page.tsx",
       "route_mode": "standard",
@@ -5790,13 +5997,13 @@
       "route_pattern": "/one/wallet-card",
       "page_file": "app/one/wallet-card/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.wallet.card",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.wallet.card",
         "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-        "screen": "app",
+        "screen": "one_wallet_card",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -5818,15 +6025,17 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "one_wallet_card",
+      "voice_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
+      "action_ids": [
+        "route.wallet_profile_cards"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-one-wallet-card"
     },
     {
@@ -5876,6 +6085,7 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
+        "people.profile.request_scope",
         "people.profile.review_information_request",
         "route.person_profile"
       ],
@@ -6875,6 +7085,49 @@
         "next_route": "/terms",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/wallet/open",
+      "page_file": "app/wallet/open/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.wallet.encrypted_file.open",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.wallet.encrypted_file.open",
+        "purpose": "Let the recipient choose an encrypted card file and decrypt it locally without an account or upload.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain that the file and its password are required without asking for their contents.",
+          "cancelled": "Respect cancellation and keep decrypted card information hidden.",
+          "failed": "Offer a local retry without claiming the card opened.",
+          "timeout": "Keep the card hidden and offer one safe retry.",
+          "callback_error": "Keep private values out of recovery messages.",
+          "route_mismatch": "Use only the verified encrypted-file reader route."
+        },
+        "completion_boundary": "The card is open only after authenticated decryption completes locally for the current file and password. No recipient delivery is inferred.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Never ask for, interpret, log or transmit the chosen file, password or decrypted card."
       },
       "interaction_layer_policy": {
         "allowed_families": []

@@ -271,6 +271,8 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
 
 
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "one_magic_intelligence_phase", "0") == "5" and args.environment != "uat":
+        raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
     config: dict[str, Any] = {
         "environment": args.environment,
         "hushh_genai_auth_mode": "vertex_adc",
@@ -352,6 +354,16 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         # mismatch — which reads like an outage, not a config error.
         "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
+        "one_business_directory_enabled": getattr(args, "one_business_directory_enabled", "false"),
+        "one_profile_research_enabled": getattr(args, "one_profile_research_enabled", "false"),
+        "one_magic_intelligence_phase": getattr(args, "one_magic_intelligence_phase", "0"),
+        "one_magic_intelligence_inner_team_emails": getattr(
+            args, "one_magic_intelligence_inner_team_emails", ""
+        ),
+        "one_magic_intelligence_senior_team_emails": getattr(
+            args, "one_magic_intelligence_senior_team_emails", ""
+        ),
+        "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
     }
     return _drop_empty(config)
 
@@ -530,6 +542,16 @@ def main() -> int:
     # key mirrored from the project that owns it.
     parser.add_argument("--insurance-agents-api-base-url", default="")
     parser.add_argument("--one-places-directory-enabled", default="")
+    parser.add_argument(
+        "--one-business-directory-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--one-profile-research-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument("--one-magic-intelligence-phase", default="0", choices=list("012345"))
+    parser.add_argument("--one-magic-intelligence-inner-team-emails", default="")
+    parser.add_argument("--one-magic-intelligence-senior-team-emails", default="")
+    parser.add_argument("--one-magic-intelligence-qa-emails", default="")
     parser.add_argument("--insurance-agents-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument(
         "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"

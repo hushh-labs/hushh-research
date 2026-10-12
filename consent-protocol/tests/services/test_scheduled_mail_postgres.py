@@ -11,8 +11,9 @@ test_gmail_delivery_service.py cannot:
 * the drain's real claim / stale-sending / arm / settle SQL: a due row is sent
   once even with concurrent drains (``FOR UPDATE SKIP LOCKED``), a not-due or
   terminal row is never claimed, and an immediate send (``send_at IS NULL``,
-  including a draft send) is never touched by the orphan reaper or the
-  stale-sending sweep, however old it is;
+  including a draft send) is never touched by the scheduled orphan reaper or
+  scheduled stale-sending sweep; the explicit owner status reconciliation can
+  settle a stale immediate row as outcome_unknown without replay;
 * a row past its window, a disconnected recipient and a refusal after the
   window closed are recorded ``failed`` with their reason, so migration 252's
   trigger projects a Feed item; every terminal transition, and each run's
@@ -702,6 +703,51 @@ async def test_drain_never_touches_an_immediate_send_however_old(ledger, gmail_h
     assert result["sent"] == [due["action_id"]] and result["outcome_unknown"] == []
     assert [await _row(ledger, action_id) for action_id in immediate] == before
     assert len(gmail_http.posts) == 1
+
+
+async def test_owner_status_reconciles_only_stale_immediate_sending_without_replay(
+    ledger, gmail_http
+):
+    stale = await _insert(
+        ledger,
+        state="sending",
+        send_at=None,
+        sending_at="NOW() - INTERVAL '10 minutes'",
+    )
+    fresh = await _insert(
+        ledger,
+        state="sending",
+        send_at=None,
+        sending_at="NOW() - INTERVAL '1 minute'",
+    )
+    scheduled = await _insert(
+        ledger,
+        state="sending",
+        send_at="NOW() - INTERVAL '10 minutes'",
+        sending_at="NOW() - INTERVAL '10 minutes'",
+    )
+
+    assert (
+        await gmail_delivery_service.reconcile_owner_send_action(user_id=OTHER, action_id=stale)
+        is None
+    )
+    assert (await _row(ledger, stale))["state"] == "sending"
+
+    settled = await gmail_delivery_service.reconcile_owner_send_action(
+        user_id=OWNER, action_id=stale
+    )
+    assert settled is not None
+    assert (settled["state"], settled["safe_error_code"]) == (
+        "outcome_unknown",
+        "send_interrupted",
+    )
+    assert (
+        await gmail_delivery_service.reconcile_owner_send_action(user_id=OWNER, action_id=fresh)
+    )["state"] == "sending"
+    assert (
+        await gmail_delivery_service.reconcile_owner_send_action(user_id=OWNER, action_id=scheduled)
+    )["state"] == "sending"
+    assert len(gmail_http.posts) == 0
 
 
 async def test_drain_never_claims_terminal_or_in_flight_scheduled_rows(ledger, gmail_http):

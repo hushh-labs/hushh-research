@@ -47,7 +47,7 @@ if [[ "${JOB_NAME}" == "drive-work-drain-uat" \
   valid_stage=true
 elif [[ "${JOB_NAME}" == "drive-work-suggestions-uat" \
   && "${STAGE}" == "suggestions" \
-  && "${CRON}" == "2-59/4 * * * *" ]]; then
+  && "${CRON}" == "* * * * *" ]]; then
   valid_stage=true
 elif [[ "${JOB_NAME}" == "drive-work-sharing-uat" \
   && "${STAGE}" == "sharing" \

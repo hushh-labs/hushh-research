@@ -276,9 +276,30 @@ jobs:
           fi
         if: always()
 
+  ui-contracts:
+    name: "UI Contracts"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: hushh-webapp/scripts/architecture/ui-contract-tools/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --progress=false
+        working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
+      - run: npm run verify:ui-contracts
+        working-directory: hushh-webapp
+        env:
+          UI_CONTRACT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+
   preflight-gate:
     name: "Preflight Gate"
     needs:
+      - ui-contracts
       - secret-scan
       - dco-check
       - pr-base-policy
@@ -312,11 +333,16 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
+          if [ "${{ needs['ui-contracts'].result }}" != "success" ]; then
+            echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
+            fail=1
+          fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
           done
+
 
           if [ "$fail" -ne 0 ]; then
             echo "Preflight failed; skipping expensive web/protocol/integration lanes."
@@ -338,6 +364,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-node@v6
         with:
@@ -1075,6 +1103,7 @@ jobs:
   ci-status:
     name: "CI Status Gate"
     needs:
+      - ui-contracts
       - secret-scan
       - dco-check
       - pr-base-policy
@@ -1133,6 +1162,14 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
+          if [ "${{ needs['ui-contracts'].result }}" != "success" ]; then
+            echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
+            fail=1
+          fi
+          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_CORE" != "success" ]; then
+            echo "Changed frontend sources require successful core and UI validator regressions."
+            fail=1
+          fi
           # A skipped lane passes the loop below, so a lane whose paths changed
           # must be proven to have actually run and succeeded.
           if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
@@ -1156,6 +1193,7 @@ jobs:
               fail=1
             fi
           done
+
 
           if [ "$fail" -ne 0 ]; then
             echo "One or more CI jobs failed."

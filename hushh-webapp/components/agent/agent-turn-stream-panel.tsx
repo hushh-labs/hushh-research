@@ -123,6 +123,7 @@ const GMAIL_TOOLS: ReadonlySet<string> = new Set([
   "open_gmail_email_draft",
   "open_gmail_information_request_reply",
   "propose_gmail_mailbox_change",
+  "propose_gmail_todo",
 ]);
 const DRIVE_TOOLS: ReadonlySet<string> = new Set([
   "ask_documents_agent",
@@ -140,6 +141,8 @@ const DRIVE_TOOLS: ReadonlySet<string> = new Set([
 const CALENDAR_TOOLS: ReadonlySet<string> = new Set([
   "calendar_summary",
   "calendar_events",
+  "calendar_calendars",
+  "calendar_event_detail",
   "calendar_availability",
   "calendar_free_slots",
   "propose_calendar_event",

@@ -118,6 +118,10 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        /one-location-checkin-card\.layout\.spec\.ts/,
+        /person-profile-actions\.layout\.spec\.ts/,
+        /sms-flow\.layout\.spec\.ts/,
+        /mobile-overlay-safe-area\.layout\.spec\.ts/,
         // The shared voice/text dock and keyboard clearance ship in WKWebView.
         /bottom-chrome-width\.layout\.spec\.ts/,
         /connect-page-grid\.layout\.spec\.ts/,
@@ -127,6 +131,7 @@ export default defineConfig({
         // and table scroll boxes, 24px link targets and chip baselines are
         // measured in the engine the app ships in. Own document.
         /agent-markdown\.layout\.spec\.ts/,
+        /finance-interactions\.layout\.spec\.ts/,
         // press-ripple: the md-ripple on pointerdown, no press scale, and the
         // reduced-motion layer are felt on an iPhone first; own document.
         /press-ripple\.layout\.spec\.ts/,
@@ -163,6 +168,7 @@ export default defineConfig({
         /style-settings\.layout\.spec\.ts/,
         /text-attachment-viewer\.layout\.spec\.ts/,
         /circle-chat\.layout\.spec\.ts/,
+        /direct-chat\.layout\.spec\.ts/,
         /one-location-live-share\.layout\.spec\.ts/,
         /profile-sign-out\.spec\.ts/,
         /ai-selection\.layout\.spec\.ts/,

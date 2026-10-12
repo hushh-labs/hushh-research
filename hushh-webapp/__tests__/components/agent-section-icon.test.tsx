@@ -7,7 +7,7 @@ import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
 import { ONE_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
 
 describe("AgentSectionIcon roster palette", () => {
-  it("renders scalable vector artwork without raster images for every home agent", () => {
+  it("renders each supplied light and dark icon with vector fallbacks for the other agents", () => {
     const { container } = render(
       <>
         {ONE_CAPABILITIES.map((capability) => (
@@ -22,15 +22,43 @@ describe("AgentSectionIcon roster palette", () => {
       </>,
     );
 
-    expect(container.querySelectorAll("svg")).toHaveLength(ONE_CAPABILITIES.length);
-    expect(container.querySelector("img, image, foreignObject")).toBeNull();
+    const artworkById = {
+      messages: "messages",
+      finance: "finance",
+      wallet: "wallet",
+      location: "location",
+      ria: "advisor",
+      gmail: "mail",
+      calendar: "calendar",
+      pkm: "memory",
+      consent: "consent",
+    } as const;
+
+    for (const [id, artwork] of Object.entries(artworkById)) {
+      const icon = screen.getByTestId(`one-agent-icon-${id}`);
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "image");
+      const images = icon.querySelectorAll("img");
+      expect(images).toHaveLength(2);
+      expect(images[0]).toHaveAttribute("src", `/agents-icon-set/${artwork}-light.webp`);
+      expect(images[1]).toHaveAttribute("src", `/agents-icon-set/${artwork}-dark.webp`);
+      expect(images[0].className).toContain("dark:hidden");
+      expect(images[1].className).toContain("dark:block");
+    }
+
+    for (const id of ["email", "marketplace", "connected-systems"]) {
+      const icon = screen.getByTestId(`one-agent-icon-${id}`);
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "svg");
+      expect(icon.querySelector("svg")).toHaveAttribute("viewBox", "0 0 64 64");
+    }
+    expect(container.querySelectorAll("svg")).toHaveLength(3);
+    expect(container.querySelectorAll("img")).toHaveLength(18);
     for (const svg of container.querySelectorAll("svg")) {
       expect(svg.getAttribute("viewBox")).toBe("0 0 64 64");
     }
   });
 
-  it("keeps SVG paint references unique when the same agent appears twice", () => {
-    const capability = ONE_CAPABILITIES[0];
+  it("keeps fallback SVG paint references unique when the same agent appears twice", () => {
+    const capability = ONE_CAPABILITIES.find(({ id }) => id === "email")!;
     const { container } = render(
       <>
         {["roster", "roster-lg"].map((size) => (

@@ -73,6 +73,9 @@ const mocks = vi.hoisted(() => {
     pkmWriteCoordinator: {
       savePreparedDomain: vi.fn(),
     },
+    receiptMemorySave: {
+      saveReceiptCanonicalIndexToMemory: vi.fn(),
+    },
     personalKnowledgeModelService: {
       validatePreparedDomainStore: vi.fn(),
     },
@@ -114,6 +117,7 @@ vi.mock("@/lib/services/gmail-receipts-service", async (importOriginal) => {
     GmailReceiptsService: mocks.gmailReceiptsService,
     GmailReceiptRequestError: actual.GmailReceiptRequestError,
     isRetryableReceiptScanPageError: actual.isRetryableReceiptScanPageError,
+    isReceiptConnectionLostError: actual.isReceiptConnectionLostError,
     isReceiptScanInProgressError: (error: unknown) =>
       Boolean(
         error &&
@@ -335,6 +339,14 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: mocks.pkmWriteCoordinator,
+}));
+
+// The save routine is async and finishes after a test ends; mocking it here
+// keeps one test's late write out of another's count. Its governed writer
+// (gmail_receipt_memory_save_button) is pinned in gmail-receipt-memory-save.test.ts.
+vi.mock("@/lib/profile/gmail-receipt-memory-save", () => ({
+  saveReceiptCanonicalIndexToMemory:
+    mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory,
 }));
 
 vi.mock("@/lib/services/gmail-receipt-memory-service", () => ({
@@ -633,6 +645,9 @@ describe("ProfileReceiptsPage", () => {
     mocks.pkmDomainResourceService.prepareDomainWriteContext.mockResolvedValue({
       domainData: {},
     });
+    mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory.mockResolvedValue({
+      count: 1,
+    });
     mocks.pkmWriteCoordinator.savePreparedDomain.mockResolvedValue({
       success: true,
       conflict: false,
@@ -678,7 +693,7 @@ describe("ProfileReceiptsPage", () => {
     vi.mocked(GmailReceiptsService.startNativeConnect).mockResolvedValue({
       configured: true,
       server_client_id: "native-client-id",
-      purpose: "read",
+      purpose: "send",
     });
     vi.mocked(GmailReceiptsService.completeNativeConnect).mockResolvedValue(
       buildGmailView().status,
@@ -999,7 +1014,7 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.queryByText(/one \/ mail/i)).toBeNull();
   });
 
-  it("keeps generic summary cards off the landing while preserving its preview pipeline", async () => {
+  it("keeps legacy summary cards and previews off the landing and saves finished sync trends once", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Myntra")],
       page: 1,
@@ -1013,12 +1028,21 @@ describe("ProfileReceiptsPage", () => {
     expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/shopping summary/i)).toBeNull();
     expect(screen.queryByText(/receipt sync is moving/i)).toBeNull();
+    expect(GmailReceiptMemoryService.preview).not.toHaveBeenCalled();
+    // The owner started this sync, so its finished list is saved once to private
+    // memory (default on) through the save routine, and the page writes nothing itself.
     await waitFor(() => {
       expect(
-        vi.mocked(GmailReceiptMemoryService.preview),
+        mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory,
       ).toHaveBeenCalledOnce();
     });
+    const saved =
+      mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory.mock.calls[0][0];
+    expect(saved.userId).toBe("user-123");
+    expect(saved.receipts).toHaveLength(1);
     expect(mocks.pkmWriteCoordinator.savePreparedDomain).not.toHaveBeenCalled();
+    // The owner is never asked to save: there is no control for it.
+    expect(screen.queryByRole("button", { name: /private memory/i })).toBeNull();
   });
 
   it("holds sealed receipts behind vault unlock when the vault is locked", async () => {
@@ -1166,6 +1190,36 @@ describe("ProfileReceiptsPage", () => {
     );
   });
 
+  it("asks to reconnect Mail instead of offering Try again when Mail rejected the saved login", async () => {
+    // UAT 2026-10-09: Google answered invalid_grant, so every later scan was
+    // refused. "Try again" could never succeed and was offered forever.
+    const view = makeGmailView();
+    view.refreshStatus.mockResolvedValue(view.status);
+    mocks.useGmailConnectorStatus.mockReturnValue(view);
+    vi.mocked(GmailReceiptsService.scanReceipts).mockRejectedValue(
+      new GmailReceiptRequestError(
+        "Reconnect Gmail before loading receipts.",
+        401,
+        "GMAIL_REAUTH_REQUIRED",
+      ),
+    );
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+
+    expect(
+      await screen.findByText(
+        "Mail needs to be reconnected before it can sync your receipts.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Reconnect Mail" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByText("Couldn’t finish scanning your receipts.")).toBeNull();
+    // Read once, never retried; the real connection state is re-read.
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
+    expect(view.refreshStatus).toHaveBeenCalledWith({ force: true });
+  });
+
   it("stops an empty scan at the fifty-page receipt bound", async () => {
     vi.mocked(GmailReceiptsService.scanReceipts).mockImplementation(
       async ({ page }) => ({
@@ -1268,7 +1322,7 @@ describe("ProfileReceiptsPage", () => {
     ).toHaveBeenCalledTimes(1);
   });
 
-  it("renders a cached list without scanning and keeps its preview pipeline", async () => {
+  it("renders a cached list without scanning, legacy previews or another memory save", async () => {
     const cachedResponse = {
       items: [makeReceipt(1, "Myntra")],
       page: 1,
@@ -1288,9 +1342,8 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
-    await waitFor(() => {
-      expect(GmailReceiptMemoryService.preview).toHaveBeenCalledOnce();
-    });
+    expect(GmailReceiptMemoryService.preview).not.toHaveBeenCalled();
+    expect(mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory).not.toHaveBeenCalled();
     expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
   });
 
@@ -1687,7 +1740,7 @@ describe("ProfileReceiptsPage", () => {
     ).toBeTruthy();
     expect(
       within(screen.getByRole("tabpanel", { name: "Receipts" })).getByText(
-        /your inbox and receipts will appear here as they are ready/i,
+        /your mail connection details will appear here when ready/i,
       ),
     ).toBeTruthy();
   });
@@ -1787,7 +1840,7 @@ describe("ProfileReceiptsPage", () => {
         userId: "user-123",
         loginHint: "akshat@example.com",
         includeGrantedScopes: true,
-        purpose: "read",
+        purpose: "send",
       });
     });
     expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalledWith(
@@ -2053,7 +2106,7 @@ describe("ProfileReceiptsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /connect gmail to manage identity/i }));
     await waitFor(() =>
       expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: "user-123", purpose: "read" }),
+        expect.objectContaining({ userId: "user-123", purpose: "send" }),
       ),
     );
     expect(mocks.routerPush).not.toHaveBeenCalled();
@@ -2205,7 +2258,7 @@ describe("ProfileReceiptsPage", () => {
           userId: "user-123",
           loginHint: "akshat@example.com",
           includeGrantedScopes: true,
-          purpose: "read",
+          purpose: "send",
         });
         expect(assignWindowLocation).toHaveBeenCalledWith(
           "https://accounts.google.com/o/oauth2/v2/auth",
@@ -2257,22 +2310,22 @@ describe("ProfileReceiptsPage", () => {
       expect(GmailReceiptsService.startNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
-        purpose: "read",
+        purpose: "send",
       });
       expect(mocks.hushhAuth.connectGmail).toHaveBeenCalledWith({
         serverClientId: "native-client-id",
-        purpose: "read",
+        purpose: "send",
         preserveModify: false,
       });
       expect(GmailReceiptsService.completeNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
         serverAuthCode: "native-auth-code",
-        purpose: "read",
+        purpose: "send",
       });
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
-      "Mail connected. Your receipt scan will continue in the background.",
+      "Mail connected. You can read and send after reviewing each email.",
     );
     expect(mocks.toast.error).not.toHaveBeenCalled();
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();
@@ -2441,12 +2494,12 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
   });
 
-  it("reconnects through the existing read-consent flow", async () => {
+  it("reconnects through the combined reading/sending consent flow", async () => {
     render(<ProfileReceiptsPage />);
     fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: /^reconnect$/i }));
     await waitFor(() => expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
-      expect.objectContaining({ purpose: "read", userId: "user-123" }),
+      expect.objectContaining({ purpose: "send", userId: "user-123" }),
     ));
     expect(mocks.gmailOAuthPopup.open).toHaveBeenCalledOnce();
   });

@@ -11,6 +11,8 @@ export type GoogleConnectionStatus = {
   status: "connected" | "needs_reauth" | "disconnected";
   access_level?: "read" | "manage" | null;
   scope_csv: string;
+  /** Calendar only: whether Google granted subscribed-calendar discovery. */
+  calendar_list_access?: boolean;
 };
 
 export type GoogleConnectionCompletion = GoogleConnectionStatus & {
@@ -48,6 +50,8 @@ export class GoogleConnectionService {
           user_id: params.userId,
           code: params.code,
           state: params.state,
+          redirect_uri: typeof window === "undefined" ? undefined
+            : `${window.location.origin}/one/profile/google/oauth/return`,
         }),
         isEffectCurrent,
       },

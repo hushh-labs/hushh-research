@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fail-closed Cloud Run to Cloud SQL connection admission check.
 
-This command is read only. Run before a release with --environment uat or
---environment production. Its candidate allowance covers one new revision of
-each configured database-using service during deployment overlap.
+This command is read only. The default pre-deploy phase reserves one new
+revision of each configured database-using service during deployment overlap.
+Use --phase post-release to check retained capacity without another hypothetical
+candidate. Both phases include retained revisions, jobs and administrative reserve.
 """
 
 from __future__ import annotations
@@ -13,10 +14,11 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
-
+from typing import Any, Literal
 
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
+CAPACITY_PHASES = ("pre-deploy", "post-release")
+CapacityPhase = Literal["pre-deploy", "post-release"]
 POOL_KEYS = (
     "DB_POOL_MAX_SIZE",
     "DB_SQLALCHEMY_POOL_SIZE",
@@ -207,6 +209,10 @@ def service_budget(
             key=lambda rev: (rev.get("metadata") or {}).get("creationTimestamp", ""),
         )
         referenced.add(rollback["metadata"]["name"])
+    if settings.get("count_retained_revisions"):
+        # Deferred UAT retirement allows several old generations to drain at
+        # once. Until they are deleted, reserve each one's full connection cap.
+        referenced.update(by_name)
     return [
         revision_connections(by_name[name], service, settings, database_connection_name)
         for name in sorted(referenced)
@@ -273,19 +279,54 @@ def job_budget(
     }
 
 
-def evaluate(
-    profile: dict[str, Any], environment: str, inventory: dict[str, Any]
-) -> dict[str, Any]:
+def connection_policy(
+    profile: dict[str, Any], environment: str | None = None
+) -> dict[str, int]:
+    """Resolve one complete policy; incomplete overrides never inherit authority."""
     if profile.get("schema_version") != 1:
         raise BudgetError("unsupported capacity profile version")
-    config = profile["environments"][environment]
-    maximum = positive_int(
-        profile["database_max_connections"], "database max connections"
-    )
-    limit = positive_int(profile["admission_limit"], "admission limit")
-    reserve = positive_int(profile["administrative_reserve"], "administrative reserve")
-    if limit > maximum or reserve >= limit:
+    config = profile["environments"][environment] if environment else {}
+    fields = ("database_max_connections", "admission_limit", "administrative_reserve")
+    source = config.get("connection_policy", profile)
+    if not isinstance(source, dict) or any(field not in source for field in fields):
+        raise BudgetError("incomplete database connection policy")
+    policy = {field: positive_int(source[field], field) for field in fields}
+    if (
+        policy["admission_limit"] > policy["database_max_connections"]
+        or policy["administrative_reserve"] >= policy["admission_limit"]
+    ):
         raise BudgetError("invalid database connection policy")
+    return policy
+
+
+def sql_alert_thresholds(
+    profile: dict[str, Any], project: str, instance: str
+) -> dict[str, int]:
+    matches = [name for name, config in profile["environments"].items()
+               if config["project"] == project]
+    if len(matches) != 1:
+        raise BudgetError("expected one reviewed capacity policy for the project")
+    environment = matches[0]
+    if profile["environments"][environment]["database_instance"] != instance:
+        raise BudgetError("SQL instance differs from reviewed capacity policy")
+    maximum = connection_policy(profile, environment)["database_max_connections"]
+    return {"warning": maximum * 70 // 100, "critical": maximum * 85 // 100}
+
+
+def evaluate(
+    profile: dict[str, Any],
+    environment: str,
+    inventory: dict[str, Any],
+    *,
+    phase: CapacityPhase = "pre-deploy",
+) -> dict[str, Any]:
+    if phase not in CAPACITY_PHASES:
+        raise BudgetError(f"unsupported capacity phase: {phase}")
+    policy = connection_policy(profile, environment)
+    config = profile["environments"][environment]
+    maximum = policy["database_max_connections"]
+    limit = policy["admission_limit"]
+    reserve = policy["administrative_reserve"]
     live_maximum = inventory["database_max_connections"]
     if live_maximum != maximum:
         raise BudgetError(
@@ -318,7 +359,8 @@ def evaluate(
                     connection_name,
                 )
             )
-        service_rows.append(candidate_connections(name, settings))
+        if phase == "pre-deploy":
+            service_rows.append(candidate_connections(name, settings))
     if set(inventory["jobs"]) != set(config["jobs"]):
         extra = set(inventory["jobs"]) - set(config["jobs"])
         missing = set(config["jobs"]) - set(inventory["jobs"])
@@ -332,6 +374,7 @@ def evaluate(
     projected = reserve + sum(row["connections"] for row in service_rows + job_rows)
     return {
         "environment": environment,
+        "phase": phase,
         "project": config["project"],
         "database": connection_name,
         "verified_max_connections": live_maximum,
@@ -446,6 +489,12 @@ def collect(profile: dict[str, Any], environment: str) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", choices=("uat", "production"), required=True)
+    parser.add_argument(
+        "--phase",
+        choices=CAPACITY_PHASES,
+        default="pre-deploy",
+        help="Reserve the next deployment candidate, or check only retained capacity",
+    )
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
     parser.add_argument(
         "--report-only",
@@ -456,15 +505,18 @@ def main() -> int:
     args = parser.parse_args()
     try:
         profile = json.loads(args.profile.read_text())
-        report = evaluate(profile, args.environment, collect(profile, args.environment))
+        report = evaluate(
+            profile, args.environment, collect(profile, args.environment), phase=args.phase
+        )
     except (OSError, KeyError, TypeError, json.JSONDecodeError, BudgetError) as exc:
         print(f"capacity budget blocked: {exc}", file=sys.stderr)
         return 2
     if args.output == "json":
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
+        capacity_label = "projected" if args.phase == "pre-deploy" else "current"
         print(
-            f"{args.environment}: projected {report['projected_connections']} / {report['admission_limit']} "
+            f"{args.environment}: {capacity_label} {report['projected_connections']} / {report['admission_limit']} "
             f"(Cloud SQL max {report['verified_max_connections']}, admin reserve {report['administrative_reserve']})"
         )
         for row in report["services"] + report["jobs"]:

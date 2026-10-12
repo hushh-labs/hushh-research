@@ -26,6 +26,39 @@ const source = readFileSync(
  * the actual Gmail settings page, untouched.
  */
 describe("Agent One chat workspace wiring contract", () => {
+  it("saves KYC-confirmed chat facts through the same Soul queue, not a structured identity writer", () => {
+    const capture = source.slice(source.indexOf("const captureEligiblePkmFactsInBackground ="), source.indexOf("const runAgentTurn = async ("));
+    expect(capture).toContain("prepareNaturalLanguagePkm({");
+    expect(capture).toContain("stageMarkdownMemoryFacts({");
+    expect(capture).not.toContain("ingestNaturalLanguagePkm(");
+    expect(capture).not.toContain("issuePkmReplyAuthorization(");
+    expect(capture).not.toContain('memoryProfile: "kyc_identity_v1"');
+    const afterCapture = source.slice(source.indexOf("if (options.kycInformationSaveConfirmed) {"), source.indexOf("if (!options.deferPkmContext) {"));
+    expect(afterCapture).toContain("loadAgentPkmContext({");
+    expect(afterCapture).not.toContain("forceRefresh: true");
+  });
+  it("mounts independent background capabilities from ordinary chat readiness", () => {
+    const readiness = source.slice(
+      source.indexOf("const backgroundCardsEnabled ="),
+      source.indexOf("const [magicIntelligenceVisible"),
+    );
+    expect(readiness).toContain("hasChatAccess && !isPuppySurface && !sessionVerificationRequired");
+    expect(readiness).toContain("chatOnboarding.resolved");
+    expect(source).toContain("startSignal: Boolean(user?.uid && pendingEntryWelcome?.userId === user.uid) || Boolean(postSetupWelcomeContext)");
+    expect(readiness).not.toMatch(/business|Business/);
+    const backgroundTurn = source.slice(
+      source.indexOf("const renderBackgroundCardTurn ="),
+      source.indexOf("const renderChatOnboarding ="),
+    );
+    expect(backgroundTurn).toContain("<OneBackgroundCards");
+    expect(backgroundTurn).toContain("enabled={backgroundCardsEnabled}");
+    expect(backgroundTurn).toContain("ephemeralCard={card}");
+    expect(backgroundTurn).not.toContain("magicIntelligenceVisible");
+    const endSlot = source.slice(source.indexOf('renderChatOnboarding({ kind: "end", visibleMessageIds })'));
+    expect(endSlot.indexOf("renderBackgroundCardTurn()")).toBeGreaterThan(0);
+    expect(endSlot).toContain("backgroundCardTurnAnchor.afterId === visibleMessageIds.at(-1)");
+  });
+
   it("refreshes recent Drive sharing only while chat history is open", () => {
     const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
     expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');

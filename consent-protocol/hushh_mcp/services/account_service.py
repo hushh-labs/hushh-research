@@ -245,6 +245,24 @@ class AccountService:
             "marketplace_recipient_keys": text(
                 "DELETE FROM marketplace_recipient_keys WHERE user_id = :user_id"
             ),
+            "wallet_card_access_audit": text(
+                "DELETE FROM wallet_card_access_audit WHERE actor_user_id = :user_id"
+            ),
+            "wallet_card_access_grants": text(
+                "DELETE FROM wallet_card_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
+            ),
+            "wallet_profile_access_grants": text(
+                "DELETE FROM wallet_profile_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
+            ),
+            "wallet_profile_share_requests": text(
+                "DELETE FROM wallet_profile_share_requests WHERE owner_user_id = :user_id"
+            ),
+            "wallet_card_share_requests": text(
+                "DELETE FROM wallet_card_share_requests WHERE owner_user_id = :user_id"
+            ),
+            "wallet_card_registrations": text(
+                "DELETE FROM wallet_card_registrations WHERE owner_user_id = :user_id"
+            ),
             "pkm_packets": text("DELETE FROM pkm_packets WHERE owner_user_id = :user_id"),
             # A paid, undelivered packet is money owed back to the buyer: move it
             # to refund_pending (the reconcile refunds it, then removes the row)
@@ -269,6 +287,12 @@ class AccountService:
             "pkm_credit_ledger": text("DELETE FROM pkm_credit_ledger WHERE user_id = :user_id"),
             "pkm_owner_payout_accounts": text(
                 "DELETE FROM pkm_owner_payout_accounts WHERE user_id = :user_id"
+            ),
+            "stripe_owner_payout_accounts": text(
+                "DELETE FROM stripe_owner_payout_accounts WHERE user_id = :user_id"
+            ),
+            "drive_request_owner_pricing": text(
+                "DELETE FROM drive_request_owner_pricing WHERE user_id = :user_id"
             ),
             # The Stripe subscription id moves to an identity-free table so the
             # work drain cancels it at Stripe: a deleted person is never billed.
@@ -612,6 +636,9 @@ class AccountService:
                 """
             ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            "user_push_installations": text(
+                "DELETE FROM user_push_installations WHERE user_id = :user_id"
+            ),
             "circle_chat_messages": text(
                 "DELETE FROM circle_chat_messages WHERE sender_user_id = :user_id"
             ),
@@ -1422,6 +1449,12 @@ class AccountService:
                 "one_mcp_pending_calls",
                 "agent_chat_messages",
                 "agent_chat_conversations",
+                "wallet_card_access_audit",
+                "wallet_profile_access_grants",
+                "wallet_card_access_grants",
+                "wallet_profile_share_requests",
+                "wallet_card_share_requests",
+                "wallet_card_registrations",
                 "messages",
                 "conversations",
                 "direct_message_blocks",
@@ -1460,6 +1493,8 @@ class AccountService:
                 "pkm_credit_ledger",
                 "pkm_credit_subscriptions",
                 "pkm_owner_payout_accounts",
+                "stripe_owner_payout_accounts",
+                "drive_request_owner_pricing",
                 "marketplace_opportunity_signals",
                 "trusted_device_challenges",
                 "trusted_device_authorizations",
@@ -1583,6 +1618,9 @@ class AccountService:
         )
         results["internal_access_events"] = True
         self._delete_user_rows_if_table_exists(conn, table_name="user_push_tokens", params=params)
+        self._delete_user_rows_if_table_exists(
+            conn, table_name="user_push_installations", params=params
+        )
         results["push_tokens"] = True
         self._delete_owned_named_circles(
             conn,
@@ -1836,6 +1874,8 @@ class AccountService:
             "pkm_credit_ledger": False,
             "pkm_credit_subscriptions": False,
             "pkm_owner_payout_accounts": False,
+            "stripe_owner_payout_accounts": False,
+            "drive_request_owner_pricing": False,
             "marketplace_opportunity_signals": False,
             "one_referral_risk_reviews": False,
             "one_referral_events": False,
@@ -1948,6 +1988,12 @@ class AccountService:
                         "one_mcp_pending_calls",
                         "agent_chat_messages",
                         "agent_chat_conversations",
+                        "wallet_card_access_audit",
+                        "wallet_profile_access_grants",
+                        "wallet_card_access_grants",
+                        "wallet_profile_share_requests",
+                        "wallet_card_share_requests",
+                        "wallet_card_registrations",
                         "messages",
                         "conversations",
                         "direct_message_blocks",
@@ -1979,6 +2025,8 @@ class AccountService:
                         "pkm_credit_ledger",
                         "pkm_credit_subscriptions",
                         "pkm_owner_payout_accounts",
+                        "stripe_owner_payout_accounts",
+                        "drive_request_owner_pricing",
                         "marketplace_opportunity_signals",
                         "trusted_device_challenges",
                         "trusted_device_authorizations",
@@ -2126,6 +2174,9 @@ class AccountService:
                 results["internal_access_events"] = True
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="user_push_tokens", params=params
+                )
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="user_push_installations", params=params
                 )
                 results["push_tokens"] = True
                 self._delete_owned_named_circles(

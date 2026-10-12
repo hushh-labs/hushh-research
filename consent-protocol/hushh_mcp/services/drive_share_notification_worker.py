@@ -31,9 +31,10 @@ PUSH_TIMEOUT_SECONDS = 20
 DOCUMENT_SHARE_NOTIFICATION_COPY = {
     "document_share_request": ("Document request", "Open One for next steps."),
     "document_share_review_ready": ("Files ready to review", "Open One to choose what to share."),
+    # Prices vary by request and the payload carries none, so the copy names none.
     "document_share_payment_ready": (
         "Payment needed",
-        "Pay $10 in One to continue your document request.",
+        "Pay in One to continue your document request.",
     ),
     "document_share_payment_confirmed": (
         "Payment confirmed",
@@ -47,6 +48,11 @@ DOCUMENT_SHARE_NOTIFICATION_COPY = {
     "document_share_outcome": ("Drive request update", "Open One to see the result."),
     "document_share_revoked": ("Drive access changed", "Open One to see what changed."),
     "document_share_revocation_outcome": ("Drive access changed", "Open One to see what changed."),
+    # To the owner: the requester asked about files a partial delivery missed.
+    "document_share_review_requested": (
+        "Review requested",
+        "Open One to see the files that weren't shared.",
+    ),
     "document_share_question": (
         "Drive question",
         "Someone asked about your Drive. Open One to review.",
@@ -55,10 +61,26 @@ DOCUMENT_SHARE_NOTIFICATION_COPY = {
     "document_share_declined": ("Drive question declined", "Open One for details."),
 }
 DOCUMENT_SHARE_NOTIFICATION_TYPES = frozenset(DOCUMENT_SHARE_NOTIFICATION_COPY)
+# The one extra field a document_share_request push may carry: the owner's
+# first unmet setup step. Web and native map it to a fixed local screen and
+# drop any other value; keep aligned with lib/consent/document-request-setup.ts.
+DOCUMENT_REQUEST_SETUP_STEPS = frozenset({"drive", "payouts", "price"})
 
 
 def _opaque_id(value: object) -> str:
     return str(UUID(str(value)))
+
+
+async def _owner_setup_step(store: DriveShareNotificationStore, job: dict[str, Any]) -> str | None:
+    """A tap hint only: a failed lookup keeps the review route and the push."""
+    try:
+        step = await store.owner_setup_step(
+            request_id=str(job["request_id"]), user_id=str(job["user_id"])
+        )
+    except Exception as error:  # noqa: BLE001 - never hold a push for its tap target.
+        logger.warning("drive_notify.setup_unavailable %s", type(error).__name__)
+        return None
+    return step if isinstance(step, str) and step in DOCUMENT_REQUEST_SETUP_STEPS else None
 
 
 def notification_payload(job: dict[str, Any]) -> dict[str, Any] | None:
@@ -147,6 +169,12 @@ class DriveShareNotificationWorker:
             request_id=str(job["request_id"]), user_id=str(job["user_id"])
         ):
             return "suppressed" if await store.suppress(job) else "not_claimed"
+        if payload["notification_type"] == "document_share_request":
+            # The owner's tap opens the one screen that clears an unmet setup
+            # step. Drive questions use their own outbox and are never asked.
+            step = await _owner_setup_step(store, job)
+            if step is not None:
+                payload["data"]["setup"] = step
         title, body = DOCUMENT_SHARE_NOTIFICATION_COPY[payload["notification_type"]]
         try:
             async with asyncio.timeout(PUSH_TIMEOUT_SECONDS):

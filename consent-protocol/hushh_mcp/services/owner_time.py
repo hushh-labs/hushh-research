@@ -101,6 +101,30 @@ def send_at_after_minutes(minutes: int, *, now: datetime) -> datetime:
     return check_send_at(_aware_utc(now) + timedelta(minutes=int(minutes)), now=now)
 
 
+def resolve_calendar_time(raw: str, *, timezone_name: str) -> datetime:
+    """Validate an ISO Calendar boundary, refusing ambiguous/gap wall times.
+
+    Explicit offsets identify an instant. Unqualified local times must round
+    trip uniquely through the owner's zone; semantics stay with the planner.
+    """
+    parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc)
+    zone = owner_zone(timezone_name)
+    instants = {
+        candidate.astimezone(timezone.utc)
+        for fold in (0, 1)
+        if (candidate := parsed.replace(tzinfo=zone, fold=fold))
+        .astimezone(timezone.utc)
+        .astimezone(zone)
+        .replace(tzinfo=None)
+        == parsed
+    }
+    if len(instants) != 1:
+        raise ValueError("calendar_local_time_requires_offset")
+    return instants.pop()
+
+
 def resolve_send_at(raw: str, *, owner_zone: ZoneInfo | str | None, now: datetime) -> datetime:
     """An absolute send time as aware UTC, or :class:`ScheduleTimeError`.
 

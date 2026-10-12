@@ -14,6 +14,19 @@ import {
   UseAgentRowIcon,
   WarningRowIcon,
 } from "@/components/icons/agents";
+import { ProfilePaneInviteIcon } from "@/components/profile/profile-pane-icons";
+import typographyStyles from "@/components/profile/profile-secondary-typography.module.css";
+import {
+  ProfileInnerAgentIcon,
+  ProfileInnerJoinIcon,
+  ProfileInnerLinkIcon,
+  ProfileInnerPeopleIcon,
+  ProfileInnerProgressIcon,
+  ProfileInnerQualifiedIcon,
+  ProfileInnerReviewIcon,
+  ProfileInnerSuccessIcon,
+  ProfileInnerWarningIcon,
+} from "@/components/profile/profile-inner-icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Input } from "@/components/ui/input";
@@ -31,6 +44,7 @@ import {
   type MilestoneProgress,
   type ReferralSummary,
 } from "@/lib/services/referral-service";
+import { cn } from "@/lib/utils";
 
 type GamificationState = {
   leaderboard: LeaderboardPage | null;
@@ -50,8 +64,37 @@ type LoadState = "loading" | "ready" | "error";
  * counts, the statuses and the link all arrive decided, because a referral
  * count the client could influence would not be worth showing.
  */
-export function ReferralsPanel() {
+export function ReferralsPanel({
+  panePresentation = false,
+}: {
+  panePresentation?: boolean;
+}) {
   const { user } = useAuth();
+  const icons = panePresentation
+    ? {
+        invite: ProfilePaneInviteIcon,
+        link: ProfileInnerLinkIcon,
+        join: ProfileInnerJoinIcon,
+        agent: ProfileInnerAgentIcon,
+        qualified: ProfileInnerQualifiedIcon,
+        success: ProfileInnerSuccessIcon,
+        people: ProfileInnerPeopleIcon,
+        progress: ProfileInnerProgressIcon,
+        review: ProfileInnerReviewIcon,
+        warning: ProfileInnerWarningIcon,
+      }
+    : {
+        invite: InviteFriendsProfileIcon,
+        link: LinkRowIcon,
+        join: JoinRowIcon,
+        agent: UseAgentRowIcon,
+        qualified: QualifiedRowIcon,
+        success: SuccessRowIcon,
+        people: PeopleRowIcon,
+        progress: ProgressRowIcon,
+        review: ReviewRowIcon,
+        warning: WarningRowIcon,
+      };
   const [state, setState] = useState<LoadState>("loading");
   const [showProgress, setShowProgress] = useState(false);
   const [summary, setSummary] = useState<ReferralSummary | null>(null);
@@ -221,25 +264,41 @@ export function ReferralsPanel() {
 
   if (state === "error") {
     return (
-      <div className="space-y-4 sm:space-y-5">
+      <div
+        className={cn(
+          "profile-inner-referrals space-y-4 sm:space-y-5",
+          panePresentation && typographyStyles.paneReferrals,
+        )}
+      >
         <SettingsGroup>
           <SettingsRow
-            icon={WarningRowIcon}
+            icon={icons.warning}
             iconTone="capability"
             title="Unable to load"
             description="Check your connection."
           />
         </SettingsGroup>
-        <Button onClick={() => void load()}>Try again</Button>
+        <Button
+          className={panePresentation ? typographyStyles.action : undefined}
+          onClick={() => void load()}
+        >
+          Try again
+        </Button>
       </div>
     );
   }
 
   if (state === "loading" || !summary) {
     return (
-      <div className="space-y-4 sm:space-y-5" aria-busy="true">
+      <div
+        className={cn(
+          "profile-inner-referrals space-y-4 sm:space-y-5",
+          panePresentation && typographyStyles.paneReferrals,
+        )}
+        aria-busy="true"
+      >
         <SettingsGroup>
-          <SettingsRow icon={InviteFriendsProfileIcon} iconTone="capability" title="Loading" />
+          <SettingsRow icon={icons.invite} iconTone="capability" title="Loading" />
         </SettingsGroup>
       </div>
     );
@@ -255,10 +314,15 @@ export function ReferralsPanel() {
     null;
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div
+      className={cn(
+        "profile-inner-referrals space-y-4 sm:space-y-5",
+        panePresentation && typographyStyles.paneReferrals,
+      )}
+    >
       <SettingsGroup title="Your link">
         <SettingsRow
-          icon={LinkRowIcon}
+          icon={icons.link}
           iconTone="capability"
           title={summary.slug}
           description={summary.link}
@@ -266,17 +330,26 @@ export function ReferralsPanel() {
       </SettingsGroup>
 
       <div className="flex gap-3">
-        <Button onClick={() => void onCopy()}>Copy</Button>
-        <Button variant="muted" onClick={() => void onShare()}>
+        <Button
+          className={panePresentation ? typographyStyles.action : undefined}
+          onClick={() => void onCopy()}
+        >
+          Copy
+        </Button>
+        <Button
+          className={panePresentation ? typographyStyles.action : undefined}
+          variant="muted"
+          onClick={() => void onShare()}
+        >
           <Share2 className="size-4" aria-hidden="true" />
           Share
         </Button>
       </div>
 
       <SettingsGroup title="How it works">
-        <SettingsRow icon={JoinRowIcon} iconTone="capability" title="They join" density="compact" />
-        <SettingsRow icon={UseAgentRowIcon} iconTone="capability" title="Use an agent" density="compact" />
-        <SettingsRow icon={QualifiedRowIcon} iconTone="capability" title="Referral qualifies" density="compact" />
+        <SettingsRow icon={icons.join} iconTone="capability" title="They join" density="compact" />
+        <SettingsRow icon={icons.agent} iconTone="capability" title="Use an agent" density="compact" />
+        <SettingsRow icon={icons.qualified} iconTone="capability" title="Referral qualifies" density="compact" />
       </SettingsGroup>
 
       <SettingsGroup
@@ -284,7 +357,7 @@ export function ReferralsPanel() {
         description="All contributions carry forward"
       >
         <SettingsRow
-          icon={SuccessRowIcon}
+          icon={icons.success}
           iconTone="capability"
           title="Overall rank"
           trailing={
@@ -295,7 +368,7 @@ export function ReferralsPanel() {
           density="compact"
         />
         <SettingsRow
-          icon={SuccessRowIcon}
+          icon={icons.success}
           iconTone="capability"
           title="Cumulative points"
           trailing={<span data-testid="referral-cumulative-points">{viewerLeaderboardRow?.points ?? 0}</span>}
@@ -303,7 +376,7 @@ export function ReferralsPanel() {
         />
         {gamification.circleSelection?.circle_id ? (
           <SettingsRow
-            icon={PeopleRowIcon}
+            icon={icons.people}
             iconTone="capability"
             title="Your team"
             description="Raw qualified referrals, counted for your team"
@@ -323,13 +396,18 @@ export function ReferralsPanel() {
         <SettingsGroup title="Your next reward">
           {gamification.milestones.next_milestone ? (
             <SettingsRow
-              icon={ProgressRowIcon}
+              icon={icons.progress}
               iconTone="capability"
               title={gamification.milestones.next_milestone.reward}
               density="compact"
               description={
                 <div className="flex w-full flex-col gap-2 pt-1">
-                  <div className="flex items-center justify-end text-sm">
+                  <div
+                    className={cn(
+                      "flex items-center justify-end text-sm",
+                      panePresentation && typographyStyles.progressCount,
+                    )}
+                  >
                     <span data-testid="referral-milestone-progress">
                       {gamification.milestones.next_milestone.progress}/
                       {gamification.milestones.next_milestone.threshold}
@@ -347,7 +425,7 @@ export function ReferralsPanel() {
             />
           ) : (
             <SettingsRow
-              icon={SuccessRowIcon}
+              icon={icons.success}
               iconTone="capability"
               title="Every reward earned"
               density="compact"
@@ -356,7 +434,7 @@ export function ReferralsPanel() {
           {gamification.milestones.earned.map((item) => (
             <SettingsRow
               key={item.milestone_key}
-              icon={SuccessRowIcon}
+              icon={icons.success}
               iconTone="capability"
               title={item.reward}
               description="Earned"
@@ -371,7 +449,7 @@ export function ReferralsPanel() {
         <SettingsGroup title="Keep it going">
           {gamification.engagement.streak.current_run_days > 0 ? (
             <SettingsRow
-              icon={ProgressRowIcon}
+              icon={icons.progress}
               iconTone="capability"
               title="Referral streak"
               description={`${gamification.engagement.streak.current_run_days} of ${gamification.engagement.streak.run_length_days} days`}
@@ -380,7 +458,7 @@ export function ReferralsPanel() {
           ) : null}
           {gamification.engagement.flash.active ? (
             <SettingsRow
-              icon={SuccessRowIcon}
+              icon={icons.success}
               iconTone="capability"
               title="Flash bonus is live"
               description="Referrals qualifying now earn double points"
@@ -396,13 +474,14 @@ export function ReferralsPanel() {
           description="Choose a handle to show your rank to other referrers. Your real name is never shown."
         >
           <SettingsRow
-            icon={PeopleRowIcon}
+            icon={icons.people}
             iconTone="capability"
             title="Your leaderboard handle"
             density="compact"
             description={
               <div className="flex w-full flex-col gap-2 pt-1 sm:flex-row sm:items-center">
                 <Input
+                  className={panePresentation ? typographyStyles.field : undefined}
                   value={handleInput}
                   onChange={(event) => setHandleInput(event.target.value)}
                   placeholder="your-handle"
@@ -410,6 +489,7 @@ export function ReferralsPanel() {
                   aria-label="Leaderboard handle"
                 />
                 <Button
+                  className={panePresentation ? typographyStyles.action : undefined}
                   onClick={() => void onSaveHandle()}
                   disabled={handleSaving || !handleInput.trim()}
                 >
@@ -420,7 +500,7 @@ export function ReferralsPanel() {
           />
           {handleErrorMessage ? (
             <SettingsRow
-              icon={WarningRowIcon}
+              icon={icons.warning}
               iconTone="capability"
               title={handleErrorMessage}
               density="compact"
@@ -441,7 +521,7 @@ export function ReferralsPanel() {
           {gamification.leaderboard.entries.map((entry) => (
             <SettingsRow
               key={entry.rank}
-              icon={entry.is_viewer ? SuccessRowIcon : PeopleRowIcon}
+              icon={entry.is_viewer ? icons.success : icons.people}
               iconTone="capability"
               title={`#${entry.rank} ${entry.handle}`}
               trailing={<span>{entry.points} pts</span>}
@@ -450,7 +530,7 @@ export function ReferralsPanel() {
           ))}
           {gamification.leaderboard.viewer ? (
             <SettingsRow
-              icon={SuccessRowIcon}
+              icon={icons.success}
               iconTone="capability"
               title={`#${gamification.leaderboard.viewer.rank} ${gamification.leaderboard.viewer.handle} (you)`}
               trailing={<span>{gamification.leaderboard.viewer.points} pts</span>}
@@ -465,7 +545,7 @@ export function ReferralsPanel() {
           {gamification.circleLeaderboard.map((team) => (
             <SettingsRow
               key={team.circle_id}
-              icon={PeopleRowIcon}
+              icon={icons.people}
               iconTone="capability"
               title={team.circle_name}
               trailing={<span>{team.contribution_count}</span>}
@@ -480,14 +560,14 @@ export function ReferralsPanel() {
         description={`${summary.required_active_minutes} active minutes · New users only`}
       >
         <SettingsRow
-          icon={QualifiedRowIcon}
+          icon={icons.qualified}
           iconTone="capability"
           title="Qualified"
           trailing={<span data-testid="referral-qualified-count">{summary.qualified_count}</span>}
           density="compact"
         />
         <SettingsRow
-          icon={ProgressRowIcon}
+          icon={icons.progress}
           iconTone="capability"
           title="In progress"
           trailing={
@@ -507,7 +587,7 @@ export function ReferralsPanel() {
         />
         {summary.under_review_count > 0 ? (
           <SettingsRow
-            icon={ReviewRowIcon}
+            icon={icons.review}
             iconTone="capability"
             title="Under review"
             trailing={<span>{summary.under_review_count}</span>}
@@ -524,7 +604,7 @@ export function ReferralsPanel() {
           {inProgressRows.map((row, index) => (
             <SettingsRow
               key={`progress:${row.started_on}:${index}`}
-              icon={ProgressRowIcon}
+              icon={icons.progress}
               iconTone="capability"
               title={row.step}
               description={`${row.active_minutes} of ${row.required_minutes} active minutes · joined ${row.started_on}`}
@@ -544,7 +624,7 @@ export function ReferralsPanel() {
           {summary.referrals.slice(0, 10).map((row, index) => (
             <SettingsRow
               key={`${row.started_on}:${index}`}
-              icon={JoinRowIcon}
+              icon={icons.join}
               iconTone="capability"
               title="New member"
               description={row.started_on}
@@ -556,7 +636,7 @@ export function ReferralsPanel() {
       ) : (
         <SettingsGroup>
           <SettingsRow
-            icon={InviteFriendsProfileIcon}
+            icon={icons.invite}
             iconTone="capability"
             title="No referrals yet"
             description="Share your link to start."

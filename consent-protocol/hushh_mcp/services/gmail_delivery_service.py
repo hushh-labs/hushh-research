@@ -82,26 +82,14 @@ _SCHEDULED_LIST_MAX = 25
 # A cancel renames its row's idempotency key, so the same email to the same
 # person for the same time can be scheduled again once it was cancelled.
 _SCHEDULE_CANCELLED_KEY_MARK = ":cancelled:"
+_IMMEDIATE_SEND_SETTLEMENT_GRACE = timedelta(minutes=5)
 
-_EMAIL_AGENT_INTRO_PHRASES = (
-    "explain features of the email agent",
-    "demonstrate the core features of the gmail agent",
-)
-_EMAIL_AGENT_INTRO_BODY = """Hi,
-
-## Meet your Hushh Email Agent
-
-Thanks for giving it a try. Here’s what I can help with:
-
-- **Draft polished emails** from a short request
-- **Keep recipients organised** across To, Cc, and Bcc
-- **Surface useful Gmail context** for receipts and inbox questions
-- **Keep you in control** — every message stays editable until you choose Send
-
-You can ask One to write, refine, or explain an email whenever you need it.
-
-Best,
-Hushh"""
+_OWNER_SEND_ACTION_SELECT = """
+    SELECT action_id, state, created_at, sent_at, gmail_message_id,
+           gmail_thread_id, safe_error_code
+    FROM gmail_owner_send_actions
+    WHERE action_id = $1 AND user_id = $2
+"""
 
 
 def _utcnow() -> datetime:
@@ -110,11 +98,6 @@ def _utcnow() -> datetime:
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
-
-
-def _is_email_agent_intro_instruction(instruction: str) -> bool:
-    normalized = " ".join(instruction.lower().split())
-    return any(phrase in normalized for phrase in _EMAIL_AGENT_INTRO_PHRASES)
 
 
 class GmailDeliveryError(RuntimeError):
@@ -811,9 +794,6 @@ class GmailDeliveryService:
                 str(item).strip() for item in value.get("missing_details", []) if str(item).strip()
             ],
         }
-        if _is_email_agent_intro_instruction(instruction):
-            draft["subject"] = "Meet your Hushh Email Agent"
-            draft["body"] = _EMAIL_AGENT_INTRO_BODY
         if not draft["body"].strip():
             raise GmailDeliveryError(
                 "DRAFT_INVALID",
@@ -1747,16 +1727,39 @@ async def get_owner_send_action(*, user_id: str, action_id: str) -> dict[str, An
         return None
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT action_id, state, created_at, sent_at, gmail_message_id,
-                   gmail_thread_id, safe_error_code
-            FROM gmail_owner_send_actions
-            WHERE action_id = $1 AND user_id = $2
-            """,
-            action_id,
-            user_id,
-        )
+        row = await conn.fetchrow(_OWNER_SEND_ACTION_SELECT, action_id, user_id)
+    return dict(row) if row is not None else None
+
+
+async def reconcile_owner_send_action(*, user_id: str, action_id: str) -> dict[str, Any] | None:
+    """Settle a crashed immediate send without ever replaying its Gmail POST.
+
+    The provider may have accepted the send before the process disappeared.
+    After the bounded execution window, the only safe result is unknown.
+    The owner must check Sent Mail before starting a new review.
+    """
+    action_id = _text(action_id)
+    if not action_id or not _text(user_id):
+        return None
+    cutoff = _utcnow() - _IMMEDIATE_SEND_SETTLEMENT_GRACE
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """
+                UPDATE gmail_owner_send_actions
+                SET state = 'outcome_unknown',
+                    safe_error_code = 'send_interrupted',
+                    updated_at = NOW()
+                WHERE action_id = $1 AND user_id = $2
+                  AND send_at IS NULL AND state = 'sending'
+                  AND sending_at IS NOT NULL AND sending_at <= $3
+                """,
+                action_id,
+                user_id,
+                cutoff,
+            )
+            row = await conn.fetchrow(_OWNER_SEND_ACTION_SELECT, action_id, user_id)
     return dict(row) if row is not None else None
 
 

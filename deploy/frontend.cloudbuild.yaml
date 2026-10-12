@@ -47,6 +47,8 @@ steps:
           exit 1
         fi
 
+        FRONTEND_IMAGE_PREBUILT="${_SKIP_IMAGE_BUILD}"
+
         passkey_rp_id_file="/workspace/.passkey-rp-id"
         : > "$${passkey_rp_id_file}"
         chmod 600 "$${passkey_rp_id_file}"
@@ -73,16 +75,20 @@ steps:
           echo "Could not derive the frontend passkey RP ID from APP_FRONTEND_ORIGIN."
           exit 1
         fi
-        expected_passkey_rp_id=""
-        legacy_passkey_rp_id=""
-        case "${_DEPLOY_ENV}" in
-          dev) expected_passkey_rp_id="dev.one.hushh.ai" ;;
-          uat) expected_passkey_rp_id="uat.one.hussh.ai"; legacy_passkey_rp_id="uat.one.hushh.ai" ;;
-          production) expected_passkey_rp_id="one.hussh.ai"; legacy_passkey_rp_id="one.hushh.ai" ;;
-        esac
-        if [[ -n "$${expected_passkey_rp_id}" && "$${PASSKEY_RP_ID_VAL}" != "$${expected_passkey_rp_id}" && "$${PASSKEY_RP_ID_VAL}" != "$${legacy_passkey_rp_id}" ]]; then
-          echo "APP_FRONTEND_ORIGIN host does not match the ${_DEPLOY_ENV} frontend domain."
-          exit 1
+        # Deploy-only consumes a validated, environment-specific image digest
+        # without uploading source. Catalog validation belongs to image builds.
+        if [[ "$${FRONTEND_IMAGE_PREBUILT:-false}" != "true" ]]; then
+        # One environment-scoped domain catalog owns frontend and backend aliases.
+        python3 - "${_DEPLOY_ENV}" "$${PASSKEY_RP_ID_VAL}" <<'PY_RP'
+        import json
+        import sys
+        from pathlib import Path
+
+        environment, hostname = sys.argv[1:]
+        aliases = json.loads(Path("hushh-webapp/lib/vault/passkey-domain-aliases.json").read_text())
+        if hostname not in aliases.get(environment, []):
+            raise SystemExit("APP_FRONTEND_ORIGIN host does not match the deployment environment")
+        PY_RP
         fi
         printf '%s' "$${PASSKEY_RP_ID_VAL}" > "$${passkey_rp_id_file}"
 

@@ -597,6 +597,60 @@ export class AuthService {
     }
   }
 
+  /** Fresh provider proof for irreversible account deletion; never signs in another user. */
+  static async reauthenticateAccountDeletionIdentity(
+    expectedUserId: string,
+    providerId: "google.com" | "apple.com",
+    isCurrent: () => boolean,
+  ): Promise<string> {
+    return this.reauthenticateIdentity(expectedUserId, providerId, isCurrent);
+  }
+
+  /** Fresh current-user provider proof; ordinary token refresh is insufficient. */
+  static async reauthenticateIdentity(
+    expectedUserId: string,
+    providerId: "google.com" | "apple.com",
+    isCurrent: () => boolean,
+  ): Promise<string> {
+    if (providerId === "google.com") {
+      return this.reauthenticateGoogleIdentity(expectedUserId, isCurrent);
+    }
+    if (Capacitor.isNativePlatform()) {
+      // The native Apple bridge has no reauthentication operation. A normal
+      // sign-in here could silently replace the current deletion session.
+      throw new Error("native_identity_unavailable");
+    }
+    const currentUser = auth.currentUser;
+    if (!expectedUserId || !isCurrent() || !currentUser ||
+        currentUser.uid !== expectedUserId ||
+        !currentUser.providerData.some((provider) => provider.providerId === providerId)) {
+      throw new Error("apple_identity_required");
+    }
+    const assertCurrent = () => {
+      if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== expectedUserId) {
+        throw new Error("session_changed");
+      }
+    };
+    assertCurrent();
+    try {
+      const result = await reauthenticateWithPopup(currentUser, this.createWebProvider("apple"));
+      assertCurrent();
+      if (result.user.uid !== expectedUserId) throw new Error("identity_mismatch");
+      const token = await result.user.getIdToken(true);
+      assertCurrent();
+      return token;
+    } catch (error) {
+      assertCurrent();
+      if (this.isExpectedPopupClose(error)) throw new Error("identity_cancelled");
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (code === "auth/popup-blocked") throw new Error("identity_popup_blocked");
+      if (code === "auth/user-mismatch" || error instanceof Error && error.message === "identity_mismatch") {
+        throw new Error("identity_mismatch");
+      }
+      throw new Error("identity_verification_failed");
+    }
+  }
+
   /**
    * Sign in with Email and Password using appropriate method for platform.
    * On Native: Uses @capacitor-firebase/authentication for Keychain persistence.
@@ -1215,8 +1269,13 @@ export class AuthService {
    * Sign out from all platforms
    * Uses @capacitor-firebase/authentication for uniform behavior
    */
-  static async signOut(): Promise<void> {
+  static async signOut(departingUserId?: string | null): Promise<void> {
     this.debugLog("🚪 [AuthService] Signing out...");
+    // Start local preview removal alongside both auth stores. There is no await
+    // between the caller's ownership fence and starting credential teardown.
+    const notificationOwner = departingUserId ?? auth.currentUser?.uid;
+    const localNotificationCleanup = import("@/lib/notifications/fcm-service")
+      .then(({ clearLocalChatNotificationState }) => clearLocalChatNotificationState(notificationOwner));
 
     // Native and Firebase JS auth are independent persistence owners in a
     // Capacitor WebView. Always attempt both; a failure in one must never
@@ -1224,6 +1283,11 @@ export class AuthService {
     const results = await Promise.allSettled([
       HushhAuth.signOut(),
       firebaseSignOut(auth),
+      (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try { await Promise.race([localNotificationCleanup, new Promise<void>((resolve) => { timer = setTimeout(resolve, 2_000); })]); }
+        finally { clearTimeout(timer); }
+      })(),
     ]);
     const failures = results.filter(
       (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -1249,6 +1313,23 @@ export class AuthService {
     },
   ): Promise<PhoneVerificationStartResult> {
     return this.startPhoneVerification("link", phoneNumber, options);
+  }
+
+  /** Send a one-time phone proof without adding, replacing, or unlinking a phone. */
+  static async startPhoneDeletionVerification(
+    phoneNumber: string,
+    recaptchaVerifier: ApplicationVerifier,
+  ): Promise<string> {
+    if (Capacitor.isNativePlatform()) throw new Error("native_identity_unavailable");
+    if (!auth.currentUser) throw new Error("session_changed");
+    const normalizedPhoneNumber = String(phoneNumber ?? "").trim();
+    if (!normalizedPhoneNumber) throw new Error("phone_unavailable");
+    try {
+      const provider = new PhoneAuthProvider(auth);
+      return await provider.verifyPhoneNumber(normalizedPhoneNumber, recaptchaVerifier);
+    } catch (error) {
+      throw this.normalizePhoneVerificationError(error, "link_start");
+    }
   }
 
   static async startPhoneReplacementVerification(

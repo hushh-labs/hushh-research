@@ -14,10 +14,8 @@ type CalendarConnectHeroProps = {
 };
 
 /**
- * Resting state of the Calendar screen while nothing is connected: first
- * connect and a lapsed Google authorization share this one hero and one
- * action. Presentational only; the owner-bound connect flow stays with the
- * page that renders it.
+ * The illustration whenever Calendar needs a connection. Presentational
+ * only; the owner-bound connect flow stays with the page that renders it.
  */
 export function CalendarConnectHero({
   journeyVariant,
@@ -40,9 +38,11 @@ export function CalendarConnectHero({
         into One.
       </h1>
 
-      <p className="ui-text-page-subtitle mt-3 max-w-[20rem]">
-        See what’s ahead and make planning easier.
-      </p>
+      {journeyVariant === "workspace" ? (
+        <p className="ui-text-page-subtitle mt-[var(--page-header-copy-gap)] max-w-[20rem]">
+          See what’s ahead and make planning easier.
+        </p>
+      ) : null}
 
       {needsReauth ? (
         <p role="status" className="sr-only">
@@ -55,7 +55,7 @@ export function CalendarConnectHero({
         size="prominent"
         disabled={busy}
         onClick={onConnect}
-        className="mx-auto mt-8 w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
+        className={`mx-auto ${journeyVariant === "onboarding" ? "mt-6" : "mt-[var(--page-header-section-gap)]"} w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]`}
         data-voice-control-id="open_calendar_connector"
         data-voice-action-id={
           journeyVariant === "onboarding" ? "setup.connect_calendar" : undefined

@@ -70,6 +70,7 @@ class ToolRegistryError(RuntimeError):
 def _family_tools() -> tuple[ToolSpec, ...]:
     from hushh_mcp.one_voice.tools import (
         account_lifecycle,
+        calendar,
         circles,
         location_state,
         mail,
@@ -96,6 +97,7 @@ def _family_tools() -> tuple[ToolSpec, ...]:
         mail,
         mail_drafts,
         mail_compose,
+        calendar,
         onboarding,
     ):
         tools.extend(module.TOOLS)
@@ -127,6 +129,37 @@ def get_tool(name: str | None) -> ToolSpec | None:
 def declarations() -> list[dict[str, Any]]:
     """Function declarations for the Live session, session tools included."""
     return [tool.declaration() for tool in all_tools()] + list(SESSION_TOOL_DECLARATIONS)
+
+
+def runtime_declarations(*, mail_review_supported: bool) -> list[dict[str, Any]]:
+    """Expose only the compose path this client's review surface can complete.
+
+    The static catalog remains the projection source. This selection is based on
+    an authenticated client capability, never on words in a transcript.
+    """
+    from hushh_mcp.one_voice.config import OneVoiceMailAdmission
+
+    admission = OneVoiceMailAdmission()
+    excluded = (
+        {"send_mail"}
+        if mail_review_supported
+        else {"compose_mail", "edit_mail_draft", "send_reviewed_mail", "get_mail_draft_status"}
+    )
+    if not admission.mail_reads_enabled():
+        excluded.update(
+            {"read_mail", "open_mail", "reply_mail", "list_drafts", "open_draft", "send_draft"}
+        )
+    if not admission.mail_reply_enabled():
+        excluded.add("reply_mail")
+    if not admission.mail_drafts_enabled():
+        excluded.update({"list_drafts", "open_draft", "send_draft"})
+    if not (admission.mail_schedule_send_enabled() and admission.mail_scheduled_drain_enabled()):
+        excluded.add("schedule_mail")
+    if not (admission.mail_schedule_send_enabled() or admission.mail_scheduled_drain_enabled()):
+        excluded.update({"list_scheduled_mail", "cancel_scheduled_mail"})
+    return [tool.declaration() for tool in all_tools() if tool.name not in excluded] + list(
+        SESSION_TOOL_DECLARATIONS
+    )
 
 
 def validate_gateway_binding() -> list[str]:

@@ -46,7 +46,7 @@ import type {
   OneLocationRecipient,
 } from "@/lib/one-location/types";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;

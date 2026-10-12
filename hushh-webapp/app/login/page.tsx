@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -15,6 +15,13 @@ import {
 
 function LoginContent() {
   const searchParams = useSearchParams();
+  const [deletionNotice] = useState(() => {
+    const notice = readAuthSessionLandingNotice(searchParams);
+    return notice?.code === "account_deleted_ready_to_start_fresh" ||
+      notice?.code === "account_deletion_finishing"
+      ? notice
+      : null;
+  });
   const consumedNoticeRef = useRef<string | null>(null);
   const searchParamsString = searchParams.toString();
   // Empty means an organic sign-in. Do not manufacture `/` as a redirect:
@@ -38,7 +45,10 @@ function LoginContent() {
     const notice = readAuthSessionLandingNotice(searchParams);
     if (notice) {
       const showNotice =
-        notice.code === "account_deleted" ? toast.success : toast.error;
+        notice.code === "account_deleted" ||
+        notice.code === "account_deleted_ready_to_start_fresh"
+          ? toast.success
+          : toast.error;
       showNotice(notice.message, { id: notice.toastId });
     }
 
@@ -57,6 +67,14 @@ function LoginContent() {
 
   return (
     <>
+      {deletionNotice && (
+        <div
+          role="status"
+          className="mx-4 mt-5 max-w-[28rem] rounded-[var(--app-radius-md)] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] px-4 py-3 text-center type-footnote text-[color:var(--app-label)] sm:mx-auto"
+        >
+          {deletionNotice.message}
+        </div>
+      )}
       <AuthStep redirectPath={redirectPath} compact />
     </>
   );

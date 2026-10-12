@@ -141,7 +141,7 @@ describe("Top app bar responsive contract", () => {
     expect(providers).not.toContain("<TopAppBar />");
   });
 
-  it("renders every signed-in hub tab set as the one segmented strip", () => {
+  it("renders signed-in hubs and public knowledge tabs as one segmented strip", () => {
     // Finance used to take the underline arm while Connect and Consent took
     // the segmented pill; one signed-in shell, one tab style.
     const tabs = read("components/app-ui/top-shell-tabs.tsx");
@@ -149,10 +149,9 @@ describe("Top app bar responsive contract", () => {
       tabs.indexOf("const usesModuleSegmentedTabs ="),
       tabs.indexOf("const usesCompactLabels"),
     );
-    for (const id of ["location", "connect", "consent", "finance", "ria"]) {
+    for (const id of ["location", "connect", "consent", "finance", "ria", "public"]) {
       expect(branch).toContain(`tabSet.id === "${id}"`);
     }
-    expect(branch).not.toContain('tabSet.id === "public"');
   });
 
   it("keeps the top-shell scroll lifecycle stable across route swaps", () => {
@@ -194,7 +193,7 @@ describe("Top app bar responsive contract", () => {
     // An open panel or Location action closes in place; everything else is a
     // step in the trail and retraces.
     expect(back).toContain(
-      "if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen)",
+      "if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen || sameScreenParent)",
     );
     expect(back).toContain('return action(breadcrumb.backHref, "replace")');
     expect(back).toContain("params.navigate(action);");
@@ -433,6 +432,10 @@ describe("Top app bar responsive contract", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const back = read("lib/navigation/top-shell-back.ts");
     const breadcrumbs = read("lib/navigation/top-shell-breadcrumbs.ts");
+    // The per-route Back resolution (including Location's no-action breadcrumb
+    // below) lives in the declarative graph top-shell-breadcrumbs.ts walks,
+    // not in top-shell-breadcrumbs.ts itself.
+    const backGraph = read("lib/navigation/back-navigation-graph.ts");
 
     expect(source).toContain("breadcrumb: topShellBreadcrumb");
     // The bar trims the trail through the title-slot resolver, which is the
@@ -444,7 +447,7 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("navigateTopShellBack({");
     expect(back).toContain("navigate: (action: TopShellBackAction) => void;");
     expect(back).toContain("params.navigate(action);");
-    expect(breadcrumbs).toContain(
+    expect(backGraph).toContain(
       'items: [{ label: fromProfile ? "Profile" : "One" }],',
     );
     expect(source).not.toContain("history.back()");

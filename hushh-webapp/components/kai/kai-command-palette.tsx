@@ -1,5 +1,7 @@
 "use client";
 
+import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/search/search-route-context";
+
 import {
   Fragment,
   useCallback,
@@ -51,15 +53,15 @@ import {
   searchKaiActionsSemantic,
   type KaiActionAvailability,
   type KaiActionDefinition,
-} from "@/lib/voice/kai-action-gateway";
-import { navigationActionForRoute } from "@/lib/voice/navigation-journey";
+} from "@/lib/kai/actions/kai-action-gateway";
+import { navigationActionForRoute } from "@/lib/kai/actions/navigation-journey";
 import {
   isDiscoverableCapability,
   projectKaiActionCapability,
   type VoiceCapabilityStateV1,
-} from "@/lib/voice/capability-projection";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/capability-projection";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import type { KaiCommandBarIntent } from "@/lib/navigation/kai-command-bar-events";
 import { Icon, type IconProps } from "@/lib/morphy-ux/ui";
@@ -70,7 +72,7 @@ import {
   recordActionUse,
   usageBoostFor,
   type ActionUsageEntry,
-} from "@/lib/voice/action-usage-memory";
+} from "@/lib/search/action-usage-memory";
 
 export type KaiCommandPaletteSelection = {
   actionId: string;
@@ -212,9 +214,11 @@ export function actionTargetsCurrentSurface(
   action: KaiActionDefinition,
   pathname: string,
   subview: string | null,
+  currentHref?: string,
 ): boolean {
   const target = action.execution_target;
   if (target.status !== "wired" || target.path !== "route") return false;
+  if (currentHref) return searchTargetMatchesCurrentRoute(String(target.target || ""), currentHref);
   const [targetPath, targetQuery] = String(target.target || "").split("?");
   if (targetPath !== pathname) return false;
   if (!targetQuery) return !subview;
@@ -541,7 +545,7 @@ export function KaiCommandPalette({
   const isFiltering = trimmedQuery.length > 0;
 
   const currentScreen =
-    String(appRuntimeState?.route.screen || "").trim() || null;
+    resolveSearchScreen(String(appRuntimeState?.route.pathname || ""), String(appRuntimeState?.route.screen || "").trim() || null);
   // `route.pathname` carries the query string as well -- the runtime state
   // builder feeds it `pathnameWithQuery` -- so the path has to be split back
   // out before it can be compared with a contract's route target.
@@ -843,7 +847,7 @@ export function KaiCommandPalette({
       .filter(
         (action) =>
           isOfferableInSearch(action) &&
-          !actionTargetsCurrentSurface(action, currentPath, currentSubview),
+          !actionTargetsCurrentSurface(action, currentPath, currentSubview, appRuntimeState?.route.pathname),
       )
       .map((action) => ({
         action,
@@ -1160,7 +1164,7 @@ export function KaiCommandPalette({
             <DialogTitle>Search or ask One</DialogTitle>
           </DialogHeader>
           <div
-            className="max-h-[min(52dvh,25rem)] overflow-y-auto overscroll-contain px-1 py-1"
+            className="min-h-0 max-h-[min(52dvh,25rem)] shrink overflow-y-auto overscroll-contain px-1 py-1"
             data-testid="kai-mobile-search-results"
           >
             {visibleSections.length === 0 ? (
@@ -1186,7 +1190,7 @@ export function KaiCommandPalette({
             ))}
           </div>
           <form
-            className="relative flex h-12 items-center gap-2 rounded-[20px] bg-foreground/[0.045] px-3"
+            className="relative flex h-12 shrink-0 items-center gap-2 rounded-[20px] bg-foreground/[0.045] px-3"
             onSubmit={(event) => {
               event.preventDefault();
               submitQuery();

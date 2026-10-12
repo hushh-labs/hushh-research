@@ -1,9 +1,14 @@
 {
-  "generated_at": "2026-10-07",
-  "total_routes": 126,
-  "native_required_routes": 102,
-  "excluded_routes": 24,
+  "generated_at": "2026-10-12",
+  "total_routes": 131,
+  "native_required_routes": 109,
+  "excluded_routes": 22,
   "routes": [
+    {
+      "route": "/wallet/open",
+      "classification": "excluded-web-only",
+      "reason": "Anonymous browser reader for externally shared encrypted files; no app installation or signed-in native route is required."
+    },
     {
       "route": "/",
       "classification": "native-required-functional",
@@ -38,12 +43,26 @@
       "expectedRoute": "/circle/join",
       "autoReviewerLogin": false,
       "expectedAuth": "anonymous",
-      "allowedDataStates": ["loaded", "unavailable-valid"]
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/connected-systems",
-      "classification": "excluded-web-only",
-      "reason": "Local CRM is restricted to localhost; CAPACITOR_BUILD rejects this surface with notFound()."
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fconnected-systems",
+      "expectedMarker": "native-route-connected-systems",
+      "expectedRoute": "/one/connected-systems",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/consents",
@@ -126,8 +145,8 @@
       "classification": "native-required-functional",
       "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fkai%2Fdashboard",
-      "expectedMarker": "native-route-kai-home",
-      "expectedRoute": "/one/kai?tab=portfolio",
+      "expectedMarker": "native-route-kai-portfolio",
+      "expectedRoute": "/one/kai/portfolio",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -197,8 +216,8 @@
       "route": "/kai/portfolio",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fkai%2Fportfolio",
-      "expectedMarker": "native-route-kai-home",
-      "expectedRoute": "/one/kai?tab=portfolio",
+      "expectedMarker": "native-route-kai-portfolio",
+      "expectedRoute": "/one/kai/portfolio",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -343,8 +362,8 @@
       "route": "/one/connect/settings",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/preferences/gemini",
+      "expectedMarker": "native-route-connect-settings",
+      "expectedRoute": "/one/connect/settings",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -353,8 +372,17 @@
     },
     {
       "route": "/one/connected-systems",
-      "classification": "excluded-web-only",
-      "reason": "Local CRM is restricted to localhost; CAPACITOR_BUILD rejects this surface with notFound()."
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fconnected-systems",
+      "expectedMarker": "native-route-connected-systems",
+      "expectedRoute": "/one/connected-systems",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/consent",
@@ -509,8 +537,8 @@
       "route": "/one/kai/portfolio",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio",
-      "expectedMarker": "native-route-kai-home",
-      "expectedRoute": "/one/kai?tab=portfolio",
+      "expectedMarker": "native-route-kai-portfolio",
+      "expectedRoute": "/one/kai/portfolio",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -622,6 +650,21 @@
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/todos",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Ftodos",
+      "expectedMarker": "native-route-one-todos",
+      "expectedRoute": "/one/todos",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
         "loaded",
         "empty-valid",
         "unavailable-valid"
@@ -778,42 +821,36 @@
       "route": "/one/profile/gmail",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
-      "expectedMarker": "native-route-gmail",
-      "expectedRoute": "/one/gmail",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/gmail",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
+        "loaded"
       ]
     },
     {
       "route": "/one/profile/gmail/actions",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Factions",
-      "expectedMarker": "native-route-gmail",
-      "expectedRoute": "/one/gmail",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/gmail/actions",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
+        "loaded"
       ]
     },
     {
       "route": "/one/profile/gmail/connection",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Fconnection",
-      "expectedMarker": "native-route-gmail",
-      "expectedRoute": "/one/gmail",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/gmail/connection",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
+        "loaded"
       ]
     },
     {
@@ -857,6 +894,18 @@
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fmy-data%2Fdomain%3Fkey%3Dfinance",
       "expectedMarker": "native-route-profile",
       "expectedRoute": "/one/profile/my-data/domain?key=finance",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/payouts",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpayouts",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/payouts",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -983,9 +1032,36 @@
     {
       "route": "/one/profile/referrals",
       "classification": "native-required-functional",
+      "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Freferrals",
+      "expectedMarker": "native-route-one-referrals",
+      "expectedRoute": "/one/referrals",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/referrals",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Freferrals",
+      "expectedMarker": "native-route-one-referrals",
+      "expectedRoute": "/one/referrals",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/profile/regulatory",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/referrals",
+      "expectedRoute": "/one/profile/regulatory",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -993,11 +1069,11 @@
       ]
     },
     {
-      "route": "/one/profile/regulatory",
+      "route": "/one/profile/request-pricing",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
-      "expectedMarker": "ria-profile-page",
-      "expectedRoute": "/ria/profile",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Frequest-pricing",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/request-pricing",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1107,8 +1183,17 @@
     },
     {
       "route": "/one/setup/connected-systems",
-      "classification": "excluded-web-only",
-      "reason": "Local CRM setup is restricted to loopback development; its layout rejects CAPACITOR_BUILD with notFound() before rendering the client."
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
+      "expectedMarker": "native-route-connected-systems",
+      "expectedRoute": "/one/connected-systems",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/setup/connections",
@@ -1321,8 +1406,8 @@
       "route": "/ria",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria",
-      "expectedMarker": "ria-profile-page",
-      "expectedRoute": "/ria/profile",
+      "expectedMarker": "native-route-ria-home",
+      "expectedRoute": "/ria",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1386,8 +1471,8 @@
       "route": "/ria/profile",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Fprofile",
-      "expectedMarker": "ria-profile-page",
-      "expectedRoute": "/ria/profile",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/regulatory",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

@@ -9,7 +9,7 @@ import { renderNavigationArtwork } from "../../components/icons/native-navigatio
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(SCRIPT_DIR, "../..");
 const REPO_ROOT = resolve(WEB_ROOT, "..");
-const SOURCE_PATH = resolve(WEB_ROOT, "assets/brand/hushh-mark-source.png");
+const SOURCE_PATH = resolve(WEB_ROOT, "assets/brand/hushh-mark-source.svg");
 const CHECK_ONLY = process.argv.includes("--check");
 const APP_ICON_BACKGROUND = "#1d1d1f";
 // Android launcher and Google Play surfaces retain the existing premium dark
@@ -197,6 +197,11 @@ async function emitRepo(path, buffer) {
 }
 
 const source = await readFile(SOURCE_PATH);
+// Keep the historical raster source path as a generated compatibility asset.
+await emit(
+  "assets/brand/hushh-mark-source.png",
+  await sharp(source).png().toBuffer(),
+);
 const { data: trimmedMark, info: trimmedMarkInfo } = await sharp(source)
   .trim({ background: TRANSPARENT })
   .png()
@@ -304,13 +309,14 @@ function embeddedIconSvg({
   markWidth,
   markHeight,
   embeddedPng,
+  transparent = false,
 }) {
   const x = Math.round((width - markWidth) / 2);
   const y = Math.round((height - markHeight) / 2);
   return Buffer.from(
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n` +
-      `  <rect width="${width}" height="${height}" fill="${APP_ICON_BACKGROUND}"/>\n` +
+      (transparent ? "" : `  <rect width="${width}" height="${height}" fill="${APP_ICON_BACKGROUND}"/>\n`) +
       `  <image href="data:image/png;base64,${embeddedPng.toString("base64")}" x="${x}" y="${y}" width="${markWidth}" height="${markHeight}" preserveAspectRatio="xMidYMid meet"/>\n` +
       `</svg>\n`,
   );
@@ -346,18 +352,19 @@ function encodeIco(images) {
 const runtimeMark = await markLayer(512, 512, 478, 512);
 await emit("public/brand/hushh-mark.png", runtimeMark);
 
-// Browser/PWA/SEO/mail icons keep the established dark canvas and optical
-// footprint while swapping only the face artwork.
-const webIcon = await opaqueIcon(512, 512, 280, 292);
+// Browser icons use a transparent canvas and a generous, centered mark.
+// Keep a small safe margin so the artwork is legible without clipping at 16px.
+const webIcon = await markLayer(512, 512, 448, 480);
 await emit("public/quiet-emoji-icon.png", webIcon);
-await emit("public/hushh-maskable-icon.png", webIcon);
+await emit("public/hushh-maskable-icon.png", await opaqueIcon(512, 512, 280, 292));
 await emit(
   "public/quiet-emoji-icon.svg",
   embeddedIconSvg({
     width: 512,
     height: 512,
-    markWidth: 280,
-    markHeight: 292,
+    markWidth: 448,
+    markHeight: 480,
+    transparent: true,
     embeddedPng: trimmedMark,
   }),
 );
@@ -369,25 +376,25 @@ await emit(
   embeddedIconSvg({
     width: 1024,
     height: 1024,
-    markWidth: 560,
-    markHeight: 586,
+    markWidth: 896,
+    markHeight: 960,
+    transparent: true,
     embeddedPng: trimmedMark,
   }),
 );
 const faviconSizes = [16, 32, 48, 64];
 const faviconImages = [];
 for (const size of faviconSizes) {
-  const opaqueFrame = await opaqueIcon(
+  const transparentFrame = await markLayer(
     size,
     size,
-    Math.max(1, Math.round((280 / 512) * size)),
-    Math.max(1, Math.round((292 / 512) * size)),
+    Math.max(1, Math.round((448 / 512) * size)),
+    Math.max(1, Math.round((480 / 512) * size)),
   );
   faviconImages.push({
     size,
-    // Next's ICO decoder requires embedded PNG frames to use RGBA even when
-    // every pixel is opaque.
-    buffer: await sharp(opaqueFrame).ensureAlpha(1).png().toBuffer(),
+    // Preserve RGBA transparency in every ICO resolution.
+    buffer: transparentFrame,
   });
 }
 await emit("app/favicon.ico", encodeIco(faviconImages));

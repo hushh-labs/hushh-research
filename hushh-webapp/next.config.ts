@@ -3,6 +3,7 @@ import path from "path";
 
 import packageJson from "./package.json";
 import { execFileSync } from "node:child_process";
+import { HUSHH_MARK_PATH } from "./lib/brand/hushh-mark";
 
 // Covers direct Next builds, including native exports that skip npm hooks.
 execFileSync(process.execPath, [path.resolve("scripts/prepare-wallet-ocr.mjs")], { stdio: "pipe" });
@@ -20,6 +21,7 @@ execFileSync(process.execPath, [path.resolve("scripts/prepare-wallet-ocr.mjs")],
  */
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "true";
+const brandMarkUrl = new URL(HUSHH_MARK_PATH, "https://one.hushh.ai");
 
 /**
  * Stamp a real app version into the client bundle.
@@ -79,6 +81,11 @@ const config: NextConfig = {
     // Optimized for cloud (Web)
     unoptimized: isCapacitorBuild,
     formats: ["image/webp", "image/avif"],
+    // Keep Next's query-free local image policy, with one exact brand cache revision.
+    localPatterns: [
+      { pathname: "**", search: "" },
+      { pathname: brandMarkUrl.pathname, search: brandMarkUrl.search },
+    ],
     // Standard device sizes
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],

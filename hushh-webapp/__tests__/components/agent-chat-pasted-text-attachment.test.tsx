@@ -49,6 +49,42 @@ function userMessage(text: string): BubbleMessage {
   };
 }
 
+describe("ephemeral assistant cards", () => {
+  it("gives a settled card-only turn its own full-width surface without false thinking", () => {
+    render(<AgentBubble message={{ id: "background-only", role: "assistant", text: "",
+      timestamp: "", status: "done", ephemeral: true }}
+      ephemeralCard={<section aria-label="Public profile review">Review details</section>} />);
+    const review = screen.getByRole("region", { name: "Public profile review" });
+    expect(review).toBeVisible();
+    expect(screen.queryByLabelText("Agent is thinking")).toBeNull();
+    expect(review.closest('[class*="--one-chat-bubble"]')).toBeNull();
+    const row = review.closest('[data-message-id="background-only"]');
+    expect(row?.firstElementChild).toHaveClass("w-full", "max-w-none");
+    expect(screen.queryByTestId("agent-message-response-actions")).toBeNull();
+  });
+
+  it.each(["ephemeralCard", "businessProfileCard"] as const)(
+    "renders app-owned cards through %s without exposing transcript actions",
+    (prop) => {
+      render(
+        <AgentBubble
+          message={{
+            id: "background-card",
+            role: "assistant",
+            text: "Review your details.",
+            timestamp: "",
+            status: "done",
+            ephemeral: true,
+          }}
+          {...{ [prop]: <div>Reviewed details</div> }}
+        />,
+      );
+      expect(screen.getByText("Reviewed details")).toBeVisible();
+      expect(screen.queryByTestId("agent-message-response-actions")).toBeNull();
+    },
+  );
+});
+
 describe("sent user bubble with a pasted attachment", () => {
   it("shows the typed text and a compact chip, never the pasted body", () => {
     render(<AgentBubble message={userMessage("Summarize this")} />);

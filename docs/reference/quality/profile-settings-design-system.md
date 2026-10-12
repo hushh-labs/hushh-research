@@ -46,8 +46,12 @@ Rules:
 4. Optional eyebrow, title, and short supporting description above the group.
 5. Description must stay compact; do not write paragraph-length helper text.
 6. Group spacing should come from the shared density variables, not ad-hoc `space-y-*` tuning inside route files.
+7. The Profile pane's home menu remains transparent over the outer glass sheet. Inner panels and details use one translucent 17px grouped card per section, with flat rows and hairline separators inside it. Keep blur on the outer sheet. Inner type follows the 20px header, 13px row title, 12px description, and 10px group label scale.
+8. Appearance and accent controls respond to their section width, including a narrow pane on desktop. Below 335px of section width, place controls below the label, aligned with its text; keep visible theme labels and accessible names.
 
 ### `SettingsRow`
+
+Every Profile section shares the home menu's glass row highlight on hover and keyboard focus, in light and dark themes. Keep backdrop blur on the outer sheet so nested sections do not add blur layers. Light-mode surfaces remain translucent enough to reveal the colors behind the pane.
 
 Use as the default interactive row pattern.
 

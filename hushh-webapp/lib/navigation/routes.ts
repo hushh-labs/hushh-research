@@ -138,6 +138,8 @@ export const ROUTES = {
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
   PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
   PROFILE_MY_DATA: "/one/profile/my-data",
+  PROFILE_PAYOUTS: "/one/profile/payouts",
+  PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
   PROFILE_ACCESS: "/one/profile/access",
   PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",
@@ -173,6 +175,8 @@ export const ROUTES = {
   GMAIL: "/one/gmail",
   EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
+  /** Owner's to-do items and safe read-only Calendar agenda. */
+  ONE_TODOS: "/one/todos",
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
   PKM_LOCATION: "/one/pkm/location",
@@ -181,6 +185,8 @@ export const ROUTES = {
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
   ONE_WALLET: "/one/wallet",
+  /** Anonymous, local-only reader for password-encrypted payment-card files. */
+  WALLET_CARD_OPEN: "/wallet/open",
   /** Puppy One: the agent running on the owner's own machine. */
   ONE_PUPPY: "/one/puppy",
   CONNECTED_SYSTEMS: "/one/connected-systems",
@@ -202,6 +208,8 @@ export const ROUTES = {
   /** Retired mailbox-KYC compatibility target; personal Gmail KYC lives in Email. */
   ONE_KYC: "/one/email",
   ONE_CAREER: "/one/career",
+  /** Dedicated full-page weekly referral dashboard. `/one/profile/referrals` redirects here. */
+  ONE_REFERRALS: "/one/referrals",
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",
@@ -559,6 +567,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     // verified is on an SEC filing, before any capability is active.
     normalizedPathname === ROUTES.RIA_CLAIM ||
     normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
     normalizedPathname.startsWith("/people/") ||
@@ -862,6 +871,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.TERMS ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
     normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
@@ -890,6 +900,7 @@ export function isPublicRoute(pathname: string): boolean {
 export function isAnalyticsExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
   );

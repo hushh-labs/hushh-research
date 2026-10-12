@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import sharp from "sharp";
 import {
   awaitProductFont,
   productFontStyle,
@@ -87,10 +88,56 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
+  await page.route("http://one-preview.test/brand/hushh-mark.png*", async (route) => {
+    await route.fulfill({ path: path.join(process.cwd(), "public/brand/hushh-mark.png") });
+  });
+  await page.route("http://one-preview.test/_next/image*", async (route) => {
+    await route.fulfill({ path: path.join(process.cwd(), "public/brand/hushh-mark.png") });
+  });
   await page.route("http://one-preview.test/onboarding/figma/*", async (route) => {
     const name = new URL(route.request().url()).pathname.split("/").pop()!;
     await route.fulfill({ path: path.join(process.cwd(), "public/onboarding/figma", name) });
   });
+});
+
+test("dark welcome never exposes the baked logo when the shared image fails", async ({
+  page,
+}) => {
+  await page.route("http://one-preview.test/_next/image*", (route) =>
+    route.abort(),
+  );
+  await page.route("http://one-preview.test/brand/hushh-mark.png*", (route) =>
+    route.abort(),
+  );
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setContent(
+    `<html class="dark"><head><base href="http://one-preview.test/"><style>${css}:root { --app-fullscreen-flow-content-offset: 0px; --app-scroll-bottom-pad: 0px; }</style></head><body><div id="root"></div></body></html>`,
+  );
+  await page.addScriptTag({ content: script });
+  await page.evaluate(async () => {
+    const artwork = new Image();
+    artwork.src = "/onboarding/figma/screen-8-art.png";
+    await artwork.decode();
+  });
+  const mark = page.getByTestId("guest-preview").locator("[data-hushh-mark]");
+  const pixels = await sharp(await mark.screenshot())
+    .removeAlpha()
+    .raw()
+    .toBuffer();
+  let goldPixels = 0;
+  for (let index = 0; index < pixels.length; index += 3) {
+    if (
+      pixels[index] > 130 &&
+      pixels[index + 1] > 80 &&
+      pixels[index + 2] < pixels[index] * 0.72
+    )
+      goldPixels++;
+  }
+  expect(
+    goldPixels,
+    "the old golden face must be absent before the new logo loads",
+  ).toBe(0);
 });
 
 test("Circle and agent tours animate, repeat, and respect reduced motion", async ({
@@ -227,6 +274,8 @@ test("Circle and agent tours animate, repeat, and respect reduced motion", async
 });
 
 for (const viewport of [
+  // Reserve the 15px scrollport width used by Linux WebKit on compact phones.
+  { width: 305, height: 568, top: 20, bottom: 0 },
   { width: 320, height: 568, top: 20, bottom: 0 },
   { width: 375, height: 667, top: 20, bottom: 0 },
   { width: 393, height: 852, top: 59, bottom: 34 },
@@ -248,6 +297,19 @@ for (const viewport of [
       await page.addScriptTag({ content: script });
       await awaitProductFont(page);
       const screen = page.getByTestId("guest-preview");
+      const welcomeMark = screen.locator("[data-hushh-mark] img");
+      await expect(welcomeMark).toBeVisible();
+      await expect
+        .poll(() =>
+          welcomeMark.evaluate(
+            (image: HTMLImageElement) =>
+              image.complete && image.naturalWidth > 0,
+          ),
+        )
+        .toBe(true);
+      expect(
+        decodeURIComponent((await welcomeMark.getAttribute("src")) ?? ""),
+      ).toContain("hushh-mark.png");
       for (let step = 1; step <= 4; step++) {
         await expect(screen).toHaveAttribute("data-preview-step", String(step));
         await expect(screen.getByRole("heading", { level: 1 })).toBeVisible();
@@ -300,7 +362,7 @@ for (const viewport of [
         });
         const bounds = (await next.boundingBox())!;
         expect(bounds.height).toBeGreaterThanOrEqual(44);
-        expect(bounds.y + bounds.height).toBeLessThanOrEqual(
+        expect(bounds.y + bounds.height, `screen ${step} action stays in view`).toBeLessThanOrEqual(
           viewport.height - viewport.bottom + 1,
         );
         expect(
@@ -348,6 +410,23 @@ for (const viewport of [
             }
         }
         if (step === 3) {
+          await expect
+            .poll(() =>
+              screen.locator("[data-agent-tour] button").evaluateAll((buttons) =>
+                buttons.map((button) => button.textContent?.trim()),
+              ),
+            )
+            .toEqual([
+              "Location",
+              "Mail",
+              "Calendar",
+              "Finance",
+              "Advisor",
+              "Wallet",
+              "Consent",
+              "Memory",
+              "Messages",
+            ]);
           // Keep the longest single-word label intact even at 320px in WebKit.
           expect(
             await screen
@@ -364,11 +443,13 @@ for (const viewport of [
           await expect(
             screen.getByText("Stay ahead of your schedule."),
           ).toBeVisible();
-          // Every auto-tour item must fit, including descriptions longer than
-          // the initially selected Finance copy on short phones.
+          // Every auto-tour item and its description must fit on short phones.
           for (const agent of await screen
             .locator("[data-agent-tour] button")
             .all()) {
+            const target = (await agent.boundingBox())!;
+            expect(target.width, "agent tap target width").toBeGreaterThanOrEqual(44);
+            expect(target.height, "agent tap target height").toBeGreaterThanOrEqual(44);
             await agent.click();
             expect(
               (await next.boundingBox())!.y +

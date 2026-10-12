@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "security-audit",
   "primary_scope": "security-audit-intake",
-  "description": "Use when the request is broadly about IAM, consent, trust, vault, PKM, streaming safety, verification, or audit workflows and the correct security specialist skill is not yet clear.",
+  "description": "Use when the request is about IAM, consent, trust, ordinary vault encryption, failures decrypting PKM entries, PKM storage or persistence, encrypted PKM records, plaintext localStorage leaks, streaming safety, verification, or security audit workflows and no narrower specialist owns the change.",
   "owned_paths": [
     "docs/reference/iam",
     "docs/reference/streaming",
@@ -34,7 +34,8 @@
     "docs/project_context_map.md",
     "docs/reference/iam/agent-delegation-boundary.md",
     "consent-protocol/docs/reference/consent-protocol.md",
-    ".codex/skills/security-audit/references/anti-rationalization.md"
+    ".codex/skills/security-audit/references/anti-rationalization.md",
+    "consent-protocol/docs/reference/personal-knowledge-model.md"
   ],
   "required_commands": [
     "./bin/hushh docs verify",
@@ -55,7 +56,6 @@
   ],
   "handoff_targets": [
     "iam-consent-governance",
-    "vault-pkm-governance",
     "reviewer-app-testing",
     "pkm-upgrade-rehearsal",
     "quality-contracts",
@@ -64,7 +64,6 @@
   ],
   "adjacent_skills": [
     "iam-consent-governance",
-    "vault-pkm-governance",
     "reviewer-app-testing",
     "pkm-upgrade-rehearsal",
     "quality-contracts",

@@ -14,6 +14,42 @@ from hushh_mcp.services.google_oauth_attempt import connection_generation
 from tests.google_oauth_test_support import TransactionEngine
 
 
+@pytest.mark.parametrize("domain", ["hushh.ai", "hussh.ai", "hussh.si"])
+def test_google_callback_alias_is_exact_and_environment_scoped(monkeypatch, domain):
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", f"https://uat.one.{domain}")
+    callback = f"https://uat.one.{domain}/one/profile/google/oauth/return"
+    monkeypatch.setenv("GOOGLE_OAUTH_REDIRECT_URI", callback)
+    monkeypatch.setenv(
+        "CORS_ALLOWED_ORIGINS",
+        "https://uat.one.hushh.ai,https://uat.one.hussh.ai,https://uat.one.hussh.si,https://one.hussh.si",
+    )
+    service = GoogleConnectionService()
+    for alias in ("hushh.ai", "hussh.ai", "hussh.si"):
+        expected = f"https://uat.one.{alias}/one/profile/google/oauth/return"
+        assert service._redirect_uri(expected) == expected
+    for invalid in (
+        "https://one.hussh.si/one/profile/google/oauth/return",
+        "https://uat.one.hussh.si/other",
+        "https://uat.one.hussh.si/one/profile/google/oauth/return?extra=1",
+        "https://evil.uat.one.hussh.si/one/profile/google/oauth/return",
+    ):
+        with pytest.raises(GoogleConnectionError):
+            service._redirect_uri(invalid)
+
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.one.hussh.si")
+    other_domain = "hushh.ai" if domain == "hussh.si" else "hussh.si"
+    with pytest.raises(GoogleConnectionError):
+        service._redirect_uri(f"https://uat.one.{other_domain}/one/profile/google/oauth/return")
+
+
+def test_custom_callback_does_not_gain_a_spelling_alias_from_cors(monkeypatch):
+    from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
+
+    callback = "https://custom.hushh.ai/one/profile/google/oauth/return"
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://custom.hushh.ai,https://custom.hussh.ai")
+    assert allowed_oauth_callback_uris(callback) == frozenset({callback})
+
+
 class _Db:
     def __init__(self, existing=None, *, accept_connection=True, accept_grant=True, grants=None):
         self.existing = existing
@@ -166,6 +202,42 @@ async def test_active_legacy_row_without_subject_requires_reconnection(monkeypat
 async def test_complete_read_and_manage_permissions_remain_supported(monkeypatch, level):
     service = _service(monkeypatch, _Db())
     assert await _store(service, level=level) == {"connected": True}
+
+
+@pytest.mark.asyncio
+async def test_full_calendar_grant_preserves_management_capability(monkeypatch):
+    db = _Db()
+    service = _service(monkeypatch, db)
+    await _store(
+        service,
+        level="manage",
+        token={
+            "access_token": "synthetic-access",
+            "refresh_token": "synthetic-refresh",
+            "scope": "https://www.googleapis.com/auth/calendar",
+        },
+    )
+    grant = next(params for sql, params in db.calls if "INSERT INTO google_service_grants" in sql)
+    assert grant["access_level"] == "manage"
+
+
+@pytest.mark.asyncio
+async def test_management_request_cannot_silently_finish_with_read_only_consent(monkeypatch):
+    db = _Db()
+    service = _service(monkeypatch, db)
+    with pytest.raises(GoogleConnectionError) as error:
+        await _store(
+            service,
+            level="manage",
+            token={
+                "access_token": "synthetic-access",
+                "refresh_token": "synthetic-refresh",
+                "scope": "https://www.googleapis.com/auth/calendar.readonly",
+            },
+        )
+    assert error.value.status_code == 403
+    assert error.value.reason_code == "google_permission_required"
+    assert not any("INSERT" in sql for sql, _ in db.calls)
 
 
 @pytest.mark.asyncio

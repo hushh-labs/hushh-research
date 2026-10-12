@@ -14,12 +14,14 @@ from hushh_mcp.services.drive_bulk_share_service import DriveBulkShareService
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
-from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+from hushh_mcp.services.drive_sharing_store import OWNER_SETUP_CODES, DriveSharingStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
 def _defer_code(error: BaseException) -> str:
+    if str(error) in OWNER_SETUP_CODES:
+        return str(error)
     if str(error) == "date_range_required":
         return "date_range_required"
     if str(error) == "background_preparation_required":
@@ -42,8 +44,8 @@ class DriveTrustedAutoService:
         )
         if state["status"] == "paid":
             return True
-        # The order and payment-ready event are committed. Prompt the sharing
-        # drain to deliver its notification; the scheduled drain remains backup.
+        # The order is committed. The sharing drain binds a Stripe deadline
+        # before it writes and dispatches the payment-ready notification.
         await self.wake("sharing")
         return False
 
@@ -229,7 +231,10 @@ class DriveTrustedAutoService:
     async def continue_batches(self, *, max_jobs: int = 2) -> int:
         """Continue after search completion, when the search job is no longer due."""
         count = 0
-        for item in await self.sharing.due_trusted_batches(limit=min(20, max_jobs * 4)):
+        # due_trusted_batches rotates each selected row. Claim only work this
+        # invocation can process so older unpaid or busy requests cannot keep
+        # a paid frozen review behind them indefinitely.
+        for item in await self.sharing.due_trusted_batches(limit=max_jobs):
             if count >= max_jobs:
                 break
             try:

@@ -24,6 +24,7 @@ from hushh_mcp.services.pkm_packet_order_service import (
     _stripe_config,
     _stripe_dict,
 )
+from hushh_mcp.services.stripe_mode import uat_live_document_only
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,10 @@ class PkmCreditService:
         }
 
     async def spend(self, *, user_id: str, cost: int, ref: str) -> bool:
+        if uat_live_document_only():
+            raise PacketOrderError(
+                "PAYMENT_UNAVAILABLE", "Credits are unavailable for live payments here."
+            )
         return bool(
             await self._rpc(
                 "pkm_spend_credits", {"p_user": user_id, "p_cost": int(cost), "p_ref": ref}
@@ -142,6 +147,10 @@ class PkmCreditService:
     # --- subscribe / cancel --------------------------------------------------
 
     async def create_subscription_checkout(self, *, user_id: str, plan: str) -> dict[str, Any]:
+        if uat_live_document_only():
+            raise PacketOrderError(
+                "PAYMENT_UNAVAILABLE", "Credit plans are unavailable for live payments here."
+            )
         key, _, origin = _stripe_config()
         chosen = PLANS.get(plan)
         if chosen is None:
@@ -182,6 +191,10 @@ class PkmCreditService:
         return {"checkoutUrl": session["url"]}
 
     async def cancel_at_period_end(self, *, user_id: str) -> bool:
+        if uat_live_document_only():
+            raise PacketOrderError(
+                "PAYMENT_UNAVAILABLE", "Credit plans are unavailable for live payments here."
+            )
         key, _, _ = _stripe_config()
         subs = await self._rows(
             self.db.table("pkm_credit_subscriptions").select("*").eq("user_id", user_id).limit(1)
@@ -244,6 +257,8 @@ class PkmCreditService:
         return credits_metadata(sub)
 
     async def handle_event(self, event: dict[str, Any]) -> None:
+        if uat_live_document_only():
+            return
         kind = str(event.get("type") or "")
         obj = event.get("data", {}).get("object", {}) or {}
         meta = await self._metadata(obj)
@@ -310,6 +325,8 @@ class PkmCreditService:
             self.db.table("pkm_credit_subscription_cancellations").select("*").limit(max_jobs)
         )
         if not rows:
+            return 0
+        if uat_live_document_only():
             return 0
         key, _, _ = _stripe_config()
         done = 0

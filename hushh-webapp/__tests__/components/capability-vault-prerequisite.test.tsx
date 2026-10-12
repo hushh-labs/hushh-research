@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const vaultMocks = vi.hoisted(() => ({
   checkVault: vi.fn(),

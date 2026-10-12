@@ -232,6 +232,15 @@ export default function Link({ href, children, ...props }: AnchorHTMLAttributes<
 }`,
   );
   fs.writeFileSync(
+    path.join(dir, "src/direct-messages-service.ts"),
+    `export const DirectMessagesService = { routeHref: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
+  );
+  fs.writeFileSync(
+    path.join(dir, "src/next-navigation.ts"),
+    `const router = { push: () => {}, replace: () => {}, prefetch: () => {} };
+export const useRouter = () => router;`,
+  );
+  fs.writeFileSync(
     path.join(dir, "src/main.tsx"),
     `import React from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -317,8 +326,10 @@ root.render(<App />);`,
       plugins: [react()],
       resolve: {
         alias: [
+          { find: "@/lib/services/direct-messages-service", replacement: path.join(dir, "src/direct-messages-service.ts") },
           { find: "@", replacement: webappRoot },
           { find: "next/link", replacement: path.join(dir, "src/next-link.tsx") },
+          { find: "next/navigation", replacement: path.join(dir, "src/next-navigation.ts") },
           {
             find: /^react\/jsx-dev-runtime$/,
             replacement: path.join(
@@ -462,6 +473,7 @@ type RosterRow = {
   secondary: string;
   action: "connect" | "none";
   menu: boolean;
+  fromContacts?: boolean;
 };
 
 const ROSTER: RosterRow[] = [
@@ -492,6 +504,20 @@ const ROSTER: RosterRow[] = [
     secondary: "Ready for private sharing",
     action: "connect",
     menu: true,
+  },
+  {
+    name: "Asha Featherstonehaugh-Rajendran",
+    secondary: "Connected",
+    action: "none",
+    menu: true,
+    fromContacts: true,
+  },
+  {
+    name: "Asha Contact Pending",
+    secondary: "Location setup needed",
+    action: "connect",
+    menu: true,
+    fromContacts: true,
   },
 ];
 
@@ -537,7 +563,7 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
   ${
     legacy
       ? `${action}${menu}`
-      : `<div class="${cn(CIRCLE_MEMBER_TRAILING_CLASSNAME, row.action !== "none" && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME)}">${action}${menu}</div>`
+      : `<div class="${cn(CIRCLE_MEMBER_TRAILING_CLASSNAME, row.action !== "none" && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME)}">${row.fromContacts ? '<span data-testid="row-contact-source" class="h-5 shrink-0 whitespace-nowrap rounded-full bg-[color:var(--app-neutral-fill)] px-1.5 text-[10px] font-medium leading-5 text-[color:var(--app-secondary-label)]">From contacts</span>' : ''}<div class="flex shrink-0 items-center justify-end gap-1">${action}${menu}</div></div>`
   }
 </div>`;
     })
@@ -598,6 +624,7 @@ const CANDIDATES = [
   "ui-text-page-title",
   "divide-y",
   "divide-border/60",
+  "h-5", "shrink-0", "whitespace-nowrap", "px-1.5", "text-[10px]", "font-medium", "leading-5", "gap-1", "items-center", "justify-end", "flex", "bg-[color:var(--app-neutral-fill)]", "text-[color:var(--app-secondary-label)]",
   "rounded-[var(--app-card-radius-standard,24px)]",
   "bg-[color:var(--app-card-surface-default-solid)]",
 ];
@@ -670,8 +697,7 @@ test.describe("Circle roster row", () => {
         "avatar left edge",
       ).toBeLessThanOrEqual(0.5);
 
-      // Every row keeps the common minimum beat. Long identities may grow the
-      // row instead of being replaced by an ellipsis.
+      // Every row keeps the common minimum beat, with a single-line identity.
       for (const row of rows) {
         // CSS min-height is border-box; a separator consumes one pixel within it.
         expect(row.height).toBeGreaterThanOrEqual(
@@ -689,15 +715,18 @@ test.describe("Circle roster row", () => {
           scrollHeight: node.scrollHeight,
           textOverflow: getComputedStyle(node).textOverflow,
           whiteSpace: getComputedStyle(node).whiteSpace,
+          overflow: getComputedStyle(node).overflow,
         })),
       );
       for (const metric of nameMetrics) {
-        expect(metric.scrollWidth).toBeLessThanOrEqual(metric.clientWidth + 1);
+        expect(metric.clientWidth).toBeGreaterThan(0);
         expect(metric.scrollHeight).toBeLessThanOrEqual(
           metric.clientHeight + 1,
         );
-        expect(metric.textOverflow).not.toBe("ellipsis");
-        expect(metric.whiteSpace).not.toBe("nowrap");
+        expect(metric.clientHeight).toBeLessThanOrEqual(22);
+        expect(metric.textOverflow).toBe("ellipsis");
+        expect(metric.whiteSpace).toBe("nowrap");
+        expect(metric.overflow).toBe("hidden");
       }
 
       if (width < 640) {
@@ -723,8 +752,8 @@ test.describe("Circle roster row", () => {
           ).toBeGreaterThanOrEqual(190);
           expect(
             names[index].height,
-            "long name uses at most three lines",
-          ).toBeLessThanOrEqual(64);
+            "long name stays on one line",
+          ).toBeLessThanOrEqual(22);
           expect(menus[index].top).toBeGreaterThanOrEqual(copies[index].bottom);
           expect(
             Math.abs(
@@ -753,6 +782,20 @@ test.describe("Circle roster row", () => {
       for (const avatar of avatars) {
         expect(avatar.left).toBeGreaterThanOrEqual(PAGE_PADDING_PX - 1);
       }
+      const badgeMetrics = await page.getByTestId("row-contact-source").evaluateAll(nodes => nodes.map(node => {
+        const badge = node as HTMLElement;
+        const row = badge.closest('[data-testid="row"]')!;
+        const menu = row.querySelector('[data-testid="row-menu"]')!.getBoundingClientRect();
+        const box = badge.getBoundingClientRect();
+        return { right: box.right, menuLeft: menu.left, width: box.width, scrollWidth: badge.scrollWidth, clientWidth: badge.clientWidth, whiteSpace: getComputedStyle(badge).whiteSpace };
+      }));
+      expect(badgeMetrics).toHaveLength(2);
+      for (const badge of badgeMetrics) {
+        expect(badge.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX);
+        expect(badge.whiteSpace).toBe("nowrap");
+        expect(badge.scrollWidth).toBeLessThanOrEqual(badge.clientWidth + 1);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     });
   }
 

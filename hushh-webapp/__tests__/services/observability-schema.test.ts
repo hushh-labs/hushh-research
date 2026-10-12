@@ -4,6 +4,19 @@ import { ONE_LOCATION_JOURNEY_ACTIONS } from "@/lib/observability/events";
 import { validateAndSanitizeEvent } from "@/lib/observability/schema";
 
 describe("observability schema", () => {
+  it.each(["private note", "1234567890123", 10, null])("drops invalid native build metadata %s", (app_build) => {
+    const result = validateAndSanitizeEvent("page_view", {
+      env: "production", platform: "android", event_category: "navigation", app_version: "1.3.9", app_build,
+    } as any);
+    expect(result.droppedKeys).toContain("app_build");
+    expect(result.sanitized.app_build).toBeUndefined();
+  });
+  it("preserves a bounded numeric build", () => {
+    const result = validateAndSanitizeEvent("page_view", {
+      env: "production", platform: "android", event_category: "navigation", app_version: "1.3.9", app_build: "10",
+    } as any);
+    expect(result.sanitized.app_build).toBe("10");
+  });
   it.each([
     ["one_memory_action", "capture_saved", "pkm"],
     ["one_wallet_action", "card_added", "one_wallet"],

@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  messageSelection: vi.fn(),
   searchDirectory: vi.fn(),
   listConnections: vi.fn(),
   listConnectionsPage: vi.fn(),
@@ -94,6 +95,13 @@ vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
       onRetry: vi.fn(),
     },
   }),
+}));
+
+vi.mock("@/lib/direct-messages/navigate-direct-message", () => ({
+  navigateDirectMessage: (router: { push: (href: string) => void }, selection: unknown) => {
+    mocks.messageSelection(selection);
+    router.push("/one/messages?token=opaque-test-token");
+  },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -229,7 +237,7 @@ import {
 import {
   parseVoiceCard,
   parseVoiceConfirm,
-} from "@/lib/voice/voice-action-card";
+} from "@/lib/kai/actions/voice-action-card";
 
 function person(userId: string, displayName: string) {
   return {
@@ -978,23 +986,25 @@ describe("Connect — People", () => {
         createdAt: "2026-08-25T00:00:00Z",
         connectedFromContacts: true,
       },
+      { connectionId: "c-other", userId: "u-other", displayName: "Manual Friend", photoUrl: null, createdAt: "invalid", connectedFromContacts: false },
+      { connectionId: "c-legacy", userId: "u-legacy", displayName: "Legacy Friend", photoUrl: null, createdAt: null },
+      { connectionId: "c-contact-two", userId: "u-contact-two", displayName: "Second Contact", photoUrl: null, createdAt: "2026-08-26T00:00:00Z", connectedFromContacts: true },
     ]);
 
     render(<ConnectPageClient />);
 
-    const name = await screen.findByText("Asha Contact");
-    const badge = screen.getByLabelText("Connected from your contacts");
-    const titleRow = name.parentElement;
-
-    expect(badge).toBeTruthy();
-    expect(titleRow).toBeTruthy();
-    expect(titleRow).toContainElement(badge);
-
-    const titleClasses = new Set(titleRow!.className.split(/\s+/));
-    expect(titleClasses.has("flex-col")).toBe(true);
-    expect(titleClasses.has("items-start")).toBe(true);
-    expect(titleClasses.has("sm:flex-row")).toBe(true);
-    expect(titleClasses.has("sm:items-center")).toBe(true);
+    await screen.findByText("Asha Contact");
+    const contacts = screen.getByRole("region", { name: "From contacts" });
+    const other = screen.getByRole("region", { name: "Other connections" });
+    expect(within(contacts).getByRole("heading", { name: "From contacts" })).toBeTruthy();
+    expect(within(contacts).getByText("Asha Contact")).toBeTruthy();
+    expect(within(contacts).getByText("Second Contact")).toBeTruthy();
+    expect(within(contacts).queryByText("Manual Friend")).toBeNull();
+    expect(within(other).getByText("Manual Friend")).toBeTruthy();
+    expect(within(other).getByText("Legacy Friend")).toBeTruthy();
+    expect(within(other).getAllByText("Connected")).toHaveLength(2);
+    expect(screen.queryByLabelText("Connected from your contacts")).toBeNull();
+    expect([...contacts.querySelectorAll("[data-voice-label]")].map(row => row.getAttribute("data-voice-label"))).toEqual(["Asha Contact", "Second Contact"]);
   });
 
   it("opens a connection's person profile from My connections", async () => {
@@ -1017,6 +1027,8 @@ describe("Connect — People", () => {
     fireEvent.click(screen.getByRole("button", { name: "My connections (1)" }));
     const connectionName =
       await within(myConnections).findByText("Scoped Friend");
+    expect(within(myConnections).queryByRole("heading", { name: "From contacts" })).toBeNull();
+    expect(within(myConnections).getByRole("heading", { name: "Other connections" })).toBeTruthy();
     // The whole row is the target. The name sits on the row's content layer,
     // beside its one full-row action rather than inside a title-only button.
     const connectionRow = connectionName.closest<HTMLElement>(
@@ -1048,7 +1060,7 @@ describe("Connect — People", () => {
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
-  it("loads page 2 in stable server order and keeps its contact badge", async () => {
+  it("loads page 2 in stable server order within each provenance group", async () => {
     mocks.listConnectionsPage.mockImplementation(async (options) => ({
       items:
         options.page === 2
@@ -1087,7 +1099,8 @@ describe("Connect — People", () => {
     await waitFor(() =>
       expect(screen.getAllByText("Same Name")).toHaveLength(2),
     );
-    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "From contacts" })).getByText("Same Name")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Other connections" })).getByText("Same Name")).toBeTruthy();
     expect(mocks.listConnectionsPage).toHaveBeenCalledWith(
       expect.objectContaining({ page: 2, limit: 50, audience: "all" }),
     );
@@ -1426,7 +1439,7 @@ describe("Connect — People", () => {
       name: "Remove connection with Remove Me",
     });
     fireEvent.click(remove);
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
     expect(await screen.findByText("Shifted Boundary")).toBeTruthy();
     expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith("me");
@@ -1996,6 +2009,7 @@ describe("Connect — People", () => {
       query: "Person",
       page: 1,
       limit: 50,
+      nameOnly: true,
     });
     expect(mocks.sendRequest).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2007,14 +2021,15 @@ describe("Connect — People", () => {
   });
 
   it("prepares an exact send without effects and rejects stale preparation", async () => {
-    mocks.searchDirectory.mockResolvedValue({
+    // Contact-only pages must not make a unique name look like a truncated list.
+    mocks.searchDirectory.mockImplementation(async ({ nameOnly }) => ({
       items: [person("u9", "Person 9")],
-      hasMore: false,
+      hasMore: !nameOnly,
       page: 1,
-    });
+    }));
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
-    const slots = { person: "Person 9", userId: "u9" };
+    const slots = { person: "Person 9" };
     const prepared = await prepareLocalOnboardingAction(
       "connect.send_request",
       slots,
@@ -2683,6 +2698,22 @@ describe("Connect — the phone-width geometry QA reported", () => {
   // `e2e/connect-circle-cta.layout.spec.ts` measured and found correct. Neither
   // half is sufficient on its own; that spec is the other half.
 
+  it("opens the tapped connection by person identity when names are identical", async () => {
+    mocks.listConnections.mockResolvedValue([
+      { connectionId: "ankit-first", userId: "ankit-first-user", publicPersonRef: "ankit-first-person", displayName: "Ankit Kumar Singh" },
+      { connectionId: "ankit-second", userId: "ankit-second-user", publicPersonRef: "ankit-second-person", displayName: "Ankit Kumar Singh" },
+    ]);
+    render(<ConnectPageClient />);
+    const actions = await screen.findAllByRole("button", { name: "Message Ankit Kumar Singh" });
+
+    fireEvent.click(actions[1]);
+    expect(mocks.messageSelection).toHaveBeenLastCalledWith({ personRef: "ankit-second-person" });
+    fireEvent.click(actions[0]);
+    expect(mocks.messageSelection).toHaveBeenLastCalledWith({ personRef: "ankit-first-person" });
+    expect(mocks.routerPush).toHaveBeenCalledWith("/one/messages?token=opaque-test-token");
+    expect(mocks.removeConnection).not.toHaveBeenCalled();
+  });
+
   it("keeps Message and icon-only removal beside the name", async () => {
     // `stackTrailingOnMobile` puts the trailing control on its own line below
     // `sm:` -- which is 640px, so on every iPhone. It was set here for a single
@@ -2725,8 +2756,9 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(mocks.toastInfo).not.toHaveBeenCalled();
     expect(mocks.removeConnection).not.toHaveBeenCalled();
     expect(mocks.routerPush).toHaveBeenCalledWith(
-      "/one/messages?person=person-ref-rashid",
+      "/one/messages?token=opaque-test-token",
     );
+    expect(mocks.messageSelection).toHaveBeenCalledWith({ personRef: "person-ref-rashid" });
 
     // Whole class tokens, not substrings: this wrapper already carries
     // `max-w-full`, which contains "w-full" and would make a `toContain` check
@@ -2741,7 +2773,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
 
     fireEvent.click(remove);
-    const confirm = screen.getByRole("button", { name: "Delete" });
+    const confirm = screen.getByRole("button", { name: "Remove" });
     const cancel = screen.getByRole("button", { name: "Cancel" });
     const dialog = screen.getByRole("alertdialog");
     expect(dialog).toHaveTextContent("Remove connection?");
@@ -2776,11 +2808,11 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(await screen.findByText("My connections (12)")).toBeTruthy();
 
     const list = container.querySelector(
-      '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
+      '#connect-my-connections-panel',
     );
     expect(list).toBeTruthy();
     // Unprefixed, so the bound applies on phones too.
-    expect(list!.className).toContain("max-h-[min(42dvh,18rem)]");
+    expect(list!.className).toContain("max-h-[min(60dvh,28rem)]");
     expect(list!.className).toContain("overflow-y-auto");
     // The mitigation the phone bound depends on. Without it the roster chains
     // its scroll into the page and the old gesture trap comes back.

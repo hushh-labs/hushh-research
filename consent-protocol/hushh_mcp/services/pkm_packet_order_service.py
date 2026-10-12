@@ -27,6 +27,11 @@ import stripe
 from db.db_client import get_db
 from hushh_mcp.services.directory_claim_service import DirectoryClaimService, normalize_listing_id
 from hushh_mcp.services.marketplace_request_service import MarketplaceRequestService
+from hushh_mcp.services.stripe_mode import (
+    configured_stripe_mode,
+    stripe_environment,
+    stripe_key_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +95,16 @@ def _stripe_config() -> tuple[str, str, str]:
         else ""
     )
     origin = (os.getenv("HUSSH_SITE_ORIGIN") or default_origin).strip().rstrip("/")
-    expected = "sk_live_" if "production" in env else "sk_test_"
+    try:
+        stripe_key_mode(key)
+    except ValueError:
+        raise PacketOrderError(
+            "PAYMENT_UNAVAILABLE", "Payments are not available right now."
+        ) from None
     parsed = urlsplit(origin)
     local = parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1"}
     if (
-        not key.startswith(expected)
-        or len(key) < 24
-        or not webhook_secret.startswith("whsec_")
+        not webhook_secret.startswith("whsec_")
         or not parsed.hostname
         or (parsed.scheme != "https" and not (local and "production" not in env))
         or parsed.path not in {"", "/"}
@@ -210,7 +218,11 @@ class PkmPacketOrderService:
             if created.tzinfo is None:
                 created = created.replace(tzinfo=UTC)
             session_id = row.get("stripe_checkout_session_id")
-            if _now() - created < CHECKOUT_TTL and session_id:
+            if (
+                row.get("stripe_mode") == configured_stripe_mode()
+                and _now() - created < CHECKOUT_TTL
+                and session_id
+            ):
                 session = _stripe_dict(
                     await asyncio.to_thread(
                         self.stripe_api.checkout.Session.retrieve, session_id, api_key=key
@@ -225,6 +237,7 @@ class PkmPacketOrderService:
             self.db.table(TABLE).insert(
                 {
                     "buyer_user_id": buyer_user_id,
+                    "stripe_mode": configured_stripe_mode(),
                     "owner_user_id": owner,
                     "packet_id": packet_ref,
                     "listing_id": listing,
@@ -256,9 +269,17 @@ class PkmPacketOrderService:
                         },
                     }
                 ],
-                metadata={"payment_kind": PAYMENT_KIND, "order_id": order_id},
+                metadata={
+                    "payment_kind": PAYMENT_KIND,
+                    "order_id": order_id,
+                    "hussh_environment": stripe_environment(),
+                },
                 payment_intent_data={
-                    "metadata": {"payment_kind": PAYMENT_KIND, "order_id": order_id}
+                    "metadata": {
+                        "payment_kind": PAYMENT_KIND,
+                        "order_id": order_id,
+                        "hussh_environment": stripe_environment(),
+                    }
                 },
                 success_url=f"{back}&checkout=success",
                 cancel_url=f"{back}&checkout=cancel",
@@ -301,6 +322,7 @@ class PkmPacketOrderService:
                     {
                         "id": order_id,
                         "buyer_user_id": buyer_user_id,
+                        "stripe_mode": configured_stripe_mode(),
                         "owner_user_id": owner,
                         "packet_id": packet_ref,
                         "listing_id": listing,
@@ -376,9 +398,21 @@ class PkmPacketOrderService:
             or session.get("object") != "checkout.session"
         ):
             return
+        environment = metadata.get("hussh_environment")
+        if environment is not None and not isinstance(environment, str):
+            raise PacketOrderError("UNMATCHED_EVENT", "Payment event could not be matched.")
+        if environment not in {None, stripe_environment()}:
+            if environment in {"uat", "production", "dev", "local"}:
+                return
+            raise PacketOrderError("UNMATCHED_EVENT", "Payment event could not be matched.")
         order_id = str(metadata.get("order_id") or "")
         order = await self._order(order_id) if order_id else None
-        if order is None or session.get("id") != order.get("stripe_checkout_session_id"):
+        if (
+            order is None
+            or order.get("stripe_mode") != configured_stripe_mode()
+            or session.get("livemode") is not (configured_stripe_mode() == "live")
+            or session.get("id") != order.get("stripe_checkout_session_id")
+        ):
             raise PacketOrderError("UNMATCHED_EVENT", "Payment event could not be matched.")
 
         kind = event.get("type")
@@ -415,7 +449,11 @@ class PkmPacketOrderService:
         """Paid orders whose request the owner denied or let expire, or whose
         request no longer exists (an account was deleted), become refund_pending."""
         paid = await self._rows(
-            self.db.table(TABLE).select("*").eq("status", "paid").limit(max_orders)
+            self.db.table(TABLE)
+            .select("*")
+            .eq("status", "paid")
+            .eq("stripe_mode", configured_stripe_mode())
+            .limit(max_orders)
         )
         request_ids = [str(r["access_request_id"]) for r in paid if r.get("access_request_id")]
         statuses: dict[str, str] = {}
@@ -455,7 +493,11 @@ class PkmPacketOrderService:
     async def refund_pending(self, *, max_orders: int = 20) -> int:
         key, _, _ = _stripe_config()
         pending = await self._rows(
-            self.db.table(TABLE).select("*").eq("status", "refund_pending").limit(max_orders)
+            self.db.table(TABLE)
+            .select("*")
+            .eq("status", "refund_pending")
+            .eq("stripe_mode", configured_stripe_mode())
+            .limit(max_orders)
         )
         refunded = 0
         for order in pending:
@@ -488,7 +530,11 @@ class PkmPacketOrderService:
                         api_key=key,
                         payment_intent=intent,
                         idempotency_key=f"pkm-packet-refund:{order_id}",
-                        metadata={"payment_kind": PAYMENT_KIND, "order_id": order_id},
+                        metadata={
+                            "payment_kind": PAYMENT_KIND,
+                            "order_id": order_id,
+                            "hussh_environment": stripe_environment(),
+                        },
                     )
                 )
             except Exception:

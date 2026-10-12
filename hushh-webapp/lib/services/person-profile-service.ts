@@ -43,6 +43,8 @@ export type ViewerPersonProfile = PublicPersonProfile & {
   relationship: PersonRelationship;
   /** Present only while a social connection is active; never on the public profile. */
   contactEmail: string | null;
+  /** Verified number with country code, only for an active social connection. */
+  contactPhoneNumber?: string | null;
   requestableScopes: RequestablePersonScope[];
   grants: PersonGrant[];
   requestHistory: PersonInformationRequestHistory[];

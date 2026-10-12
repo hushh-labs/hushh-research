@@ -680,7 +680,8 @@
         "actor_identity_cache",
         "actor_verified_email_aliases",
         "runtime_persona_state",
-        "user_push_tokens"
+        "user_push_tokens",
+        "user_push_installations"
       ],
       "id": "actor_identity_state",
       "lifecycle_status": "current",
@@ -698,7 +699,29 @@
       "id": "agent_chat_encrypted_memory",
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
-      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly"
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, LLM context assembly, and owner-authenticated Magic discovery draft checkpoints (one.magic.discovery.v1/profile)."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "chat_push_device_deliveries",
+        "direct_message_push_outbox"
+      ],
+      "id": "chat_push_delivery",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Transactional direct-message outbox and shared Circle/direct device delivery workers; source eligibility is rechecked before FCM acceptance."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "circle_chat_reactions",
+        "circle_chat_membership_events"
+      ],
+      "id": "circle_chat_interaction_metadata",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated Circle chat member reactions and membership event history, rendered as reaction counts and system pills for current members."
     },
     {
       "data_class": "personal_encrypted",
@@ -801,12 +824,13 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "messages"
+        "messages",
+        "direct_message_attachments"
       ],
       "id": "direct_message_encrypted_content",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service."
+      "primary_access_path": "Participant-scoped conversation history and attachment reads, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service."
     },
     {
       "data_class": "personal_metadata",
@@ -837,7 +861,7 @@
       ],
       "id": "domain_reference_registry",
       "lifecycle_status": "transitional",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "legacy/domain reference compatibility during PKM scope migration"
     },
     {
@@ -847,12 +871,13 @@
         "drive_bulk_share_files",
         "drive_bulk_share_recipients",
         "drive_bulk_share_effects",
-        "drive_bulk_share_notifications"
+        "drive_bulk_share_notifications",
+        "drive_request_bulk_removals"
       ],
       "id": "drive_bulk_share",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Vault-owner preview and explicit approval of a frozen completed Drive search; bounded Drive sharing worker creates or reconciles Google permissions for each exact file and verified Trusted recipient. The owner can stop remaining work. Recipients see only confirmed grants through their authenticated Shared with you collection; one generic push is attempted after their grants settle."
+      "primary_access_path": "Vault-owner preview and approval of a frozen Drive search; bounded workers create and reconcile Google permissions for exact files, then remove app-created direct permissions after the owner confirms Stop access. Recipients see only confirmed grants through their authenticated Shared with you collection."
     },
     {
       "data_class": "personal_encrypted",
@@ -954,6 +979,26 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "drive_request_owner_payouts"
+      ],
+      "id": "drive_request_owner_payouts",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "New eligible paid Drive orders enroll one owner earning. Signed charge, refund, delivery and Stripe fee evidence determine a 3% platform share and one idempotent Connect transfer after confirmed delivery."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "drive_request_owner_pricing"
+      ],
+      "id": "drive_request_owner_pricing",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "drive_request_payment_orders",
         "drive_request_payment_obligations",
         "drive_request_payment_webhook_events",
@@ -962,7 +1007,7 @@
       "id": "drive_request_payment_authority",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One $10 USD Stripe Checkout order is created only after a new eligible Trusted Circle Drive request has a nonempty frozen shareable batch. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
     },
     {
       "data_class": "reference",
@@ -1025,7 +1070,7 @@
       "id": "feed_events",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269)."
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269). Migration313 emits a committed owner-only feed_changed hint after every changed Feed row, including read state and deletion; the shared backend listener fans out to authenticated owner streams. Hints contain no row contents and have no replay authority: connect, listener recovery and overflow reset require a snapshot. A future broker may replace NOTIFY behind this same invalidation contract."
     },
     {
       "data_class": "workflow_state",
@@ -1063,6 +1108,18 @@
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
       "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "hashcoin_wallets",
+        "hashcoin_ledger_entries",
+        "hashcoin_redemptions"
+      ],
+      "id": "hashcoin_owner_earnings",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Profile Payouts reads owner-scoped live and sandbox wallets. Verified document settlement appends one immutable net-cent credit per request; each live earning also seeds an isolated test demonstration balance. Test redemption reserves coins under a wallet row lock, then reconciles an idempotent Stripe test transfer before appending a debit. Postgres is authoritative; future Redis may cache projections only and never authorize spending."
     },
     {
       "data_class": "personal_metadata",
@@ -1197,7 +1254,7 @@
       ],
       "id": "legacy_memory_cutover",
       "lifecycle_status": "legacy_migration",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "bounded legacy-to-PKM compatibility and account deletion cleanup only"
     },
     {
@@ -1407,7 +1464,7 @@
       "id": "one_wallet_card",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses"
+      "primary_access_path": "Vault-owner session bootstrap ensures a missing Wallet Profile from account basics, and owner controls edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses"
     },
     {
       "data_class": "workflow_state",
@@ -1421,6 +1478,50 @@
       "lifecycle_status": "parked_flag_off_with_live_environment_drift",
       "owner": "backend-runtime-governance",
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "pkm_answer_deliveries"
+      ],
+      "id": "pkm_answer_deliveries",
+      "lifecycle_status": "customer0",
+      "owner": "security-audit",
+      "primary_access_path": "The owner's unlocked device produces the answer from decrypted PKM within the approved scopes, seals it to the requester's ECDH P-256 recipient key and posts the envelope; the requester fetches and decrypts it on their own device. The server is a blind relay, exactly as in the marketplace delivery sweep."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_answer_payment_orders",
+        "pkm_answer_payment_obligations",
+        "pkm_answer_payment_webhook_events"
+      ],
+      "id": "pkm_answer_payment_authority",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after the owner approves a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "pkm_answer_requests",
+        "pkm_answer_request_scopes"
+      ],
+      "id": "pkm_answer_requests",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Paid answers on a connected person's profile: any active connection submits a question through Request scope; the required semantic resolver stage proposes scopes, deterministic fail-closed validation drops anything the owner does not hold or that another person may never request, and the owner approves the exact question, the exact scopes and a whole-dollar price. The approved terms are fixed by a terms_digest covering question, scopes, both participants and the quote."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_answer_payment_refunds",
+        "pkm_answer_owner_payouts"
+      ],
+      "id": "pkm_answer_settlement",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Durable settlement for the paid-answer lane, on the existing Drive work drain. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded."
     },
     {
       "data_class": "workflow_state",
@@ -1450,7 +1551,7 @@
       ],
       "id": "pkm_default_available_projection",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "vault-owner profile controls publish safe public-profile projections; authenticated developer connectors read them by opaque handle through the public-profile export endpoint"
     },
     {
@@ -1462,7 +1563,7 @@
       ],
       "id": "pkm_encrypted_memory",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "PKM coherent snapshot, atomic store, owner rollback, delete-domain routes, and client-side vault unlock flows"
     },
     {
@@ -1476,18 +1577,19 @@
       ],
       "id": "pkm_metadata_and_scope",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "PKM metadata, scope discovery, manifest repair, and replay/audit services"
     },
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "pkm_owner_payout_accounts"
+        "pkm_owner_payout_accounts",
+        "stripe_owner_payout_accounts"
       ],
       "id": "pkm_owner_payout_accounts",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One marketplace Owner tab payouts: a packet owner onboards to a Stripe Connect Express account; the work drain marks delivered orders' earnings due and transfers them (amount minus platform fee) once Stripe enables payouts."
+      "primary_access_path": "Profile Payouts and marketplace owner payouts use stripe_owner_payout_accounts keyed by owner and Stripe test/live mode. Stripe-hosted Express onboarding collects bank and identity details. The legacy pkm_owner_payout_accounts mapping remains for rolling compatibility and is adopted only after provider verification under the current mode key."
     },
     {
       "data_class": "workflow_state",
@@ -1506,7 +1608,7 @@
       ],
       "id": "pkm_packets",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "One marketplace Owner tab: the owner creates, prices and lists packets (named bundles of their own PKM scope references) for sale; hussh.ai White Pages reads only the titles and prices of a verified owner's for-sale packets through the public listing lookup."
     },
     {
@@ -1520,7 +1622,7 @@
       ],
       "id": "pkm_upgrade_workflows",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration"
     },
     {
@@ -1572,6 +1674,20 @@
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
       "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "stripe_connect_bank_payouts",
+        "stripe_connect_bank_payout_events",
+        "stripe_connect_balance_snapshots",
+        "stripe_connect_balance_transactions",
+        "stripe_connect_payout_reconciliations"
+      ],
+      "id": "stripe_connect_bank_payout_status",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies current provider state and updates aggregate bank-deposit status. Bank creation, update and deletion events also refresh readiness. Authenticated owners read recent deposits through the current owner-plus-mode connected-account mapping."
     },
     {
       "data_class": "personal_metadata",
@@ -1666,8 +1782,23 @@
       ],
       "id": "vault_key_material",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
-      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services"
+      "owner": "security-audit",
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, and owner-bound One review completion services"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "wallet_card_registrations",
+        "wallet_card_share_requests",
+        "wallet_card_access_grants",
+        "wallet_card_access_audit",
+        "wallet_profile_share_requests",
+        "wallet_profile_access_grants"
+      ],
+      "id": "wallet_temporary_card_access",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant. The same policy orchestrates selected Profile fields through a separate source adapter; outgoing and received participant history is paginated independently of live card eligibility."
     }
   ],
   "database_retirements": [
@@ -2668,6 +2799,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "calendar.read",
           "consent.chat.turn",
           "location.chat.turn",
           "route.one_agents",
@@ -2720,7 +2852,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "calendar.read"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.calendar"
       }
@@ -2846,6 +2980,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.connected_system_list",
           "route.profile_connected_systems"
         ],
         "delegate_agent_ids": [],
@@ -2871,7 +3006,10 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.profile_connected_systems"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.connected.systems.systemid"
       }
@@ -2964,7 +3102,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.mail_connections"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.email"
       }
@@ -3853,7 +3993,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.messages_connections"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.messages"
       }
@@ -3988,6 +4130,8 @@
           "help.open_examples",
           "profile.delete_account",
           "profile.marketplace_visibility.toggle",
+          "profile.payouts.redeem",
+          "profile.payouts.test_redeem",
           "profile.reset_account",
           "profile.set_contact_discoverable",
           "profile.sign_out",
@@ -3997,9 +4141,12 @@
           "route.profile",
           "route.profile_access_panel",
           "route.profile_connected_systems",
+          "route.profile_my_data",
+          "route.profile_payouts",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
           "route.profile_referrals_panel",
+          "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -4076,6 +4223,8 @@
           "help.open_examples",
           "profile.delete_account",
           "profile.marketplace_visibility.toggle",
+          "profile.payouts.redeem",
+          "profile.payouts.test_redeem",
           "profile.reset_account",
           "profile.set_contact_discoverable",
           "profile.sign_out",
@@ -4085,9 +4234,12 @@
           "route.profile",
           "route.profile_access_panel",
           "route.profile_connected_systems",
+          "route.profile_my_data",
+          "route.profile_payouts",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
           "route.profile_referrals_panel",
+          "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -4118,6 +4270,8 @@
           "help.open_examples",
           "profile.delete_account",
           "profile.marketplace_visibility.toggle",
+          "profile.payouts.redeem",
+          "profile.payouts.test_redeem",
           "profile.reset_account",
           "profile.set_contact_discoverable",
           "profile.sign_out",
@@ -4127,9 +4281,12 @@
           "route.profile",
           "route.profile_access_panel",
           "route.profile_connected_systems",
+          "route.profile_my_data",
+          "route.profile_payouts",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
           "route.profile_referrals_panel",
+          "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -4158,6 +4315,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.connected_system_list",
           "route.profile_connected_systems"
         ],
         "delegate_agent_ids": [],
@@ -4366,7 +4524,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_my_data"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data"
       }
@@ -4389,9 +4549,38 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_my_data"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data.domain"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/payouts/page.tsx",
+      "pathname": "/one/profile/payouts",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "profile.payouts.redeem",
+          "profile.payouts.test_redeem",
+          "route.profile_payouts"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.payouts"
       }
     },
     {
@@ -4657,25 +4846,23 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "native-route-one-referrals",
       "page_file": "app/one/profile/referrals/page.tsx",
       "pathname": "/one/profile/referrals",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.profile_referrals_panel"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
-        "playbook_id": "route.profile.support"
+        "playbook_id": "route.profile.referrals.redirect"
       }
     },
     {
@@ -4699,6 +4886,31 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.regulatory_compat"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/request-pricing/page.tsx",
+      "pathname": "/one/profile/request-pricing",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_request_pricing"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.request.pricing"
       }
     },
     {
@@ -4892,9 +5104,52 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.puppy_agents"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.puppy"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/referrals/*",
+          "native_transport": "Direct backend via ApiService.apiFetch; authenticated owner-scoped reads.",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/referral-service.ts",
+          "service_methods": [
+            "getSummary",
+            "getPoints",
+            "getChallenge",
+            "getMilestones",
+            "getEngagement",
+            "getLeaderboard",
+            "getCircleLeaderboard",
+            "getCircleSelection"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-referrals",
+      "page_file": "app/one/referrals/page.tsx",
+      "pathname": "/one/referrals",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.referrals"
       }
     },
     {
@@ -5233,6 +5488,30 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "pkm_projection",
+          "calendar_events"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-todos",
+      "page_file": "app/one/todos/page.tsx",
+      "pathname": "/one/todos",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.todos"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "memory-only",
         "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
         "resource_classes": [
@@ -5277,7 +5556,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.wallet.card"
       }
@@ -5323,6 +5604,7 @@
           "people.profile.connect",
           "people.profile.manage_consent",
           "people.profile.remove_connection",
+          "people.profile.request_scope",
           "people.profile.review_information_request",
           "route.person_profile"
         ],
@@ -5927,6 +6209,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": null,
+      "page_file": "app/wallet/open/page.tsx",
+      "pathname": "/wallet/open",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.wallet.encrypted_file.open"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/welcome/page.tsx",
       "pathname": "/welcome",
       "route_mode": "standard",
@@ -5986,7 +6291,7 @@
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 226,
+    "actions": 238,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,

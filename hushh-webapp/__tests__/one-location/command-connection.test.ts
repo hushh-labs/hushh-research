@@ -1,6 +1,10 @@
 import { expect, it, vi } from "vitest";
-import { prepareLocationConnection } from "@/lib/one-location/command-connection";
 import {
+  locationConnectionPrerequisite,
+  prepareLocationConnection,
+} from "@/lib/one-location/command-connection";
+import {
+  ConnectionsService,
   ConnectionsServiceRequestError,
   type ConnectionPersonContext,
 } from "@/lib/services/connections-service";
@@ -37,6 +41,43 @@ const base = {
     totalCount: 1,
   })),
 };
+
+it("excludes contact-only directory matches when resolving a named prerequisite", async () => {
+  const search = vi
+    .spyOn(ConnectionsService, "searchDirectory")
+    .mockImplementation(async ({ nameOnly }) => ({
+      items: nameOnly
+        ? [person]
+        : [person, { ...person, userId: "email-match", displayName: "Zoe" }],
+      page: 1,
+      hasMore: false,
+      totalCount: nameOnly ? 1 : 2,
+    }));
+  const read = vi
+    .spyOn(ConnectionsService, "getPersonContext")
+    .mockResolvedValue(context("none"));
+  try {
+    const result = await locationConnectionPrerequisite(async () => "id-token")({
+      name: "Abd",
+      choiceForPerson: base.choiceForPerson,
+    });
+    expect(search).toHaveBeenCalledWith({
+      idToken: "id-token",
+      query: "Abd",
+      page: 1,
+      limit: 50,
+      nameOnly: true,
+    });
+    expect(result).toMatchObject({
+      status: "blocked",
+      gate: "navigation",
+      resolvedChoiceId: "exact:person-1",
+    });
+  } finally {
+    search.mockRestore();
+    read.mockRestore();
+  }
+});
 
 it.each(["none", "pending_outgoing", "pending_incoming", "connected"] as const)(
   "keeps the exact person and waits for Connect when %s",

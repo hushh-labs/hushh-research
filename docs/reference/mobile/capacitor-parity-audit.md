@@ -90,6 +90,11 @@ The generic Invite to One URL is the exact root and carries no inviter identity.
 See [invitation continuity and release sequencing](../quality/one-onboarding-architecture.md#guest-introduction-and-invitation-continuity)
 for the iOS association rollout switch and the required real-device checks.
 
+`/one/referrals` is native-required and shares the web dashboard through the
+existing native-aware `ApiService` transport. `/one/profile/referrals` is its
+compatibility redirect. Static inventory coverage does not establish device
+runtime parity; real authenticated device verification remains required.
+
 ## Browser API Policy
 
 Route-facing code must not directly own browser-only APIs when a shared wrapper should exist.

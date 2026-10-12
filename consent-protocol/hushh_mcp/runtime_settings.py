@@ -71,6 +71,12 @@ _WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
+    "pkm_answer_requests_enabled": "PKM_ANSWER_REQUESTS_ENABLED",
+    "pkm_answer_payments_enabled": "PKM_ANSWER_PAYMENTS_ENABLED",
+    "pkm_answer_composer_enabled": "PKM_ANSWER_COMPOSER_ENABLED",
+    "pkm_answer_stripe_mode": "PKM_ANSWER_STRIPE_MODE",
+    "answer_work_drain_enabled": "ANSWER_WORK_DRAIN_ENABLED",
+    "answer_work_drain_audience": "ANSWER_WORK_DRAIN_AUDIENCE",
     "environment": "ENVIRONMENT",
     "hushh_genai_auth_mode": "HUSHH_GENAI_AUTH_MODE",
     "google_genai_use_vertexai": "GOOGLE_GENAI_USE_VERTEXAI",
@@ -162,8 +168,12 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # nearby-presence mode: that flag governs co-presence, and closing
     # co-presence in production must not also close a business directory.
     "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
-    "one_business_uat_fixture_enabled": "ONE_BUSINESS_UAT_FIXTURE_ENABLED",
     "one_business_directory_enabled": "ONE_BUSINESS_DIRECTORY_ENABLED",
+    "one_profile_research_enabled": "ONE_PROFILE_RESEARCH_ENABLED",
+    "one_magic_intelligence_phase": "ONE_MAGIC_INTELLIGENCE_PHASE",
+    "one_magic_intelligence_inner_team_emails": "ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS",
+    "one_magic_intelligence_senior_team_emails": "ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS",
+    "one_magic_intelligence_qa_emails": "ONE_MAGIC_INTELLIGENCE_QA_EMAILS",
     # Withdraws One Live Voice mail reads and nothing else. Its own key rather
     # than GMAIL_CHAT_READS, which is owner-available by construction and so has
     # no runtime effect; making that one effective would close typed-chat mail
@@ -484,16 +494,31 @@ def one_business_directory_enabled() -> bool:
     return _clean_env("ONE_BUSINESS_DIRECTORY_ENABLED").lower() == "true"
 
 
-def one_business_uat_fixture_enabled() -> bool:
-    """Synthetic business suggestions only in an explicitly consistent UAT lane."""
-    environment = _clean_env("ENVIRONMENT").lower()
-    deploy = _clean_env("HUSHH_DEPLOY_ENV").lower()
-    profile = _clean_env("APP_RUNTIME_PROFILE").lower()
+def one_profile_research_enabled() -> bool:
+    """Default-off rollout for One's reviewed public-profile card."""
+    return _clean_env("ONE_PROFILE_RESEARCH_ENABLED").lower() == "true"
+
+
+def one_magic_intelligence_phase() -> int:
+    """Explicit revision rollout: 0/off, 1–4/cohorts, 5/all verified-email UAT owners."""
+    raw = _clean_env("ONE_MAGIC_INTELLIGENCE_PHASE", "0")
+    return int(raw) if raw in {"0", "1", "2", "3", "4", "5"} else 0
+
+
+def one_magic_intelligence_all_uat_enabled() -> bool:
+    """General admission needs matching runtime and revision UAT provenance."""
     return (
-        environment == "uat"
-        and deploy in {"", "uat"}
-        and profile in {"", "uat"}
-        and _clean_env("ONE_BUSINESS_UAT_FIXTURE_ENABLED").lower() == "true"
+        one_magic_intelligence_phase() == 5
+        and _clean_env("ENVIRONMENT").lower() == "uat"
+        and _clean_env("HUSHH_DEPLOY_ENV").lower() == "uat"
+    )
+
+
+def one_magic_intelligence_cohorts() -> tuple[tuple[str, ...], ...]:
+    """Exact primary emails, read afresh; no client or token-claim roster."""
+    return tuple(
+        _csv_list(_clean_env(f"ONE_MAGIC_INTELLIGENCE_{cohort}_EMAILS"))
+        for cohort in ("INNER_TEAM", "SENIOR_TEAM", "QA")
     )
 
 

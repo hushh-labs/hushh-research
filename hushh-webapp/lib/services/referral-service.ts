@@ -28,6 +28,9 @@ export type ReferralRow = {
 export type ReferralSummary = {
   slug: string;
   link: string;
+  /** Accepted referral-link opens, including QR navigation; not unique visitors. */
+  link_open_count?: number;
+  last_opened_at?: string | null;
   qualified_count: number;
   in_progress_count: number;
   under_review_count: number;
@@ -50,6 +53,21 @@ export type BindResult = {
     | "self_referral"
     | "already_referred"
     | "existing_user";
+};
+
+export type ReferralPolicy = {
+  version: number;
+  points: { qualified_referral_points: number; flash_window_total_points: number; streak_three_day_bonus_points: number };
+  streak_rules: { run_length_days: number; bonus_points: number };
+  challenge_duration_days: number | null;
+  weekly_prizes_enabled: boolean;
+};
+
+export type WeeklyChallenge = {
+  active: boolean;
+  week_started_at: string | null;
+  cutoff_at: string | null;
+  timezone: string | null;
 };
 
 /** One row on the individual leaderboard. Never a real name -- `handle` is
@@ -88,6 +106,7 @@ export type NextMilestone = {
 };
 
 export type MilestoneProgress = {
+  available_milestones?: Omit<NextMilestone, "progress">[];
   lifetime_qualified_count: number;
   earned: EarnedMilestone[];
   next_milestone: NextMilestone | null;
@@ -146,6 +165,19 @@ export const ReferralService = {
     });
   },
 
+  /** This person's own recorded point total, summed live from the ledger --
+   * independent of the published leaderboard snapshot. Correct for an
+   * unranked account or one whose points posted after the latest snapshot. */
+  async getPoints(opts: { idToken: string }): Promise<{ points: number }> {
+    return apiJson<{ points: number }>("/api/one/referrals/points", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.idToken}`,
+      },
+    });
+  },
+
   /** One page of the published cumulative leaderboard. The caller's own row
    * is included even when it falls outside this page. */
   async getLeaderboard(opts: {
@@ -186,6 +218,13 @@ export const ReferralService = {
   },
 
   /** This person's lifetime milestone progress and earned merchandise. */
+  async getPolicy(opts: { idToken: string }): Promise<ReferralPolicy> {
+    return apiJson<ReferralPolicy>("/api/one/referrals/policy", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${opts.idToken}` },
+    });
+  },
+
   async getMilestones(opts: { idToken: string }): Promise<MilestoneProgress> {
     return apiJson<MilestoneProgress>("/api/one/referrals/milestones", {
       method: "GET",
@@ -230,6 +269,18 @@ export const ReferralService = {
         Authorization: `Bearer ${opts.idToken}`,
       },
       body: JSON.stringify({ handle: opts.handle }),
+    });
+  },
+
+  /** The current seven-day challenge round's start and close. `active` is
+   * false when the program's weekly schedule is unset. */
+  async getChallenge(opts: { idToken: string }): Promise<WeeklyChallenge> {
+    return apiJson<WeeklyChallenge>("/api/one/referrals/challenge", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.idToken}`,
+      },
     });
   },
 

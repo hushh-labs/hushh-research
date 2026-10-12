@@ -16,7 +16,7 @@ import {
   setTopShellTabSwipeState,
   subscribeTopShellTabSelection,
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
-import { VoiceSurfaceActivityBoundary } from "@/lib/voice/voice-surface-activity";
+import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 import { cn } from "@/lib/utils";
 
 /**
@@ -184,6 +184,12 @@ function isNestedHorizontalScrollTarget(target: EventTarget | null): boolean {
     target instanceof Element &&
     Boolean(target.closest(`[${SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR}]`))
   );
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest(
+    "button, input, select, textarea, a[href], [role='button'], [role='slider'], [contenteditable='true']",
+  ));
 }
 
 function isNestedSwipeViewsTarget(
@@ -422,6 +428,7 @@ export function SwipeViews({
     (emblaApi: EmblaCarouselType, event: Event) => {
       if (
         disabledRef.current ||
+        isInteractiveTarget(event.target) ||
         isNestedHorizontalScrollTarget(event.target) ||
         isNestedSwipeViewsTarget(event.target, emblaApi.rootNode())
       ) {
@@ -690,6 +697,10 @@ export function SwipeViews({
       if (widthChanged || engineIsStale || slideCountStale) api.reInit();
       if (targetIdx !== -1) {
         scrollToIndexSafely(api, targetIdx, true);
+        // A geometry repair jumps without scroll/settle events. Publish its
+        // resting position here too, or the shell retains the prior highlight.
+        isAnimatingRef.current = false;
+        setTopShellTabSwipeState(tabSetId, targetIdx, false);
       }
     };
 
@@ -716,7 +727,7 @@ export function SwipeViews({
       if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
       resizeFrameRef.current = null;
     };
-  }, [emblaApi]);
+  }, [emblaApi, tabSetId]);
 
   /**
    * Lets the viewport come down to the pane the person is now looking at.
@@ -736,9 +747,17 @@ export function SwipeViews({
   const syncTabIndicator = useCallback(
     (pagerOwned?: boolean) => {
       if (!emblaApi) return null;
+      const engine = emblaApi.internalEngine?.();
+      const width = engine?.slideRects?.[0]?.width;
+      const rendered = engine?.offsetLocation?.get?.();
       const scrollProgress = emblaApi.scrollProgress?.();
+      // Total scroll bounds can lag repaired snap points after a resize. Follow
+      // the rendered pane position so form presses cannot shift the highlight.
       const position =
-        typeof scrollProgress === "number" && Number.isFinite(scrollProgress)
+        typeof width === "number" && width > 0 &&
+        typeof rendered === "number" && Number.isFinite(rendered)
+          ? clampSwipePosition(-rendered / width, options.length)
+          : typeof scrollProgress === "number" && Number.isFinite(scrollProgress)
           ? clampSwipePosition(
               scrollProgress * Math.max(0, options.length - 1),
               options.length,

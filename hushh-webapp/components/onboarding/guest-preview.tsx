@@ -55,6 +55,7 @@ import {
 } from "@/lib/onboarding/one-capabilities";
 import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
+import { compareOneRosterDisplayOrder } from "@/lib/onboarding/roster-display-order";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./guest-preview.module.css";
 import welcomeStyles from "./IntroStep.module.css";
@@ -96,9 +97,8 @@ const CIRCLES = [
 ] as const;
 const CAPABILITIES = ONE_CAPABILITIES.filter(
   (capability) =>
-    capability.isVisibleOnRoster !== false &&
-    isOneCapabilityEnabled(capability),
-);
+    capability.isVisibleOnRoster !== false && isOneCapabilityEnabled(capability),
+).sort(compareOneRosterDisplayOrder);
 const PALETTE = DASHBOARD_AGENT_ICON_STYLE_BY_ID;
 const PREVIEW_CYCLE_MS = 2500;
 // Presentation only. Calendar illustrates a connected calendar's free slots;
@@ -898,19 +898,24 @@ export function GuestPreview({
           </div>
 
           <footer className={styles.footer}>
+            {/* Progress starts at the first preview (Circles). The welcome
+                screen has no footer, so it gets no dash of its own. */}
             <nav className={styles.progress} aria-label="Preview screens">
-              {["Welcome", "Circles", "Agents", "Get started"].map((label, index) => (
-                <button
-                  key={label}
-                  type="button"
-                  aria-label={`Screen ${index + 1}: ${label}`}
-                  aria-current={step === index ? "step" : undefined}
-                  disabled={index > furthestStep}
-                  onClick={() => moveTo(index)}
-                >
-                  <span />
-                </button>
-              ))}
+              {["Circles", "Agents", "Get started"].map((label, index) => {
+                const target = index + 1;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-label={`Screen ${index + 1}: ${label}`}
+                    aria-current={step === target ? "step" : undefined}
+                    disabled={target > furthestStep}
+                    onClick={() => moveTo(target)}
+                  >
+                    <span />
+                  </button>
+                );
+              })}
             </nav>
             <Button
               variant="blue"

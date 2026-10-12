@@ -40,7 +40,7 @@ import {
 } from "@/lib/interaction/interaction-intent-coordinator";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { usePersonaState } from "@/lib/persona/persona-context";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { OneLocationService } from "@/lib/one-location/service";

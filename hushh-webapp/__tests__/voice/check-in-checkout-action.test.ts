@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * Checking out of a nearby check-in over voice (#6110).

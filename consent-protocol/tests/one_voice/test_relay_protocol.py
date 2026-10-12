@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Literal
 
@@ -203,11 +204,13 @@ async def _ok_auth(frame, claims):
 AUTH = {"type": "auth", "vault_owner_token": "HCT:token", "conversation_id": CONV}
 
 
-def _session(transport, fake_live, *, verify=_ok_auth, pending=None, conversations=None):
+def _session(
+    transport, fake_live, *, verify=_ok_auth, pending=None, conversations=None, config=CONFIG
+):
     pending = pending or MemoryPendingStore()
     return VoiceSession(
         transport=transport,
-        config=CONFIG,
+        config=config,
         claims=CLAIMS,
         verify_auth=verify,
         live_factory=live_factory_for(fake_live),
@@ -294,6 +297,57 @@ async def test_ready_then_end_records_close(caplog):
     assert "per_user_input=" not in perf_logs[0]
 
 
+async def test_voice_provider_binding_and_latency_tags_use_explicit_project(caplog):
+    config = replace(CONFIG, vertex_project="hussh-511311")
+    session = _session(
+        FakeTransport([AUTH, {"type": "end"}]),
+        FakeLive([LiveEvent(kind="setup_complete")]),
+        config=config,
+    )
+    with caplog.at_level(logging.INFO, logger="hushh_mcp.one_voice.session"):
+        await _run(session)
+    tags = (
+        "provider=vertex_ai vertex_project=hussh-511311 "
+        "live_model=gemini-live-2.5-flash-native-audio live_location=us-central1"
+    )
+    assert (
+        f"one_voice.provider_binding session={CLAIMS.session_id} status=connected {tags}"
+        in caplog.text
+    )
+    assert "phase=provider_connect ms=" in caplog.text
+    assert all(
+        line.endswith(tags) for line in caplog.text.splitlines() if "one_voice.latency" in line
+    )
+
+
+async def test_voice_connect_failure_is_attributed_without_content(caplog):
+    @asynccontextmanager
+    async def failed_connect(_model, _config):
+        raise ConnectionError("private provider detail")
+        yield  # pragma: no cover
+
+    session = _session(
+        FakeTransport([AUTH]),
+        FakeLive([]),
+        config=replace(CONFIG, vertex_project="hussh-511311"),
+    )
+    session.live_factory = failed_connect
+    with caplog.at_level(logging.INFO, logger="hushh_mcp.one_voice.session"):
+        await _run(session)
+    assert "one_voice.provider_binding session=sess-1 status=connect_failed" in caplog.text
+    assert "one_voice.session.failed class=" in caplog.text
+    assert "vertex_project=hussh-511311" in caplog.text
+    assert "private provider detail" not in caplog.text
+
+
+def test_voice_provider_tags_resolve_default_vertex_project(monkeypatch):
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "fleet-default")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    session = _session(FakeTransport(), FakeLive([]))
+    assert "vertex_project=fleet-default" in session._provider_tags()
+
+
 # --- audio + transcripts ---------------------------------------------------
 
 
@@ -347,6 +401,7 @@ async def test_perf_frame_is_logged_without_extending_idle_or_reaching_provider(
     assert fake.audio_in == [] and fake.events_sent == []
     assert "turn=none metric=endpointing_client ms=840" in caplog.text
     assert "turn=abcdef123456 metric=endpointing_client ms=840" in caplog.text
+    assert "provider=vertex_ai vertex_project=" in caplog.text
 
 
 def test_pinned_sdk_activity_end_markers_translate_without_inferred_fields():
@@ -382,6 +437,7 @@ async def test_eos_and_final_transcript_in_one_provider_message_are_correlated(c
     assert events[0].same_message_input_transcript is True
     transport, fake = FakeTransport(), FakeLive([])
     session = _session(transport, fake)
+    session.clock = lambda: 100.0
     await session._open_conversation(
         AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
     )
@@ -2905,9 +2961,16 @@ async def test_tap_on_a_reused_card_reports_to_the_turn_it_was_reshown_on():
     assert event["kind"] == "tool_result"
 
 
-async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
+@pytest.mark.parametrize("provider_delay", [0, 0.35])
+async def test_tap_tier_requires_receipt_and_rejects_spoken_yes(provider_delay):
+    class DelayedLive(FakeLive):
+        async def events(self):
+            await asyncio.sleep(provider_delay)
+            async for event in super().events():
+                yield event
+
     transport = FakeTransport([AUTH])
-    fake = FakeLive(
+    fake = DelayedLive(
         [
             LiveEvent(
                 kind="tool_call",
@@ -2919,7 +2982,8 @@ async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
     pending = MemoryPendingStore()
     session = _session(transport, fake, pending=pending)
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
+    # Synchronize with observable frames, not the CI runner's scheduling speed.
+    await _until(lambda: transport.frames("pending_action"))
     card = transport.frames("pending_action")[0]
     assert card["tier"] == "tap" and card["requires_tap"] is True and card["receipt_token"]
     # spoken yes is refused
@@ -2935,7 +2999,7 @@ async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
             "receipt_token": "nope",
         }
     )
-    await asyncio.sleep(0.1)
+    await _until(lambda: transport.frames("pending_action.resolved"))
     resolved = transport.frames("pending_action.resolved")
     assert (
         resolved[-1]["status"] == "not_pending"
@@ -2950,7 +3014,8 @@ async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
             "receipt_token": card["receipt_token"],
         }
     )
-    await asyncio.sleep(0.1)
+    await _until(lambda: len(transport.frames("pending_action.resolved")) == 2)
+    await _until(lambda: fake.events_sent)
     assert transport.frames("pending_action.resolved")[-1]["status"] == "executed"
     assert pending.rows[card["pending_action_id"]].status == "executed"
     result = transport.frames("tool.result")[-1]
@@ -3354,7 +3419,18 @@ async def _start_device_session(script, *, conversations=None, clock=None):
     fake = FakeLive(script)
     session, calls = _device_session(transport, fake, conversations=conversations, clock=clock)
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
+    expected_steps = sum(
+        len(event.function_calls)
+        for event in script
+        if event is not None and event.kind == "tool_call"
+    )
+    # A busy runner may take longer than 300 ms to deliver the provider call.
+    await _until(
+        lambda: (
+            len(transport.frames("client_step.request")) == expected_steps
+            and len(transport.frames("tool.result")) == expected_steps
+        )
+    )
     return transport, fake, session, calls, task
 
 
@@ -3474,17 +3550,27 @@ async def test_device_step_settles_on_as_the_originating_call_and_narrates_only_
         ("provider_timed_out", "failed", lambda s: {"reason": "timed_out"}, "timed_out"),
     ],
 )
+@pytest.mark.parametrize("provider_delay", [0, 0.35])
 async def test_device_step_rejections_settle_not_ok_and_return_to_listening(
-    label, status, build, reason_code
+    monkeypatch, label, status, build, reason_code, provider_delay
 ):
+    provider_events = FakeLive.events
+
+    async def delayed_events(self):
+        await asyncio.sleep(provider_delay)
+        async for event in provider_events(self):
+            yield event
+
+    monkeypatch.setattr(FakeLive, "events", delayed_events)
     conversations = MemoryConversationStore()
     transport, fake, session, calls, task = await _start_device_session(
         [_device_call("c1", RESUME), None], conversations=conversations
     )
     step = transport.frames("client_step.request")[0]
 
+    states_before = len(transport.frames("state"))
     transport.push(_step_result(step["step_id"], status, build(step)))
-    await asyncio.sleep(0.1)
+    await _until(lambda: len(transport.frames("state")) > states_before)
 
     settled = transport.frames("tool.result")[-1]
     assert settled["call_id"] == "c1" and settled["tool"] == RESUME

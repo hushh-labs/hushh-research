@@ -64,7 +64,7 @@ export const CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX = 72;
  * row -- the "not aligned" half of the report, repeated once per member.
  */
 export const CIRCLE_MEMBER_ROW_CLASSNAME =
-  "grid grid-cols-[40px_minmax(0,1fr)_44px] min-h-[72px] items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex sm:gap-3";
+  "grid grid-cols-[40px_minmax(0,1fr)_auto] min-h-[72px] items-center gap-x-3 gap-y-2 px-2 py-3 sm:flex sm:gap-3 sm:px-4";
 
 /** A relationship action gets its own line on phones, leaving identity readable. */
 export const CIRCLE_MEMBER_ACTION_COPY_CLASSNAME = "col-span-2 sm:col-span-1";
@@ -73,14 +73,12 @@ export const CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME =
 
 export const CIRCLE_MEMBER_AVATAR_CLASSNAME = "h-10 w-10 shrink-0";
 
-/** Names and state copy remain readable at narrow widths. The row may grow
- * vertically; silently replacing an identity with an ellipsis is not an
- * acceptable responsive fallback. */
+/** Names stay on one line. The full identity remains in the DOM and title. */
 export const CIRCLE_MEMBER_NAME_ROW_CLASSNAME =
-  "flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[16px] font-medium leading-[21px] text-foreground";
+  "min-w-0 text-[16px] font-medium leading-[21px] text-foreground";
 
 export const CIRCLE_MEMBER_NAME_CLASSNAME =
-  "block min-w-0 whitespace-normal [overflow-wrap:anywhere]";
+  "block min-w-0 truncate";
 
 export const CIRCLE_MEMBER_SECONDARY_CLASSNAME =
   "whitespace-normal [overflow-wrap:anywhere]";
@@ -95,7 +93,7 @@ export const CIRCLE_DETAIL_HEADER_COPY_CLASSNAME =
 
 /** The menu column stays fixed; relationship actions form one trailing cluster. */
 export const CIRCLE_MEMBER_TRAILING_CLASSNAME =
-  "flex shrink-0 items-center justify-end gap-1";
+  "flex max-w-full shrink-0 flex-wrap items-center justify-end gap-1";
 
 /**
  * An actionable relationship control (Connect / Respond).

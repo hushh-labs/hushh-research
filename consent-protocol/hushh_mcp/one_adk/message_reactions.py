@@ -6,6 +6,7 @@ from typing import Any
 from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+from hushh_mcp.one_adk.follow_up_suggestions import ends_turn_after_answer_and_only_call
 from hushh_mcp.services.agent_chat_reaction import (
     REACTION_EMOJIS,
     normalize_reaction,
@@ -47,8 +48,10 @@ When to skip (call nothing):
 - Only the person's latest message is eligible: never your own messages,
   never older ones, never more than one emoji per turn.
 
-The call is sidecar metadata. It never ends your turn — you still write your
-full answer as usual, before or after calling it.
+The call is sidecar metadata. Write your full answer first, then call
+react_to_message as the only tool call in that final response. If you still
+need another tool to answer, use it first and react after its result. The
+reaction never replaces your answer.
 Consider negation, quotation, sarcasm and the conversation's meaning.
 If no allowed emoji fits, skip the reaction.
 """
@@ -61,7 +64,7 @@ def reaction_instruction(state_getter: Callable[..., Any] | None) -> str:
 
 
 def react_to_message(emoji: str, tool_context: ToolContext) -> dict[str, str]:
-    """Optionally react to the latest user message with one allowed emoji; continue answering."""
+    """React to the latest message, ending only an already answered model step."""
     state = tool_context.state
     if state.get(STATE_EXECUTION_SURFACE) != "typed_chat" or state.get(_REACTION_SHOWN):
         return {"status": "ignored"}
@@ -70,6 +73,11 @@ def react_to_message(emoji: str, tool_context: ToolContext) -> dict[str, str]:
         return {"status": "ignored"}
     state[_REACTION_SHOWN] = True
     result = {"status": "shown", "emoji": reaction["emoji"]}
+    if ends_turn_after_answer_and_only_call(tool_context, REACTION_TOOL_NAME):
+        # ADK otherwise asks the model to summarize this metadata, adding a
+        # model round after the answer is already visible. A reaction-first or
+        # parallel real-tool call must still continue normally.
+        tool_context.actions.skip_summarization = True
     # Joined input carries a server-owned client reference. The model never
     # supplies a message ID and cannot redirect a reaction to another bubble.
     for event in reversed(getattr(getattr(tool_context, "session", None), "events", []) or []):

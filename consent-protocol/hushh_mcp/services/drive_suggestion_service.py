@@ -201,9 +201,14 @@ class LiveSearchPlan(BaseModel):
     date_to: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     shared_with_me: bool = False
     sort: Literal["relevance", "recent"] = "relevance"
+    # Only an explicit transaction request count bounds the final ranked set.
+    # Missing counts preserve older frozen plans and exhaustive discovery.
+    result_limit: int | None = Field(default=None, ge=1, le=1000)
 
     @model_validator(mode="after")
     def require_search_boundary(self):
+        if self.result_limit is not None and self.sort != "recent":
+            raise ValueError("a bounded file count requires recent ordering")
         dated = self.date_from is not None or self.date_to is not None
         if not (
             self.terms

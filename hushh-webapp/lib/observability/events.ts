@@ -170,6 +170,7 @@ export type ObservabilityEventName =
   | "ria_workspace_opened"
   | "mcp_ria_read_tool_called"
   | "profile_method_switch_result"
+  | "vault_unlock_result"
   | "account_delete_requested"
   | "account_delete_completed"
   | "account_reset_requested"
@@ -297,6 +298,7 @@ export interface EventContext {
   platform: ObservabilityPlatform;
   event_category: ObservabilityEventCategory;
   app_version: string;
+  app_build?: string;
   route_id?: RouteId;
 }
 
@@ -338,6 +340,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   ria_workspace_opened: "system",
   mcp_ria_read_tool_called: "system",
   profile_method_switch_result: "system",
+  vault_unlock_result: "system",
   account_delete_requested: "system",
   account_delete_completed: "system",
   account_reset_requested: "system",
@@ -563,6 +566,11 @@ export interface EventPayloadMap {
   };
   profile_method_switch_result: {
     result: EventResult;
+  };
+  vault_unlock_result: {
+    method: "passphrase";
+    result: EventResult;
+    error_class?: string;
   };
   account_delete_requested: {
     result: "success";

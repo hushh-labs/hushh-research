@@ -149,6 +149,7 @@ from api.routes import (  # noqa: E402
     debug_firebase,
     developer,
     drive_request_payments,
+    drive_request_requester,
     drive_searches,
     drive_sharing,
     drive_work_drain,
@@ -328,6 +329,7 @@ app.include_router(connected_systems.router)
 # External MCP connector routes (/api/connectors/...)
 app.include_router(external_connectors.router)
 app.include_router(drive_sharing.router)
+app.include_router(drive_request_requester.router)
 app.include_router(drive_request_payments.router)
 app.include_router(drive_request_payments.webhook_router)
 app.include_router(drive_searches.router)
@@ -921,6 +923,20 @@ async def shutdown_email_delivery_queue():
     await shutdown_email_delivery_queue_service()
 
 
+@app.on_event("shutdown")
+async def shutdown_magic_discovery():
+    from hushh_mcp.services.profile_research_jobs import profile_research_jobs
+
+    await profile_research_jobs.shutdown()
+
+
+@app.on_event("startup")
+async def startup_magic_discovery_retention():
+    from hushh_mcp.services.profile_research_jobs import profile_research_jobs
+
+    profile_research_jobs.start_retention()
+
+
 # ============================================================================
 # RUN
 # ============================================================================
@@ -1058,6 +1074,15 @@ async def startup_circle_chat_push_worker() -> None:
 
     _track_startup_background_task(
         asyncio.create_task(run_circle_chat_push_worker(), name="circle-chat-push")
+    )
+
+
+@app.on_event("startup")
+async def startup_direct_message_push_worker() -> None:
+    from hushh_mcp.services.direct_message_notifications import run_direct_message_push_worker
+
+    _track_startup_background_task(
+        asyncio.create_task(run_direct_message_push_worker(), name="direct-message-push")
     )
 
 

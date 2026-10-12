@@ -388,6 +388,7 @@ Used by:
 | `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | No | Optional Next.js Kai proxy timeout for Agent chat SSE streams. Defaults to `120000`. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env (Gemini SDK) | No | Set in deploy, not in .env |
 | `CONSENT_SSE_ENABLED` | `api/routes/sse.py` | No | Off by default in production (FCM-first); sourced from `BACKEND_RUNTIME_CONFIG_JSON`, not a literal Cloud Run env var |
+| `DOCUMENT_FEED_WEB_STREAM_ENABLED` | `api/routes/document_feed_stream.py` | No | Turns the web's direct Feed stream `GET /api/one/feed/events` on or off. Unset, it is on everywhere except `ENVIRONMENT=production`; off, the route answers 404 `FEED_STREAM_DISABLED` and the web uses the same-origin proxy. Not mapped from `BACKEND_RUNTIME_CONFIG_JSON`, and no deploy sets it today. Turning it on in production needs explicit approval |
 | `SYNC_REMOTE_ENABLED` | deploy env (`deploy/backend.cloudbuild.yaml`) | No | Legacy deploy flag; currently not read by backend code |
 | `DEVELOPER_API_ENABLED` | `server.py`, `mcp_modules/config.py`, `api/developer_auth.py` | No | Enabled in both UAT and production; sourced from `BACKEND_RUNTIME_CONFIG_JSON`'s `developer_api_enabled` key via `hydrate_runtime_environment()`, not a literal Cloud Run env var |
 | `HUSSH_TECH_CLIENT_ENABLED` | `hushh_mcp/services/hushh_tech_client_service.py` | No | UAT-only cohort switch from `BACKEND_RUNTIME_CONFIG_JSON`; production is hard-disabled in code |
@@ -410,6 +411,18 @@ Used by:
 | `RATE_LIMIT_STORAGE_URI` | backend limiter and Research Next launch proxy | UAT only | Secret Manager binding for shared Redis abuse budgets; HushhTech remains fail-closed without a `redis://` or `rediss://` URI |
 | `DEVELOPER_REGISTRY_JSON` | n/a (legacy) | Optional legacy | Legacy developer registry payload; no active backend reader |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py` (`/api/user/lookup`) | Optional | Self-serve developer token for stdio MCP and token-auth developer lookups. Not part of the normal hosted runtime bootstrap. |
+
+Hosted Gmail, Calendar and Plaid web callbacks retain their configured canonical
+URI. During the `hushh.ai` to `hussh.ai` migration, the backend also accepts the
+exact same path on the explicitly configured One spelling pair only when both
+origins are in `CORS_ALLOWED_ORIGINS`. Custom hosts, other environments, query
+strings and arbitrary CORS entries do not gain callback authority. Web start and
+completion echo the current document callback; signed Gmail state preserves the
+original callback for older in-flight completions that omit it. Register both
+URLs on the existing provider client before release; this application allowlist
+does not update Google or other providers. Drive registry provisioning upgrades
+only its exact known predecessor policy under the existing attestation/lock.
+
 
 Live Gmail receipt read-through introduces no new credential or persistence
 configuration. It reuses the four `GMAIL_OAUTH_*` settings above, the existing
@@ -576,6 +589,7 @@ One mailbox production caveats:
 | `PORT` | No | No | Optional (uvicorn/runner) | |
 | `ROOT_PATH` | No | No | Optional (Swagger) | |
 | `CONSENT_SSE_ENABLED` | No | No | Local: `.env`; UAT/Prod: `BACKEND_RUNTIME_CONFIG_JSON` | Local + UAT should be true for web fallback validation; production stays false by default (FCM-first) |
+| `DOCUMENT_FEED_WEB_STREAM_ENABLED` | No | No | Unset (code default); Local: `.env` to override | On by default except when `ENVIRONMENT=production`. Production stays off until the web stream is explicitly approved there |
 | `SYNC_REMOTE_ENABLED` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | Legacy deploy flag; keep false |
 | `DEVELOPER_API_ENABLED` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | Enabled in both UAT and production; the developer API and remote MCP are a first-class, always-on channel, not a debug backdoor |
 | `OBS_DATA_STALE_RATIO_THRESHOLD` | No | No | Local: `.env`; Scheduler/Job env | Threshold for Cloud SQL data-health stale-ratio anomaly |
@@ -642,6 +656,20 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 - ~~`NEXT_PUBLIC_CONSENT_API_URL`~~ - **Removed**: Use `NEXT_PUBLIC_BACKEND_URL` instead. Updated in `lib/api/consent.ts` to use `NEXT_PUBLIC_BACKEND_URL`.
 
 ---
+
+### Stripe mode on UAT
+
+`STRIPE_MODE` is server-only runtime configuration: `test` or `live`, validated
+against the secret key. Production defaults to and requires `live`; other
+runtimes default to `test`. The UAT workflow reads environment variable
+`STRIPE_UAT_MODE` and applies it to both API and private Drive worker. Live UAT
+uses its own `STRIPE_LIVE_SECRET_KEY`, `STRIPE_LIVE_WEBHOOK_SECRET` and
+`STRIPE_LIVE_CONNECT_WEBHOOK_SECRET` Secret Manager bindings. These map to the
+same runtime names (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`STRIPE_CONNECT_WEBHOOK_SECRET`); no credentials enter GitHub variables or code.
+The worker only mounts the API key and payment webhook secret because public
+Connect events terminate at the API. Sandbox secrets and production bindings are
+not overwritten. See [document payments](./drive-request-stripe-paywall.md#uat-live-payments).
 
 ## Secret Manager (GCP) — strict parity with code
 
@@ -865,3 +893,59 @@ configuration check does not establish an authenticated OAuth or native journey.
 `hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production groups for `hushh.ai`, `hussh.ai` and `hussh.si`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Keep that endpoint available without redirects on every registered RP. Native unlock also retains the stored RP; existing OS associations remain required. The `.si` sites remain standalone until their separate redirect cutover is approved.
 
 Related Origin Requests requires browser support. Keep passphrase/recovery available for unsupported browsers; do not replace or reset an existing vault. Firebase sign-in and HttpOnly cookies are origin-bound, and vault keys remain memory-only. A cross-domain navigation requires sign-in and unlock again; account-owned history is restored through the existing authenticated APIs. Never transfer tokens, keys or decrypted information in redirect URLs or browser storage.
+### Document Hussh Coins and sandbox Connect
+
+`DRIVE_REQUEST_HASHCOINS_ENABLED` enrolls only new document requests in coin
+settlement. Existing obligations retain their immutable method. UAT deploy reads
+`DRIVE_REQUEST_HASHCOINS_UAT_ENABLED` and `STRIPE_CONNECT_UAT_MODE` separately
+from `STRIPE_UAT_MODE`. The live payment mode must remain live.
+
+`STRIPE_CONNECT_SECRET_KEY` is server-only and must match `STRIPE_CONNECT_MODE`.
+UAT sandbox binds the existing test `STRIPE_SECRET_KEY` secret to that runtime
+name. `STRIPE_CONNECT_TEST_WEBHOOK_SECRET` binds the existing test Connect signing
+secret for `/api/one/payouts/connect/sandbox-webhook`; the live Connect webhook
+secret remains bound separately. API and worker retain required credentials for
+already reserved obligations even if new enrollment is disabled. Never print
+secret values or copy test balances/account IDs into live state.
+
+
+### Request scope enablement follow-up (2026-10-11)
+
+`PKM_ANSWER_REQUESTS_ENABLED` gates request intake and owner review on its own, independently of the payment and composer flags. **It is open by default and `false` is the only value that closes it**, which is deliberate and is the opposite of the paid-lane flags: an active connection is already the authorization gate for asking someone a question, so a second default-closed flag in front of it only ships a control that explains it cannot be used. Cloud Build passes it through `_PKM_ANSWER_REQUESTS_ENABLED` (default `"true"`), mapped from the environment's `PKM_ANSWER_REQUESTS_*_ENABLED` repository variable; set that variable to `false` to close intake in one environment. **The question form needs no variable at all: do not enable payments, the composer or live mode to make it appear.** With intake open and payments off the owner can review and price a question, the requester sees that price and no pay control, and the Cloud Build preflight still requires no answer Stripe bindings.
+
+History worth keeping: the first revision of this flag inherited `PKM_ANSWER_PAYMENTS_ENABLED` when unset. Every deployed environment runs payments off and had no answer-requests binding, so intake stayed shut and UAT shipped the dead control the change existed to remove. Do not reintroduce an inherit-from-payments default here.
+
+Request scope uses the existing Stripe Secret Manager lane through dedicated `PKM_ANSWER_STRIPE_SECRET_KEY` and `PKM_ANSWER_STRIPE_WEBHOOK_SECRET` bindings. `PKM_ANSWER_STRIPE_MODE` is independent of Drive's mode and `ENVIRONMENT`; keep UAT at `uat`. `PKM_ANSWER_COMPOSER_ENABLED` defaults false. Live composition/admission additionally requires `PKM_ANSWER_LIVE_PROVIDER_REVIEWED=true`, mapped from the environment's `PKM_ANSWER_LIVE_PROVIDER_*_REVIEWED` repository variable. Set that attestation only after checking the exact selected provider project/model, regional failover, caching, request-response logging and applicable abuse-monitoring retention, and verifying the owner's disclosure/consent. The 2026-10-11 probe found cache enabled; logging/exemption remain unverified. See [runtime and key-control review](../architecture/living-memory-freshness-adr.md).
+
+The canonical counterpart's `REVIEWER_COUNTERPART_UID`, `REVIEWER_COUNTERPART_VAULT_PASSPHRASE` and `REVIEWER_COUNTERPART_PERSON_REF` are provisioned in UAT Secret Manager and its encrypted vault passphrase readback was verified. Reviewer credential values remain process-only. No deployed runtime was changed: bind the counterpart pair explicitly for a later reviewer-enabled deployment or inject it only into the local rehearsal process. Never put a passphrase, vault key, token or decrypted projection into a committed/ignored environment file, trace, screenshot or report.
+
+Operator sequence, after final CI and review:
+
+1. Merge the reviewed PR; apply release migration 305 through the existing manifest/migration verification path, then verify the three schema contracts. Historical payment rows with null mode and historical approvals without composition consent remain blocked pending explicit reconciliation; do not infer mode or grant consent in a backfill.
+2. Deploy backend/frontend from the same reviewed SHA with answer payments/composer default off. Preserve Drive credentials, flags, Google configuration and UAT `ENVIRONMENT`. Bind answer test credentials first and verify the signed provider webhook's exact mode, actual Checkout completion, duplicate/late events, full refund and verified owner settlement with the two accounts. Test-mode payments do not establish live account readiness.
+3. Configure `deploy/answers/setup_answer_work_drain_scheduler.sh` using its documented environment, project, service-account and audience options. Verify authenticated drain execution, logs and actual expired/refund/payout transitions. The current UAT scheduler inventory has no answer-work job; checked-in worker code is not evidence of a running deployed worker. Keep drain enabled for owed money when admission/composition is paused.
+4. Reconcile or finish every test-mode obligation before switching the answer lane to live. A live-only worker deliberately cannot drain test rows. Re-enable only with a verified live-mode owner account; never promote a legacy, stale, deleted or unverified Connect mapping.
+5. After the separate provider retention review and owner disclosure, select dedicated live answer key/signing-secret bindings, set the answer mode to live and explicitly enable the composer/provider-reviewed/payment gates. In UAT the live slots are `STRIPE_LIVE_SECRET_KEY` and `STRIPE_LIVE_WEBHOOK_SECRET`; leave the ordinary Drive bindings alone. Reverify platform and owner accounts and the live endpoint mode; the operator performs deployment and any real purchase.
+
+A shutdown disables answer admission/composition while retaining financial draining and requester cancellation. Preserve mode bindings, first-dispatch timestamps and consent digests. The expand-only rollback must not discard pending refund/earning obligations. Automatic answers are deferred. Locked/closed-app 24/7 memory remains a reviewed-design blocker, not completed queue work.
+
+
+Verification evidence for this follow-up is local and uses Stripe test mode only. The canonical two-account reviewer rehearsal completed the profile Request scope dialog, owner Feed review with exact scope/price/model consent, real hosted Stripe test Checkout, signed test webhook, unlocked owner composition from approved encrypted memory, and requester-only encrypted answer readback on the requesting device. A real full test refund also settled through the answer refund worker. The Refund object has no required `livemode` field: the worker first retrieves and verifies the source PaymentIntent under the mode-bound answer credential, then verifies the refund's payment intent, amount, currency and status. A previously held refund requires explicit reconciliation against verified provider evidence; never reset a manual-review row blindly.
+
+The rehearsal does not prove provider owner onboarding/transfer, live account readiness, deployed scheduler execution, or Google Drive's two-account provider journey. Drive regressions ran locally with answer flags off and on. Answer delivery currently uses the requesting device's existing private recipient key; successful readback in that session does not establish cross-device key recovery. No new key escrow or recovery authority is introduced. Provider retention, hosted workers and verified owner settlement remain external enablement blockers, and live/composer gates remain off in deployed environments. The locked/closed-app runtime proposal remains pending review.
+
+### Staging another public domain
+
+Register the environment-specific OAuth origins and exact callbacks with each
+existing provider application before directing browser navigation to the new
+domain. Preserve existing callback, authentication and `/.well-known` endpoints
+on their original hosts for in-flight requests and installed native clients.
+Firebase authorized domains, Contacts/Picker browser restrictions, provider
+registries, CORS and passkey RP allowlists are separate checks; a DNS alias does
+not grant any of them. The frontend build checks its host against the same
+environment-scoped passkey catalog used by runtime secret synchronization.
+
+Stage certificate validation, destination routing and application compatibility
+first. Verify the deployed destination and provider registrations before changing
+canonical application origins or enabling redirects. Domain preparation is not
+proof of a completed migration or an enabled connector.

@@ -50,7 +50,7 @@ describe("EmailDeliveryHistoryCard", () => {
     );
   });
 
-  it("requires an explicit click before requesting Gmail send permission", () => {
+  it("requires an explicit click before repairing a legacy Gmail connection", () => {
     const onEnableGmailSend = vi.fn();
     render(
       <EmailDeliveryHistoryCard
@@ -66,7 +66,7 @@ describe("EmailDeliveryHistoryCard", () => {
 
     fireEvent.click(screen.getByText("Mail activity"));
     expect(onEnableGmailSend).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Enable sending" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect Mail" }));
     expect(onEnableGmailSend).toHaveBeenCalledTimes(1);
     // The failed item travels with the request so its draft can reopen.
     expect(onEnableGmailSend).toHaveBeenCalledWith(
@@ -104,5 +104,30 @@ describe("EmailDeliveryHistoryCard", () => {
     fireEvent.click(screen.getByText("Mail activity"));
     expect(screen.getByText("Welcome").tagName).toBe("STRONG");
     expect(screen.getByText("Draft").closest("li")).toBeTruthy();
+  });
+
+  it("restores only action status after reload and offers a read-only check", () => {
+    const onCheckStatus = vi.fn();
+    render(
+      <EmailDeliveryHistoryCard
+        item={{
+          ...item,
+          actionId: "action-1",
+          status: "outcome_unknown",
+          restoredOnly: true,
+          instruction: "",
+          draft: { to: "", cc: "", bcc: "", subject: "", body: "" },
+        }}
+        onCheckStatus={onCheckStatus}
+        onRetry={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText("Mail activity"));
+    expect(screen.getByText(/no draft saved here/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Edit and retry" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+    expect(onCheckStatus).toHaveBeenCalledWith(expect.objectContaining({
+      actionId: "action-1", status: "outcome_unknown",
+    }));
   });
 });

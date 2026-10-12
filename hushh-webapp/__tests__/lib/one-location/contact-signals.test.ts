@@ -145,6 +145,31 @@ describe("one location contact signals", () => {
     expect(mockSyncContacts).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])("preserves mixed-number coverage without inventing an unmatched contact (matched=%s)", async (matched) => {
+    const actual = await vi.importActual<typeof import("@/lib/marketplace/contact-matching")>(
+      "@/lib/marketplace/contact-matching",
+    );
+    mockBuildMarketplaceContactLookups.mockImplementationOnce((options) => actual.buildMarketplaceContactLookups(options));
+    mockSyncContacts.mockResolvedValue({ matches: matched ? [{
+      lookupId: "lookup_1", userId: "matched-user", displayName: "Matched",
+      outcome: "auto_connected", photoUrl: null,
+    }] : [] });
+    const onInviteCandidates = vi.fn();
+    const result = await syncOneLocationContactSignals({
+      idToken: "token", resolveAccountPhoneNumber: async () => null, onInviteCandidates,
+      source: async () => ({
+        contacts: [{ id: "mixed", displayName: "Mixed", phoneNumbers: ["+14155550198", "9876543210"] }],
+        sourcePlatform: "google", defaultRegion: "US", totalAvailable: 1, limited: false, truncated: false,
+      }),
+    });
+    expect(result).toMatchObject({
+      matchedContactCount: matched ? 1 : 0, unmatchedContactCount: 0,
+      uncheckedContactCount: matched ? 0 : 1, lookupLimitedContactCount: 0,
+      inviteCandidateCount: 0, partial: !matched,
+    });
+    expect(onInviteCandidates).toHaveBeenCalledWith([]);
+  });
+
   it("skips permission preflight before the default web contact source", async () => {
     mockPlatform.web = true;
     const order: string[] = [];

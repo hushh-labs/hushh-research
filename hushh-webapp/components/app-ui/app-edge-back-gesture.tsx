@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import { ArrowLeft } from "@/components/icons";
 import { Capacitor } from "@capacitor/core";
+import { useBackLayerAvailable } from "@/lib/navigation/back-layers";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import {
@@ -73,16 +74,17 @@ function hasBlockingOverlay(): boolean {
 export function AppEdgeBackGesture() {
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
+  const layerAvailable = useBackLayerAvailable(pathname, searchParams);
   const enabled = useMemo(
     () =>
       isNativeIOS() &&
-      Boolean(
+      (layerAvailable || Boolean(
         resolveTopShellBackAction({
           pathname,
           searchParams,
         }),
-      ),
-    [pathname, searchParams],
+      )),
+    [pathname, searchParams, layerAvailable],
   );
 
   useEffect(() => {

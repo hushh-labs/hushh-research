@@ -186,6 +186,15 @@ therefore resumes the existing feature body without replaying the introduction.
 Do not add a second wizard, route-local intro, or durable completion marker for
 presentation alone.
 
+Calendar enters its feature body directly, without a cinematic introduction.
+Its connection illustration appears only during unfinished root onboarding,
+while Calendar is absent from the existing durable `setupCapabilityIds` and
+its verified connection status is `disconnected`. Completed setup, normal
+workspace visits, and reauthorization use the compact Calendar body. A deliberate
+disconnect also keeps that compact body for the remainder of the owner's visit.
+The existing Finish/Skip coordinator remains the completion authority; this
+presentation does not add a persistent shown marker or change OAuth behavior.
+
 ## 1. The hierarchy
 
 ```mermaid
@@ -465,3 +474,17 @@ When adding a new setup screen or control:
    backend prompt allowlist, not a ranking hint.
 4. Regenerate and verify: `npm run build:voice-gateway && npm run
 verify:voice-gateway`.
+
+## First chat preferences
+
+One's scripted first conversation offers a name, a first capability, and a
+reply tone. “Something else” exits these optional questions immediately and
+focuses ordinary chat. The choice is persisted so no name prompt or preference
+recommendations return on another visit. It does not capture the next message
+as a name or save preferences to memory.
+
+First-capability choices appear in this order: Location, Mail, Calendar,
+Finance, Advisor, Wallet, Consent, Memory, Messages. They reuse existing
+connector and workspace actions without granting access. Phones show three
+rows of three; “Skip for now” sits on a separate row. Names and reply tone
+still require confirmation before encrypted memory storage.

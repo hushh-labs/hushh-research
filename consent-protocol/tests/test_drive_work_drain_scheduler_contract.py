@@ -21,6 +21,46 @@ WORKER_ROLLBACK = ROOT / "deploy" / "drive" / "rollback_after_worker_failure.sh"
 SCHEDULER_STATE = ROOT / "deploy" / "drive" / "verify_scheduler_state.py"
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("test", "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET"),
+        (
+            "live",
+            "STRIPE_LIVE_SECRET_KEY STRIPE_LIVE_WEBHOOK_SECRET STRIPE_LIVE_CONNECT_WEBHOOK_SECRET",
+        ),
+        ("production", None),
+    ],
+)
+def test_uat_stripe_mode_selects_isolated_secret_family(mode, expected):
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "source deploy/drive/uat_stripe_bindings.sh && "
+            'printf "%s %s %s" "$STRIPE_UAT_KEY_SECRET" '
+            '"$STRIPE_UAT_WEBHOOK_SECRET" "$STRIPE_UAT_CONNECT_SECRET"',
+        ],
+        cwd=ROOT,
+        env={**os.environ, "STRIPE_UAT_MODE": mode},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if expected is None:
+        assert result.returncode != 0
+        assert result.stdout == ""
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == expected
+    workflow = UAT_WORKFLOW.read_text()
+    worker = WORKER_RELEASE.read_text()
+    assert "source deploy/drive/uat_stripe_bindings.sh" in workflow
+    assert "source deploy/drive/uat_stripe_bindings.sh" in worker
+    assert "STRIPE_MODE=${STRIPE_UAT_MODE}" in workflow
+    assert "STRIPE_MODE=${STRIPE_UAT_MODE}" in worker
+
+
 def test_scheduler_targets_only_the_bounded_oidc_drain_and_never_mutates_runtime_iam():
     source = SCRIPT.read_text(encoding="utf-8")
 
@@ -35,12 +75,19 @@ def test_scheduler_targets_only_the_bounded_oidc_drain_and_never_mutates_runtime
     assert '--message-body="{\\"stage\\":\\"${STAGE}\\"}"' in source
     for name, stage, cron in (
         ("drive-work-drain-uat", "documents", "*/4 * * * *"),
-        ("drive-work-suggestions-uat", "suggestions", "2-59/4 * * * *"),
+        ("drive-work-suggestions-uat", "suggestions", "* * * * *"),
         ("drive-work-sharing-uat", "sharing", "* * * * *"),
     ):
         assert f'"${{JOB_NAME}}" == "{name}"' in source
         assert f'"${{STAGE}}" == "{stage}"' in source
         assert f'"${{CRON}}" == "{cron}"' in source
+    assert "2-59/4 * * * *" not in source
+
+    production_source = (ROOT / "deploy/drive/setup_work_drain_scheduler_prod.sh").read_text(
+        encoding="utf-8"
+    )
+    assert '"${CRON}" == "* * * * *"' in production_source
+    assert "2-59/4 * * * *" not in production_source
     assert "base64.b64decode(body, validate=True) != expected" in source
     assert "--oidc-service-account-email" in source
     assert "--oidc-token-audience" in source
@@ -588,3 +635,81 @@ else:
     if worker_state == "cancel_during_deploy":
         assert result.returncode == 143
         assert "Drive worker candidate failed" in result.stderr
+
+
+def test_uat_sandbox_connect_does_not_change_live_checkout_binding():
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "source deploy/drive/uat_stripe_bindings.sh && "
+            'printf "%s %s %s %s" "$STRIPE_UAT_KEY_SECRET" "$STRIPE_UAT_CONNECT_KEY_SECRET" '
+            '"$STRIPE_UAT_CONNECT_SECRET" "$STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET"',
+        ],
+        cwd=ROOT,
+        env={**os.environ, "STRIPE_UAT_MODE": "live", "STRIPE_CONNECT_UAT_MODE": "test"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (
+        "STRIPE_LIVE_SECRET_KEY STRIPE_SECRET_KEY "
+        "STRIPE_LIVE_CONNECT_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET"
+    )
+
+
+@pytest.mark.parametrize(
+    ("connect_mode", "payment_mode", "connect_key", "live_flag", "secret_state", "expected"),
+    [
+        ("test", "live", "STRIPE_SECRET_KEY", "false", "ENABLED", 0),
+        ("test", "live", "STRIPE_SECRET_KEY", "false", "MISSING", 1),
+        ("test", "live", "STRIPE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "false", "ENABLED", 0),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "true", "ENABLED", 0),
+        ("live", "test", "STRIPE_LIVE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "true", "DISABLED", 1),
+    ],
+)
+def test_hashcoin_deploy_preflight_checks_isolated_secret_project(
+    connect_mode, payment_mode, connect_key, live_flag, secret_state, expected
+):
+    script = """
+set -euo pipefail
+gcloud() {
+  if [[ "$*" == "secrets describe "*" --project=hushh-pda-uat" ]]; then
+    [[ "$SECRET_STATE" != MISSING ]]
+    return
+  fi
+  if [[ "$*" == "secrets versions describe latest "*" --project=hushh-pda-uat --format=value(state)" ]]; then
+    [[ "$SECRET_STATE" != MISSING ]] || return 1
+    printf '%s\\n' "$SECRET_STATE"
+    return
+  fi
+  return 2
+}
+source deploy/drive/verify_hashcoin_config.sh hushh-pda-uat
+"""
+    result = subprocess.run(  # noqa: S603 - fixed repository-owned preflight script
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "_DRIVE_REQUEST_HASHCOINS_ENABLED": "true",
+            "_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED": live_flag,
+            "_STRIPE_MODE": payment_mode,
+            "_STRIPE_SECRET_KEY_SECRET": "STRIPE_LIVE_SECRET_KEY"
+            if payment_mode == "live"
+            else "STRIPE_SECRET_KEY",
+            "_STRIPE_CONNECT_MODE": connect_mode,
+            "_STRIPE_CONNECT_SECRET_KEY_SECRET": connect_key,
+            "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET": "STRIPE_LIVE_CONNECT_WEBHOOK_SECRET",
+            "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "STRIPE_CONNECT_WEBHOOK_SECRET",
+            "SECRET_STATE": secret_state,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected, result.stderr

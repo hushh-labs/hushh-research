@@ -19,7 +19,11 @@ WORKER_HOST = re.compile(r"consent-protocol-drive-worker-[a-z0-9-]+\.a\.run\.app
 JOB_PREFIX = "projects/hushh-pda-uat/locations/us-central1/jobs/"
 STAGE_JOBS = {
     "drive-work-drain-uat": ("documents", {"*/2 * * * *", "*/4 * * * *"}),
-    "drive-work-suggestions-uat": ("suggestions", {"2-59/4 * * * *"}),
+    # A one-minute recovery cadence prevents a missed prompt wake from adding
+    # up to four minutes before a paid request reaches the search worker. Keep
+    # the previous four-minute cadence accepted for rollback snapshots taken
+    # before this rollout; setup/deploy scripts only write the one-minute form.
+    "drive-work-suggestions-uat": ("suggestions", {"* * * * *", "2-59/4 * * * *"}),
     "drive-work-sharing-uat": ("sharing", {"* * * * *"}),
 }
 RETRY_POLICY = {

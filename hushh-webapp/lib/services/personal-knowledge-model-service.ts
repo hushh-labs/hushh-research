@@ -1,3 +1,4 @@
+import { canonicalPkmSegmentId, pkmStorageSegmentId } from "@/lib/personal-knowledge-model/segmentation";
 // hushh-webapp/lib/services/personal-knowledge-model-service.ts
 /**
  * Personal Knowledge Model service for PKM operations.
@@ -27,6 +28,8 @@ import {
 import { Capacitor } from "@capacitor/core";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import type { PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { AuthService } from "./auth-service";
@@ -34,6 +37,7 @@ import { ApiService } from "./api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "./cache-service";
 import { DeviceResourceCacheService } from "./device-resource-cache-service";
 import {
+  bindPkmManifestStorageRouting,
   buildPersonalKnowledgeModelStructureArtifacts,
   type DomainManifest,
   type PathDescriptor,
@@ -45,7 +49,6 @@ import {
   CURRENT_PKM_MODEL_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
   CURRENT_READABLE_PROJECTION_VERSION,
-  PKM_QUARANTINE_SEGMENT_ID,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import {
@@ -154,6 +157,7 @@ export interface DomainSnapshotV1 {
 }
 
 export interface StoreDomainDataResult {
+  idempotentReplay?: boolean;
   success: boolean;
   conflict?: boolean;
   message?: string;
@@ -383,6 +387,8 @@ export class PersonalKnowledgeModelService {
   private static metadataInflight = new Map<string, Promise<PersonalKnowledgeModelMetadata>>();
   private static encryptedDataInflight = new Map<string, Promise<EncryptedUserBlob | null>>();
   private static domainDataInflight = new Map<string, Promise<EncryptedDomainBlob | null>>();
+  // Publication tickets, not payloads: older reads cannot replace a fresh read.
+  private static domainReadTickets = new Map<string, object>();
   private static domainManifestInflight = new Map<string, Promise<DomainManifest | null>>();
   private static domainSnapshotInflight = new Map<string, Promise<DomainSnapshotV1 | null>>();
   private static tickerSyncInflight = new Map<string, Promise<void>>();
@@ -397,6 +403,7 @@ export class PersonalKnowledgeModelService {
       this.metadataInflight,
       this.encryptedDataInflight,
       this.domainDataInflight,
+      this.domainReadTickets,
       this.domainManifestInflight,
       this.domainSnapshotInflight,
       this.tickerSyncInflight,
@@ -878,19 +885,7 @@ export class PersonalKnowledgeModelService {
   }
 
   private static canonicalSegmentId(segmentId: string): string {
-    // The quarantine segment keeps its exact spelling: the server requires a
-    // `__quarantine_v1` segment for any upgrade that quarantined something
-    // (migration 098), and stripping the underscores would also rename the key
-    // when the segment is decrypted back into the domain.
-    if (String(segmentId || "").trim().toLowerCase() === PKM_QUARANTINE_SEGMENT_ID) {
-      return PKM_QUARANTINE_SEGMENT_ID;
-    }
-    const normalized = String(segmentId || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_]/g, "_")
-      .replace(/^_+|_+$/g, "");
-    return normalized || "root";
+    return canonicalPkmSegmentId(segmentId);
   }
 
   private static normalizeSegmentIds(segmentIds?: string[] | null): string[] {
@@ -936,15 +931,11 @@ export class PersonalKnowledgeModelService {
 
   private static partitionDomainDataIntoSegments(domainData: Record<string, unknown>): Record<string, unknown> {
     const segmented: Record<string, unknown> = {};
-    const rootPayload: Record<string, unknown> = {};
+    const rootPayload: Record<string, unknown> = Object.create(null);
 
     for (const [key, value] of Object.entries(domainData || {})) {
-      const segmentId = this.canonicalSegmentId(key);
-      const isSegmentCandidate =
-        value !== null &&
-        value !== undefined &&
-        (Array.isArray(value) || typeof value === "object");
-      if (!isSegmentCandidate || segmentId === "root") {
+      const segmentId = pkmStorageSegmentId(key, value);
+      if (segmentId === "root") {
         rootPayload[key] = value;
         continue;
       }
@@ -1018,7 +1009,9 @@ export class PersonalKnowledgeModelService {
 
     const domainData: Record<string, unknown> = {};
     const requestedSegmentIds = this.normalizeSegmentIds(params.segmentIds);
-    const segmentEntries = Object.entries(segments).filter(([segmentId]) =>
+    const segmentEntries = Object.entries(segments).sort(([a], [b]) =>
+      a === "root" ? -1 : b === "root" ? 1 : a.localeCompare(b)
+    ).filter(([segmentId]) =>
       requestedSegmentIds.length === 0
         ? true
         : requestedSegmentIds.includes(this.canonicalSegmentId(segmentId))
@@ -1036,10 +1029,21 @@ export class PersonalKnowledgeModelService {
       );
       const parsed = JSON.parse(decrypted);
       if (segmentId === "root" && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        Object.assign(domainData, parsed as Record<string, unknown>);
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+          Object.defineProperty(domainData, key, { value, enumerable: true, writable: true, configurable: true });
+        }
         continue;
       }
-      domainData[segmentId] = parsed;
+      // Compatibility for private feature records written before exact-key
+      // preservation. These domains have one authored `_private` authority;
+      // never infer or rename user-authored keys in other domains.
+      const recordKey = requestedSegmentIds.length === 0 && segmentId === "private" &&
+        ["one_todos", "one_living_sources"].includes(params.domain) &&
+        !Object.hasOwn(domainData, "_private") ? "_private" : segmentId;
+      if (Object.hasOwn(domainData, recordKey)) {
+        throw new Error("Encrypted memory has overlapping record segments. Review before saving.");
+      }
+      Object.defineProperty(domainData, recordKey, { value: parsed, enumerable: true, writable: true, configurable: true });
     }
     return domainData;
   }
@@ -1636,6 +1640,7 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken?: string,
     options: { allowStaleFallback?: boolean } = {},
   ): Promise<PersonalKnowledgeModelMetadata> {
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const cache = CacheService.getInstance();
     const cacheKey = CACHE_KEYS.PKM_METADATA(userId);
     const deviceResourceKey = this.metadataDeviceResourceKey(userId);
@@ -1689,8 +1694,9 @@ export class PersonalKnowledgeModelService {
       userId,
       Capacitor.isNativePlatform() ? "native" : "web",
       vaultOwnerToken ? "vault_owner" : "anonymous",
-      forceRefresh ? "refresh" : "cached",
+      shouldBypassProxyCache ? "refresh" : "cached",
       options.allowStaleFallback === false ? "authoritative" : "fallback_allowed",
+      String(vaultEpoch),
     ]);
     const existingRequest = this.metadataInflight.get(dedupeKey);
     if (existingRequest) {
@@ -2009,10 +2015,10 @@ export class PersonalKnowledgeModelService {
         }
       }
 
-      if (shouldCacheResult) {
+      if (shouldCacheResult && isVaultSessionEpochCurrent(vaultEpoch)) {
         cache.set(cacheKey, result, cacheTtlMs);
       }
-      if (persistToDeviceCache && shouldCacheResult) {
+      if (persistToDeviceCache && shouldCacheResult && isVaultSessionEpochCurrent(vaultEpoch)) {
         await DeviceResourceCacheService.write({
           userId,
           resourceKey: deviceResourceKey,
@@ -2099,6 +2105,9 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
     this.assertReservedWriterMayWrite(params);
+    const storageManifest = params.domainData && params.manifest
+      ? bindPkmManifestStorageRouting(params.domainData, params.manifest)
+      : params.manifest;
     const metadataTimestamp = new Date().toISOString();
     const normalizedSummary: Record<string, unknown> = {
       ...params.summary,
@@ -2118,43 +2127,43 @@ export class PersonalKnowledgeModelService {
           : metadataTimestamp,
     };
     const manifestSummaryProjection = params.manifest?.summary_projection || {};
-    const normalizedManifest: DomainManifest | undefined = params.manifest
+    const normalizedManifest: DomainManifest | undefined = storageManifest
       ? {
-          ...params.manifest,
+          ...storageManifest,
           domain_contract_version:
-            Number(params.manifest.domain_contract_version) ||
+            Number(storageManifest.domain_contract_version) ||
             currentDomainContractVersion(params.domain),
           readable_summary_version:
-            Number(params.manifest.readable_summary_version) ||
+            Number(storageManifest.readable_summary_version) ||
             CURRENT_READABLE_SUMMARY_VERSION,
           pkm_contract_version: this.normalizeSemanticVersion(
-            params.manifest.pkm_contract_version
+            storageManifest.pkm_contract_version
           ),
           readable_projection_version: this.normalizeSemanticVersion(
-            params.manifest.readable_projection_version
+            storageManifest.readable_projection_version
           ),
           upgraded_at:
-            typeof params.manifest.upgraded_at === "string" &&
-            params.manifest.upgraded_at.trim().length > 0
-              ? params.manifest.upgraded_at
+            typeof storageManifest.upgraded_at === "string" &&
+            storageManifest.upgraded_at.trim().length > 0
+              ? storageManifest.upgraded_at
               : metadataTimestamp,
           summary_projection: {
             ...manifestSummaryProjection,
             domain_contract_version:
               Number(manifestSummaryProjection.domain_contract_version) ||
-              Number(params.manifest.domain_contract_version) ||
+              Number(storageManifest.domain_contract_version) ||
               currentDomainContractVersion(params.domain),
             readable_summary_version:
               Number(manifestSummaryProjection.readable_summary_version) ||
-              Number(params.manifest.readable_summary_version) ||
+              Number(storageManifest.readable_summary_version) ||
               CURRENT_READABLE_SUMMARY_VERSION,
             pkm_contract_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.pkm_contract_version ||
-                params.manifest.pkm_contract_version
+                storageManifest.pkm_contract_version
             ),
             readable_projection_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.readable_projection_version ||
-                params.manifest.readable_projection_version
+                storageManifest.readable_projection_version
             ),
             upgraded_at:
               typeof manifestSummaryProjection.upgraded_at === "string" &&
@@ -2200,7 +2209,7 @@ export class PersonalKnowledgeModelService {
         typeof result.message === "string" ? result.message : undefined;
 
       // Invalidate caches after successful native store
-      if (result.success && (params.mayPublish?.() ?? true)) {
+      if (result.success && !result.idempotentReplay && (params.mayPublish?.() ?? true)) {
         const enrichedEncryptedBlob: EncryptedUserBlob = {
           ...params.encryptedBlob,
           dataVersion: resolvedDataVersion,
@@ -2217,6 +2226,7 @@ export class PersonalKnowledgeModelService {
 
       return {
         success: result.success,
+        idempotentReplay: result.idempotentReplay,
         conflict: result.conflict === true,
         message: resolvedMessage,
         dataVersion: resolvedDataVersion,
@@ -2422,7 +2432,7 @@ export class PersonalKnowledgeModelService {
     };
 
     // Invalidate caches after successful store
-    if (data.success !== false && (params.mayPublish?.() ?? true)) CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
+    if (data.success !== false && data.idempotent_replay !== true && (params.mayPublish?.() ?? true)) CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
       portfolioData: params.portfolioData,
       domainData: params.domainData,
       encryptedBlob: enrichedEncryptedBlob,
@@ -2432,6 +2442,7 @@ export class PersonalKnowledgeModelService {
 
     return {
       success: data.success !== false,
+      idempotentReplay: data.idempotent_replay === true,
       conflict: data.conflict === true,
       message: resolvedMessage,
       dataVersion: resolvedDataVersion,
@@ -2570,6 +2581,9 @@ export class PersonalKnowledgeModelService {
     }
     const payload = (await response.json()) as { commits?: Array<{ exists?: unknown; data_version?: unknown }> };
     const rows = Array.isArray(payload.commits) ? payload.commits : [];
+    if (rows.length !== params.commits.length || rows.some(row => typeof row?.exists !== "boolean")) {
+      throw new Error("Saved details could not be confirmed. Try again.");
+    }
     return params.commits.map((_, index) => {
       const row = rows[index];
       const version = row?.data_version;
@@ -3547,6 +3561,7 @@ export class PersonalKnowledgeModelService {
     mayPublish?: () => boolean;
   }): Promise<{
     success: boolean;
+    idempotentReplay?: boolean;
     conflict?: boolean;
     message?: string;
     dataVersion?: number;
@@ -3620,7 +3635,7 @@ export class PersonalKnowledgeModelService {
 
     // A confirmed write remains successful after a lock/account change.
     // Do not republish decrypted state into the replacement session.
-    const mayPublish = params.mayPublish?.() ?? true;
+    const mayPublish = !result.idempotentReplay && (params.mayPublish?.() ?? true);
 
     if (result.success && mayPublish && params.domain === "financial") {
       void this.maybeSyncTickersFromFinancialBlob({
@@ -3646,6 +3661,7 @@ export class PersonalKnowledgeModelService {
 
     return {
       success: result.success,
+      idempotentReplay: result.idempotentReplay,
       conflict: result.conflict,
       message: result.message,
       dataVersion: result.dataVersion,
@@ -3683,6 +3699,9 @@ export class PersonalKnowledgeModelService {
       domain: params.domain,
       domainData: params.domainData,
     });
+    const storageManifest = params.manifest
+      ? bindPkmManifestStorageRouting(merged.domainData, params.manifest)
+      : undefined;
     const metadataTimestamp = new Date().toISOString();
     const normalizedSummary = {
       domain_intent: params.domain,
@@ -3708,43 +3727,43 @@ export class PersonalKnowledgeModelService {
           : metadataTimestamp,
     };
     const manifestSummaryProjection = params.manifest?.summary_projection || {};
-    const normalizedManifest: DomainManifest | undefined = params.manifest
+    const normalizedManifest: DomainManifest | undefined = storageManifest
       ? {
-          ...params.manifest,
+          ...storageManifest,
           domain_contract_version:
-            Number(params.manifest.domain_contract_version) ||
+            Number(storageManifest.domain_contract_version) ||
             currentDomainContractVersion(params.domain),
           readable_summary_version:
-            Number(params.manifest.readable_summary_version) ||
+            Number(storageManifest.readable_summary_version) ||
             CURRENT_READABLE_SUMMARY_VERSION,
           pkm_contract_version: this.normalizeSemanticVersion(
-            params.manifest.pkm_contract_version
+            storageManifest.pkm_contract_version
           ),
           readable_projection_version: this.normalizeSemanticVersion(
-            params.manifest.readable_projection_version
+            storageManifest.readable_projection_version
           ),
           upgraded_at:
-            typeof params.manifest.upgraded_at === "string" &&
-            params.manifest.upgraded_at.trim().length > 0
-              ? params.manifest.upgraded_at
+            typeof storageManifest.upgraded_at === "string" &&
+            storageManifest.upgraded_at.trim().length > 0
+              ? storageManifest.upgraded_at
               : metadataTimestamp,
           summary_projection: {
             ...manifestSummaryProjection,
             domain_contract_version:
               Number(manifestSummaryProjection.domain_contract_version) ||
-              Number(params.manifest.domain_contract_version) ||
+              Number(storageManifest.domain_contract_version) ||
               currentDomainContractVersion(params.domain),
             readable_summary_version:
               Number(manifestSummaryProjection.readable_summary_version) ||
-              Number(params.manifest.readable_summary_version) ||
+              Number(storageManifest.readable_summary_version) ||
               CURRENT_READABLE_SUMMARY_VERSION,
             pkm_contract_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.pkm_contract_version ||
-                params.manifest.pkm_contract_version
+                storageManifest.pkm_contract_version
             ),
             readable_projection_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.readable_projection_version ||
-                params.manifest.readable_projection_version
+                storageManifest.readable_projection_version
             ),
             upgraded_at:
               typeof manifestSummaryProjection.upgraded_at === "string" &&
@@ -3860,13 +3879,15 @@ export class PersonalKnowledgeModelService {
     userId: string,
     domain: string,
     vaultOwnerToken?: string,
-    segmentIds?: string[]
+    segmentIds?: string[],
+    forceRefresh = false,
   ): Promise<EncryptedDomainBlob | null> {
     const cache = CacheService.getInstance();
     const normalizedSegmentIds = this.normalizeSegmentIds(segmentIds);
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const canUseCache = normalizedSegmentIds.length === 0;
     const cacheKey = CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain);
-    if (canUseCache) {
+    if (canUseCache && !forceRefresh) {
       const cached = cache.peek<EncryptedDomainBlob | null>(cacheKey);
       if (cached?.isFresh) {
         return cached.data;
@@ -3876,19 +3897,26 @@ export class PersonalKnowledgeModelService {
       }
     }
 
-    const dedupeKey = this.inflightKey([
+    const readKeyParts = [
       "domain_blob",
       userId,
       domain,
       normalizedSegmentIds.join(",") || "all_segments",
       Capacitor.isNativePlatform() ? "native" : "web",
       vaultOwnerToken ? "vault_owner" : "anonymous",
-    ]);
+      String(vaultEpoch),
+    ];
+    const authoritativeRequest = this.domainDataInflight.get(this.inflightKey([...readKeyParts, "authoritative"]));
+    if (!forceRefresh && authoritativeRequest) return authoritativeRequest;
+    const dedupeKey = this.inflightKey([...readKeyParts, forceRefresh ? "authoritative" : "normal"]);
     const existingRequest = this.domainDataInflight.get(dedupeKey);
     if (existingRequest) {
       return existingRequest;
     }
 
+    const readTicket = {};
+    const invalidationEpoch = currentPkmInvalidationEpoch(userId);
+    if (canUseCache) this.domainReadTickets.set(cacheKey, readTicket);
     const request = (async (): Promise<EncryptedDomainBlob | null> => {
       let encryptedBlob: EncryptedDomainBlob | null = null;
 
@@ -3962,7 +3990,10 @@ export class PersonalKnowledgeModelService {
               : ""
           }`,
           {
-            headers: this.getAuthHeaders(vaultOwnerToken),
+            headers: {
+              ...this.getAuthHeaders(vaultOwnerToken),
+              ...(forceRefresh ? { "Cache-Control": "no-cache" } : {}),
+            },
           }
         );
 
@@ -4012,9 +4043,11 @@ export class PersonalKnowledgeModelService {
         }
       }
 
-      if (encryptedBlob && canUseCache) {
+      const canPublish = canUseCache && this.domainReadTickets.get(cacheKey) === readTicket &&
+        currentPkmInvalidationEpoch(userId) === invalidationEpoch && isVaultSessionEpochCurrent(vaultEpoch);
+      if (encryptedBlob && canPublish) {
         cache.set(cacheKey, encryptedBlob, CACHE_TTL.SESSION);
-      } else if (!encryptedBlob && canUseCache) {
+      } else if (!encryptedBlob && canPublish) {
         cache.set(cacheKey, null, CACHE_TTL.SHORT);
       }
 
@@ -4470,18 +4503,17 @@ export class PersonalKnowledgeModelService {
     explanation: string;
     confirmation: PkmUserConfirmation;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
+    mayPublish?: () => boolean;
   }): Promise<StoreDomainDataResult> {
     const domain = "wallet";
     const build = async (
       domainData: Record<string, unknown>,
-      forceManifestReload: boolean,
+      snapshot: DomainSnapshotV1 | null,
     ): Promise<Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]> => {
-      const previousManifest = await this.getDomainManifest(
-        params.userId,
-        domain,
-        params.vaultOwnerToken,
-        forceManifestReload,
-      ).catch(() => null);
+      // Bind the write to the revision that was actually decrypted. Loading a
+      // newer manifest separately can otherwise bless a stale card collection.
+      const previousManifest = snapshot?.manifest ?? null;
+      const sourceRevision = snapshot?.contentRevision ?? 0;
       const encryptedBlob = await this.encryptDomainForStorage({
         vaultKey: params.vaultKey,
         domainData,
@@ -4505,6 +4537,7 @@ export class PersonalKnowledgeModelService {
         operation: previousManifest ? "update" : "create",
         explanation: params.explanation,
         confirmation: params.confirmation,
+        sourceRevision,
       });
       return {
         userId: params.userId,
@@ -4516,35 +4549,51 @@ export class PersonalKnowledgeModelService {
         mutationPlan,
         domainData,
         vaultOwnerToken: params.vaultOwnerToken,
+        expectedDataVersion: sourceRevision,
       };
     };
 
-    const existingData = await this.loadDomainData({
+    const walletBase = (data: Record<string, unknown> | null, snapshot: DomainSnapshotV1 | null): Record<string, unknown> => {
+      if (data === null && snapshot === null) return {};
+      if (!this.isPlainObject(data)) throw new Error("Your saved cards could not be read. Please try again.");
+      for (const branch of ["summary", "secrets"] as const) {
+        if (Object.prototype.hasOwnProperty.call(data, branch) && !this.isPlainObject(data[branch])) {
+          throw new Error("Your saved cards could not be read. Please try again.");
+        }
+      }
+      return data;
+    };
+    const existing = await this.loadDomainSnapshot({
       userId: params.userId,
       domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+      force: true,
+    });
     let built = await build(
-      params.applyMutation(this.isPlainObject(existingData) ? existingData : {}),
-      false,
+      params.applyMutation(walletBase(existing.data, existing.snapshot)),
+      existing.snapshot,
     );
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
-      send: () => this.storeDomainData(built),
+      send: () => {
+        if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
+        return this.storeDomainData({ ...built, mayPublish: params.mayPublish });
+      },
       rebuildAfterConflict: async () => {
         const cache = CacheService.getInstance();
         cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(params.userId, domain));
         cache.invalidate(CACHE_KEYS.DOMAIN_DATA(params.userId, domain));
-        const freshData = await this.loadDomainData({
+        const fresh = await this.loadDomainSnapshot({
           userId: params.userId,
           domain,
           vaultKey: params.vaultKey,
           vaultOwnerToken: params.vaultOwnerToken,
-        }).catch(() => null);
+          force: true,
+        });
         built = await build(
-          params.applyMutation(this.isPlainObject(freshData) ? freshData : {}),
-          true,
+          params.applyMutation(walletBase(fresh.data, fresh.snapshot)),
+          fresh.snapshot,
         );
       },
       pause: (ms) => this.pause(ms),
@@ -4708,23 +4757,28 @@ export class PersonalKnowledgeModelService {
   }): Promise<{ snapshot: DomainSnapshotV1 | null; data: Record<string, unknown> | null }> {
     const snapshot = await this.getDomainSnapshot(params);
     if (!snapshot) return { snapshot: null, data: null };
+    return { snapshot, data: await this.decryptDomainSnapshot({ snapshot, vaultKey: params.vaultKey, segmentIds: params.segmentIds }) };
+  }
+
+  /** Decrypt the already revision-coherent read, without a second domain fetch. */
+  static async decryptDomainSnapshot(params: {
+    snapshot: DomainSnapshotV1;
+    vaultKey: string;
+    segmentIds?: string[];
+  }): Promise<Record<string, unknown>> {
+    const { snapshot } = params;
     const decrypted = await this.decryptDomainBlob({
       vaultKey: params.vaultKey,
-      domain: params.domain,
+      domain: snapshot.domain,
       blob: snapshot.encryptedBlob,
       segmentIds: params.segmentIds,
     });
     if (snapshot.encryptedBlob.storageMode === "legacy_full_blob") {
-      const domainData = decrypted[params.domain];
-      return {
-        snapshot,
-        data:
-          domainData && typeof domainData === "object" && !Array.isArray(domainData)
-            ? (domainData as Record<string, unknown>)
-            : {},
-      };
+      const domainData = decrypted[snapshot.domain];
+      return domainData && typeof domainData === "object" && !Array.isArray(domainData)
+        ? domainData as Record<string, unknown> : {};
     }
-    return { snapshot, data: decrypted };
+    return decrypted;
   }
 
   static async loadDomainDataWithBlob(params: {
@@ -4733,6 +4787,7 @@ export class PersonalKnowledgeModelService {
     vaultKey: string;
     vaultOwnerToken?: string;
     segmentIds?: string[];
+    forceRefresh?: boolean;
   }): Promise<{
     data: Record<string, unknown> | null;
     blob: EncryptedDomainBlob | null;
@@ -4741,7 +4796,8 @@ export class PersonalKnowledgeModelService {
       params.userId,
       params.domain,
       params.vaultOwnerToken,
-      params.segmentIds
+      params.segmentIds,
+      params.forceRefresh === true,
     );
     if (!blob) {
       return {

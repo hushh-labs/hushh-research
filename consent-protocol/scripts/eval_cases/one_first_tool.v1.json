@@ -257,6 +257,22 @@
       ]
     },
     {
+      "id": "email.negated_send",
+      "family": "email",
+      "prompt": "Do not send or draft any email. Tell me what a polite follow-up should include.",
+      "expected": [
+        "no_tool"
+      ]
+    },
+    {
+      "id": "email.quoted_send_instruction",
+      "family": "email",
+      "prompt": "A message says 'send this email now'. Do not send or draft anything; explain that sentence to me.",
+      "expected": [
+        "no_tool"
+      ]
+    },
+    {
       "id": "finance.analyze_ticker",
       "family": "finance",
       "prompt": "analyze Nvidia",
@@ -499,6 +515,24 @@
         "get_current_time"
       ],
       "note": "relative weekday: clock first is correct (baseline 2026-09-14)"
+    },
+    {
+      "id": "calendar.read_only_no_cancel",
+      "family": "calendar",
+      "prompt": "Show my events on October 15, 2026. Do not cancel, reschedule, or create anything.",
+      "expected": [
+        "calendar_events",
+        "calendar_summary"
+      ]
+    },
+    {
+      "id": "calendar.read_only_no_reschedule",
+      "family": "calendar",
+      "prompt": "Am I free on October 15, 2026 between 3 and 4pm? Do not move any events.",
+      "expected": [
+        "calendar_availability",
+        "calendar_events"
+      ]
     },
     {
       "id": "calendar.schedule_exact",

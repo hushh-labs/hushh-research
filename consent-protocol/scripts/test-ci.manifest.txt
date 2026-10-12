@@ -1,6 +1,9 @@
 # Fundamental blocking backend tests for CI.
 # Keep this list small and stable. Full historical suites remain manual.
 
+# Store releases must retain the selected track, exact source and private binaries.
+tests/test_native_ship_artifact_workflows.py
+
 # Mail/Drive connector lifecycle: real PostgreSQL in the existing test-only CI service.
 tests/services/test_external_connector_lifecycle_postgres.py
 tests/services/test_external_connector_credentials_service.py
@@ -71,9 +74,23 @@ tests/services/test_drive_live_query.py
 tests/services/test_drive_owner_share.py
 tests/services/test_drive_owner_search_postgres.py
 tests/services/test_drive_request_search_unit.py
+tests/services/test_drive_bounded_search_unit.py
+tests/services/test_drive_search_performance_proof.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py
+tests/test_drive_request_owner_payouts.py
+tests/test_stripe_connect_bank_payouts.py
+# Hashcoin liabilities and test-only redemption must run against real PostgreSQL.
+tests/test_hashcoin_wallet.py
+tests/test_hashcoin_redemption.py
+# Owner Allow for requests from outside the Trusted circle: migration 291 bounds
+# the owner price, replays without waiting behind live writers and refuses a
+# rollback that would strand an owner-priced payment. The Consent Center keeps
+# the owner's Allow/Deny decision and the automatic progress after Allow.
+tests/test_drive_request_owner_allowed_migration.py
+tests/services/test_drive_sharing_center.py
+tests/services/test_drive_feed_projection.py
 tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py
 tests/services/test_drive_bulk_share_service.py
@@ -87,6 +104,7 @@ tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
 tests/services/test_email_delegated_read.py
+tests/services/test_receipt_memory_read.py
 tests/test_email_agent_a2a.py
 tests/test_adk_specialist_chat_services.py
 tests/test_one_external_read_boundary.py
@@ -151,6 +169,7 @@ tests/test_fcm_messages.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_agent_manifests.py
+tests/test_pass_assets_reach_the_deployed_image.py
 tests/test_hushh_adk_single_turn.py
 tests/services/test_pkm_agent_lab_service.py
 # A pasted context transfer is kept whole (Phase 4): recorded server answers.
@@ -166,6 +185,7 @@ tests/test_llm_operon_stream_error_leak.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
+tests/test_one_wallet_card_deploy_parity.py
 tests/test_gmail_information_request_release_contract.py
 tests/test_uat_deploy_no_traffic_contract.py
 tests/test_verify_env_secrets_parity.py
@@ -276,6 +296,7 @@ tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
 tests/test_pool_acquire_is_bounded.py
+tests/test_market_advisory_lock_connection.py
 
 # Deleted-account session invalidation is a cross-client privacy boundary.
 # Keep the route machine code, Firebase classification, durable cleanup intent,
@@ -636,6 +657,20 @@ tests/test_provision_curated_connector.py
 
 # Circle chat membership, encrypted relay, retries, delivery and migration replay.
 tests/test_circle_chat.py
+tests/services/test_chat_notification_state.py
+
+# Grouped Feed pagination/read authority and authenticated chat route boundaries.
+tests/services/test_feed_service.py
+tests/routes/test_feed_route.py
+tests/services/test_direct_messages_service.py
+tests/routes/test_direct_messages_route.py
+
+# Direct-message attachment history, replay and authorization on isolated PostgreSQL.
+tests/test_direct_message_feed_projection_postgres.py
+tests/services/test_wallet_card_access_service.py
+tests/routes/test_wallet_card_access_route.py
+tests/test_wallet_card_access_postgres.py
+tests/test_wallet_universal_sharing_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
 # send-time rules, and the schedule/list/cancel tools against the sealed ledger.
@@ -648,6 +683,15 @@ tests/services/test_scheduled_mail_drain.py
 tests/test_scheduled_mail_drain_routes.py
 tests/test_scheduled_mail_scheduler_contract.py
 tests/test_business_suggestions.py
+tests/test_one_profile_research.py
+tests/test_profile_research_jobs.py
+tests/test_magic_intelligence_admission.py
+tests/test_magic_intelligence_completion.py
+tests/test_insurance_agents_runtime_config_wiring.py
+tests/test_hushh_adk_turn.py
+tests/test_business_runtime_reliability.py
+tests/test_consent_listener_asyncio.py
+tests/services/test_consent_db_refresh_jobs.py
 
 # Gmail drafts by voice: list/open/send by position, the send gate and the
 # drafts grant, one ledger row per send, and the draft open route.
@@ -666,4 +710,33 @@ tests/test_pkm_packets_and_directory_claims.py
 tests/test_pkm_packet_orders.py
 tests/test_pkm_credits.py
 tests/test_pkm_payouts.py
+# Answer scope, encrypted delivery, payments and disabled-drain boundaries.
+# The PostgreSQL suites run in the existing serial database lane.
+tests/test_answer_scope_resolution.py
+tests/test_answer_scope_resolver.py
+tests/test_answer_composer.py
+tests/test_pkm_answer_payment.py
+tests/test_answer_work_drain.py
+tests/services/test_pkm_answer_requests_postgres.py
+tests/services/test_pkm_answer_races_postgres.py
 tests/test_one_career_routes.py
+tests/services/test_pkm_answer_recovery_postgres.py
+tests/services/test_pkm_answer_signed_settlement_postgres.py
+tests/test_pkm_answer_config.py
+tests/test_pkm_answer_routes.py
+tests/test_sse_routes.py
+tests/test_feed_realtime_postgres.py
+tests/test_payout_account_refresh_route.py
+# Payouts v2: owner-scoped activity and receipts, Connect balances, deposit
+# snapshots, typed payout doorbell and stream v2, request terms, and the
+# release replay of the Connect event CHECK (real PostgreSQL where named).
+tests/test_payout_doorbell.py
+tests/test_payout_doorbell_kinds_postgres.py
+tests/test_document_feed_stream.py
+tests/test_payout_activity_routes.py
+tests/test_payout_activity_postgres.py
+tests/test_stripe_connect_balances.py
+tests/test_stripe_connect_balances_postgres.py
+tests/test_connect_bank_payout_snapshot_postgres.py
+tests/test_bank_payout_event_replay_postgres.py
+tests/test_drive_request_terms_migrations_postgres.py

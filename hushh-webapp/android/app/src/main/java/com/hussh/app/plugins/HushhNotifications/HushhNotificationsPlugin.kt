@@ -7,8 +7,13 @@ import android.content.Context
 import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.media.Ringtone
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.messaging.FirebaseMessaging
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -39,6 +44,82 @@ import java.util.concurrent.TimeUnit
 class HushhNotificationsPlugin : Plugin() {
 
     private val TAG = "HushhNotifications"
+    private val emergencyHandler = Handler(Looper.getMainLooper())
+    private var emergencyRingtone: Ringtone? = null
+    private var emergencyGrantId: String? = null
+    private var emergencyGeneration = 0
+
+    private fun stopEmergencyCue(grantId: String? = null) {
+        if (grantId != null && grantId != emergencyGrantId) return
+        emergencyGeneration += 1
+        emergencyRingtone?.stop()
+        emergencyRingtone = null
+        emergencyGrantId = null
+    }
+
+    override fun handleOnPause() {
+        stopEmergencyCue()
+        super.handleOnPause()
+    }
+
+    override fun handleOnDestroy() {
+        stopEmergencyCue()
+        super.handleOnDestroy()
+    }
+
+    @PluginMethod
+    fun stopEmergencySmsCue(call: PluginCall) {
+        emergencyHandler.post {
+            stopEmergencyCue(call.getString("grantId"))
+            call.resolve()
+        }
+    }
+
+    @PluginMethod
+    fun playEmergencySmsCue(call: PluginCall) {
+        emergencyHandler.post {
+            val now = System.currentTimeMillis().toDouble()
+            val userId = call.getString("userId")
+            val grantId = call.getString("grantId")
+            val deadline = call.getDouble("expiresAt")
+            if (!activityActive || userId.isNullOrBlank() || grantId.isNullOrBlank() ||
+                FirebaseAuth.getInstance().currentUser?.uid != userId ||
+                deadline == null || !deadline.isFinite() || deadline <= now || deadline > now + 2000) {
+                call.resolve(JSObject().put("played", false))
+                return@post
+            }
+            stopEmergencyCue()
+            try {
+                val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val ringtone = RingtoneManager.getRingtone(context, uri)
+                    ?: run { call.resolve(JSObject().put("played", false)); return@post }
+                ringtone.audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) ringtone.isLooping = false
+                emergencyRingtone = ringtone
+                emergencyGrantId = grantId
+                ringtone.play()
+                val generation = emergencyGeneration
+                emergencyHandler.postDelayed({
+                    if (emergencyGeneration == generation) stopEmergencyCue()
+                }, 1000)
+                call.resolve(JSObject().put("played", ringtone.isPlaying))
+            } catch (_: Exception) {
+                stopEmergencyCue()
+                call.resolve(JSObject().put("played", false))
+            }
+        }
+    }
+
+    @PluginMethod
+    fun deletePushToken(call: PluginCall) {
+        FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener { task ->
+            if (task.isSuccessful) call.resolve()
+            else call.reject("Push token deletion failed")
+        }
+    }
 
     override fun load() {
         super.load()
@@ -88,10 +169,47 @@ class HushhNotificationsPlugin : Plugin() {
 
     companion object {
         const val EMERGENCY_SMS_CHANNEL_ID = "one_location_sms_emergency_v1"
+        @Volatile var activityActive = false
+        @Volatile var activeChatTag = ""
+        @Volatile var activeChatKey = ""
+    }
+
+    @PluginMethod
+    fun setActiveChat(call: PluginCall) {
+        val key = call.getString("keyId") ?: ""
+        if (!ChatPreviewKeys.matches(context, key)) { call.resolve(); return }
+        activeChatKey = key
+        activeChatTag = call.getString("tag") ?: ""
+        call.resolve()
     }
 
     private fun getBackendUrl(call: PluginCall? = null): String {
         return BackendUrl.resolve(bridge, call, "HushhNotifications")
+    }
+
+    @PluginMethod
+    fun prepareNotificationKey(call: PluginCall) {
+        val userId = call.getString("userId")
+        val deviceId = call.getString("deviceId")
+        if (userId.isNullOrBlank() || deviceId.isNullOrBlank()) { call.reject("Notification identity required"); return }
+        try { call.resolve(ChatPreviewKeys.prepare(context, userId, deviceId)) }
+        catch (_: Exception) { call.reject("Notification keys unavailable") }
+    }
+
+    @PluginMethod
+    fun clearNotificationKey(call: PluginCall) {
+        val user = call.getString("userId") ?: run { call.reject("Notification identity required"); return }
+        try { ChatPreviewKeys.clear(context, user); activeChatTag = ""; activeChatKey = ""; call.resolve() }
+        catch (_: Exception) { call.reject("Notification cleanup unavailable") }
+    }
+
+    @PluginMethod
+    fun clearChatNotifications(call: PluginCall) {
+        val thread = call.getString("threadId")
+        val key = call.getString("keyId")
+        if (thread.isNullOrBlank() || key.isNullOrBlank()) { call.reject("Notification identity required"); return }
+        ChatMessagingService.clearRead(context, thread, key, call.getDouble("sequence")?.toLong(), call.getDouble("before")?.toLong(), call.getString("messageId"))
+        call.resolve()
     }
 
     @PluginMethod
@@ -115,6 +233,9 @@ class HushhNotificationsPlugin : Plugin() {
                     .put("user_id", userId)
                     .put("token", token)
                     .put("platform", platform)
+                    .put("device_id", call.getString("deviceId"))
+                    .put("preview_key_id", call.getString("previewKeyId"))
+                    .put("preview_public_key", call.getString("previewPublicKey"))
                     .toString()
 
                 val request = Request.Builder()
@@ -164,6 +285,7 @@ class HushhNotificationsPlugin : Plugin() {
         Thread {
             try {
                 val bodyObj = JSONObject().put("user_id", userId)
+                call.getString("deviceId")?.let { bodyObj.put("device_id", it) }
                 if (!platform.isNullOrBlank()) bodyObj.put("platform", platform)
 
                 val request = Request.Builder()

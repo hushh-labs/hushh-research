@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import copy
 import importlib.util
+import io
+import json
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
-
+from unittest import mock
 
 MODULE_PATH = Path(__file__).with_name("runtime-capacity-budget.py")
 SPEC = importlib.util.spec_from_file_location("runtime_capacity_budget", MODULE_PATH)
@@ -55,6 +59,179 @@ def revision(
 
 
 class RuntimeCapacityBudgetTest(unittest.TestCase):
+    def test_environment_policy_is_atomic_and_live_limit_stays_strict(self) -> None:
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        self.assertEqual(budget.connection_policy(profile, "uat"), {
+            "database_max_connections": 1000,
+            "admission_limit": 800,
+            "administrative_reserve": 100,
+        })
+        self.assertEqual(budget.connection_policy(profile, "production"), {
+            "database_max_connections": 400,
+            "admission_limit": 300,
+            "administrative_reserve": 30,
+        })
+        for invalid in (None, {}, {"database_max_connections": 400},
+                        {"database_max_connections": True, "admission_limit": 300,
+                         "administrative_reserve": 30}):
+            with self.subTest(invalid=invalid):
+                changed = copy.deepcopy(profile)
+                changed["environments"]["production"]["connection_policy"] = invalid
+                with self.assertRaises(budget.BudgetError):
+                    budget.connection_policy(changed, "production")
+        for live in (100, 1000):
+            with self.subTest(live=live), self.assertRaisesRegex(
+                budget.BudgetError, f"max_connections is {live}; profile requires 400"
+            ):
+                budget.evaluate(profile, "production", {"database_max_connections": live})
+
+    def test_production_admission_boundary_counts_reserve(self) -> None:
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        config = profile["environments"]["production"]
+        config["services"] = {}
+        config["jobs"] = {"drill": {"connections_per_task": 270,
+                                     "concurrent_executions": 1}}
+        inventory = {"database_max_connections": 400, "services": {}, "jobs": {
+            "drill": {"metadata": {"name": "drill"}, "spec": {"template": {
+                "spec": {"taskCount": 1, "parallelism": 1,
+                         "template": {"spec": {"containers": [{"env": []}]}}}
+            }}}
+        }}
+        report = budget.evaluate(profile, "production", inventory)
+        self.assertEqual(report["projected_connections"], 300)
+        self.assertTrue(report["admitted"])
+        config["jobs"]["drill"]["connections_per_task"] = 271
+        self.assertFalse(budget.evaluate(profile, "production", inventory)["admitted"])
+
+    def test_deferred_retirement_counts_multiple_old_generations_until_deletion(
+        self,
+    ) -> None:
+        service = {
+            "status": {"traffic": [{"revisionName": "app-current", "percent": 100}]}
+        }
+        revisions = [
+            revision("app-current"),
+            revision("app-recent-drain"),
+            revision("app-older-drain"),
+        ]
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        for environment in ("uat", "production"):
+            for configured in profile["environments"][environment]["services"].values():
+                with self.subTest(environment=environment, container=configured["container"]):
+                    settings = {**SETTINGS, "count_retained_revisions": configured.get("count_retained_revisions")}
+                    rows = budget.service_budget("app", settings, service, revisions, CONNECTION)
+                    self.assertEqual(
+                        {row["name"] for row in rows}, {r["metadata"]["name"] for r in revisions}
+                    )
+                    self.assertEqual(sum(row["connections"] for row in rows), 210)
+        # Negative control: the legacy policy reserves only one unreferenced revision.
+        legacy = budget.service_budget("app", SETTINGS, service, revisions, CONNECTION)
+        self.assertEqual(sum(row["connections"] for row in legacy), 140)
+
+    def test_post_release_checks_retained_capacity_without_next_candidate(self) -> None:
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        config = profile["environments"]["production"]
+        connection = f"{config['project']}:{profile['region']}:{config['database_instance']}"
+        revisions = [
+            revision("consent-protocol-current"),
+            revision("consent-protocol-recent-drain"),
+            revision("consent-protocol-older-drain"),
+        ]
+        for retained in revisions:
+            retained["metadata"]["annotations"][
+                "run.googleapis.com/cloudsql-instances"
+            ] = connection
+            retained["spec"]["containers"][0]["env"][1]["value"] = "4"
+        job = {
+            "metadata": {"name": "consent-protocol-genai-readiness"},
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "run.googleapis.com/cloudsql-instances": connection
+                        }
+                    },
+                    "spec": {
+                        "taskCount": 1,
+                        "parallelism": 1,
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {"env": copy.deepcopy(
+                                        revisions[0]["spec"]["containers"][0]["env"]
+                                    )}
+                                ]
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        inventory = {
+            "database_max_connections": 400,
+            "services": {
+                "consent-protocol": {
+                    "service": {
+                        "status": {
+                            "traffic": [
+                                {"revisionName": "consent-protocol-current", "percent": 100}
+                            ]
+                        }
+                    },
+                    "revisions": revisions,
+                }
+            },
+            "jobs": {"consent-protocol-genai-readiness": job},
+        }
+        # The deployed candidate is already among the three retained revisions.
+        # Default admission still reserves another backend and optional worker.
+        next_release = budget.evaluate(profile, "production", inventory)
+        self.assertEqual(next_release["phase"], "pre-deploy")
+        self.assertEqual(next_release["projected_connections"], 372)
+        self.assertFalse(next_release["admitted"])
+        current = budget.evaluate(
+            profile, "production", inventory, phase="post-release"
+        )
+        self.assertEqual(current["projected_connections"], 3 * 80 + 16 + 30)
+        self.assertEqual(len(current["services"]), 3)
+        self.assertTrue(current["admitted"])
+        with self.assertRaisesRegex(budget.BudgetError, "unsupported capacity phase"):
+            budget.evaluate(profile, "production", inventory, phase="unknown")
+
+        def cli(phase_args: list[str]) -> tuple[int, dict]:
+            output = io.StringIO()
+            argv = [str(MODULE_PATH), "--environment", "production", "--output", "json"]
+            with (
+                mock.patch.object(budget, "collect", return_value=inventory),
+                mock.patch.object(budget.sys, "argv", argv + phase_args),
+                redirect_stdout(output),
+            ):
+                code = budget.main()
+            return code, json.loads(output.getvalue())
+
+        self.assertEqual(cli([])[0], 1)
+        self.assertEqual(cli(["--phase", "post-release"])[0], 0)
+        # A larger pool on a draining revision remains a real capacity violation.
+        revisions[-1]["spec"]["containers"][0]["env"][2]["value"] = "2"
+        code, excess = cli(["--phase", "post-release"])
+        self.assertEqual(excess["projected_connections"], 306)
+        self.assertFalse(excess["admitted"])
+        self.assertEqual(code, 1)
+        overflow = revisions[-1]["spec"]["containers"][0]["env"].pop()
+        with self.assertRaisesRegex(budget.BudgetError, "DB_SQLALCHEMY_MAX_OVERFLOW"):
+            budget.evaluate(profile, "production", inventory, phase="post-release")
+        revisions[-1]["spec"]["containers"][0]["env"].append(overflow)
+        for section, name, error in (
+            ("services", "consent-protocol", "service inventory differs"),
+            ("jobs", "consent-protocol-genai-readiness", "job inventory drift"),
+        ):
+            incomplete = copy.deepcopy(inventory)
+            del incomplete[section][name]
+            with self.subTest(section=section), self.assertRaisesRegex(
+                budget.BudgetError, error
+            ):
+                budget.evaluate(profile, "production", incomplete, phase="post-release")
+
     def test_tagged_zero_traffic_and_rollback_are_counted_once(self) -> None:
         service = {
             "status": {
@@ -146,12 +323,16 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
                 }
             },
         }
-        with self.assertRaisesRegex(budget.BudgetError, "max_connections is 100"):
-            budget.evaluate(
-                profile,
-                "uat",
-                {"database_max_connections": 100, "services": {}, "jobs": {}},
-            )
+        for phase in budget.CAPACITY_PHASES:
+            with self.subTest(phase=phase), self.assertRaisesRegex(
+                budget.BudgetError, "max_connections is 100"
+            ):
+                budget.evaluate(
+                    profile,
+                    "uat",
+                    {"database_max_connections": 100, "services": {}, "jobs": {}},
+                    phase=phase,
+                )
 
     def test_optional_service_still_reserves_candidate_and_enforces_limit(self) -> None:
         optional = {

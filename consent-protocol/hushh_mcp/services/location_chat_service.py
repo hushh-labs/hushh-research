@@ -28,15 +28,26 @@ Action-result turn: deterministic confirmation (no LLM, no coordinates) for
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
-from hushh_mcp.agents.location.agent import get_location_chat_agent_v2
+from hushh_mcp.agents.location.tools import V2_LOCATION_TOOLS
 from hushh_mcp.hushh_adk.context import HushhContext
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError, run_specialist_adk_turn
 from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _location_instruction() -> str:
+    """Cache project-neutral prompt data, never a project-bound ADK model."""
+    manifest_path = Path(__file__).resolve().parents[1] / "agents" / "location" / "agent.yaml"
+    return ManifestLoader.load(str(manifest_path)).system_instruction
+
 
 _MAX_HISTORY = 12
 
@@ -352,18 +363,15 @@ class LocationChatService:
 
             self._model_call = _default_call
 
-        # System prompt + tool set come from the control-plane agent definition.
-        # Default to the v2 agent when neither prompt nor tools are injected.
-        need_agent = system_prompt is None or tools is None or self._use_adk
-        agent = get_location_chat_agent_v2() if need_agent else None
+        # Keep only project-neutral metadata on this service. The A2A bridge
+        # retains a service singleton, so a model captured here would keep the
+        # first caller's Vertex project for every later chat or direct turn.
         self._system_prompt = (
-            system_prompt if system_prompt is not None else agent.manifest.system_instruction
+            system_prompt if system_prompt is not None else _location_instruction()
         )
-        tool_list = tools if tools is not None else agent.hushh_tools
+        tool_list = tools if tools is not None else V2_LOCATION_TOOLS
         self._dispatch = {getattr(t, "_name", getattr(t, "__name__", "")): t for t in tool_list}
         self._adk_tools = self._build_adk_tools(tool_list) if self._use_adk else []
-        if self._use_adk and self._adk_model is None and agent is not None:
-            self._adk_model = agent.model
 
     @staticmethod
     def _build_adk_tools(tool_list: list[Any]) -> list[Any]:

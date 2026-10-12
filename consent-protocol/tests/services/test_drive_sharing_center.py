@@ -11,7 +11,9 @@ from sqlalchemy import create_engine, text
 
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import end_owner_allows_for_disconnected_pair
 from hushh_mcp.services.drive_sharing_center_contributor import DriveSharingCenterContributor, entry
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_permission_executor import (  # noqa: F401
     connector_postgres_url,
     documents,
@@ -23,7 +25,14 @@ from tests.services.test_drive_permission_executor import (  # noqa: F401
     sharing,
 )
 from tests.services.test_drive_request_bulk_postgres import request_bulk  # noqa: F401
-from tests.services.test_drive_sharing_store import request, review
+from tests.services.test_drive_sharing_store import (
+    live_drive,
+    request,
+    review,
+    stored_request,
+    trusted_unpriced_request,
+)
+from tests.services.test_drive_trusted_auto import _connection, _membership, _request
 
 
 @pytest.mark.parametrize(
@@ -58,6 +67,166 @@ def test_trusted_auto_attention_follows_linked_search_state(search_state, attent
         "trusted_recovery_needed": False,
     }
     assert entry(row)["metadata"]["owner_attention_required"] is attention_required
+
+
+def test_consent_projects_locked_quote_and_owner_setup_without_an_order():
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": "outgoing_requests",
+        "status": "pending",
+        "issued_at": 0,
+        "direction": "outgoing",
+        "state": "pending",
+        "revision": 0,
+        "quoted_amount_cents": 2500,
+        "quote_version": 2,
+        "payment_status": None,
+    }
+    requester = entry(row)["metadata"]
+    assert (requester["quotedAmountCents"], requester["quoteVersion"]) == (2500, 2)
+    assert requester["paymentRequired"] is True
+    assert "ownerPayoutAccountReady" not in requester
+
+    row.update(
+        bucket="incoming_requests",
+        direction="incoming",
+        owner_payout_account_ready=False,
+    )
+    owner = entry(row)["metadata"]
+    assert owner["ownerPayoutAccountReady"] is False
+    assert "quotedAmountCents" not in owner
+
+
+@pytest.mark.parametrize("direction", ["incoming", "outgoing"])
+def test_new_request_setup_projects_bank_before_price_and_clears_after_resume(direction):
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": f"{direction}_requests",
+        "status": "pending",
+        "issued_at": 0,
+        "direction": direction,
+        "state": "pending",
+        "revision": 0,
+        "quoted_amount_cents": None,
+        "preparation_error_code": "owner_payout_required",
+        "owner_payout_account_ready": False,
+    }
+    projected = entry(row)
+    assert projected["scope_description"] == (
+        "Link payouts" if direction == "incoming" else "Waiting for owner setup"
+    )
+    assert projected["metadata"]["ownerPriceRequired"] is True
+    assert projected["metadata"]["ownerPayoutAccountReady"] is False
+    assert projected["metadata"]["automatic_progress_active"] is False
+    row.update(owner_payout_account_ready=True, preparation_error_code="owner_price_required")
+    projected = entry(row)
+    assert projected["scope_description"] == (
+        "Set price" if direction == "incoming" else "Waiting for price"
+    )
+    row.update(
+        quoted_amount_cents=1200, quote_version=1, preparation_error_code="trusted_auto_queued"
+    )
+    assert "ownerPriceRequired" not in entry(row)["metadata"]
+    row.update(
+        payment_status="paid",
+        preparation_error_code="owner_price_required",
+        payment_amount_cents=1200,
+        payment_currency="usd",
+        payment_reconciliation_required=False,
+        payment_link_expired=False,
+    )
+    assert "ownerPriceRequired" not in entry(row)["metadata"]
+
+
+def test_trusted_price_only_projection_requires_current_ready_trust_and_payouts():
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": "incoming_requests",
+        "status": "pending",
+        "issued_at": 0,
+        "direction": "incoming",
+        "state": "pending",
+        "revision": 0,
+        "quoted_amount_cents": None,
+        "preparation_error_code": "owner_price_required",
+        "owner_price_ready": True,
+        "owner_payout_account_ready": True,
+    }
+    assert entry(row)["metadata"]["owner_price_available"] is True
+    assert entry(row)["metadata"]["owner_decision_available"] is False
+    for update in [
+        {"owner_price_ready": False},
+        {"owner_payout_account_ready": False},
+        {"state": "expired"},
+        {"direction": "outgoing"},
+        {"access_stopped": True},
+    ]:
+        assert entry({**row, **update})["metadata"]["owner_price_available"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "initially_trusted,default_amount_cents", [(True, None), (False, None), (False, 1200)]
+)
+async def test_trusted_price_action_real_projection_and_later_trust_transition(
+    sharing, monkeypatch, initially_trusted, default_amount_cents
+):
+    created = await trusted_unpriced_request(
+        sharing, monkeypatch, trusted=initially_trusted, default_amount_cents=default_amount_cents
+    )
+    identity = created["requestId"]
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    if not initially_trusted:
+        before = (await projection.page("owner", bucket="incoming_requests", limit=20))["items"][0]
+        assert before["metadata"]["owner_decision_available"] is True
+        assert before["metadata"]["owner_price_available"] is False
+        assert stored_request(sharing, identity)[1].get("trusted_auto") is not True
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO one_location_circle_memberships
+              SELECT id,'recipient','active' FROM one_location_circles WHERE owner_user_id='owner'""")
+            )
+    current = (await projection.page("owner", bucket="incoming_requests", limit=20))["items"][0]
+    assert current["metadata"]["owner_price_available"] is True
+    assert current["metadata"]["owner_decision_available"] is False
+    owner_review = await sharing.owner_review(user_id="owner", request_id=identity)
+    assert owner_review["priceOnlyAvailable"] is True
+    await sharing.set_request_price(
+        user_id="owner", request_id=identity, revision=created["revision"], amount_cents=700
+    )
+    row, private = stored_request(sharing, identity)
+    assert private["trusted_auto"] is True and "owner_allowed" not in private
+    assert row["owner_allowed_at"] is None and row["quoted_amount_cents"] == 700
+    await sharing.trusted_request_authority(user_id="owner", request_id=identity)
+    after = (await projection.page("owner", bucket="incoming_requests", limit=20))["items"][0]
+    assert after["metadata"]["owner_price_available"] is False
+    assert after["metadata"]["automatic_progress_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_trusted_request_price_never_bypasses_background_opt_out(sharing, monkeypatch):
+    created = await trusted_unpriced_request(sharing, monkeypatch)
+    identity = created["requestId"]
+    await DriveLivePreferences(db=sharing.db).set_background(
+        user_id="owner", enabled=False, confirmed=True
+    )
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    current = (await projection.page("owner", bucket="incoming_requests", limit=20))["items"][0]
+    assert current["metadata"]["owner_price_available"] is False
+    assert not (await sharing.owner_review(user_id="owner", request_id=identity))[
+        "priceOnlyAvailable"
+    ]
+    with pytest.raises(DriveReadError, match="background_preparation_required"):
+        await sharing.set_request_price(
+            user_id="owner", request_id=identity, revision=created["revision"], amount_cents=700
+        )
+    assert stored_request(sharing, identity)[0]["quoted_amount_cents"] is None
 
 
 def test_background_setup_label_is_owner_only_and_clears_on_resume():
@@ -149,6 +318,41 @@ def test_owner_waits_for_requester_payment_without_approval_task(payment_status)
     assert entry(row)["scope_description"] == "Google Drive files"
 
 
+def test_access_stop_is_not_an_owner_task_or_payment_prompt():
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": "history",
+        "status": "stopped",
+        "issued_at": 0,
+        "direction": "incoming",
+        "state": "pending",
+        "revision": 1,
+        "preparation_error_code": None,
+        "owner_search_state": "running",
+        "trusted_authority_ready": True,
+        "trusted_batch_seen": True,
+        "trusted_work_active": True,
+        "trusted_recovery_needed": False,
+        "payment_status": "awaiting_payment",
+        "payment_amount_cents": 1000,
+        "payment_currency": "usd",
+        "payment_reconciliation_required": False,
+        "payment_link_expired": False,
+        "checkout_expires_at": None,
+        "access_stopped": True,
+    }
+    owner = entry(row)
+    assert owner["metadata"]["accessStopped"] is True
+    assert owner["metadata"]["owner_attention_required"] is False
+    assert "payment_waiting_for_requester" not in owner["metadata"]
+    row["direction"] = "outgoing"
+    requester = entry(row)
+    assert requester["metadata"]["accessStopped"] is True
+    assert requester["metadata"]["paymentStatus"] == "awaiting_payment"
+
+
 @pytest.mark.asyncio
 async def test_legacy_sqlite_has_no_drive_projection_or_postgres_transaction():
     engine = create_engine("sqlite://")
@@ -198,35 +402,61 @@ def center(store):
 
 
 @pytest.mark.asyncio
-async def test_background_setup_appears_only_in_the_owner_request(sharing):
-    created = await request(sharing)
+async def test_drive_and_background_setup_appear_only_in_the_owner_request(sharing, monkeypatch):
+    request_id = (await request(sharing))["requestId"]
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""UPDATE drive_share_requests
               SET preparation_error_code='background_preparation_required'
               WHERE request_id=:request_id"""),
-            {"request_id": created["requestId"]},
+            {"request_id": request_id},
         )
     projection = DriveSharingCenterContributor(db=sharing.db)
-    owner = await projection.page("owner", bucket="incoming_requests", limit=20)
-    requester = await projection.page("recipient", bucket="outgoing_requests", limit=20)
+
+    async def views(query=""):
+        owner = await projection.page("owner", bucket="incoming_requests", limit=20, query=query)
+        requester = await projection.page(
+            "recipient", bucket="outgoing_requests", limit=20, query=query
+        )
+        return owner, requester
+
+    async def owner_payloads():
+        # The owner's review sheet reads these, not the Consent Center row.
+        return (
+            await sharing.request_status(user_id="owner", request_id=request_id),
+            await sharing.owner_review(user_id="owner", request_id=request_id),
+        )
+
+    # This fixture's Drive is verified for selected files only, not the live
+    # policy, so Google Drive is the owner's first step, before background access.
+    owner, requester = await views()
+    assert owner["items"][0]["scope_description"] == "Connect Google Drive"
+    assert owner["items"][0]["metadata"]["ownerDriveReady"] is False
+    assert owner["items"][0]["metadata"]["owner_attention_required"] is True
+    assert all(payload["ownerDriveReady"] is False for payload in await owner_payloads())
+    # Negative control: the requester never learns the owner's connector state.
+    assert requester["items"][0]["scope_description"] == "Google Drive files"
+    assert "ownerDriveReady" not in requester["items"][0]["metadata"]
+    assert "ownerDriveReady" not in await sharing.request_status(
+        user_id="recipient", request_id=request_id
+    )
+    assert [page["total"] for page in await views("connect google drive")] == [1, 0]
+
+    live_drive(sharing, monkeypatch)
+    owner, requester = await views()
     assert owner["items"][0]["scope_description"] == "Enable background Drive access"
+    assert "ownerDriveReady" not in owner["items"][0]["metadata"]
     assert owner["items"][0]["metadata"]["owner_attention_required"] is True
     assert requester["items"][0]["scope_description"] == "Google Drive files"
-    assert (
-        await projection.page(
-            "owner", bucket="incoming_requests", limit=20, query="background Drive access"
-        )
-    )["total"] == 1
-    assert (
-        await projection.page(
-            "recipient", bucket="outgoing_requests", limit=20, query="background Drive access"
-        )
-    )["total"] == 0
+    assert all("ownerDriveReady" not in payload for payload in await owner_payloads())
+    assert [page["total"] for page in await views("connect google drive")] == [0, 0]
+    assert [page["total"] for page in await views("background Drive access")] == [1, 0]
 
 
 @pytest.mark.asyncio
-async def test_requester_can_reopen_payment_from_consent_center(sharing):
+async def test_requester_can_reopen_payment_from_consent_center(sharing, monkeypatch):
+    # Payment follows a live Drive search; without one the owner's step is Drive.
+    live_drive(sharing, monkeypatch)
     created = await request(sharing)
     request_id = created["requestId"]
     with sharing.db.engine.begin() as connection:
@@ -236,8 +466,8 @@ async def test_requester_can_reopen_payment_from_consent_center(sharing):
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status)
-              VALUES (:request,'owner','recipient','awaiting_payment')"""),
+              (request_id,user_id,requester_user_id,stripe_mode,status)
+              VALUES (:request,'owner','recipient','test','awaiting_payment')"""),
             {"request": request_id},
         )
     projection = DriveSharingCenterContributor(db=sharing.db)
@@ -271,6 +501,74 @@ async def test_requester_can_reopen_payment_from_consent_center(sharing):
     ]
     assert owner_reopened["scope_description"] == "Waiting for requester payment"
     assert owner_reopened["metadata"]["owner_attention_required"] is False
+
+
+@pytest.mark.asyncio
+async def test_requester_metadata_carries_the_estimate_beside_the_owner_price(sharing):
+    request_id = (await request(sharing))["requestId"]
+
+    def priced(initial):
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE drive_share_requests SET payment_required=TRUE,
+                  quoted_amount_cents=4000,quote_version=2,initial_quote_cents=:initial
+                  WHERE request_id=:id"""),
+                {"id": request_id, "initial": initial},
+            )
+
+    projection = DriveSharingCenterContributor(db=sharing.db)
+
+    async def requester():
+        page = await projection.page("recipient", bucket="outgoing_requests", limit=1)
+        preview = await projection.preview("recipient")
+        listed = page["items"][0]["metadata"]
+        assert preview["buckets"]["outgoing_requests"][0]["metadata"].get(
+            "estimateCents", "absent"
+        ) == listed.get("estimateCents", "absent")
+        return listed
+
+    priced(2500)
+    metadata = await requester()
+    # The same pair the details price view shows: "Price $40 · estimate was $25".
+    assert (metadata["quotedAmountCents"], metadata["estimateCents"]) == (4000, 2500)
+    owner = (await projection.page("owner", bucket="incoming_requests", limit=1))["items"][0]
+    assert "estimateCents" not in owner["metadata"]
+    # An older request has no recorded estimate: known to be unknown, never the price.
+    priced(None)
+    assert (await requester())["estimateCents"] is None
+    # Before migration 320 the key is left out, so clients keep their fallback.
+    with patch.object(projection, "_estimate_installed", return_value=False):
+        assert "estimateCents" not in await requester()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored_mode", ["test", "legacy"])
+async def test_live_projection_expires_foreign_mode_payment(sharing, monkeypatch, stored_mode):
+    request_id = (await request(sharing))["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
+            {"id": request_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,stripe_mode,status)
+              VALUES (:id,'owner','recipient',:mode,'checkout_open')"""),
+            {"id": request_id, "mode": stored_mode},
+        )
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    result = await projection.page("recipient", bucket="outgoing_requests", limit=1)
+    assert result["items"][0]["metadata"]["paymentStatus"] == "expired"
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_request_payment_orders WHERE request_id=:id"),
+                {"id": request_id},
+            ).scalar_one()
+            == "checkout_open"
+        )
 
 
 @pytest.mark.asyncio
@@ -339,6 +637,7 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
     )["total"] == 0
     row = page["items"][0]
     assert row["scope"] is None and isinstance(row["issued_at"], int)
+    # This owner's Drive is not live, so the owner's own row names that step.
     assert set(row["metadata"]) == {
         "request_source",
         "request_id",
@@ -348,7 +647,13 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
         "recorded_outcome_only",
         "automatic_progress_active",
         "automatic_progress_stage",
+        "accessStopped",
         "owner_attention_required",
+        "owner_decision_available",
+        "owner_price_available",
+        "owner_allowed",
+        "payment_required",
+        "ownerDriveReady",
     }
     assert row["metadata"]["owner_attention_required"] is True
     assert "recipient@example" not in str(snapshot) and "purpose" not in str(snapshot)
@@ -635,6 +940,86 @@ async def test_trusted_progress_is_participant_scoped_and_tracks_durable_work(
     expired = (await projection.page("owner", bucket="history", limit=1))["items"][0]
     assert expired["metadata"]["automatic_progress_active"] is False
     assert expired["metadata"]["automatic_progress_stage"] is None
+
+
+@pytest.mark.asyncio
+async def test_owner_decision_is_offered_only_for_fresh_requests_outside_trust(
+    sharing, request_bulk
+):
+    projection = DriveSharingCenterContributor(db=sharing.db)
+
+    async def items(user_id: str) -> dict[str, dict]:
+        preview = await projection.preview(user_id)
+        return {
+            item["request_id"]: item for bucket in preview["buckets"].values() for item in bucket
+        }
+
+    _membership(sharing, "active")
+    trusted = (await _request(sharing))["requestId"]
+    _membership(sharing, "removed")
+    fresh, allowed, started, expired = [(await _request(sharing))["requestId"] for _ in range(4)]
+    owner_initiated = (await _request(sharing, owner_initiated=True))["requestId"]
+    await sharing.allow_request(user_id="owner", request_id=allowed, revision=0, amount_cents=2000)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET bulk_search_started_at=clock_timestamp()
+              WHERE request_id=:request"""),
+            {"request": started},
+        )
+        connection.execute(
+            text("""UPDATE drive_share_requests SET
+              created_at=clock_timestamp()-INTERVAL '31 days',
+              expires_at=clock_timestamp()-INTERVAL '1 day'
+              WHERE request_id=:request"""),
+            {"request": expired},
+        )
+    owner = await items("owner")
+    assert {key for key, item in owner.items() if item["metadata"]["owner_decision_available"]} == {
+        fresh
+    }
+    assert owner[trusted]["metadata"]["owner_allowed"] is False
+    assert owner[fresh]["metadata"]["owner_attention_required"] is True
+    assert owner[fresh]["metadata"]["payment_required"] is True
+    assert owner[owner_initiated]["metadata"]["payment_required"] is False
+    # A current Trusted member keeps the Trusted path, even for a request with no
+    # automatic marker (one made before the requester joined the circle).
+    _membership(sharing, "active")
+    assert (await items("owner"))[fresh]["metadata"]["owner_decision_available"] is False
+    _membership(sharing, "removed")
+    assert (await items("owner"))[fresh]["metadata"]["owner_decision_available"] is True
+    # After Allow the request leaves Needs you; both participants see the same
+    # automatic progress a Trusted request shows.
+    requester = await items("recipient")
+    for item in (owner[allowed], requester[allowed]):
+        assert item["metadata"]["owner_allowed"] is True
+        assert item["metadata"]["automatic_progress_active"] is True
+    assert owner[allowed]["metadata"]["owner_attention_required"] is False
+    assert not any(item["metadata"]["owner_decision_available"] for item in requester.values())
+    assert "payment_required" not in requester[fresh]["metadata"]
+
+    # Allow carries automatic work only while the pair is connected.
+    _connection(sharing, "removed")
+    owner = await items("owner")
+    assert owner[allowed]["metadata"]["automatic_progress_active"] is False
+    assert owner[allowed]["metadata"]["owner_attention_required"] is True
+    assert owner[fresh]["metadata"]["owner_decision_available"] is False
+    # The disconnect ends the Allow, so reconnecting brings back no automatic work.
+    with sharing.db.engine.begin() as connection:
+        end_owner_allows_for_disconnected_pair(connection, user_a_id="owner", user_b_id="recipient")
+    _connection(sharing, "active")
+    owner = await items("owner")
+    assert owner[allowed]["metadata"]["owner_allowed"] is False
+    assert owner[allowed]["metadata"]["automatic_progress_active"] is False
+    assert owner[allowed]["metadata"]["owner_attention_required"] is True
+    assert owner[allowed]["metadata"]["owner_decision_available"] is False
+    assert owner[fresh]["metadata"]["owner_decision_available"] is True
+    # Allow/Deny needs the owner's live Drive as well.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE user_external_connector_connections SET validation_state='unverified'
+              WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    assert (await items("owner"))[fresh]["metadata"]["owner_decision_available"] is False
 
 
 @pytest.mark.asyncio

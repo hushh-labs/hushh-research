@@ -5,6 +5,8 @@ import { ROUTES } from "@/lib/navigation/routes";
 export type ProfilePanel =
   | "account"
   | "my-data"
+  | "payouts"
+  | "request-pricing"
   | "connected-systems"
   | "connectors"
   | "preferences"
@@ -64,6 +66,8 @@ export function normalizeProfilePanel(
   if (
     value === "account" ||
     value === "my-data" ||
+    value === "payouts" ||
+    value === "request-pricing" ||
     value === "connected-systems" ||
     value === "connectors" ||
     value === "preferences" ||
@@ -95,6 +99,8 @@ const BUILT_IN_CONNECTOR_TITLES: Record<string, string> = {
   google_drive: "Google Drive",
   calendar: "Calendar",
   plaid: "Plaid",
+  instagram: "Instagram",
+  linkedin: "LinkedIn",
 };
 
 /**
@@ -258,6 +264,14 @@ export function buildProfileRoute(params?: {
 
   if (!panel) {
     return appendQuery(ROUTES.PROFILE, {}, params?.searchParams);
+  }
+
+  if (panel === "payouts" || panel === "request-pricing") {
+    return appendQuery(
+      panel === "payouts" ? ROUTES.PROFILE_PAYOUTS : ROUTES.PROFILE_REQUEST_PRICING,
+      {},
+      params?.searchParams,
+    );
   }
 
   if (panel === "account") {
@@ -432,6 +446,13 @@ export function resolveProfileRouteState(
     return resolveProfileRouteStateFromSearchParams(query);
   }
 
+  if (normalizedPath === ROUTES.PROFILE_PAYOUTS) {
+    return { panel: "payouts", detail: null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_REQUEST_PRICING) {
+    return { panel: "request-pricing", detail: null };
+  }
+
   if (normalizedPath === ROUTES.PROFILE_ACCOUNT) {
     return { panel: "account", detail: null };
   }
@@ -557,4 +578,20 @@ export function buildCanonicalProfileRouteFromLegacyQuery(
 
   const current = appendQuery(ROUTES.PROFILE, Object.fromEntries(query), null);
   return href === current ? null : href;
+}
+
+/** Older Stripe links returned to Memory. Preserve only the bounded callback. */
+export function buildLegacyDocumentPayoutReturnRoute(
+  pathname: string,
+  searchParams?: SearchParamReader | URLSearchParams | string | null,
+): string | null {
+  const query = toSearchParams(searchParams ?? pathname.split("?")[1]);
+  const returnState = query.get("documentPayouts");
+  if (resolveProfileRouteState(pathname, query).panel !== "my-data" ||
+      (returnState !== "done" && returnState !== "refresh")) return null;
+  const target = buildProfileRoute({ panel: "payouts", searchParams: query });
+  const [path, rawQuery = ""] = target.split("?");
+  const nextQuery = new URLSearchParams(rawQuery);
+  nextQuery.set("documentPayouts", returnState);
+  return `${path}?${nextQuery.toString()}`;
 }

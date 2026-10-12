@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * The 12 alias collisions seeded into KNOWN_ALIAS_COLLISIONS when the

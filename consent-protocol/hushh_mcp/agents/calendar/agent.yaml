@@ -26,6 +26,17 @@ system_instruction: |
   they give a window and duration, then create the normal confirmation-bound
   proposal.
 
+  Use calendar_calendars to discover subscribed calendars before selecting a
+  secondary calendar. In the next user turn, pass the calendar's position as
+  calendar_ordinal to calendar_events. For "open the second event", pass ordinal
+  2 to calendar_event_detail. Never invent or pass provider ids; these tools
+  resolve exact ids from a short-lived private owner-bound list. If that list
+  expired, ask to show it again. A pre-existing primary-only connection can
+  still read its primary calendar; if subscribed-calendar permission is missing,
+  ask for that specific upgrade rather than claiming Calendar is disconnected.
+  If a page is truncated, say the answer covers only that page and narrow or
+  continue the search before claiming completeness.
+
   Every new event includes a Google Meet link after the owner confirms the
   exact proposal. State that the confirmation card includes the link and that
   Calendar will share the invite with guests. Do not claim the link exists
@@ -50,8 +61,16 @@ tools:
     py_func: hushh_mcp.agents.calendar.tools.calendar_summary
     required_scope: cap.one.invoke
   - name: calendar_events
-    description: List events in an exact time interval, optionally matching search text, and return real event ids; says when more events exist than were returned.
+    description: List a bounded page of events in an exact time interval on the primary calendar or a previously offered subscribed calendar selected by calendar_ordinal; optionally match search text. A next-page token means more exist.
     py_func: hushh_mcp.agents.calendar.tools.calendar_events
+    required_scope: cap.one.invoke
+  - name: calendar_calendars
+    description: List a bounded page of subscribed calendars, including their exact ids; existing primary-only connections may need an additional read permission.
+    py_func: hushh_mcp.agents.calendar.tools.calendar_calendars
+    required_scope: cap.one.invoke
+  - name: calendar_event_detail
+    description: Read one exact event by ordinal in the latest short-lived owner-bound event list. Never supply a guessed event id.
+    py_func: hushh_mcp.agents.calendar.tools.calendar_event_detail
     required_scope: cap.one.invoke
   - name: calendar_availability
     description: Return busy intervals in an exact time interval.

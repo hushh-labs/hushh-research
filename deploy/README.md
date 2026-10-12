@@ -15,7 +15,8 @@ Runtime traffic authority belongs to these workflows:
 
 1. [Deploy to Dev](../.github/workflows/deploy-dev.yml)
 2. [Deploy to UAT](../.github/workflows/deploy-uat.yml)
-3. [Deploy to Production](../.github/workflows/deploy-production.yml)
+3. [Deploy UAT One Chat Backend Only](../.github/workflows/deploy-uat-one-chat.yml)
+4. [Deploy to Production](../.github/workflows/deploy-production.yml)
 
 Humans dispatch governed workflows. Do not deploy images, mutate Cloud Run
 traffic, or repair CORS/runtime variables with direct `gcloud builds submit`,
@@ -49,9 +50,70 @@ creates no deployment record, builds, traffic changes, or release tag updates.
 Unknown deployment state and unavailable or failed gates still block selection.
 An explicit SHA continues through the existing exact-SHA deployment validator.
 
+For the One chat external Vertex cutover, including its pre-vault intro head,
+the reviewed deploy-uat-one-chat.yml workflow updates the existing consent-protocol service
+without touching the frontend, Drive worker, schedulers, secrets, or database.
+Dispatch it with an exact green main SHA after the Main Post-Merge Smoke Gate
+succeeds. It rejects accumulated backend image and release-input changes outside
+its cutover allowlist. Four Location files already on main are admitted only at
+their reviewed Git blob IDs; a later edit to those files blocks this lane. It
+creates a zero-traffic backend candidate, and uses a temporary Cloud Run Job
+under the UAT runtime identity to require a synthetic Gemini response from the
+external project. The Job must be deleted before traffic promotion. The workflow
+then promotes only the backend revision, verifies full traffic, and removes the
+candidate's direct tag URL. On failure it removes that tag, attempts to restore
+the prior backend traffic, and publishes the result as a release artifact. This
+partial deployment does not advance the full UAT release tag; normal UAT
+selection ignores its environment record when resolving the full-release
+baseline. The synthetic model check is a deployment gate, not an authenticated
+end-to-end chat acceptance test.
+
 Production is a separate explicit authority transition. UAT success does not
 authorize it, and UAT credentials or runtime identities must never be reused in
 production.
+
+## Hosted revision maintenance
+
+UAT and production deployments complete after release verification, artifact publication, quick
+zero-traffic tag retirement, and the final health assertion. Old revision deletion runs in **Capacity Maintenance**,
+triggered after a verified healthy deployment and checked by the existing 15-minute timer. Maintenance
+uses the matching environment without creating a deployment record. Its failure does
+not change the release result.
+
+The authority job verifies the source repository, workflow, governed actor and
+healthy release artifact before cloud authentication. No-op runs skip cleanup.
+Each mutation pass verifies that release against live traffic, removes unused tags, and saves drain evidence in the
+`uat-retention-state` or `production-retention-state` artifact. A later pass deletes only eligible revisions after
+the maximum request timeout plus 60 seconds has elapsed. The backend still
+supports 3,600-second requests. No runner sleeps through that grace period.
+Traffic/generation or release changes invalidate the saved clock; missing or
+expired evidence starts a fresh clock. Current, latest, predeploy rollback, and
+the actual last-known-good revisions remain protected.
+
+Only a short maintenance pass shares its environment's rollout/rollback lock; all
+participants queue without replacing pending deployments. Admission checks
+conservatively count every retained UAT database revision while cleanup is
+deferred, so overlapping drains cannot silently exceed the database budget.
+The capacity gate can still reject an unsafe release.
+
+Production's source-only selection skips cloud authentication after a settled
+pass, or while every retained drain deadline is still in the future. A completion
+receipt binds the environment, project, healthy release and latest completed
+deployment observation. Missing or expired receipts and newer deployments cause
+a fresh pass; a failed deployment is an inspection signal, never cleanup
+authority. Production alone permits a terminal run whose only failed step is
+post-release tag retirement: all required release steps and the canonical healthy
+artifact must pass before cloud authentication. Before cleanup, serving revisions
+must additionally prove that artifact's SHA, source run, immutable image and
+readiness. Failed maintenance artifacts still cannot restore drain authority.
+This reuses the existing workflow and timer, with no new cron runs.
+
+The default capacity phase reserves the next deployment's candidate revisions.
+Post-release reporting uses `--phase post-release`, which counts current retained
+revisions, jobs and the administrative reserve without adding another hypothetical
+deployment. Actual over-budget capacity remains blocking in both phases.
+Manual Cloud Run changes outside governed releases require an explicit maintenance
+dispatch; the settled-receipt optimization does not claim to detect those changes.
 
 ## What lives here
 
@@ -160,7 +222,11 @@ packaging the apps. The existing fleet model configuration supplies command
 reasoning. No Live API key, ASR pack, intent-ranker pack, or model-pack registry is
 required by the command path. One Live Voice (Gemini Live on Vertex ADC) is a separate,
 flag-gated adapter: `_ONE_VOICE_LIVE_ENABLED`, `_VERTEX_LIVE_MODEL_ID` and
-`_VERTEX_LIVE_LOCATION` are the only knobs and there is still no API key.
+`_VERTEX_LIVE_LOCATION` pin the model and region, and there is still no API key.
+UAT alone sets `_HUSHH_ONE_VOICE_VERTEX_PROJECT=hussh-511311` so voice sessions,
+their child model calls, and the pre-traffic Live probe use Parth's Vertex
+project. When unset, voice uses `GENAI_GOOGLE_CLOUD_PROJECT` as before;
+production and dev do not set this override.
 
 The model-pack publication workflow is retired. Preserve historical release
 records without treating them as current prerequisites. Follow the

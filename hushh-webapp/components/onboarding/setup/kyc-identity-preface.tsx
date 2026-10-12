@@ -6,28 +6,43 @@ import { toast } from "sonner";
 
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
-import { type KycIdentityProfile } from "@/lib/services/kyc-identity-profile-pkm-service";
+import {
+  isValidDateOfBirth,
+  type KycIdentityProfile,
+} from "@/lib/services/kyc-identity-profile-pkm-service";
 import { cn } from "@/lib/utils";
 
 import { useVault } from "@/lib/vault/vault-context";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 
 const EXTERNAL_PROFILE_EXPORT_PROMPT =
-  "Can you share one to two pages of the information you have about me for an external agent? Organize it by domain, such as identity, contact details, education, work, finances, health, or preferences. Include any KYC-related information you have, and clearly note anything uncertain or missing.";
+  "Can you share one to two pages of the information you have about me for an external agent? Use simple Markdown bullet points under Facts, Preferences, and Commitments. Include any KYC-related information you have, and clearly note anything uncertain or missing. Do not include passwords, PINs, security codes, or authentication keys.";
 
 export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [aboutMe, setAboutMe] = useState("");
+  // Typed by the person, never read off the export. The pasted summary is
+  // written by another assistant and is not evidence of a legal name, a real
+  // birth date, or a sex: those are stated here or not recorded at all.
+  const [legalName, setLegalName] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [sex, setSex] = useState("");
   const [copied, setCopied] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [isSaveStarted, setIsSaveStarted] = useState(false);
   const saveStartedRef = useRef(false);
 
-  const canContinue = aboutMe.trim().length > 5;
+  // A supplied date must be a real past date before it is stored, because an
+  // age is derived from it later and a wrong date is a wrong answer, not a
+  // missing one. Left blank it stays absent, which answers honestly.
+  const dateOfBirthValid = !dateOfBirth || isValidDateOfBirth(dateOfBirth);
+  const canContinue = aboutMe.trim().length > 5 && dateOfBirthValid;
 
   const handlePrimary = async () => {
     if (!canContinue || saveStartedRef.current) return;
@@ -38,6 +53,10 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
 
     const profile: KycIdentityProfile = {
       aboutMe: aboutMe.trim(),
+      // Omitted entirely when blank, so nothing is recorded as empty.
+      ...(legalName.trim() ? { legalName: legalName.trim() } : {}),
+      ...(dateOfBirth ? { dateOfBirth } : {}),
+      ...(sex.trim() ? { sex: sex.trim() } : {}),
     };
 
     if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -163,6 +182,55 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                   aria-label="Paste your profile export"
                   disabled={isSaveStarted}
                 />
+              </section>
+              {/* Stated, not extracted. A pasted export is another assistant's
+                  prose; these three are the person's own answer, and each is
+                  optional so a blank one stays absent rather than guessed. */}
+              <section aria-labelledby="stated-identity" className="space-y-3">
+                <h2 id="stated-identity" className="text-sm font-semibold text-foreground">
+                  3. Your details (optional)
+                </h2>
+                <div className="space-y-2">
+                  <Label htmlFor="kyc-legal-name">Legal name</Label>
+                  <Input
+                    id="kyc-legal-name"
+                    value={legalName}
+                    onChange={(event) => setLegalName(event.target.value)}
+                    disabled={isSaveStarted}
+                    autoComplete="name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="kyc-date-of-birth">Date of birth</Label>
+                  <Input
+                    id="kyc-date-of-birth"
+                    type="date"
+                    value={dateOfBirth}
+                    onChange={(event) => setDateOfBirth(event.target.value)}
+                    disabled={isSaveStarted}
+                    aria-invalid={!dateOfBirthValid}
+                    aria-describedby="kyc-date-of-birth-help"
+                  />
+                  <p id="kyc-date-of-birth-help" className="text-xs text-muted-foreground">
+                    {dateOfBirthValid
+                      ? "Your age is worked out from this. The date itself is never shared."
+                      : "Enter a real past date."}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="kyc-sex">Sex</Label>
+                  <Input
+                    id="kyc-sex"
+                    value={sex}
+                    onChange={(event) => setSex(event.target.value)}
+                    disabled={isSaveStarted}
+                    aria-describedby="kyc-sex-help"
+                  />
+                  <p id="kyc-sex-help" className="text-xs text-muted-foreground">
+                    Recorded only as you write it, and never guessed from
+                    anything else.
+                  </p>
+                </div>
               </section>
             </div>
 

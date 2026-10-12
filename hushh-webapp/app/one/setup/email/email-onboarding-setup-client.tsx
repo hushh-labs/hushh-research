@@ -30,10 +30,7 @@ import { AccountService } from "@/lib/services/account-service";
 
 type PreferenceLoadState = "loading" | "ready" | "error";
 
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
-import {
-  isKycIdentityPrefaceComplete,
-} from "@/lib/services/kyc-identity-profile-pkm-service";
+import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 
 export function EmailOnboardingSetupClient() {
   const { user } = useAuth();
@@ -41,44 +38,38 @@ export function EmailOnboardingSetupClient() {
   const [enabled, setEnabled] = useState(false);
   const [loadState, setLoadState] = useState<PreferenceLoadState>("loading");
   const [saving, setSaving] = useState(false);
-  const [identityPrefaceComplete, setIdentityPrefaceComplete] = useState(false);
-  const [checkingIdentity, setCheckingIdentity] = useState(true);
+  const [identityStatus, setIdentityStatus] = useState<{
+    ownerId: string; vaultKey: string | null; complete: boolean; checking: boolean;
+  } | null>(null);
+  const identityStatusCurrent = identityStatus?.ownerId === user?.uid && identityStatus?.vaultKey === vaultKey;
+  const identityPrefaceComplete = identityStatusCurrent && identityStatus?.complete;
+  const checkingIdentity = Boolean(user?.uid && vaultKey && vaultOwnerToken &&
+    (!identityStatusCurrent || identityStatus?.checking));
 
-  // Synchronously check local draft or asynchronously load from PKM identity domain
+  // The intake marker belongs to Soul's private envelope, not its Markdown.
   useEffect(() => {
-    if (!user?.uid) {
-      setCheckingIdentity(false);
-      return;
-    }
-    if (!vaultKey || !vaultOwnerToken) {
-      setCheckingIdentity(false);
-      return;
-    }
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
 
     let cancelled = false;
+    const setResult = (complete: boolean, checking: boolean) => {
+      if (!cancelled) setIdentityStatus({ ownerId: user.uid, vaultKey, complete, checking });
+    };
+    setResult(false, true);
     void (async () => {
       try {
-        const snapshot = await PkmDomainResourceService.getStaleFirst({
+        const completed = await KycIdentityProfilePkmService.hasCompletedIntake({
           userId: user.uid,
-          domain: "identity",
           vaultKey,
           vaultOwnerToken,
         });
-        const profile = snapshot?.data?.identity_profile as any;
-        if (!cancelled && isKycIdentityPrefaceComplete(profile)) {
-          setIdentityPrefaceComplete(true);
-        }
+        setResult(completed, false);
       } catch (err) {
         console.warn(
           "[EmailOnboardingSetupClient] Failed to load existing identity profile:",
           err,
         );
         // A failed protected read must not be interpreted as an incomplete KYC flow.
-        if (!cancelled) setIdentityPrefaceComplete(true);
-      } finally {
-        if (!cancelled) {
-          setCheckingIdentity(false);
-        }
+        setResult(true, false);
       }
     })();
 
@@ -212,7 +203,8 @@ export function EmailOnboardingSetupClient() {
         routeKey="/one/setup/email"
       >
         <KycIdentityPreface
-          onComplete={() => setIdentityPrefaceComplete(true)}
+          key={user.uid}
+          onComplete={() => setIdentityStatus({ ownerId: user.uid, vaultKey, complete: true, checking: false })}
         />
       </CapabilityVaultPrerequisite>
     );
@@ -224,7 +216,8 @@ export function EmailOnboardingSetupClient() {
     <AppPageShell
       as="main"
       width="reading"
-      className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
+      headerContentSpacing="compact"
+      className="pb-[calc(var(--app-bottom-inset)+1rem)]"
       nativeTest={{
         routeId: "/one/setup/email",
         marker: "native-route-one-setup-email",

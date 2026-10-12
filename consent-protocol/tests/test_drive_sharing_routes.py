@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth_read_only, require_vault_owner_token
+from api.routes import drive_request_requester as requester_routes
 from api.routes import drive_sharing as routes
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 
@@ -30,13 +31,19 @@ def setup(monkeypatch):
                 "create",
                 "list_requests",
                 "status",
+                "requester_context",
                 "review",
                 "delivery",
                 "approve",
+                "allow",
+                "set_request_price",
                 "decide",
                 "retry_preparation",
                 "prepare_revocation",
                 "revoke",
+                "owner_pricing",
+                "update_owner_pricing",
+                "request_quote",
             )
         }
     )
@@ -56,11 +63,75 @@ def unlock(app, uid="recipient"):
 
 
 @pytest.mark.parametrize(
+    "method,path,body",
+    [
+        ("get", "/pricing", None),
+        ("put", "/pricing", {"enabled": True, "amountCents": 2500, "expectedVersion": 0}),
+        ("get", f"/quote?ownerPersonRef={REQUEST_ID}", None),
+    ],
+)
+def test_pricing_routes_require_owner(setup, method, path, body):
+    client, _, service, _ = setup
+    response = client.request(method, "/api/connectors/google_drive/sharing" + path, json=body)
+    assert response.status_code == 401
+    assert "no-store" in response.headers["Cache-Control"]
+    assert all(not value.called for value in vars(service).values())
+
+
+def test_pricing_routes_bind_authenticated_owner_and_validate_price(setup, monkeypatch):
+    client, app, service, _ = setup
+    unlock(app)
+    base = "/api/connectors/google_drive/sharing"
+    service.owner_pricing.return_value = {"enabled": False, "amountCents": 1000, "version": 0}
+    response = client.get(base + "/pricing")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.owner_pricing.assert_awaited_once_with(user_id="recipient")
+
+    response = client.put(
+        base + "/pricing",
+        json={
+            "enabled": True,
+            "amountCents": 2500,
+            "expectedVersion": 0,
+        },
+    )
+    assert response.status_code == 200
+    service.update_owner_pricing.assert_awaited_once_with(
+        user_id="recipient", enabled=True, amount_cents=2500, expected_version=0
+    )
+    for invalid in (2050, 0, 50100, True):
+        response = client.put(
+            base + "/pricing",
+            json={
+                "enabled": True,
+                "amountCents": invalid,
+                "expectedVersion": 0,
+            },
+        )
+        assert response.status_code == 422
+    assert service.update_owner_pricing.await_count == 1
+
+    monkeypatch.setattr(routes, "_person_target", AsyncMock(return_value="owner"))
+    service.request_quote.return_value = {
+        "amountCents": 2500,
+        "version": 1,
+        "paymentRequired": True,
+        "payoutReady": False,
+    }
+    response = client.get(base + f"/quote?ownerPersonRef={REQUEST_ID}")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.request_quote.assert_awaited_once_with(user_id="recipient", owner_user_id="owner")
+
+
+@pytest.mark.parametrize(
     "method,suffix,body",
     [
         ("get", "", None),
         ("get", f"/{REQUEST_ID}", None),
         ("get", f"/{REQUEST_ID}/review", None),
+        ("get", f"/{REQUEST_ID}/context", None),
         ("get", f"/{REQUEST_ID}/delivery", None),
         ("post", f"/{REQUEST_ID}/prepare", {}),
         ("post", f"/{REQUEST_ID}/prepare/stream", {}),
@@ -86,6 +157,12 @@ def unlock(app, uid="recipient"):
                 "documentIds": [str(uuid4())],
                 "confirmed": True,
             },
+        ),
+        ("post", f"/{REQUEST_ID}/allow", {"revision": 0, "confirmed": True}),
+        (
+            "post",
+            f"/{REQUEST_ID}/price",
+            {"revision": 0, "amountCents": 1000, "confirmed": True},
         ),
         ("post", f"/{REQUEST_ID}/decline", {"revision": 0}),
         ("post", f"/{REQUEST_ID}/cancel", {"revision": 0}),
@@ -124,6 +201,46 @@ def test_review_is_owner_derived_no_store_and_authority_rechecked(setup):
     assert all(
         call.kwargs == {"authorization": "Bearer synthetic-owner", "hushh_consent": None}
         for call in current.await_args_list
+    )
+
+
+def test_requester_context_is_private_and_rechecks_vault_authority(setup):
+    client, app, service, current = setup
+    unlock(app)
+    service.requester_context.return_value = {
+        "requestId": REQUEST_ID,
+        "purpose": {"purpose": "Private request", "periodStart": None, "periodEnd": None},
+    }
+    response = client.get(BASE + f"/{REQUEST_ID}/context")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.requester_context.assert_awaited_once_with(user_id="recipient", request_id=REQUEST_ID)
+    assert current.await_count == 2
+
+    current.side_effect = [{"user_id": "recipient"}, HTTPException(401, "Owner revoked")]
+    response = client.get(BASE + f"/{REQUEST_ID}/context")
+    assert response.status_code == 401
+    assert "Private request" not in response.text
+    assert "no-store" in response.headers["Cache-Control"]
+
+    current.side_effect = None
+    service.requester_context.side_effect = DriveSharingError("request_unavailable")
+    response = client.get(BASE + f"/{REQUEST_ID}/context")
+    assert response.status_code == 404
+    assert "no-store" in response.headers["Cache-Control"]
+
+
+def test_delivery_details_ask_for_the_price_recovery_and_review_views(setup):
+    # Only GET /delivery adds the requester's price and recovery (or the owner's
+    # review notice); file pages read the bare snapshot.
+    client, app, service, _ = setup
+    unlock(app)
+    service.delivery.return_value = {"requestId": REQUEST_ID, "status": "partial", "files": []}
+    response = client.get(BASE + f"/{REQUEST_ID}/delivery")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.delivery.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, views=True
     )
 
 
@@ -194,6 +311,140 @@ def test_approval_only_acknowledges_pending_work(setup):
     )
     assert response.status_code == 202
     assert response.json() == {"status": "approved", "sharingStatus": "pending"}
+
+
+def test_withdraw_refuses_paid_requests_and_never_fails_on_checkout_retirement(setup, monkeypatch):
+    from hushh_mcp.services import drive_request_payment_service as payments
+
+    client, app, service, _ = setup
+    unlock(app)
+    service.decide.side_effect = DriveSharingError("request_paid")
+    for action in ("cancel", "decline"):
+        response = client.post(BASE + f"/{REQUEST_ID}/{action}", json={"revision": 0})
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "request_paid"
+        assert "no-store" in response.headers["Cache-Control"]
+
+    service.decide.side_effect = None
+    payment = {"state": "closed", "amountCents": 2500, "refund": None, "nextAction": "none"}
+    service.decide.return_value = {
+        "requestId": REQUEST_ID,
+        "status": "cancelled",
+        "revision": 0,
+        "payment": payment,
+    }
+    retire = AsyncMock(side_effect=RuntimeError("stripe-secret-error"))
+    monkeypatch.setattr(
+        payments, "DriveRequestPaymentService", lambda: SimpleNamespace(retire_checkout=retire)
+    )
+    response = client.post(BASE + f"/{REQUEST_ID}/cancel", json={"revision": 0})
+    assert response.status_code == 200 and response.json()["payment"] == payment
+    assert "stripe-secret-error" not in response.text
+    retire.assert_awaited_once_with(requester_user_id="recipient", request_id=REQUEST_ID)
+
+    # Payment won the race at Stripe: the withdrawal reports the refund it will get.
+    retire.side_effect, retire.return_value = None, "paid"
+    response = client.post(BASE + f"/{REQUEST_ID}/cancel", json={"revision": 0})
+    assert response.status_code == 200
+    assert response.json()["payment"]["state"] == "refund_pending"
+    assert response.json()["payment"]["refund"] == {"status": "queued", "amountCents": 2500}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"revision": 0},
+        {"revision": 0, "confirmed": False},
+        {"revision": 0, "confirmed": 1},
+        {"revision": 0, "confirmed": "true"},
+        {"revision": 0, "confirmed": True, "amountCents": 0},
+        {"revision": 0, "confirmed": True, "amountCents": 2050},
+        {"revision": 0, "confirmed": True, "amountCents": 50100},
+        {"revision": 0, "confirmed": True, "amountCents": 2000.0},
+        {"revision": 0, "confirmed": True, "amountCents": "2000"},
+        {"revision": 0, "confirmed": True, "amountCents": True},
+        {"revision": 0, "confirmed": True, "trustedAuto": True},
+    ],
+)
+def test_allow_needs_explicit_confirmation_and_a_whole_dollar_price(setup, body):
+    client, app, service, _ = setup
+    unlock(app)
+    response = client.post(BASE + f"/{REQUEST_ID}/allow", json=body)
+    assert response.status_code == 422
+    assert "no-store" in response.headers["Cache-Control"]
+    service.allow.assert_not_called()
+
+
+def test_allow_forwards_the_owners_price_and_reports_refusals(setup):
+    client, app, service, current = setup
+    unlock(app)
+    service.allow.return_value = {
+        "requestId": REQUEST_ID,
+        "status": "pending",
+        "revision": 3,
+        "ownerAllowed": True,
+        "amountCents": 2000,
+    }
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/allow",
+        json={"revision": 3, "amountCents": 2000, "confirmed": True},
+    )
+    assert response.status_code == 202
+    assert response.json() == service.allow.return_value
+    service.allow.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, revision=3, amount_cents=2000
+    )
+    assert current.await_count == 2
+
+    response = client.post(BASE + f"/{REQUEST_ID}/allow", json={"revision": 3, "confirmed": True})
+    assert response.status_code == 202
+    assert service.allow.await_args.kwargs["amount_cents"] is None
+
+    for code, status in (("invalid_payment_amount", 422), ("request_already_decided", 409)):
+        service.allow.side_effect = DriveSharingError(code)
+        response = client.post(
+            BASE + f"/{REQUEST_ID}/allow", json={"revision": 3, "confirmed": True}
+        )
+        assert response.status_code == status
+        assert response.json()["detail"]["code"] == code
+        assert "no-store" in response.headers["Cache-Control"]
+
+
+@pytest.mark.parametrize("amount", [None, 0, 99, 2050, 50100, 2000.0, "2000", True])
+def test_trusted_price_rejects_missing_or_invalid_amount(setup, amount):
+    client, app, service, _ = setup
+    unlock(app)
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/price",
+        json={"revision": 0, "amountCents": amount, "confirmed": True},
+    )
+    assert response.status_code == 422
+    assert "no-store" in response.headers["Cache-Control"]
+    service.set_request_price.assert_not_called()
+
+
+def test_trusted_price_requires_confirmation_and_binds_authenticated_owner(setup):
+    client, app, service, current = setup
+    unlock(app)
+    for confirmed in (False, "true", 1):
+        assert (
+            client.post(
+                BASE + f"/{REQUEST_ID}/price",
+                json={"revision": 3, "amountCents": 2000, "confirmed": confirmed},
+            ).status_code
+            == 422
+        )
+    service.set_request_price.assert_not_called()
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/price",
+        json={"revision": 3, "amountCents": 2000, "confirmed": True},
+    )
+    assert response.status_code == 202
+    service.set_request_price.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, revision=3, amount_cents=2000
+    )
+    service.allow.assert_not_called()
+    assert current.await_count == 2
 
 
 @pytest.mark.parametrize(
@@ -663,3 +914,100 @@ def test_a_reviewed_drive_write_needs_the_unlocked_owner_and_an_explicit_confirm
     assert client.post(path, json=_reviewed_body()).status_code == 200
     execute.assert_awaited_once()
     assert execute.await_args.kwargs["owner_id"] == "owner"
+
+
+# Requester-only routes (api/routes/drive_request_requester.py): the caller's
+# own Google identity, and the review ask.
+SHARING = "/api/connectors/google_drive/sharing"
+FIREBASE = {"Authorization": "Bearer synthetic-firebase"}
+
+
+@pytest.fixture
+def requester_setup(monkeypatch):
+    app = FastAPI()
+    app.include_router(requester_routes.router)
+    current = AsyncMock(return_value={"user_id": "recipient"})
+    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    review = AsyncMock()
+    monkeypatch.setattr(requester_routes.requester_store, "request_review", review)
+    monkeypatch.setattr(requester_routes, "_service", lambda: SimpleNamespace(store="store"))
+    monkeypatch.setattr(requester_routes, "wake_drive_work", AsyncMock(return_value=False))
+    return TestClient(app), app, current, review
+
+
+def test_recipient_identity_is_only_the_callers_own_google_account(requester_setup, monkeypatch):
+    client, app, _, _ = requester_setup
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert response.status_code == 401 and "no-store" in response.headers["Cache-Control"]
+
+    unlock(app)
+    google_identity(monkeypatch, app)
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert response.status_code == 200
+    assert response.json() == {"email": "recipient@example.invalid", "provider": "google.com"}
+    assert response.headers["Cache-Control"] == "private, no-store"
+
+    # Another person's Firebase session never reads this vault owner's account.
+    google_identity(monkeypatch, app, firebase_uid="someone-else")
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert response.status_code == 403
+    assert "recipient@example.invalid" not in response.text
+
+
+def test_recipient_identity_names_a_missing_or_unverifiable_google_account(
+    requester_setup, monkeypatch
+):
+    client, app, _, _ = requester_setup
+    unlock(app)
+    google_identity(monkeypatch, app)
+    monkeypatch.setattr(
+        routes.firebase_auth,
+        "get_user",
+        Mock(return_value=SimpleNamespace(disabled=False, provider_data=[])),
+    )
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert (response.status_code, response.json()["detail"]["code"]) == (
+        409,
+        "verify_google_identity_required",
+    )
+    monkeypatch.setattr(
+        routes.firebase_auth, "get_user", Mock(side_effect=RuntimeError("provider-body"))
+    )
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert (response.status_code, response.json()["detail"]["code"]) == (
+        503,
+        "identity_verification_unavailable",
+    )
+    assert "provider-body" not in response.text and "no-store" in response.headers["Cache-Control"]
+
+
+def test_review_ask_is_vault_bound_and_maps_only_its_own_codes(requester_setup):
+    client, app, current, review = requester_setup
+    path = f"{SHARING}/requests/{REQUEST_ID}/review-request"
+    assert client.post(path, json={}).status_code == 401
+    review.assert_not_awaited()
+
+    unlock(app)
+    review.return_value = {
+        "requestId": REQUEST_ID,
+        "reviewRequestedAt": "2026-10-11T08:00:00+00:00",
+        "ownerRetry": {"state": "requested", "retryableCount": 1},
+        "refund": {"state": "none", "amountCents": None},
+    }
+    response = client.post(path, json={})
+    assert (response.status_code, response.json()) == (200, review.return_value)
+    assert response.headers["Cache-Control"] == "private, no-store"
+    review.assert_awaited_once_with("store", user_id="recipient", request_id=REQUEST_ID)
+    assert current.await_count == 2
+
+    for raised, status, code in (
+        ("review_not_available", 409, "review_not_available"),
+        ("review_limit_reached", 409, "review_limit_reached"),
+        ("request_unavailable", 404, "request_unavailable"),
+        ("secret-provider-body", 503, "sharing_unavailable"),
+    ):
+        review.side_effect = DriveSharingError(raised)
+        response = client.post(path, json={})
+        assert (response.status_code, response.json()["detail"]["code"]) == (status, code)
+        assert "secret-provider-body" not in response.text
+        assert "no-store" in response.headers["Cache-Control"]

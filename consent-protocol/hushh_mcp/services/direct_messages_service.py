@@ -16,11 +16,16 @@ route contract.
 from __future__ import annotations
 
 import base64
+import binascii
+import hashlib
+import hmac
+import io
 import json
 import logging
 import os
 import secrets
 import uuid
+import zipfile
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Callable, Iterator
@@ -35,6 +40,10 @@ from hushh_mcp.services.connection_graph_service import lock_connection_graph_us
 logger = logging.getLogger(__name__)
 
 MAX_DIRECT_MESSAGE_LENGTH = 4_000
+MAX_DIRECT_ATTACHMENT_BYTES = 5 * 1024 * 1024
+MAX_DIRECT_ATTACHMENT_BASE64_LENGTH = 6_990_508
+ATTACHMENT_CONTENT_PREFIX = "\x1eattachment-v1:"
+ESCAPED_TEXT_PREFIX = "\x1eescaped-text-v1:"
 DEFAULT_MESSAGE_PAGE_SIZE = 50
 MAX_MESSAGE_PAGE_SIZE = 100
 DIRECT_MESSAGE_ALGORITHM = "aes-256-gcm-aad-v1"
@@ -150,6 +159,175 @@ class DirectMessageCipher:
                 status_code=503,
             ) from exc
 
+    @staticmethod
+    def _attachment_aad(*, conversation_id: str, message_id: str, sender_user_id: str) -> bytes:
+        return json.dumps(
+            ["direct-message-attachment-v1", conversation_id, message_id, sender_user_id],
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+    def seal_attachment(
+        self, content: bytes, *, conversation_id: str, message_id: str, sender_user_id: str
+    ) -> dict[str, Any]:
+        key = self._key()
+        nonce = secrets.token_bytes(12)
+        return {
+            "ciphertext": AESGCM(key).encrypt(
+                nonce,
+                content,
+                self._attachment_aad(
+                    conversation_id=conversation_id,
+                    message_id=message_id,
+                    sender_user_id=sender_user_id,
+                ),
+            ),
+            "iv": nonce,
+            "content_digest": self.digest_attachment(content),
+            "size_bytes": len(content),
+        }
+
+    def digest_attachment(self, content: bytes) -> bytes:
+        return hmac.new(self._key(), content, hashlib.sha256).digest()
+
+    def open_attachment(self, row: dict[str, Any]) -> bytes:
+        try:
+            return AESGCM(self._key()).decrypt(
+                bytes(row["iv"]),
+                bytes(row["ciphertext"]),
+                self._attachment_aad(
+                    conversation_id=str(row["conversation_id"]),
+                    message_id=str(row["message_id"]),
+                    sender_user_id=str(row["sender_user_id"]),
+                ),
+            )
+        except DirectMessagesError:
+            raise
+        except (InvalidTag, KeyError, ValueError, TypeError) as exc:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_ATTACHMENT_UNAVAILABLE",
+                "This attachment could not be opened. Please try again later.",
+                status_code=503,
+            ) from exc
+
+
+def normalize_direct_attachment(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Validate type and file signature before opening a DB transaction."""
+
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise DirectMessagesError(
+            "DIRECT_MESSAGE_ATTACHMENT_INVALID", "Choose a valid file.", status_code=422
+        )
+    name = str(value.get("name") or "").strip()
+    mime_type = str(value.get("mimeType") or "").strip().lower()
+    encoded = value.get("data")
+    if not name or len(name) > 160 or any(char in name for char in ("/", "\\", "\x00", "\r", "\n")):
+        raise DirectMessagesError(
+            "DIRECT_MESSAGE_ATTACHMENT_INVALID", "Choose a valid file name.", status_code=422
+        )
+    if (
+        not isinstance(encoded, str)
+        or not encoded
+        or len(encoded) > MAX_DIRECT_ATTACHMENT_BASE64_LENGTH
+    ):
+        raise DirectMessagesError(
+            "DIRECT_MESSAGE_ATTACHMENT_TOO_LARGE", "Choose a file up to 5 MB.", status_code=413
+        )
+    try:
+        data = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        if base64.urlsafe_b64encode(data).decode("ascii").rstrip("=") != encoded:
+            raise ValueError("noncanonical base64url")
+    except (ValueError, UnicodeEncodeError, binascii.Error) as exc:
+        raise DirectMessagesError(
+            "DIRECT_MESSAGE_ATTACHMENT_INVALID", "Choose a valid file.", status_code=422
+        ) from exc
+    if not data or len(data) > MAX_DIRECT_ATTACHMENT_BYTES:
+        raise DirectMessagesError(
+            "DIRECT_MESSAGE_ATTACHMENT_TOO_LARGE", "Choose a file up to 5 MB.", status_code=413
+        )
+    kind: str
+    if mime_type == "image/png" and data.startswith(b"\x89PNG\r\n\x1a\n"):
+        kind = "photo"
+    elif mime_type == "image/jpeg" and data.startswith(b"\xff\xd8\xff"):
+        kind = "photo"
+    elif mime_type == "image/webp" and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        kind = "photo"
+    elif mime_type == "video/mp4" and data[4:8] == b"ftyp":
+        kind = "video"
+    elif mime_type == "video/webm" and data.startswith(b"\x1a\x45\xdf\xa3"):
+        kind = "video"
+    elif mime_type == "application/pdf" and data.startswith(b"%PDF-"):
+        kind = "document"
+    elif mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                if not {"[Content_Types].xml", "word/document.xml"}.issubset(archive.namelist()):
+                    raise ValueError("not a DOCX")
+        except (ValueError, zipfile.BadZipFile) as exc:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_ATTACHMENT_INVALID", "Choose a valid DOCX file.", status_code=422
+            ) from exc
+        kind = "document"
+    elif mime_type == "text/plain" and b"\x00" not in data:
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_ATTACHMENT_INVALID", "Choose a UTF-8 text file.", status_code=422
+            ) from exc
+        kind = "document"
+    else:
+        raise DirectMessagesError(
+            "DIRECT_MESSAGE_ATTACHMENT_INVALID",
+            "Choose a JPEG, PNG, WebP, MP4, WebM, PDF, DOCX, or text file.",
+            status_code=422,
+        )
+    return {"name": name, "mimeType": mime_type, "kind": kind, "size": len(data), "bytes": data}
+
+
+def _stored_message_content(content: str, attachment: dict[str, Any] | None) -> str:
+    if attachment is None:
+        return (
+            ESCAPED_TEXT_PREFIX + content
+            if content.startswith((ATTACHMENT_CONTENT_PREFIX, ESCAPED_TEXT_PREFIX))
+            else content
+        )
+    return ATTACHMENT_CONTENT_PREFIX + json.dumps(
+        {
+            "text": content,
+            "attachment": {
+                "name": attachment["name"],
+                "mimeType": attachment["mimeType"],
+                "kind": attachment["kind"],
+                "size": attachment["size"],
+            },
+        },
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
+def _opened_message_content(stored: str) -> tuple[str, dict[str, Any] | None]:
+    if stored.startswith(ESCAPED_TEXT_PREFIX):
+        return stored[len(ESCAPED_TEXT_PREFIX) :], None
+    if not stored.startswith(ATTACHMENT_CONTENT_PREFIX):
+        return stored, None
+    try:
+        payload = json.loads(stored[len(ATTACHMENT_CONTENT_PREFIX) :])
+        attachment = payload["attachment"]
+        if not isinstance(payload["text"], str) or not isinstance(attachment, dict):
+            raise ValueError("invalid message attachment metadata")
+        if attachment.get("kind") not in {"photo", "video", "document"}:
+            raise ValueError("invalid message attachment kind")
+        return payload["text"], attachment
+    except (ValueError, KeyError, TypeError) as exc:
+        raise DirectMessagesError(
+            "DIRECT_MESSAGE_CONTENT_UNAVAILABLE",
+            "A message could not be opened. Please try again later.",
+            status_code=503,
+        ) from exc
+
 
 def _iso(value: Any) -> str | None:
     if value is None:
@@ -190,18 +368,11 @@ def _default_push_notifier(
     conversation_id: str,
     message_id: str,
 ) -> None:
-    """Nudge registered devices without including message content or actor IDs."""
+    """Compatibility hook. Migration 289 queues delivery in the INSERT transaction.
 
-    try:
-        from hushh_mcp.services.push_notifications import send_direct_message_push
-
-        send_direct_message_push(
-            recipient_user_id,
-            conversation_id=conversation_id,
-            message_id=message_id,
-        )
-    except Exception as exc:  # noqa: BLE001 - delivery is best effort
-        logger.warning("direct_messages.push_notify_failed error=%s", type(exc).__name__)
+    Network delivery belongs to the durable worker; sending here as well would
+    duplicate alerts and lose retries on process failure after commit.
+    """
 
 
 def _default_feed_notifier(
@@ -236,13 +407,18 @@ class DirectMessagesService:
         event_notifier: Callable[[str, dict[str, str]], None] | None = None,
         push_notifier: Callable[..., None] | None = None,
         feed_notifier: Callable[..., None] | None = None,
+        connection: Any | None = None,
+        defer_notifications: bool = False,
     ) -> None:
         self._db = db
         self._cipher = cipher or DirectMessageCipher()
         self._event_notifier = event_notifier or _default_event_notifier
         self._push_notifier = push_notifier or _default_push_notifier
         self._feed_notifier = feed_notifier or _default_feed_notifier
-        self._transaction_connection: Any | None = None
+        if connection is not None and not defer_notifications:
+            raise ValueError("outer_message_transaction_requires_deferred_notifications")
+        self._transaction_connection: Any | None = connection
+        self._defer_notifications = defer_notifications
 
     @property
     def db(self) -> Any:
@@ -349,9 +525,9 @@ class DirectMessagesService:
             ) from exc
 
     @staticmethod
-    def _normalize_content(value: object) -> str:
+    def _normalize_content(value: object, *, allow_empty: bool = False) -> str:
         content = str(value or "").strip()
-        if not content:
+        if not content and not allow_empty:
             raise DirectMessagesError(
                 "DIRECT_MESSAGE_EMPTY",
                 "Message content cannot be empty.",
@@ -467,6 +643,10 @@ class DirectMessagesService:
                 status_code=403,
             )
         return connection_id
+
+    def require_active_connection(self, sender_user_id: str, recipient_user_id: str) -> str:
+        """Canonical accepted-edge/block policy for transactional domain sends."""
+        return self._require_active_connection(sender_user_id, recipient_user_id)
 
     @staticmethod
     def _connection_gate_error(exc: BaseException) -> DirectMessagesError | None:
@@ -626,15 +806,17 @@ class DirectMessagesService:
             reply_hidden_for_viewer = bool(row.get("reply_hidden_for_viewer"))
             reply_content = "This message was deleted."
             if not reply_deleted_at and not reply_hidden_for_viewer:
-                reply_content = self._cipher.open(
-                    {
-                        "id": reply_id,
-                        "conversation_id": row.get("conversation_id"),
-                        "sender_user_id": row.get("reply_sender_user_id"),
-                        "content_ciphertext": row.get("reply_content_ciphertext"),
-                        "content_iv": row.get("reply_content_iv"),
-                        "content_algorithm": row.get("reply_content_algorithm"),
-                    }
+                reply_content, _ = _opened_message_content(
+                    self._cipher.open(
+                        {
+                            "id": reply_id,
+                            "conversation_id": row.get("conversation_id"),
+                            "sender_user_id": row.get("reply_sender_user_id"),
+                            "content_ciphertext": row.get("reply_content_ciphertext"),
+                            "content_iv": row.get("reply_content_iv"),
+                            "content_algorithm": row.get("reply_content_algorithm"),
+                        }
+                    )
                 )
             reply_to = {
                 "id": reply_id,
@@ -664,13 +846,17 @@ class DirectMessagesService:
                             "reactedByViewer": bool(reaction.get("reactedByViewer")),
                         }
                     )
+        content, attachment = (
+            ("This message was deleted.", None)
+            if deleted_for_everyone_at
+            else _opened_message_content(self._cipher.open(row))
+        )
         return {
             "id": str(row.get("id") or ""),
             "conversationId": str(row.get("conversation_id") or ""),
             "senderIsViewer": str(row.get("sender_user_id") or "") == viewer_user_id,
-            "content": "This message was deleted."
-            if deleted_for_everyone_at
-            else self._cipher.open(row),
+            "content": content,
+            "attachment": attachment,
             "createdAt": _iso(row.get("created_at")),
             "readAt": _iso(row.get("read_at")),
             "editedAt": _iso(row.get("edited_at")),
@@ -950,6 +1136,8 @@ class DirectMessagesService:
         recipient_user_id: str | None = None,
         recipient_person_ref: str | None = None,
         reply_to_message_id: str | None = None,
+        client_message_id: str | None = None,
+        attachment: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         sender = self._normalize_user_id(sender_user_id, field="senderUserId")
         recipient, _person_ref = self._resolve_recipient(
@@ -957,7 +1145,11 @@ class DirectMessagesService:
             recipient_person_ref=recipient_person_ref,
         )
         self._reject_self(sender, recipient)
-        normalized_content = self._normalize_content(content)
+        normalized_attachment = normalize_direct_attachment(attachment)
+        normalized_content = self._normalize_content(
+            content, allow_empty=normalized_attachment is not None
+        )
+        stored_content = _stored_message_content(normalized_content, normalized_attachment)
         normalized_reply_to_message_id = None
         if reply_to_message_id is not None:
             try:
@@ -969,7 +1161,17 @@ class DirectMessagesService:
                     status_code=404,
                 ) from exc
         conversation_id = str(uuid.uuid4())
-        message_id = str(uuid.uuid4())
+        try:
+            message_id = (
+                str(uuid.UUID(client_message_id))
+                if client_message_id is not None
+                else str(uuid.uuid4())
+            )
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_INVALID_ID", "Message could not be verified.", status_code=422
+            ) from exc
+        inserted = False
         message_row: dict[str, Any] | None = None
         conversation_row: dict[str, Any] | None = None
         reply_to: dict[str, Any] | None = None
@@ -993,7 +1195,7 @@ class DirectMessagesService:
                       CAST(:conversation_id AS UUID),
                       LEAST(:sender_user_id, :recipient_user_id),
                       GREATEST(:sender_user_id, :recipient_user_id),
-                      NOW(), NULL
+                      clock_timestamp(), NULL
                     )
                     ON CONFLICT (participant_a_user_id, participant_b_user_id)
                     DO NOTHING
@@ -1034,14 +1236,58 @@ class DirectMessagesService:
                             status_code=404,
                         )
                     reply_to = self._message_projection(reply_row, sender)
-                envelope = self._cipher.seal(
-                    normalized_content,
-                    conversation_id=conversation_id,
-                    message_id=message_id,
-                    sender_user_id=sender,
-                )
-                message_row = self._execute_one(
-                    """
+
+                def replay() -> dict[str, Any] | None:
+                    row = self._execute_one(
+                        """SELECT id, conversation_id, sender_user_id, content_ciphertext,
+                                  content_iv, content_algorithm, created_at, read_at, reply_to_message_id,
+                                  edited_at, deleted_for_sender_at, deleted_for_recipient_at,
+                                  deleted_for_everyone_at
+                           FROM messages WHERE id=CAST(:message_id AS UUID)
+                             AND conversation_id=CAST(:conversation_id AS UUID)
+                             AND sender_user_id=:sender_user_id""",
+                        {
+                            "message_id": message_id,
+                            "conversation_id": conversation_id,
+                            "sender_user_id": sender,
+                        },
+                    )
+                    if row and (
+                        self._cipher.open(row) != stored_content
+                        or str(row.get("reply_to_message_id") or "")
+                        != str(normalized_reply_to_message_id or "")
+                    ):
+                        raise DirectMessagesError(
+                            "DIRECT_MESSAGE_RETRY_CONFLICT",
+                            "This message could not be retried. Send it as a new message.",
+                            status_code=409,
+                        )
+                    if row and normalized_attachment is not None:
+                        saved_attachment = self._execute_one(
+                            "SELECT content_digest FROM direct_message_attachments WHERE message_id=CAST(:message_id AS UUID)",
+                            {"message_id": message_id},
+                        )
+                        if not saved_attachment or not hmac.compare_digest(
+                            bytes(saved_attachment["content_digest"]),
+                            self._cipher.digest_attachment(normalized_attachment["bytes"]),
+                        ):
+                            raise DirectMessagesError(
+                                "DIRECT_MESSAGE_RETRY_CONFLICT",
+                                "This message could not be retried. Send it as a new message.",
+                                status_code=409,
+                            )
+                    return row
+
+                message_row = replay() if client_message_id is not None else None
+                if message_row is None:
+                    envelope = self._cipher.seal(
+                        stored_content,
+                        conversation_id=conversation_id,
+                        message_id=message_id,
+                        sender_user_id=sender,
+                    )
+                    message_row = self._execute_one(
+                        """
                     INSERT INTO messages (
                       id, conversation_id, sender_user_id, content_ciphertext,
                       content_iv, content_algorithm, created_at, read_at,
@@ -1050,25 +1296,47 @@ class DirectMessagesService:
                     VALUES (
                       CAST(:message_id AS UUID), CAST(:conversation_id AS UUID),
                       :sender_user_id, :content_ciphertext, :content_iv,
-                      :content_algorithm, NOW(), NULL,
+                      :content_algorithm, clock_timestamp(), NULL,
                       CAST(:reply_to_message_id AS UUID)
                     )
+                    ON CONFLICT (id) DO NOTHING
                     RETURNING id, conversation_id, sender_user_id, content_ciphertext,
                               content_iv, content_algorithm, created_at, read_at,
                               edited_at, reply_to_message_id,
                               deleted_for_sender_at, deleted_for_recipient_at,
                               deleted_for_everyone_at
                     """,
-                    {
-                        "message_id": message_id,
-                        "conversation_id": conversation_id,
-                        "sender_user_id": sender,
-                        "reply_to_message_id": normalized_reply_to_message_id,
-                        **envelope,
-                    },
-                )
-                if not message_row:
-                    raise RuntimeError("direct-message insert did not return a message")
+                        {
+                            "message_id": message_id,
+                            "conversation_id": conversation_id,
+                            "sender_user_id": sender,
+                            "reply_to_message_id": normalized_reply_to_message_id,
+                            **envelope,
+                        },
+                    )
+                    inserted = bool(message_row)
+                    if inserted and normalized_attachment is not None:
+                        sealed_attachment = self._cipher.seal_attachment(
+                            normalized_attachment["bytes"],
+                            conversation_id=conversation_id,
+                            message_id=message_id,
+                            sender_user_id=sender,
+                        )
+                        self._execute_one(
+                            """INSERT INTO direct_message_attachments
+                               (message_id, ciphertext, iv, content_digest, size_bytes)
+                               VALUES (CAST(:message_id AS UUID), :ciphertext, :iv, :content_digest, :size_bytes)
+                               RETURNING message_id""",
+                            {"message_id": message_id, **sealed_attachment},
+                        )
+                    if message_row is None:
+                        message_row = replay()
+                        if message_row is None:
+                            raise DirectMessagesError(
+                                "DIRECT_MESSAGE_RETRY_CONFLICT",
+                                "This message could not be retried. Send it as a new message.",
+                                status_code=409,
+                            )
                 conversation_row = self._conversation_by_pair(sender, recipient)
                 if not conversation_row:
                     raise RuntimeError("direct-message conversation disappeared")
@@ -1108,6 +1376,8 @@ class DirectMessagesService:
                 "senderIsViewer": reply_to["senderIsViewer"],
                 "deletedForEveryoneAt": reply_to["deletedForEveryoneAt"],
             }
+        if not inserted or self._defer_notifications:
+            return {"conversation": conversation, "message": message}
         try:
             self._feed_notifier(
                 recipient,
@@ -1123,6 +1393,8 @@ class DirectMessagesService:
         # metadata-only Postgres doorbell.  Wake the sender's other tabs here
         # after commit; the recipient alone receives an OS push.
         event_time = message["createdAt"] or ""
+        from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
+
         try:
             self._event_notifier(
                 sender,
@@ -1132,8 +1404,8 @@ class DirectMessagesService:
                     "conversation_id": conversation_id,
                     "direct_message_id": message_id,
                     "at": event_time,
-                    "deep_link": f"/one/messages?conversationId={conversation_id}",
-                    "request_url": f"/one/messages?conversationId={conversation_id}",
+                    "deep_link": f"/one/messages?token={DirectMessageRouteCipher().seal(sender, 'conversation', conversation_id)}",
+                    "request_url": f"/one/messages?token={DirectMessageRouteCipher().seal(sender, 'conversation', conversation_id)}",
                 },
             )
         except Exception as exc:  # noqa: BLE001 - a committed message must remain sent
@@ -1170,6 +1442,8 @@ class DirectMessagesService:
         message_id = str(row.get("id") or "").strip()
         if not conversation_id or not message_id:
             return
+        from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
+
         for participant in {
             str(row.get("participant_a_user_id") or "").strip(),
             str(row.get("participant_b_user_id") or "").strip(),
@@ -1186,8 +1460,8 @@ class DirectMessagesService:
                         "conversation_id": conversation_id,
                         "direct_message_id": message_id,
                         "at": _iso(datetime.now()) or "",
-                        "deep_link": f"/one/messages?conversationId={conversation_id}",
-                        "request_url": f"/one/messages?conversationId={conversation_id}",
+                        "deep_link": f"/one/messages?token={DirectMessageRouteCipher().seal(participant, 'conversation', conversation_id)}",
+                        "request_url": f"/one/messages?token={DirectMessageRouteCipher().seal(participant, 'conversation', conversation_id)}",
                     },
                 )
             except Exception as exc:  # noqa: BLE001 - persistence is authoritative
@@ -1224,8 +1498,9 @@ class DirectMessagesService:
                         "A deleted message cannot be edited.",
                         status_code=409,
                     )
+                _, attachment = _opened_message_content(self._cipher.open(current))
                 envelope = self._cipher.seal(
-                    normalized_content,
+                    _stored_message_content(normalized_content, attachment),
                     conversation_id=conversation_key,
                     message_id=message_key,
                     sender_user_id=viewer,
@@ -1321,7 +1596,7 @@ class DirectMessagesService:
                             status_code=404,
                         )
                     updated = self._message_action_row(viewer, conversation_key, message_key)
-                    result = {
+                    result: dict[str, Any] = {
                         "scope": "everyone",
                         "message": self._message_projection(updated, viewer),
                     }
@@ -1398,14 +1673,16 @@ class DirectMessagesService:
                         "A deleted message cannot be reacted to.",
                         status_code=409,
                     )
+                # PUT is intentionally idempotent: a retry after a lost
+                # response must not remove a reaction that was already saved.
+                # The widened key lets the same participant add other emojis.
                 self._execute_one(
                     """
                     INSERT INTO direct_message_reactions (
                       message_id, user_id, emoji, created_at, updated_at
                     )
                     VALUES (CAST(:message_id AS UUID), :viewer_user_id, :emoji, NOW(), NOW())
-                    ON CONFLICT (message_id, user_id)
-                    DO UPDATE SET emoji = EXCLUDED.emoji, updated_at = NOW()
+                    ON CONFLICT (message_id, user_id, emoji) DO NOTHING
                     RETURNING message_id
                     """,
                     {
@@ -1427,6 +1704,106 @@ class DirectMessagesService:
         message = self._message_projection(updated, viewer)
         self._notify_message_action(updated)
         return {"message": message}
+
+    def remove_reaction(
+        self,
+        viewer_user_id: str,
+        conversation_id: str,
+        message_id: str,
+        *,
+        emoji: str,
+    ) -> dict[str, Any]:
+        viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
+        conversation_key = self._normalize_conversation_id(conversation_id)
+        message_key = self._normalize_message_id(message_id)
+        normalized_emoji = str(emoji or "").strip()
+        if not normalized_emoji or len(normalized_emoji) > 32:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_REACTION_INVALID", "Choose a valid reaction.", status_code=422
+            )
+        try:
+            with self._transaction():
+                current = self._message_action_row(viewer, conversation_key, message_key)
+                if current.get("deleted_for_everyone_at") is not None:
+                    raise DirectMessagesError(
+                        "DIRECT_MESSAGE_DELETED",
+                        "A deleted message cannot be reacted to.",
+                        status_code=409,
+                    )
+                changed = self._execute_one(
+                    """DELETE FROM direct_message_reactions
+                       WHERE message_id=CAST(:message_id AS UUID)
+                         AND user_id=:viewer_user_id AND emoji=:emoji
+                       RETURNING message_id""",
+                    {
+                        "message_id": message_key,
+                        "viewer_user_id": viewer,
+                        "emoji": normalized_emoji,
+                    },
+                )
+                updated = self._message_action_row(viewer, conversation_key, message_key)
+        except DirectMessagesError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("direct_messages.reaction_remove_failed error=%s", type(exc).__name__)
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_REACTION_FAILED",
+                "Reaction could not be removed. Please try again.",
+                status_code=503,
+            ) from exc
+        if changed:
+            self._notify_message_action(updated)
+        return {"message": self._message_projection(updated, viewer)}
+
+    def get_attachment(
+        self, viewer_user_id: str, conversation_id: str, message_id: str
+    ) -> dict[str, Any]:
+        viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
+        conversation_key = self._normalize_conversation_id(conversation_id)
+        message_key = self._normalize_message_id(message_id)
+        row = self._message_for_participant(viewer, conversation_key, message_key)
+        hidden = row and (
+            row.get("deleted_for_everyone_at") is not None
+            or row.get("deleted_for_sender_at") is not None
+            and row.get("sender_user_id") == viewer
+            or row.get("deleted_for_recipient_at") is not None
+            and row.get("sender_user_id") != viewer
+        )
+        if not row or hidden:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_NOT_FOUND", "Message was not found.", status_code=404
+            )
+        _, metadata = _opened_message_content(self._cipher.open(row))
+        if not metadata:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_ATTACHMENT_NOT_FOUND", "Attachment was not found.", status_code=404
+            )
+        stored = self._execute_one(
+            """SELECT ciphertext, iv, size_bytes FROM direct_message_attachments
+               WHERE message_id=CAST(:message_id AS UUID)""",
+            {"message_id": message_key},
+        )
+        if not stored:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_ATTACHMENT_UNAVAILABLE",
+                "This attachment could not be opened. Please try again later.",
+                status_code=503,
+            )
+        content = self._cipher.open_attachment(
+            {
+                **stored,
+                "conversation_id": conversation_key,
+                "message_id": message_key,
+                "sender_user_id": row["sender_user_id"],
+            }
+        )
+        if len(content) != int(stored["size_bytes"]) or len(content) != metadata["size"]:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_ATTACHMENT_UNAVAILABLE",
+                "This attachment could not be opened. Please try again later.",
+                status_code=503,
+            )
+        return {"content": content, "mimeType": metadata["mimeType"], "name": metadata["name"]}
 
     def list_conversations(self, viewer_user_id: str, *, limit: int = 100) -> dict[str, Any]:
         viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
@@ -1663,7 +2040,9 @@ class DirectMessagesService:
             "disconnectedNotice": conversation["disconnectedNotice"],
         }
 
-    def mark_as_read(self, viewer_user_id: str, conversation_id: str) -> dict[str, Any]:
+    def mark_as_read(
+        self, viewer_user_id: str, conversation_id: str, *, through_message_id: str | None = None
+    ) -> dict[str, Any]:
         viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
         conversation_key = self._normalize_conversation_id(conversation_id)
         conversation_row = self._conversation_for_participant(viewer, conversation_key)
@@ -1673,23 +2052,74 @@ class DirectMessagesService:
                 "Conversation was not found.",
                 status_code=404,
             )
+        through = None
         with self._transaction():
+            if through_message_id is not None:
+                try:
+                    through_message_id = str(uuid.UUID(through_message_id))
+                except (ValueError, TypeError, AttributeError) as exc:
+                    raise DirectMessagesError(
+                        "DIRECT_MESSAGE_INVALID_ID",
+                        "Message could not be verified.",
+                        status_code=422,
+                    ) from exc
+                through = self._execute_one(
+                    "SELECT created_at FROM messages WHERE id=CAST(:message_id AS UUID) AND conversation_id=CAST(:conversation_id AS UUID)",
+                    {"message_id": through_message_id, "conversation_id": conversation_key},
+                )
+                if not through:
+                    raise DirectMessagesError(
+                        "DIRECT_MESSAGE_CONVERSATION_NOT_FOUND",
+                        "Message was not found.",
+                        status_code=404,
+                    )
             updated = self._execute_many(
                 """
                 UPDATE messages
-                SET read_at = NOW()
+                SET read_at = clock_timestamp()
                 WHERE conversation_id = CAST(:conversation_id AS UUID)
                   AND sender_user_id <> :viewer_user_id
                   AND read_at IS NULL
                   AND deleted_for_everyone_at IS NULL
                   AND deleted_for_recipient_at IS NULL
-                RETURNING id, read_at
+                  AND (CAST(:through_message_id AS UUID) IS NULL OR (created_at, id) <= (
+                    SELECT boundary.created_at, boundary.id FROM messages boundary
+                    WHERE boundary.id=CAST(:through_message_id AS UUID)
+                      AND boundary.conversation_id=CAST(:conversation_id AS UUID)
+                  ))
+                RETURNING id, read_at, created_at
                 """,
-                {"conversation_id": conversation_key, "viewer_user_id": viewer},
+                {
+                    "conversation_id": conversation_key,
+                    "viewer_user_id": viewer,
+                    "through_message_id": through_message_id,
+                },
+            )
+        frontier_at = through["created_at"] if through else None
+        frontier_id = through_message_id or ""
+        if not through and updated:
+            latest = max(updated, key=lambda row: (row["created_at"], str(row["id"])))
+            frontier_at, frontier_id = latest["created_at"], str(latest["id"])
+        sync = {}
+        if self._transaction_connection is None:
+            from hushh_mcp.services.chat_notification_state import sync_chat_read
+
+            sync = sync_chat_read(
+                viewer,
+                conversation=conversation_key,
+                read_at=frontier_at,
+                message_id=frontier_id,
+                db=self.db,
             )
         return {
+            **sync,
             "readCount": len(updated),
             "readAt": _iso(updated[0].get("read_at")) if updated else None,
+            **(
+                {"readThroughCreatedAt": _iso(frontier_at), "readThroughMessageId": frontier_id}
+                if frontier_at
+                else {}
+            ),
         }
 
 

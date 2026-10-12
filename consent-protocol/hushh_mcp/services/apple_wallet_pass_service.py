@@ -220,6 +220,7 @@ class WalletPassContent:
     portfolio: str = field(repr=False, default="")
     preferred_contact: str = field(repr=False, default="")
     expires_at: datetime | None = field(repr=False, default=None)
+    variant: str = "profile"
 
     @classmethod
     def from_card_payload(
@@ -231,6 +232,7 @@ class WalletPassContent:
         display_name: str | None = None,
         headline: str | None = None,
         expires_at: datetime | None = None,
+        variant: str = "profile",
     ) -> WalletPassContent:
         """Project a stored card row onto the pass face.
 
@@ -257,6 +259,13 @@ class WalletPassContent:
             portfolio=_clean(payload.get("portfolio")),
             preferred_contact=_clean(payload.get("preferred_contact")).lower(),
             expires_at=expires_at,
+            variant=variant,
+        )
+
+    @property
+    def description(self) -> str:
+        return {"referral": "Agent One Referral", "nws": "Agent One NWS"}.get(
+            self.variant, PASS_DESCRIPTION
         )
 
     @property
@@ -368,6 +377,20 @@ def _build_back_fields(content: WalletPassContent) -> list[dict[str, str]]:
     Wallet's data detectors turn plain email addresses, phone numbers and URLs
     in `value` into tappable actions, so no attributedValue markup is needed.
     """
+    if content.variant == "referral":
+        return _present(
+            _text_field("referral_link", content.public_card_url, label="Referral link"),
+            _text_field(
+                "how_it_works", "Scan to join Agent One with this referral.", label="How this works"
+            ),
+        )
+    if content.variant == "nws":
+        return _present(
+            _text_field("profile_link", content.public_card_url, label="Profile link"),
+            _text_field(
+                "how_it_works", "Scan to open the current shared profile.", label="How this works"
+            ),
+        )
     skills = " · ".join(content.skills)
     preferred = _preferred_contact_label(content.preferred_contact)
 
@@ -431,7 +454,7 @@ def _build_pass_json(
         "passTypeIdentifier": material.pass_type_identifier,
         "teamIdentifier": material.team_identifier,
         "organizationName": ORGANIZATION_NAME,
-        "description": PASS_DESCRIPTION,
+        "description": content.description,
         "serialNumber": content.pass_serial,
         "logoText": PASS_LOGO_TEXT,
         "backgroundColor": _CARD_BACKGROUND_COLOR,

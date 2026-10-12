@@ -64,6 +64,10 @@ function isLiveReceiptPath(path: string): boolean {
   return path === "gmail/receipts/scan" || path === "gmail/receipts/detail";
 }
 
+function isPrivateProviderPath(path: string): boolean {
+  return isLiveReceiptPath(path) || path.startsWith("plaid/vault/");
+}
+
 const LIVE_RECEIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   GMAIL_RECEIPT_OWNER_REQUIRED:
     "Receipt access requires the current vault owner.",
@@ -107,7 +111,7 @@ function withKaiJson(
   init?: ResponseInit,
 ) {
   const response = withRequestIdJson(requestId, body, init);
-  if (isLiveReceiptPath(path)) {
+  if (isPrivateProviderPath(path)) {
     response.headers.set("Cache-Control", "private, no-store, max-age=0");
     response.headers.set("Pragma", "no-cache");
   }
@@ -477,7 +481,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
           `[Kai API] request_id=${requestId} no_active_analyze_run status=${response.status}`
         );
       } else {
-        if (isLiveReceiptPath(path)) {
+        if (isPrivateProviderPath(path)) {
           console.error(
             `[Kai API] request_id=${requestId} upstream_status=${response.status} path=${path}`,
           );
@@ -506,7 +510,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (isUpstreamTimeoutError(error)) {
       console.error(
         `[Kai API] request_id=${requestId} upstream_timeout path=${path}`,
-        summarizeProxyError(error, { omitDetails: isLiveReceiptPath(path) }),
+        summarizeProxyError(error, { omitDetails: isPrivateProviderPath(path) }),
       );
       return withKaiJson(
         requestId,
@@ -533,7 +537,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
 
     console.error(
       `[Kai API] request_id=${requestId} proxy_error path=${path}`,
-      summarizeProxyError(error, { omitDetails: isLiveReceiptPath(path) }),
+      summarizeProxyError(error, { omitDetails: isPrivateProviderPath(path) }),
     );
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withKaiJson(

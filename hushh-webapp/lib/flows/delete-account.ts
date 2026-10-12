@@ -1,7 +1,7 @@
 "use client";
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { AccountService } from "@/lib/services/account-service";
+import { AccountService, type AccountDeletionResult } from "@/lib/services/account-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { ApiService } from "@/lib/services/api-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
@@ -48,6 +48,15 @@ export const DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE =
 
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE =
   "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING";
+const LOST_VAULT_PRECOMMIT_CODES = new Set([
+  "ACCOUNT_DELETE_REAUTH_REQUIRED",
+  "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED",
+  "ACCOUNT_DELETE_PHONE_PROOF_INVALID",
+  "ACCOUNT_DELETE_METHOD_UNAVAILABLE",
+  "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE",
+  "ACCOUNT_DELETE_PHONE_BINDING_CONFLICT",
+  "PERSONAL_AGENT_DEPROVISION_REQUIRED",
+]);
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE =
   "Your private agent or cloud setup must be removed before the account can be deleted. Please try again later or contact support.";
 
@@ -171,6 +180,29 @@ export function accountDeletionErrorMessage(error: unknown): string {
     return ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED_MESSAGE;
   }
   return "Failed to delete account. Please try again.";
+}
+
+export function lostVaultDeletionErrorMessage(error: unknown): string {
+  switch (apiErrorCode(error)) {
+    case "ACCOUNT_DELETE_REAUTH_REQUIRED":
+      return "Your sign-in check expired. Verify again.";
+    case "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED":
+    case "ACCOUNT_DELETE_PHONE_PROOF_INVALID":
+      return "That code did not work. Request a new code.";
+    case "ACCOUNT_DELETE_METHOD_UNAVAILABLE":
+    case "ACCOUNT_DELETE_PHONE_BINDING_CONFLICT":
+      return "This check is unavailable. Contact support.";
+    case "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE":
+      return "We cannot verify you right now. Try later.";
+    case "PERSONAL_AGENT_DEPROVISION_REQUIRED":
+      return "Your private agent must be removed first. Contact support.";
+    default:
+      return accountDeletionErrorMessage(error);
+  }
+}
+
+function isLostVaultPrecommitError(error: unknown): boolean {
+  return error instanceof ApiError && LOST_VAULT_PRECOMMIT_CODES.has(apiErrorCode(error) ?? "");
 }
 
 async function probeDeletionStatus(
@@ -310,6 +342,42 @@ export async function executeVerifiedAccountDeletion(params: {
     vaultOwnerToken: params.vaultOwnerToken,
   });
 
+  await executeAccountDeletion({
+    userId: params.userId,
+    sessionUser: params.sessionUser,
+    performDeletion: () => AccountService.deleteAccount(params.vaultOwnerToken, "both"),
+  });
+}
+
+/** Delete a locked vault after the backend verifies recent provider and phone proofs. */
+export async function executeLostVaultAccountDeletion(params: {
+  userId: string;
+  sessionUser: AccountDeletionSessionUser;
+  firebaseIdToken: string;
+  phoneIdToken?: string;
+}): Promise<AccountDeletionResult> {
+  if (!params.firebaseIdToken) throw new Error("Fresh sign-in proof required.");
+  return executeAccountDeletion({
+    userId: params.userId,
+    sessionUser: params.sessionUser,
+    performDeletion: () => AccountService.deleteLostVaultAccount({
+      firebaseIdToken: params.firebaseIdToken,
+      phoneIdToken: params.phoneIdToken,
+    }),
+    isKnownPrecommitError: isLostVaultPrecommitError,
+  });
+}
+
+async function executeAccountDeletion(params: {
+  userId: string;
+  sessionUser: AccountDeletionSessionUser;
+  performDeletion: () => Promise<AccountDeletionResult>;
+  isKnownPrecommitError?: (error: unknown) => boolean;
+}): Promise<AccountDeletionResult> {
+  if (params.sessionUser.uid !== params.userId) {
+    throw new Error("Account deletion session identity changed. Please retry.");
+  }
+
   // Capture a UID-bound Firebase credential before the destructive request.
   // Even if Firebase is removed and the HTTP response is lost, this token can
   // still ask the tombstone-aware status route for the committed outcome.
@@ -323,14 +391,14 @@ export async function executeVerifiedAccountDeletion(params: {
     return null;
   });
 
-  let result;
+  let result: AccountDeletionResult | undefined;
   let submissionFailure: unknown = null;
   let terminalDeletionSignalDispatched = false;
   // From here the erasure may lock or remove this account's rows under any
   // background vault work still running on this page.
   markAccountDeletionActive(params.userId);
   try {
-    result = await AccountService.deleteAccount(params.vaultOwnerToken, "both");
+    result = await params.performDeletion();
   } catch (error) {
     submissionFailure = error;
   }
@@ -344,7 +412,8 @@ export async function executeVerifiedAccountDeletion(params: {
     // Keep the authenticated session recoverable so the user can deprovision
     // their external agent and retry deliberately. Transport/lost-response
     // failures remain on the fail-closed confirmation path below.
-    if (isRecoverableAccountDeletionPrecondition(submissionFailure)) {
+    if (isRecoverableAccountDeletionPrecondition(submissionFailure) ||
+        params.isKnownPrecommitError?.(submissionFailure)) {
       clearAccountDeletionActive(params.userId);
       throw submissionFailure;
     }
@@ -411,7 +480,11 @@ export async function executeVerifiedAccountDeletion(params: {
     // success, so it receives success copy; sibling/other devices still use
     // the authoritative account-not-found notice.
     dispatchAuthSessionInvalidated({
-      code: "account_deleted",
+      code: result.ready_to_start_fresh === true
+        ? "account_deleted_ready_to_start_fresh"
+        : result.ready_to_start_fresh === false
+          ? "account_deletion_finishing"
+          : "account_deleted",
       path: "account_delete_confirmed",
       userId: params.userId,
     });
@@ -426,4 +499,5 @@ export async function executeVerifiedAccountDeletion(params: {
   ).catch(() => undefined);
   setOnboardingRequiredCookie(false);
   setOnboardingFlowActiveCookie(false);
+  return result;
 }

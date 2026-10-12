@@ -78,6 +78,7 @@ class DrivePermissionStore(DriveSharingStore):
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
         if (
             context["private_request_erased_at"] is not None
+            or request["access_stop_requested_at"] is not None
             or request["status"] not in {"approved", "partial"}
             or request["approval_invalidated_at"] is not None
             or request["revision"] != initial["review_revision"]

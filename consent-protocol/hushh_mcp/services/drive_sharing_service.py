@@ -7,7 +7,7 @@ The response 'approved' means queued, not that Google has shared anything.
 from hushh_mcp.services.drive_permission_executor import require_recipient_identity
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
-from hushh_mcp.services.drive_work_wake import wake_drive_work
+from hushh_mcp.services.drive_work_wake import wake_drive_work, wake_drive_work_stages
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 
 
@@ -29,8 +29,25 @@ class DriveSharingService:
             raise DriveSharingError("reconnect_required")
         return row["connection_generation"]
 
+    async def _management_generation(self, user_id):
+        # Owner consent to stop sharing does not require a live Drive token.
+        # Google deletion remains queued until the original issuer reconnects.
+        row = await self.oauth.lifecycle.read(
+            user_id=user_id, connector_id="google_drive", purge=False
+        )
+        if not row or not isinstance(row.get("connection_generation"), int):
+            raise DriveSharingError("reconnect_required")
+        return row["connection_generation"]
+
     async def create(
-        self, *, recipient, owner_user_id, client_request_id, purpose, request_time_zone=None
+        self,
+        *,
+        recipient,
+        owner_user_id,
+        client_request_id,
+        purpose,
+        request_time_zone=None,
+        expected_quote_version=None,
     ):
         result = await self.store.create_request(
             recipient=recipient,
@@ -38,10 +55,41 @@ class DriveSharingService:
             client_request_id=client_request_id,
             purpose=purpose,
             request_time_zone=request_time_zone,
+            expected_quote_version=expected_quote_version,
         )
-        await wake_drive_work("suggestions")
-        await wake_drive_work("sharing")
+        await wake_drive_work_stages("suggestions", "sharing")
         return result
+
+    async def owner_pricing(self, *, user_id):
+        await self._require_owner()
+        return await self.store.owner_pricing(user_id=user_id)
+
+    async def update_owner_pricing(self, *, user_id, enabled, amount_cents, expected_version):
+        await self._require_owner()
+        result = await self.store.update_owner_pricing(
+            user_id=user_id,
+            enabled=enabled,
+            amount_cents=amount_cents,
+            expected_version=expected_version,
+        )
+        await wake_drive_work_stages("suggestions", "sharing")
+        return result
+
+    async def resume_owner_setup(self, *, user_id):
+        """Internal verified account-refresh hook; no user consent is created here."""
+        result = await self.store.resume_owner_setup(user_id=user_id)
+        await wake_drive_work_stages("suggestions", "sharing")
+        return result
+
+    async def resume_owner_drive(self, *, user_id):
+        """Internal verified-Drive hook; no user consent is created here."""
+        result = await self.store.resume_owner_drive(user_id=user_id)
+        await wake_drive_work_stages("suggestions", "sharing")
+        return result
+
+    async def request_quote(self, *, user_id, owner_user_id):
+        await self._require_owner()
+        return await self.store.request_quote(user_id=user_id, owner_user_id=owner_user_id)
 
     async def list_requests(self, **kwargs):
         return await self.store.list_requests(**kwargs)
@@ -51,6 +99,9 @@ class DriveSharingService:
 
     async def lookup_client(self, **kwargs):
         return await self.store.lookup_client_request(**kwargs)
+
+    async def requester_context(self, **kwargs):
+        return await self.store.requester_context(**kwargs)
 
     async def review(self, **kwargs):
         return await self.store.owner_review(**kwargs)
@@ -77,6 +128,8 @@ class DriveSharingService:
         current = await self.store.delivery_snapshot(user_id=user_id, request_id=request_id)
         if current["recipient"] != recipient:
             raise DriveSharingError("recipient_changed")
+        if current["result"].get("accessStopStatus") is not None:
+            return {"requestId": request_id, "files": [], "nextCursor": None}
         share_id = current["result"].get("bulkShareId")
         if share_id is None:
             raise DriveSharingError("bulk_not_found")
@@ -101,6 +154,9 @@ class DriveSharingService:
                 cursor=cursor,
                 limit=25,
             )
+        after = await self.store.delivery_snapshot(user_id=user_id, request_id=request_id)
+        if after["result"].get("accessStopStatus") is not None:
+            return {"requestId": request_id, "files": [], "nextCursor": None}
         return {"requestId": request_id, **page}
 
     async def approve(self, *, user_id, **kwargs):
@@ -129,6 +185,23 @@ class DriveSharingService:
         await wake_drive_work("sharing")
         return result
 
+    async def allow(self, *, user_id, request_id, revision, amount_cents):
+        """A's Allow hands one request to the automatic search; nothing is shared yet."""
+        await self._require_owner()
+        result = await self.store.allow_request(
+            user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
+        )
+        await wake_drive_work("suggestions")
+        return result
+
+    async def set_request_price(self, *, user_id, request_id, revision, amount_cents):
+        await self._require_owner()
+        result = await self.store.set_request_price(
+            user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
+        )
+        await wake_drive_work_stages("suggestions", "sharing")
+        return result
+
     async def retry_preparation(self, **kwargs):
         await self._require_owner()
         result = await self.store.retry_preparation(**kwargs)
@@ -136,13 +209,17 @@ class DriveSharingService:
         return result
 
     async def prepare_revocation(self, *, user_id, request_id):
-        generation = await self._generation(user_id)
+        generation = await self._management_generation(user_id)
         await self._require_owner()
         return await self.store.prepare_revocation(
             user_id=user_id, generation=generation, request_id=request_id
         )
 
     async def revoke(self, *, user_id, **kwargs):
-        generation = await self._generation(user_id)
+        generation = await self._management_generation(user_id)
         await self._require_owner()
-        return await self.store.confirm_revocation(user_id=user_id, generation=generation, **kwargs)
+        result = await self.store.confirm_revocation(
+            user_id=user_id, generation=generation, **kwargs
+        )
+        await wake_drive_work("sharing")
+        return result

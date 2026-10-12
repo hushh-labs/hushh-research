@@ -691,6 +691,7 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
     await waitFor(() => expect(mocks.createNamedCircle).toHaveBeenCalledWith({ vaultOwnerToken: "vault-token", name: "Roommates", kind: "friends" }));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("circleId=new-circle");
+    expect(new URL(String(mocks.routerPush.mock.calls[0][0]), "http://localhost").searchParams.get("circleSetup")).toBe("1");
   });
 
   it("dismisses custom creation in one close action without validating an empty name", async () => {
@@ -726,6 +727,19 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
       await screen.findByTestId("one-location-create-circle-flow"),
     ).toBeTruthy();
     expect(screen.queryByTestId("connect-circles-tab")).toBeNull();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("replaces full-page creation with the saved circle's member setup", async () => {
+    mocks.searchParams = new URLSearchParams("tab=circles&action=create-circle");
+    render(<ConnectCirclesTab />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Circle" }));
+    await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalled());
+    const params = new URL(String(mocks.routerReplace.mock.calls[0][0]), "http://localhost").searchParams;
+    expect(params.get("circleId")).toBe("new-circle");
+    expect(params.get("circleSetup")).toBe("1");
+    expect(params.get("action")).toBe("circle-detail");
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 

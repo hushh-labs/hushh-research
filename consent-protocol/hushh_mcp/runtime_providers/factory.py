@@ -13,9 +13,11 @@ import functools
 import os
 import re
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 from google.genai.types import HttpOptions, HttpOptionsDict
 
@@ -44,6 +46,24 @@ GeminiByokTransport = Literal["developer_api", "vertex_api_key"]
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 _LOCATION_RE = re.compile(r"^(?:global|us|eu|[a-z]+-[a-z]+[0-9]+)$")
 _PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+_MANAGED_VERTEX_PROJECT: ContextVar[str | None] = ContextVar("managed_vertex_project", default=None)
+
+
+@contextmanager
+def bind_managed_vertex_project(vertex_project: str | None) -> Iterator[None]:
+    """Scope an ADC billing project to one trusted in-process operation.
+
+    The caller must obtain this value from server configuration, never model or
+    client input. Explicit model project arguments still take precedence.
+    """
+    project = str(vertex_project).strip() if vertex_project is not None else None
+    if project is not None and not _PROJECT_RE.fullmatch(project):
+        raise ValueError("Managed Vertex project override is invalid")
+    token = _MANAGED_VERTEX_PROJECT.set(project)
+    try:
+        yield
+    finally:
+        _MANAGED_VERTEX_PROJECT.reset(token)
 
 
 class GeminiByokTransportUnsupportedError(ValueError):
@@ -81,14 +101,26 @@ class ManagedGeminiRuntimeBinding:
     auth_mode: str
 
     @classmethod
-    def from_environment(cls) -> "ManagedGeminiRuntimeBinding":
+    def from_environment(
+        cls, *, vertex_project: str | None = None
+    ) -> "ManagedGeminiRuntimeBinding":
         mode = _managed_genai_auth_mode()
+        scoped_project = _MANAGED_VERTEX_PROJECT.get()
+        effective_project = vertex_project if vertex_project is not None else scoped_project
+        if effective_project is not None:
+            project = str(effective_project).strip()
+            if not _PROJECT_RE.fullmatch(project):
+                raise ValueError("Managed Vertex project override is invalid")
+            if mode != VERTEX_ADC_AUTH_MODE:
+                raise RuntimeError("Managed Vertex project override requires Vertex ADC")
+        else:
+            project = _vertex_project() if mode == VERTEX_ADC_AUTH_MODE else ""
         if mode == DEVELOPER_API_KEY_AUTH_MODE:
             # Local-only compatibility mode. It remains explicit and cannot be
             # selected in a hosted environment.
             return cls(project="", locations=(), auth_mode=mode)
         return cls(
-            project=_vertex_project(),
+            project=project,
             locations=_vertex_locations(),
             auth_mode=mode,
         )
@@ -529,14 +561,18 @@ def build_managed_runtime_client(runtime_provider: str, managed_credential: str 
     return _build(provider, key, managed=True)
 
 
-def build_managed_live_client(*, model: str, location: str) -> Any:
+def build_managed_live_client(
+    *, model: str, location: str, vertex_project: str | None = None
+) -> Any:
     """Managed Gemini Live client from the canonical ADC contract.
 
     The relay, the readiness probe, and the model-discovery script all come
     through here so ``genai.Client(`` stays centralized in this module.
     """
 
-    return ManagedGeminiRuntimeBinding.from_environment().build_live_client(
+    return ManagedGeminiRuntimeBinding.from_environment(
+        vertex_project=vertex_project
+    ).build_live_client(
         model=model,
         location=location,
     )
@@ -571,10 +607,14 @@ def build_managed_gemini_adk_model(
     )
 
 
-def build_managed_regional_gemini_adk_model(model: str) -> Any:
+def build_managed_regional_gemini_adk_model(
+    model: str, *, vertex_project: str | None = None
+) -> Any:
     """Build a tool-less single-turn ADK model with bounded regional failover."""
 
-    return ManagedGeminiRuntimeBinding.from_environment().build_regional_adk_model(model)
+    return ManagedGeminiRuntimeBinding.from_environment(
+        vertex_project=vertex_project
+    ).build_regional_adk_model(model)
 
 
 def build_gemini_byok_adk_model(

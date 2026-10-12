@@ -3,7 +3,9 @@ import {
   DevicesProfileIcon, ConnectedSystemsAgentIcon, InviteFriendsProfileIcon,
   SupportProfileIcon, DeveloperToolsProfileIcon, SignOutProfileIcon,
   PROFILE_ICON_COLORS,
+  MemoryAgentIcon,
 } from "@/components/icons/agents";
+import { ProfileAccountBankIcon, ProfileAccountPriceIcon } from "./profile-your-account-icons";
 import { ShieldCheck, ScrollText } from "@/components/icons";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/legal-documents";
 
@@ -19,6 +21,9 @@ export const PROFILE_LABELS = {
 export const PROFILE_MENU_GROUPS = [
   { id: "settings", title: "Your settings", entries: [
     { id: "account", label: PROFILE_LABELS.account, icon: AccountProfileIcon, symbol: "person", iconHex: PROFILE_ICON_COLORS.account },
+    { id: "payouts", label: "Payouts", icon: ProfileAccountBankIcon, symbol: "building.columns", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts", voicePurpose: "Opens bank setup and transaction history." },
+    { id: "request-pricing", label: "Request pricing", icon: ProfileAccountPriceIcon, symbol: "tag", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing", voicePurpose: "Opens your default document request price." },
+    { id: "my-data", label: "Memory", icon: MemoryAgentIcon, symbol: "brain", voiceControlId: "profile_my_data", voiceActionId: "route.profile_my_data", voicePurpose: "Opens saved details and sharing." },
     { id: "preferences", label: PROFILE_LABELS.preferences, icon: PreferencesProfileIcon, symbol: "slider.horizontal.3", iconHex: PROFILE_ICON_COLORS.preferences },
     { id: "security", label: PROFILE_LABELS.security, icon: SecurityProfileIcon, symbol: "checkmark.shield", iconHex: PROFILE_ICON_COLORS.security },
     { id: "devices", label: "Trusted devices", icon: DevicesProfileIcon, symbol: "laptopcomputer", iconHex: PROFILE_ICON_COLORS.devices },

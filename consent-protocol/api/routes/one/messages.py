@@ -7,15 +7,20 @@ import json
 import logging
 import time
 from typing import AsyncGenerator
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth
+from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
 from hushh_mcp.services.direct_messages_service import (
     DEFAULT_MESSAGE_PAGE_SIZE,
+    MAX_DIRECT_ATTACHMENT_BASE64_LENGTH,
     MAX_DIRECT_MESSAGE_LENGTH,
     DirectMessagesError,
     DirectMessagesService,
@@ -23,12 +28,52 @@ from hushh_mcp.services.direct_messages_service import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/one/messages", tags=["Direct Messages"])
+
+class PrivateMessageRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def bounded(request: Request):
+            try:
+                if request.method == "POST" and request.url.path.rstrip("/") == "/api/one/messages":
+                    maximum = MAX_DIRECT_ATTACHMENT_BASE64_LENGTH + 64_000
+                    declared = request.headers.get("content-length")
+                    if declared and declared.isdigit() and int(declared) > maximum:
+                        raise HTTPException(413, "Message request is too large.")
+                    chunks, size = [], 0
+                    async with asyncio.timeout(30):
+                        async for chunk in request.stream():
+                            size += len(chunk)
+                            if size > maximum:
+                                raise HTTPException(413, "Message request is too large.")
+                            chunks.append(chunk)
+                    request._body = b"".join(chunks)
+                result = await handler(request)
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
+            except RequestValidationError:
+                # Validation errors must never echo an attachment's base64 data.
+                raise HTTPException(422, "Invalid message request.") from None
+            except TimeoutError:
+                raise HTTPException(408, "Message request timed out.") from None
+
+        return bounded
+
+
+router = APIRouter(
+    prefix="/api/one/messages", tags=["Direct Messages"], route_class=PrivateMessageRoute
+)
 
 
 class _CamelModel(BaseModel):
     class Config:
         allow_population_by_field_name = True
+
+
+class DirectMessageAttachmentBody(_CamelModel):
+    name: str = Field(..., min_length=1, max_length=160)
+    mime_type: str = Field(..., alias="mimeType", min_length=1, max_length=160)
+    data: str = Field(..., min_length=1, max_length=MAX_DIRECT_ATTACHMENT_BASE64_LENGTH)
 
 
 class SendDirectMessageBody(_CamelModel):
@@ -46,7 +91,9 @@ class SendDirectMessageBody(_CamelModel):
         min_length=1,
         max_length=64,
     )
-    content: str = Field(..., min_length=1, max_length=MAX_DIRECT_MESSAGE_LENGTH)
+    content: str = Field(default="", max_length=MAX_DIRECT_MESSAGE_LENGTH)
+    attachment: DirectMessageAttachmentBody | None = None
+    client_message_id: UUID | None = Field(default=None, alias="clientMessageId")
     reply_to_message_id: str | None = Field(
         default=None,
         alias="replyToMessageId",
@@ -175,6 +222,16 @@ async def send_direct_message(
             recipient_user_id=payload.recipient_user_id,
             recipient_person_ref=payload.recipient_person_ref,
             reply_to_message_id=payload.reply_to_message_id,
+            client_message_id=str(payload.client_message_id) if payload.client_message_id else None,
+            attachment=(
+                {
+                    "name": payload.attachment.name,
+                    "mimeType": payload.attachment.mime_type,
+                    "data": payload.attachment.data,
+                }
+                if payload.attachment
+                else None
+            ),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -238,6 +295,7 @@ async def list_conversation_messages(
 @router.post("/conversations/{conversation_id}/read")
 async def mark_conversation_read(
     conversation_id: str = Path(..., min_length=1, max_length=64),
+    through_message_id: UUID | None = Query(default=None, alias="throughMessageId"),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
@@ -245,6 +303,7 @@ async def mark_conversation_read(
             _service().mark_as_read,
             firebase_uid,
             conversation_id,
+            **({"through_message_id": str(through_message_id)} if through_message_id else {}),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -307,6 +366,51 @@ async def react_to_direct_message(
         raise _handle(exc) from exc
 
 
+@router.delete("/conversations/{conversation_id}/messages/{message_id}/reaction")
+async def remove_direct_message_reaction(
+    payload: DirectMessageReactionBody,
+    conversation_id: str = Path(..., min_length=1, max_length=64),
+    message_id: str = Path(..., min_length=1, max_length=64),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return await run_in_threadpool(
+            _service().remove_reaction,
+            firebase_uid,
+            conversation_id,
+            message_id,
+            emoji=payload.emoji,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/conversations/{conversation_id}/messages/{message_id}/attachment")
+async def get_direct_message_attachment(
+    conversation_id: str = Path(..., min_length=1, max_length=64),
+    message_id: str = Path(..., min_length=1, max_length=64),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        attachment = await run_in_threadpool(
+            _service().get_attachment,
+            firebase_uid,
+            conversation_id,
+            message_id,
+        )
+        return Response(
+            content=attachment["content"],
+            media_type=attachment["mimeType"],
+            headers={
+                "Cache-Control": "private, no-store",
+                "Content-Disposition": "attachment",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 def _direct_message_event(payload: object) -> dict[str, object] | None:
     if not isinstance(payload, dict) or str(payload.get("type") or "") != "direct_message":
         return None
@@ -322,7 +426,7 @@ def _direct_message_event(payload: object) -> dict[str, object] | None:
         "conversationId": conversation_id,
         "directMessageId": str(payload.get("direct_message_id") or "").strip() or None,
         "at": str(payload.get("at") or "").strip() or None,
-        "deepLink": str(payload.get("deep_link") or "").strip() or None,
+        "deepLink": None,  # Navigation resolves through the authenticated token endpoint.
     }
 
 
@@ -407,3 +511,53 @@ __all__ = [
     "SendDirectMessageBody",
     "router",
 ]
+
+
+class DirectMessageRouteBody(BaseModel):
+    token: str | None = Field(default=None, max_length=512)
+    conversationId: str | None = Field(default=None, max_length=64)
+    personRef: str | None = Field(default=None, max_length=64)
+
+
+@router.post("/route-token")
+async def direct_message_route_token(
+    body: DirectMessageRouteBody,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        if sum(bool(value) for value in (body.token, body.conversationId, body.personRef)) != 1:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_ROUTE_INVALID", "This conversation link is unavailable."
+            )
+        cipher = DirectMessageRouteCipher()
+        if body.token:
+            kind, ref = cipher.open(firebase_uid, body.token)
+        else:
+            kind, ref = (
+                ("conversation", body.conversationId)
+                if body.conversationId
+                else ("person", body.personRef)
+            )
+        service = _service()
+        if kind == "conversation":
+            ref = service._normalize_conversation_id(ref)
+            row = await run_in_threadpool(service._conversation_for_participant, firebase_uid, ref)
+            if not row:
+                raise DirectMessagesError(
+                    "DIRECT_MESSAGE_ROUTE_INVALID",
+                    "This conversation link is unavailable.",
+                    status_code=404,
+                )
+        else:
+            await run_in_threadpool(
+                service.open_with_person, firebase_uid, recipient_person_ref=ref
+            )
+        return {
+            "token": body.token or cipher.seal(firebase_uid, kind, ref),
+            "kind": kind,
+            "ref": ref,
+        }
+    except Exception as exc:
+        raise _handle(exc) from exc

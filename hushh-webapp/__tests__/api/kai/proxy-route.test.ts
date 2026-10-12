@@ -23,6 +23,22 @@ function createRequest(url: string, init: RequestInit): NextRequest {
 }
 
 describe("/api/kai/[...path] proxy", () => {
+  it.each([200, 400])("does not cache Plaid vault responses or record provider error bodies (%s)", async (status) => {
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+    const privateMarker = "synthetic-private-provider-payload";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ detail: privateMarker }), {
+      status, headers: { "Content-Type": "application/json" },
+    }));
+    const response = await kaiRoute.POST(createRequest("http://localhost:3000/api/kai/plaid/vault/link-token", {
+      method: "POST", headers: { Authorization: "Bearer synthetic-owner", "Content-Type": "application/json" }, body: "{}",
+    }), { params: Promise.resolve({ path: ["plaid", "vault", "link-token"] }) });
+    expect(response.status).toBe(status);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
+    expect(response.headers.get("Pragma")).toBe("no-cache");
+    expect(JSON.stringify(logger.mock.calls)).not.toContain(privateMarker);
+    if (status >= 400) expect(logger).toHaveBeenCalled();
+  });
+
   it("forwards both receipt auth planes and makes live scan responses no-store", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
@@ -94,6 +110,8 @@ describe("/api/kai/[...path] proxy", () => {
           Authorization: "Bearer firebase-id-token",
           "X-Hushh-Consent": "Bearer vault-owner-token",
           "Content-Type": "application/json",
+          // A random correlation ID can contain the fixture's private amount.
+          "X-Request-ID": "f5bdeb51-4bc4-4567-8bac-cb64b5d1df2a",
         },
         body: JSON.stringify({
           user_id: "owner-uid",

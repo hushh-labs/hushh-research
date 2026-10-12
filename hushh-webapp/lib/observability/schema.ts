@@ -50,6 +50,7 @@ const BASE_ALLOWED_KEYS = [
   "platform",
   "event_category",
   "app_version",
+  "app_build",
   "route_id",
 ] as const;
 
@@ -108,6 +109,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
   ria_workspace_opened: [...BASE_ALLOWED_KEYS, "result", "status_bucket"],
   mcp_ria_read_tool_called: [...BASE_ALLOWED_KEYS, "action", "result"],
   profile_method_switch_result: [...BASE_ALLOWED_KEYS, "result"],
+  vault_unlock_result: [...BASE_ALLOWED_KEYS, "method", "result", "error_class"],
   account_delete_requested: [...BASE_ALLOWED_KEYS, "result"],
   account_delete_completed: [...BASE_ALLOWED_KEYS, "result", "status_bucket"],
   account_reset_requested: [...BASE_ALLOWED_KEYS, "result"],
@@ -472,6 +474,10 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
   }
 
   for (const [key, value] of Object.entries(rawPayload)) {
+    if (key === "app_build" && (typeof value !== "string" || !/^\d{1,12}$/.test(value))) {
+      droppedKeys.push(key);
+      continue;
+    }
     if (!allowed.has(key)) {
       droppedKeys.push(key);
       continue;

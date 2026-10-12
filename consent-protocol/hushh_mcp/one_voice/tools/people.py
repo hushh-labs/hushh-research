@@ -494,6 +494,7 @@ async def _directory_candidates(ctx: ToolContext, target: str) -> tuple[list[dic
                 query=query,
                 page=page_number,
                 limit=DIRECTORY_LIMIT,
+                name_only=True,
             )
             rows = list((page or {}).get("items") or [])
             items.extend(rows)

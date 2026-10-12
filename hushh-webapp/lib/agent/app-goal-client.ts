@@ -7,14 +7,14 @@ import { settleAgentGatewayAction } from "@/lib/agent/agent-gateway-action-settl
 import {
   projectKaiActionCapability,
   type VoiceCapabilityStateV1,
-} from "@/lib/voice/capability-projection";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/capability-projection";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import {
   firstMissingRequiredSlot,
   resolveJourneySlots,
   resolveNavigationJourney,
-} from "@/lib/voice/navigation-journey";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/navigation-journey";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 export type GoalRunV1 = {
   schema_version: "one.goal_run.v1";

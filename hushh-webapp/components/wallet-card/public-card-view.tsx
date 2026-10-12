@@ -17,10 +17,9 @@
  * - No analytics: this module imports nothing from the observability layer.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Briefcase,
-  Download,
   ExternalLink,
   Globe,
   Mail,
@@ -31,9 +30,12 @@ import {
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  pickWalletAvatarUrl,
+  WALLET_AVATAR_READ_LIMIT,
+} from "@/lib/services/wallet-card-avatar";
 
 /** Mirrors the server-side `preferred_contact` closed set. */
 export type WalletCardPreferredContact =
@@ -76,10 +78,10 @@ const MAX_LENGTHS = {
   phone: 32,
   url: 300,
   preferredContact: 16,
-  avatarUrl: 2048,
   timestamp: 64,
 } as const;
 
+const MAX_HTTPS_AVATAR_LENGTH = 2048;
 const MAX_SKILLS = 12;
 const VCARD_LINE_LIMIT = 75;
 
@@ -249,12 +251,13 @@ export function normalizePublicWalletCard(
     // A portfolio identical to the website would render the same link twice.
     portfolio: portfolioRaw && portfolioRaw !== website ? portfolioRaw : null,
     preferredContact: pickPreferredContact(source),
-    avatarUrl: safeHttpsUrl(
+    avatarUrl: pickWalletAvatarUrl(
       pickString(
         source,
         ["avatarUrl", "avatar_url", "photoUrl", "photo_url"],
-        MAX_LENGTHS.avatarUrl,
+        WALLET_AVATAR_READ_LIMIT,
       ),
+      (value) => (value && value.length <= MAX_HTTPS_AVATAR_LENGTH ? safeHttpsUrl(value) : null),
     ),
     updatedAt: pickString(
       source,
@@ -379,7 +382,7 @@ function buildActions(card: PublicWalletCard): CardAction[] {
   if (card.email) {
     actions.push({
       id: "email",
-      label: "Mail",
+      label: card.email,
       href: mailtoHref(card.email),
       icon: Mail,
       external: false,
@@ -388,7 +391,7 @@ function buildActions(card: PublicWalletCard): CardAction[] {
   if (card.phone) {
     actions.push({
       id: "phone",
-      label: "Call",
+      label: card.phone,
       href: telHref(card.phone),
       icon: Phone,
       external: false,
@@ -460,78 +463,42 @@ function formatUpdatedLabel(value: string | null): string | null {
   }).format(parsed);
 }
 
-function ActionLink({
-  action,
-  emphasis,
-}: {
-  action: CardAction;
-  emphasis: "primary" | "secondary";
-}) {
+function ActionLink({ action }: { action: CardAction }) {
   const Icon = action.icon;
   return (
-    <Button
-      asChild
-      variant={emphasis === "primary" ? "default" : "outline"}
-      className="h-12 w-full justify-start gap-3 px-4 text-[15px]"
+    <a
+      href={action.href}
+      className="flex min-h-11 items-center gap-3 py-2 text-[15px] text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      {...(action.external
+        ? { target: "_blank", rel: "noopener noreferrer" }
+        : {})}
     >
-      <a
-        href={action.href}
-        {...(action.external
-          ? { target: "_blank", rel: "noopener noreferrer" }
-          : {})}
-      >
-        <Icon className="size-[18px]" aria-hidden="true" />
-        <span className="truncate">{action.label}</span>
-        {action.external ? (
-          <span className="sr-only">(opens in a new tab)</span>
-        ) : null}
-      </a>
-    </Button>
+      <Icon className="size-[18px] shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
+      <span className="min-w-0 [overflow-wrap:anywhere]">{action.label}</span>
+      {action.external ? (
+        <span className="sr-only">(opens in a new tab)</span>
+      ) : null}
+    </a>
   );
 }
 
 /* ------------------------------------------------------------------- view */
 
-export function PublicWalletCardView({ card }: { card: PublicWalletCard }) {
+export function PublicWalletCardView({ card, embedded = false }: {
+  card: PublicWalletCard;
+  embedded?: boolean;
+}) {
   const actions = useMemo(() => buildActions(card), [card]);
   const initials = useMemo(() => initialsFor(card.fullName), [card.fullName]);
   const updatedLabel = useMemo(
     () => formatUpdatedLabel(card.updatedAt),
     [card.updatedAt],
   );
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  const handleSaveContact = useCallback(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      return;
-    }
-    try {
-      const blob = new Blob([buildVCard(card)], {
-        type: "text/vcard;charset=utf-8",
-      });
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = vCardFileName(card);
-      anchor.rel = "noopener";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      setSaveError(null);
-    } catch {
-      setSaveError(
-        "We couldn't create the contact file. Use one of the links above instead.",
-      );
-    }
-  }, [card]);
-
-  const [primaryAction, ...secondaryActions] = actions;
   const hasDetails = Boolean(card.summary) || card.skills.length > 0;
   const hasMeta = Boolean(card.organisation) || Boolean(card.locationLabel);
 
   return (
-    <article className="space-y-6 rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--shadow-xs)] sm:p-7">
+    <article className={embedded ? "space-y-6" : "space-y-6 rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--shadow-xs)] sm:p-7"}>
       <header className="flex flex-col items-center gap-3 text-center">
         <Avatar className="size-20 border border-border/60 sm:size-24">
           {card.avatarUrl ? (
@@ -544,7 +511,15 @@ export function PublicWalletCardView({ card }: { card: PublicWalletCard }) {
 
         {card.fullName ? (
           <h1 className="break-words text-[26px] font-medium leading-[1.15] tracking-tight sm:text-[30px]">
-            {card.fullName}
+            {card.fullName}{" "}
+            <span
+              role="img"
+              aria-label="Hussh profile"
+              title="Hussh profile"
+              className="inline-flex size-5 align-middle items-center justify-center rounded-md bg-[color:var(--app-accent)] text-xs font-semibold leading-none tracking-normal text-white"
+            >
+              <span aria-hidden="true">H</span>
+            </span>
           </h1>
         ) : (
           <h1 className="sr-only">Shared profile</h1>
@@ -560,13 +535,13 @@ export function PublicWalletCardView({ card }: { card: PublicWalletCard }) {
           <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm leading-6 text-muted-foreground">
             {card.organisation ? (
               <span className="inline-flex items-center gap-1.5">
-                <Briefcase className="size-3.5" aria-hidden="true" />
+                <Briefcase className="size-3.5 shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
                 {card.organisation}
               </span>
             ) : null}
             {card.locationLabel ? (
               <span className="inline-flex items-center gap-1.5">
-                <MapPin className="size-3.5" aria-hidden="true" />
+                <MapPin className="size-3.5 shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
                 {card.locationLabel}
               </span>
             ) : null}
@@ -579,37 +554,9 @@ export function PublicWalletCardView({ card }: { card: PublicWalletCard }) {
           Ways to get in touch
         </h2>
 
-        {primaryAction ? (
-          <ActionLink action={primaryAction} emphasis="primary" />
-        ) : null}
-        {secondaryActions.map((action) => (
-          <ActionLink key={action.id} action={action} emphasis="secondary" />
+        {actions.map((action) => (
+          <ActionLink key={action.id} action={action} />
         ))}
-
-        <div className="space-y-1.5 pt-1">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleSaveContact}
-            aria-describedby="wallet-card-save-hint"
-            className="h-12 w-full justify-start gap-3 px-4 text-[15px]"
-          >
-            <Download className="size-[18px]" aria-hidden="true" />
-            Save contact
-          </Button>
-          <p
-            id="wallet-card-save-hint"
-            className="px-1 text-xs leading-5 text-muted-foreground"
-          >
-            Downloads a contact file. On iPhone, open it and tap Create New
-            Contact.
-          </p>
-          {saveError ? (
-            <p role="alert" className="px-1 text-xs leading-5 text-destructive">
-              {saveError}
-            </p>
-          ) : null}
-        </div>
       </section>
 
       {hasDetails ? (

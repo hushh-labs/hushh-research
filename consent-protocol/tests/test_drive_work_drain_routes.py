@@ -239,8 +239,11 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
                 "searches": {"superseded": 1, "private_search_id": "not-allowed"},
                 "permissions": {"succeeded": 1},
                 "bulk_shares": {"succeeded": 2, "private_file_id": "not-allowed"},
+                "bulk_removals": {"removed": 1, "private_permission_id": "not-allowed"},
+                "checkouts": {"ready": 1, "private_checkout_id": "not-allowed"},
                 "notifications": {"settled": 1},
                 "refunds": {"succeeded": 1, "private_payment_id": "not-allowed"},
+                "owner_payouts": {"transferred": 1, "private_transfer_id": "not-allowed"},
                 "packet_orders": {"refunded": 1, "private_order_id": "not-allowed"},
             },
         }
@@ -271,13 +274,19 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "searches": {"superseded": 1},
             "permissions": {"succeeded": 1},
             "bulk_shares": {"succeeded": 2},
+            "bulk_removals": {"removed": 1},
+            "checkouts": {"ready": 1},
             "notifications": {"settled": 1},
             "refunds": {"succeeded": 1},
+            "owner_payouts": {"transferred": 1},
             "packet_orders": {"refunded": 1},
         },
     }
     assert "no-store" in response.headers["Cache-Control"]
     assert "private_order_id" not in response.text
+    assert "private_permission_id" not in response.text
+    assert "private_checkout_id" not in response.text
+    assert "private_transfer_id" not in response.text
     assert "private_request_id" not in response.text
     assert "must-not-leak" not in response.text
     purge.assert_awaited_once_with()

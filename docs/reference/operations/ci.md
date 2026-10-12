@@ -203,7 +203,15 @@ mandatory regardless of the expensive-lane selection.
 Live Gemini/Vertex candidate checks are opt-in, not ordinary CI gates. UAT
 dispatches default `run_live_model_checks=false`; explicitly setting it to
 `true` selects candidate-model readiness and synthetic PKM evaluation for a
-backend deployment. Direct backend Cloud Builds (including production) default
+backend deployment, plus the live RIA Stage-1 semantic probe. Both semantic
+verification attempts consume the same plan flag. Without the opt-in, the
+verifier records RIA as skipped with `live_model_checks_not_requested`; health,
+authentication, connector configuration and command recovery still run. An
+explicitly requested RIA transport timeout or negative result still blocks;
+only an actual provider-unavailable response is reported as degraded.
+The workflow retains the current verifier across checkout of an older approved
+application SHA, so that release also obeys the operator's explicit selection.
+Direct backend Cloud Builds (including production) default
 `_VERIFY_MANAGED_VERTEX_RUNTIME=false`; an operator may explicitly set it to
 `true`. Local PKM evaluation similarly requires
 `PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1`. Omitted evaluation is **skipped**, not a
@@ -450,6 +458,14 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 6. retry once on transient readiness
 7. roll back only the failing changed surface
 8. publish release artifacts with revisions, reports, and final status
+
+UAT and production revision retirement use the existing `Capacity Maintenance` workflow. It records
+drain deadlines and returns; scheduled passes revalidate the healthy source
+release and live traffic before deleting eligible revisions. The deployment
+workflow finishes without awaiting retirement. Maintenance creates no environment
+deployment record and holds the shared mutation lock only during a short pass,
+never during the request drain. Production skips cloud authentication for settled
+or not-yet-due drain receipts; both lanes reuse the existing timer. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
 
 See [Branch Governance](./branch-governance.md).
 
@@ -826,3 +842,9 @@ the suite actually ran.
 
 The gate is deliberately separate from the manifest: the manifest answers "which
 suites gate a merge", and the gate answers "can every test file still be loaded".
+
+## Combined UI Contracts gate
+
+Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core and the full Vitest suite, which retain behavior coverage.
+
+Run `cd hushh-webapp && npm run ui:doctor` before edits. Follow the [contributor scaffold](../architecture/ui-contract-contributor-guide.md), review authored Back cases and Search actions, then run `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The pre-push wrapper runs the same read-only fast check. It never repairs or stamps source. The previous individual package commands remain available for diagnosis.

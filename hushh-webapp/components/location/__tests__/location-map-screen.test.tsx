@@ -94,7 +94,7 @@ vi.mock("@/hooks/use-effective-avatar-url", () => ({
   useEffectiveAvatarUrl: () => "https://example.com/avatar.jpg",
 }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: toast }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
 }));
 vi.mock("@/lib/voice/location-voice-actions", () => ({

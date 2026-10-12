@@ -11,7 +11,7 @@ import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/cap
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
-import { VoiceSurfaceActivityBoundary } from "@/lib/voice/voice-surface-activity";
+import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 
 import {
   ArrowLeftIcon as ArrowLeft,
@@ -58,7 +58,7 @@ const PROFILE_DETAIL_TITLES: Record<string, string> = {
 };
 
 /** Rows in the Profile home's "Your settings" group, for the shell. */
-const PROFILE_PANE_SHELL_ROW_COUNT = 7;
+const PROFILE_PANE_SHELL_ROW_COUNT = 10;
 
 function prefersReducedMotion(): boolean {
   return (
@@ -299,6 +299,10 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
   const panelTitle = location.panel
       ? location.panel === "my-data"
         ? "Memory"
+        : location.panel === "payouts"
+          ? "Payouts"
+          : location.panel === "request-pricing"
+            ? "Request pricing"
         : location.panel === "connected-systems"
           ? "Connected Systems"
           : location.panel === "connectors"
@@ -335,7 +339,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
     {!open ? <>
       <div ref={previewScrimRef} data-profile-preview-scrim hidden aria-hidden inert className="pointer-events-none fixed inset-0 z-(--z-sheet-overlay) bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)]" />
       <div ref={attachPreview} hidden aria-hidden inert data-profile-preview
-        className="pointer-events-none fixed inset-y-0 right-0 z-(--z-sheet) w-full overflow-hidden bg-background sm:w-[min(92vw,560px)]">
+        className="pointer-events-none fixed inset-y-0 right-0 z-(--z-sheet) w-full overflow-hidden bg-background sm:w-[min(92vw,430px)]">
         <div className="border-b border-border/60 px-[var(--page-inline-gutter-standard)] pb-4 pt-[calc(1rem+env(safe-area-inset-top))] text-[22px] font-bold">Profile</div>
         <ProfilePaneShell />
       </div>
@@ -349,7 +353,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
         contentRef={attachPanel}
         overlayRef={scrimRef}
         overlayClassName="data-[state=open]:duration-(--motion-sheet-enter-duration) data-[state=closed]:duration-(--motion-sheet-exit-duration) data-[state=open]:ease-(--motion-sheet-enter-ease) data-[state=closed]:ease-(--motion-sheet-exit-ease)"
-        className="w-full max-w-none gap-0 overflow-hidden p-0 sm:w-[min(92vw,560px)] sm:max-w-[560px] data-[state=open]:duration-(--motion-sheet-enter-duration) data-[state=closed]:duration-(--motion-sheet-exit-duration) data-[state=open]:ease-(--motion-sheet-enter-ease) data-[state=closed]:ease-(--motion-sheet-exit-ease)"
+        className="profile-pane-sheet w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,430px)] sm:max-w-[430px]"
         aria-label="Profile"
         data-testid="profile-pane"
         data-native-panel-group="profile"
@@ -371,7 +375,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
         }}
       >
         <ProfilePaneDrag open={open} presentationKey={JSON.stringify([owner, pathname, profilePaneLocationKey(location), isVaultUnlocked])} panelRef={panelRef} semanticRef={semanticRef} scrimRef={scrimRef} onClose={() => onOpenChange(false)} />
-        <SheetHeader className="shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left">
+        <SheetHeader className={`profile-pane-header ${canGoBack ? "profile-pane-header--inner " : ""}shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left`}>
           <div className="flex min-w-0 items-center gap-2">
             {canGoBack ? (
               <NativeChatChrome
@@ -395,7 +399,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
                 </ShellActionSurface>
               </NativeChatChrome>
             ) : null}
-            <SheetTitle ref={titleRef} tabIndex={-1} className="truncate outline-none font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal">
+            <SheetTitle ref={titleRef} tabIndex={-1} className={`${canGoBack ? "whitespace-normal text-center" : "truncate"} outline-none font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal`}>
               {title}
             </SheetTitle>
           </div>
@@ -419,7 +423,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
           context={panePresentationKey} eligible={false}
           onActivate={() => onOpenChange(false)}
           style={{ right: "max(1rem, env(safe-area-inset-right, 0px))" }}
-          className="absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">
+          className="profile-pane-close absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">
         <SheetClose asChild>
           <ShellActionSurface
             ref={closeRef}
@@ -433,7 +437,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
         </SheetClose>
         </NativeChatChrome>
         <div
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+          className="profile-pane-scroll-root min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
           <ProfilePaneBody location={location} nativeControlsEligible={false} />

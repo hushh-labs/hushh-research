@@ -78,7 +78,13 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers,
       body,
-      signal: AbortSignal.timeout(ACCOUNT_API_TIMEOUT_MS),
+      // Full account erasure can take longer than normal account reads.
+      // Return a structured timeout before the browser's 180 s ceiling.
+      signal: AbortSignal.timeout(
+        path === "delete-lost-vault" && request.method === "POST"
+          ? 170_000
+          : ACCOUNT_API_TIMEOUT_MS,
+      ),
     });
     // Preserve the backend's status body and lifecycle headers byte-for-byte.
     // In particular, session-status 423 responses carry the bounded re-probe

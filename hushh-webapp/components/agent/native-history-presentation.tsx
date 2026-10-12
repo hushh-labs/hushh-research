@@ -24,6 +24,7 @@ type HistoryPort = {
   setOpen: (open: boolean) => void;
   openConnectors?: () => void;
   openDriveReview?: () => void;
+  openTodoList?: () => void;
 };
 
 /** Explicit private port: IDs are presentation handles, never DOM inference or
@@ -61,6 +62,10 @@ export function nativeHistoryProjection(port: HistoryPort, handles = new Map<str
     }) });
   }
   const footer: NativeDrawerSection["rows"][number][] = [];
+  if (port.surface === "one" && port.openTodoList) {
+    callbacks.set("todos", port.openTodoList);
+    footer.push({ id: "todos", label: "To-do List", symbol: "checklist", enabled });
+  }
   if (port.surface === "one" && port.openConnectors) {
     callbacks.set("connectors", port.openConnectors);
     footer.push({ id: "connectors", label: "Connectors", symbol: "puzzlepiece.extension", enabled });

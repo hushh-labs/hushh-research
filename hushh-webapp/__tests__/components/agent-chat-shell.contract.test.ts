@@ -136,6 +136,20 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("Writing in expanded composer");
   });
 
+  it("keeps the embedded text composer translucent when it overlaps the transcript", () => {
+    const styles = read("app/globals.css");
+
+    // The chat form is portalled into the shared dock. Its embedded reset is
+    // deliberately transparent for voice, but text needs iOS material so the
+    // message behind the keyboard-time composer does not show through.
+    expect(styles).toContain(
+      '[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface',
+    );
+    expect(styles).toContain("background: var(--agent-composer-material) !important;");
+    expect(styles).toContain("backdrop-filter: blur(28px) saturate(180%);");
+    expect(styles).toContain("prefers-reduced-transparency: reduce");
+  });
+
   it("captures a large paste as an editable in-memory text attachment", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
@@ -159,15 +173,16 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('source: "agent_chat_auto_capture"');
     expect(workspace).toContain("captureEligiblePkmFactsInBackground({");
     expect(workspace).toContain("beforeEffect: guard.assertCurrent");
-    expect(workspace).toContain("mayPublish: guard.isCurrent");
+    expect(workspace).toContain("const facts = markdownFactsFromCards(prepared.cards, candidates)");
+    expect(workspace).toContain('memoryProfile: "soul_markdown_v1"');
     expect(workspace).not.toContain("Long paste detected — choose where it belongs.");
     expect(workspace).not.toContain("composerPurpose");
     expect(workspace).not.toContain("Review for Memory");
     expect(workspace).not.toContain("Send as chat");
     expect(workspace).not.toContain("AgentPkmReviewPanel");
-    expect(workspace).toContain("getPkmConfirmationCards");
-    expect(workspace).toContain("const reviewRequired =");
-    expect(workspace).toContain('phase: reviewRequired ? "review" : "skipped"');
+    expect(workspace).not.toContain("getPkmConfirmationCards");
+    expect(workspace).not.toContain("const reviewRequired =");
+    expect(workspace).not.toContain('phase: reviewRequired ? "review" : "skipped"');
   });
 
   it("keeps active assistant streams full-width and errors compact", () => {
@@ -199,9 +214,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("<ChatTimeSeparatorRow separator=");
     expect(workspace).not.toContain("<span>{message.timestamp}</span>");
     expect(workspace).not.toContain('return "Ready";');
-    // Status belongs below One, not beside the profile avatar. The subtitle
-    // crossfades without moving the right-hand controls.
-    expect(workspace).toContain('IDLE_AGENT_SUBTITLE = "Your private agent"');
+    // Live status belongs below One, not beside the profile avatar. Idle One
+    // has no tagline; active status crossfades without moving the controls.
+    expect(workspace).toContain('IDLE_AGENT_SUBTITLE = ""');
     expect(workspace).toContain("return input.statusText || IDLE_AGENT_SUBTITLE;");
     expect(workspace).toContain("<ChatAgentSubtitle text={chatHeaderSubtitle({");
     expect(workspace).not.toContain('title={statusText || undefined}');
@@ -210,13 +225,13 @@ describe("private-agent chat shell contract", () => {
   it("keeps the active-agent mark visible in the compact chat header", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const brandTileStart = workspace.indexOf('data-agent-chat-brand-tile');
-    const brandTile = workspace.slice(brandTileStart, brandTileStart + 700);
+    const brandTile = workspace.slice(brandTileStart, workspace.indexOf("The name in the header", brandTileStart));
 
     expect(brandTileStart).toBeGreaterThan(0);
     expect(brandTile).toContain("<HushhMark");
     expect(brandTile).toContain('className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"');
-    expect(brandTile).toContain('className="h-7 w-7 items-center justify-center overflow-visible"');
-    expect(brandTile).toContain('imageClassName="!h-[23px] !w-[23px]"');
+    expect(brandTile).toContain('className="h-16 w-16 items-center justify-center overflow-visible"');
+    expect(brandTile).toContain('imageClassName="!h-14 !w-14"');
     expect(brandTile).not.toContain("max-sm:hidden");
   });
 
@@ -367,5 +382,16 @@ describe("private-agent chat shell contract", () => {
     // `voiceActive` is the same gate the card itself renders on.
     expect(workspace).toContain("absolute inset-x-0 bottom-0 z-10");
     expect(workspace).toContain('const voiceActive = voiceState !== "idle"');
+  });
+
+  it("keeps automatic Markdown memory capture silent", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain('event.actionId === "pkm.add"');
+    expect(workspace).toContain('event.raw?.toolName === "add_to_pkm"');
+    expect(workspace).not.toContain("<AgentMemoryCaptureStatus");
+    expect(workspace).not.toContain('return "Saving to Memory"');
+    expect(workspace).not.toContain("confirmMemoryNeedsOwner");
+    expect(workspace).not.toContain("saved in Memory");
   });
 });

@@ -272,12 +272,14 @@ async def test_delivery_service_delegates_drafting_to_email_gene(monkeypatch) ->
     monkeypatch.setattr(gmail_delivery_service, "run_email_gene", fake_run_email_gene)
 
     draft = await GmailDeliveryService().draft_from_instruction(
-        instruction="Write a partnership note to Mat",
+        instruction="Write a partnership note to Mat; do not explain features of the email agent.",
         user_id="owner-1",
         consent_token=_TEST_CONSENT_TOKEN,
     )
 
     assert draft["to"] == ["mat@example.com"]
+    assert draft["subject"] == "Partnership"
+    assert draft["body"] == "Hello Mat"
     assert calls["gene_id"] == "agent_email_draft"
     assert calls["user_id"] == "owner-1"
     assert calls["consent_token"] == "owner-token"

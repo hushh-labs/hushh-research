@@ -229,6 +229,22 @@ for (const width of [390, 1440])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
+async function profileFrame(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const reference = document.createElement("div");
+    reference.className = "profile-pane-sheet";
+    reference.dataset.slot = "sheet-content";
+    reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
+    document.body.append(reference);
+    const bounds = reference.getBoundingClientRect();
+    const result = { x: innerWidth - bounds.right, y: bounds.y,
+      width: bounds.width, height: bounds.height,
+      radius: getComputedStyle(reference).borderTopLeftRadius };
+    reference.remove();
+    return result;
+  });
+}
+
 for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, native: false })), { width: 390, native: true }])
   test(`chat sidebar keeps Connectors in a visible footer at ${width}px${native ? " with iOS safe area" : ""}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 640 });
@@ -251,19 +267,19 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     expect(connectorBox.y).toBeGreaterThan(searchBox.y + searchBox.height);
     expect(connectorBox.y + connectorBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
     expect(await chats.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-    // A full-height side drawer flush to the leading edge (founder direction,
-    // 2026-09-28): only the trailing corners round.
-    const corners = await chats.locator("aside").evaluate((element) => {
+    // Both app panes share the reference's four rounded corners.
+    const corners = await chats.evaluate((element) => {
       const style = getComputedStyle(element);
       return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius];
     });
-    expect(corners).toEqual(["0px", "24px", "24px", "0px"]);
+    expect(corners).toEqual(["25px", "25px", "25px", "25px"]);
     const close = chats.getByRole("button", { name: "Close chat history", exact: true });
-    await expect.poll(async () => Math.abs((await close.boundingBox())!.x - openBox.x)).toBeLessThanOrEqual(1);
+    const reference = await profileFrame(page);
+    await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
     const closeBox = (await close.boundingBox())!;
-    for (const key of ["x", "y", "width", "height"] as const) {
-      expect(Math.abs(closeBox[key] - openBox[key]), `same-position ${key}`).toBeLessThanOrEqual(1);
-    }
+    expect(closeBox.width).toBeGreaterThanOrEqual(44);
+    expect(closeBox.height).toBeGreaterThanOrEqual(44);
+    expect(closeBox.x - drawerBox.x).toBeCloseTo(16, 0);
     // Layout width, not WebKit's fractional translated DOMRect rounding.
     expect(await close.evaluate(element => (element as HTMLElement).offsetWidth)).toBeGreaterThanOrEqual(44);
     expect(await close.evaluate(element => parseFloat(getComputedStyle(element).borderRadius))).toBeGreaterThanOrEqual(closeBox.width / 2);
@@ -382,9 +398,14 @@ function hitAt(page: import("@playwright/test").Page, x: number, y: number) {
   }, [x, y] as const);
 }
 
-for (const width of [390, 1440])
-  test(`body swipe reveals the realtime drawer without shifting chat or bottom chrome at ${width}px`, async ({ page }) => {
+for (const { width, safeLeft } of [
+  { width: 390, safeLeft: 0 },
+  { width: 1440, safeLeft: 0 },
+  { width: 844, safeLeft: 59 },
+])
+  test(`body swipe reveals the realtime drawer without shifting chat or bottom chrome at ${width}px (safe left ${safeLeft}px)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
+    if (safeLeft) await page.addStyleTag({ content: `[data-agent-history-drawer] { --app-side-pane-left-inset: ${safeLeft}px; }` });
     await mountAppChrome(page, 64);
     await expect(page.locator("[data-agent-history-drawer]")).toBeAttached();
     await page.evaluate(() => new Promise(requestAnimationFrame));
@@ -444,13 +465,22 @@ for (const width of [390, 1440])
       const bounds = await page.locator('[data-agent-history-drawer]').boundingBox();
       return bounds?.x;
     }).toBeCloseTo(0, 0);
+    await expect(page.locator("[data-agent-history-drawer]")).not.toHaveAttribute("style", /will-change/);
+    // Auth freshness can temporarily disable the gesture while the drawer
+    // remains open. Reattaching must preserve the same closed endpoint.
+    for (const enabled of [false, true]) {
+      await page.evaluate(value => {
+        (window as unknown as { __setHistoryGestureEnabled: (enabled: boolean) => void }).__setHistoryGestureEnabled(value);
+      }, enabled);
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+    }
     const closing = await page.evaluate(async () => {
       const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
       const panel = frame;
       const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
       const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
-      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x };
+      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x, panel: panel.getBoundingClientRect().x };
       let time = 0;
       function finger(type: string, dx: number) {
         const event = new Event(type, { bubbles: true });
@@ -465,12 +495,15 @@ for (const width of [390, 1440])
       for (const dx of [-24, -48, -72, -96, -120]) {
         finger("touchmove", dx);
         await new Promise(requestAnimationFrame);
-        samples.push({ offset: panel.getBoundingClientRect().x, expected: dx,
-          opacity: Number(getComputedStyle(scrim).opacity), inert: frame.inert });
+        samples.push({ offset: panel.getBoundingClientRect().x, expected: before.panel + dx,
+          opacity: Number(getComputedStyle(scrim).opacity), inert: panel.inert });
       }
       const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar;
       finger("touchend", -120);
-      return { samples, stationary };
+      // Measure the declared settlement endpoint rather than racing its
+      // animation timer against browser scheduling.
+      const closedRight = panel.offsetLeft + panel.offsetWidth + new DOMMatrix(panel.style.transform).m41;
+      return { samples, stationary, closedRight };
     });
     for (const sample of closing.samples) {
       expect(sample.offset).toBeCloseTo(sample.expected, 0);
@@ -479,19 +512,15 @@ for (const width of [390, 1440])
       expect(sample.inert).toBe(false);
     }
     expect(closing.stationary).toBe(true);
+    expect(closing.closedRight).toBeLessThanOrEqual(-24);
     await expect(drawer).toBeHidden();
     await expect(page.getByRole("textbox", { name: "Chat draft" })).toBeEnabled();
   });
 
 for (const width of [390, 768, 1440])
-  test(`chat sidebar spans the full viewport over the shared sheet scrim at ${width}px`, async ({ page }) => {
-    // REVERSAL (founder direction, 2026-09-28): "Extend the chat sidebar end to
-    // end, and the bottom bar is behind the chat sidebar (z-index), so that it
-    // looks like a proper UX." This test used to pin a panel floating inset
-    // between the chat header and the bottom bar. It now pins a modal side
-    // drawer: panel and scrim cover the whole viewport, header and bar included.
-    // The chat behind recedes exactly as it does behind a sheet or dialog: the
-    // same --app-scrim-color dim and --app-scrim-filter blur.
+  test(`chat sidebar matches Profile insets over the shared sheet scrim at ${width}px`, async ({ page }) => {
+    // The reference card is inset; its modal scrim still protects the full
+    // viewport, including the shared header and bottom navigation.
     const barHeight = 88;
     const height = 720;
     await page.setViewportSize({ width, height });
@@ -502,7 +531,8 @@ for (const width of [390, 768, 1440])
     const panel = chats.locator("aside");
     await expect(panel).toBeVisible();
     // Let the slide-in settle before measuring geometry.
-    await expect.poll(async () => (await chats.boundingBox())!.x).toBe(0);
+    const reference = await profileFrame(page);
+    await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
     expect(await page.locator("[data-fixture-bottom-bar]").boundingBox()).toEqual(bottomBarBefore);
     const scrim = page.locator("[data-agent-history-scrim]");
     const readScrim = () =>
@@ -538,25 +568,27 @@ for (const width of [390, 768, 1440])
 
     // The scrim is the whole viewport, top to bottom.
     expect(await scrim.boundingBox()).toEqual({ x: 0, y: 0, width, height });
-    // The panel (and its surface) runs from the top edge to the bottom edge.
+    // The panel and the inner content have the same size as Profile, with
+    // mirrored left/right screen gaps.
     const box = (await chats.boundingBox())!;
     const surface = (await panel.boundingBox())!;
-    expect(box.y).toBe(0);
-    expect(box.height).toBe(height);
-    expect(surface.y).toBe(0);
-    expect(surface.height).toBe(height);
-    // Phones: nearly full width, min(88vw, 360px). From md up: the drawer's 336px.
-    const expectedWidth = width < 768 ? Math.min(width * 0.88, 360) : 336;
-    expect(Math.abs(box.width - expectedWidth)).toBeLessThanOrEqual(1);
+    expect(box.y).toBeCloseTo(reference.y, 0);
+    expect(box.height).toBeCloseTo(reference.height, 0);
+    expect(box.width).toBeCloseTo(reference.width, 0);
+    expect(surface.y).toBeCloseTo(box.y + 1, 0);
+    expect(surface.height).toBeCloseTo(box.height - 2, 0);
     expect(box.x + box.width).toBeLessThan(width);
+    expect(await chats.evaluate(element => getComputedStyle(element).borderTopLeftRadius)).toBe(reference.radius);
 
-    // Stacking, as a finger finds it: the header and the bottom bar are behind
-    // the scrim to the right of the panel, and behind the panel on its left.
-    const beside = (box.width + width) / 2;
+    // The gaps around the card still belong to the modal scrim; underlying
+    // navigation cannot become active while the drawer is open.
+    const beside = (box.x + box.width + width) / 2;
     expect(await hitAt(page, beside, 20)).toBe("scrim");
     expect(await hitAt(page, beside, height - barHeight / 2)).toBe("scrim");
-    expect(await hitAt(page, 20, 20)).toBe("panel");
-    expect(await hitAt(page, 20, height - barHeight / 2)).toBe("panel");
+    expect(await hitAt(page, box.x + box.width / 2, 2)).toBe("scrim");
+    expect(await hitAt(page, box.x + box.width / 2, height - 2)).toBe("scrim");
+    expect(await hitAt(page, box.x + 40, box.y + 40)).toBe("panel");
+    expect(await hitAt(page, box.x + 40, box.y + box.height - 40)).toBe("panel");
 
     // A tap on the scrim beside the panel closes it.
     await page.mouse.click(beside, height / 2);
@@ -592,10 +624,8 @@ test("chat sidebar scrim does not animate under reduced motion", async ({ page }
 
 for (const width of [390, 768])
   test(`chat sidebar runs over the fixed bottom bar with Connectors reachable at ${width}px`, async ({ page }) => {
-    // REVERSAL (founder direction, 2026-09-28): this used to assert the drawer
-    // ENDED where the bottom bar began, because the bar was a stacking context
-    // the drawer could not out-z. Portalled to <body> on the sheet tier, the
-    // drawer now covers the bar, and its footer control sits over it, tappable.
+    // The bounded frame is still above fixed navigation, so its footer
+    // controls remain tappable and the gaps remain modal.
     const barHeight = 88;
     const height = 640;
     await page.setViewportSize({ width, height });
@@ -604,10 +634,11 @@ for (const width of [390, 768])
     const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
     const connectors = chats.getByRole("button", { name: "Open Connectors" });
     await expect(connectors).toBeVisible();
-    await expect.poll(async () => (await chats.boundingBox())!.x).toBe(0);
+    const reference = await profileFrame(page);
+    await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
     const drawerBox = (await chats.boundingBox())!;
     const connectorBox = (await connectors.boundingBox())!;
-    expect(drawerBox.y + drawerBox.height).toBe(height);
+    expect(drawerBox.y + drawerBox.height).toBeCloseTo(reference.y + reference.height, 0);
     // The footer control lives in the band the bar occupies, and wins the hit test.
     expect(connectorBox.y + connectorBox.height).toBeGreaterThan(height - barHeight);
     expect(connectorBox.y + connectorBox.height).toBeLessThanOrEqual(height);
@@ -622,8 +653,7 @@ for (const width of [390, 768])
   });
 
 test("chat sidebar closes from its own control and returns focus to the trigger", async ({ page }) => {
-  // Full height, the panel covers the header's hamburger-to-cross, so it carries
-  // its own matching circular 44px control.
+  // Chats matches Profile's own 44px close target and 16px glyph.
   await page.setViewportSize({ width: 390, height: 720 });
   const trigger = page.getByRole("button", { name: "Open drawer", exact: true });
   await trigger.click();
@@ -1351,12 +1381,12 @@ async function expectChatIntact(
   await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue("Unsent draft");
 }
 
-test("Gmail send upgrade connects in place and reopens the reviewed draft", async ({ page }) => {
+test("legacy Gmail reconnect stays in place and reopens the reviewed draft", async ({ page }) => {
   const { server, navigations } = await armChatConnect(page);
   const history = page.getByTestId("one-email-history-failed");
   await history.getByText("Mail activity").click();
   const popupEvent = page.waitForEvent("popup");
-  await history.getByRole("button", { name: "Enable sending" }).click();
+  await history.getByRole("button", { name: "Reconnect Mail" }).click();
   const consent = await popupEvent;
   await expect(history.getByRole("button", { name: "Waiting for Google…" })).toBeDisabled();
   await expect(page.getByText("Draft reopened for review")).toHaveCount(0);
@@ -1431,7 +1461,7 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
   );
   const history = page.getByTestId("one-email-history-failed");
   await history.getByText("Mail activity").click();
-  await history.getByRole("button", { name: "Enable sending" }).click();
+  await history.getByRole("button", { name: "Reconnect Mail" }).click();
   await expect(page.getByTestId("chat-connect-notice")).toHaveText(
     "Allow pop-ups for One, then try again. Your chat and draft stay here.",
   );

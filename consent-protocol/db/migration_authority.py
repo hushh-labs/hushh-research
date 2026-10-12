@@ -278,6 +278,127 @@ def _assert_checksum(entry: MigrationManifestEntryV2, row: dict[str, Any] | None
         raise MigrationAuthorityError(f"Applied migration checksum changed: {entry.filename}")
 
 
+def _replay_drive_feed_sql(entry: MigrationManifestEntryV2) -> str:
+    # 288's exact allowlist test narrowed later document_share_* vocabulary on
+    # replay. Preserve the immutable file and ledger/baseline hash; adapt only
+    # the published body, retaining installed vocabulary and rows.
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "b13a15ee0d27a4c78efd99718adb1996ecb8c54254dbf1377a250d8791424ee6"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Legacy Drive Feed replay source checksum changed")
+    start = entry.sql.index("DO $$")
+    end = entry.sql.index("END $$;", start) + len("END $$;")
+    repair = """DO $$
+DECLARE
+  installed TEXT[];
+  allowed TEXT;
+  required TEXT[] := ARRAY[
+    'document_share_decided','document_share_outcome',
+    'document_share_payment_confirmed','document_share_payment_ready',
+    'document_share_payment_refunded','document_share_request',
+    'document_share_request_sent','document_share_review_ready',
+    'document_share_revocation_outcome','document_share_revoked'];
+BEGIN
+  SELECT ARRAY(SELECT DISTINCT hit[1] FROM regexp_matches(
+    pg_get_constraintdef(c.oid), '''(document_share_[^'']+)''', 'g') AS hit
+    ORDER BY hit[1]) INTO installed
+  FROM pg_constraint c
+  WHERE c.conrelid='drive_share_events'::regclass
+    AND c.conname='drive_share_events_event_type_check';
+  IF NOT COALESCE(installed @> required, FALSE) THEN
+    SELECT string_agg(DISTINCT quote_literal(value), ',' ORDER BY quote_literal(value)) INTO allowed
+      FROM unnest(COALESCE(installed, ARRAY[]::TEXT[]) || required) AS value;
+    ALTER TABLE drive_share_events DROP CONSTRAINT IF EXISTS drive_share_events_event_type_check;
+    EXECUTE format(
+      'ALTER TABLE drive_share_events ADD CONSTRAINT drive_share_events_event_type_check CHECK (event_type IN (%s))',
+      allowed);
+  END IF;
+END $$;"""
+    return entry.sql[:start] + repair + entry.sql[end:]
+
+
+_BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS = {
+    ("298", "298_stripe_mode_isolation.sql"): (
+        "edcfe4260fef678bdf3ae759fae46fc725b7dedef5d884f9a2c8627a6d64eb99"
+    ),
+    ("304", "304_connect_bank_payout_reconciliation.sql"): (
+        "e622469054a16a1cfc52171529aa1e3814bedece8712d32d2616fbc704c54de8"
+    ),
+}
+
+
+def _replay_bank_payout_event_sql(entry: MigrationManifestEntryV2, pinned: str) -> str:
+    # 298 and 304 re-add an exact Connect event CHECK on replay, which rejects
+    # rows of event types added later and locks the table on every deploy.
+    # Preserve the immutable file and ledger/baseline hash; adapt only the
+    # published body to widen, retaining installed vocabulary and rows.
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if checksum != pinned or entry.checksum_sha256 != checksum:
+        raise MigrationAuthorityError("Legacy bank payout event replay source checksum changed")
+    start = entry.sql.index("ALTER TABLE stripe_connect_bank_payout_events\n  DROP CONSTRAINT")
+    end = entry.sql.index(
+        "ADD CONSTRAINT stripe_connect_bank_payout_events_event_type_check", start
+    )
+    end = entry.sql.index("));", end) + len("));")
+    repair = """DO $$
+DECLARE
+  installed TEXT[];
+  allowed TEXT;
+  required TEXT[] := ARRAY[
+    'account.external_account.created','account.external_account.deleted',
+    'account.external_account.updated','account.updated','payout.canceled',
+    'payout.created','payout.failed','payout.paid','payout.updated'];
+BEGIN
+  SELECT ARRAY(SELECT DISTINCT hit[1] FROM regexp_matches(
+    pg_get_constraintdef(c.oid), '''([^'']+)''', 'g') AS hit
+    ORDER BY hit[1]) INTO installed
+  FROM pg_constraint c
+  WHERE c.conrelid='stripe_connect_bank_payout_events'::regclass
+    AND c.conname='stripe_connect_bank_payout_events_event_type_check';
+  IF NOT COALESCE(installed @> required, FALSE) THEN
+    SELECT string_agg(DISTINCT quote_literal(value), ',' ORDER BY quote_literal(value)) INTO allowed
+      FROM unnest(COALESCE(installed, ARRAY[]::TEXT[]) || required) AS value;
+    ALTER TABLE stripe_connect_bank_payout_events
+      DROP CONSTRAINT IF EXISTS stripe_connect_bank_payout_events_event_type_check;
+    EXECUTE format(
+      'ALTER TABLE stripe_connect_bank_payout_events ADD CONSTRAINT '
+      'stripe_connect_bank_payout_events_event_type_check CHECK (event_type IN (%s))',
+      allowed);
+  END IF;
+END $$;"""
+    return entry.sql[:start] + repair + entry.sql[end:]
+
+
+def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
+        return _replay_drive_feed_sql(entry)
+    pinned = _BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS.get((entry.migration_id, entry.filename))
+    if pinned:
+        return _replay_bank_payout_event_sql(entry, pinned)
+    # Migration 295 shipped a bare CREATE POLICY. Preserve its immutable source
+    # and ledger/baseline hashes, while making its known body replayable inside
+    # the original transaction. Never adapt other or drifted migration bodies.
+    if entry.migration_id != "295" or entry.filename != "295_direct_message_attachments.sql":
+        return entry.sql
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "f76a5e6e71d1979dbcd71d2e3c5ad390c1aa9f018742946bee2dcea3831d4edc"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Legacy attachment replay source checksum changed")
+    policy = (
+        "CREATE POLICY direct_message_attachments_deny_all ON public.direct_message_attachments"
+    )
+    return entry.sql.replace(
+        policy,
+        "DROP POLICY IF EXISTS direct_message_attachments_deny_all ON public.direct_message_attachments;\n"
+        + policy,
+        1,
+    )
+
+
 async def _record_result(
     conn: Any,
     *,
@@ -480,6 +601,7 @@ async def apply_manifest_entries(
                 if covered_by_baseline or (existing and existing.get("status") == "applied"):
                     continue
 
+            sql = _replay_sql(entry) if mode is MigrationMode.REPLAY else entry.sql
             for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
                 started = time.perf_counter()
                 recorded_applied = False
@@ -497,7 +619,7 @@ async def apply_manifest_entries(
                             await conn.execute(
                                 f"SET LOCAL statement_timeout = '{entry.statement_timeout_ms}ms'"
                             )
-                            await _execute_observed(conn, entry.sql, probe)
+                            await _execute_observed(conn, sql, probe)
                             duration_ms = round((time.perf_counter() - started) * 1000)
                             await _record_result(
                                 conn,
@@ -513,7 +635,7 @@ async def apply_manifest_entries(
                         await conn.execute(
                             f"SET statement_timeout = '{entry.statement_timeout_ms}ms'"
                         )
-                        await _execute_observed(conn, entry.sql, probe)
+                        await _execute_observed(conn, sql, probe)
                 except Exception as exc:
                     duration_ms = round((time.perf_counter() - started) * 1000)
                     # A busy database is not a broken migration. Roll back first

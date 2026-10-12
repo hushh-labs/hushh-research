@@ -8,6 +8,7 @@ entry point intentionally does not enable APIs, alter IAM, jobs, or datasets.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import subprocess
@@ -18,18 +19,29 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent
+_CAPACITY_SPEC = importlib.util.spec_from_file_location(
+    "runtime_capacity_budget", ROOT.parents[1] / "scripts/ci/runtime-capacity-budget.py"
+)
+assert _CAPACITY_SPEC and _CAPACITY_SPEC.loader
+_CAPACITY = importlib.util.module_from_spec(_CAPACITY_SPEC)
+_CAPACITY_SPEC.loader.exec_module(_CAPACITY)
 DEFAULT_EMAILS = ("manish@hushh.ai", "ankit@hushh.ai", "kushal@hushh.ai")
 METRICS = (
     "obs_request_summary_count",
+    "obs_agent_stream_failure_count",
     "obs_unexpected_error_count",
     "obs_account_mail_failure_count",
     "obs_data_health_anomaly_count",
     "obs_db_pool_wait_ms",
     "obs_db_pool_acquire_timeout_count",
     "obs_short_read_duration_ms",
+    "obs_one_voice_latency_ms",
+    "obs_one_voice_client_perf_ms",
 )
+VOICE_METRICS = ("obs_one_voice_latency_ms", "obs_one_voice_client_perf_ms")
 POLICIES = (
     "backend-5xx-policy",
+    "agent-stream-failures-policy",
     "backend-latency-policy",
     "unexpected-errors-policy",
     "account-mail-failures-policy",
@@ -57,6 +69,11 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--apply", action="store_true", help="Write the reviewed changes"
     )
+    parser.add_argument(
+        "--voice-only",
+        action="store_true",
+        help="Reconcile One Voice metrics and the managed dashboard without alerts or channels",
+    )
     args = parser.parse_args(argv)
     if not PROJECT_RE.fullmatch(args.project):
         parser.error("--project must be a Google Cloud project ID")
@@ -68,6 +85,14 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
         re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in args.email
     ):
         parser.error("--email must be an email address")
+    try:
+        _CAPACITY.sql_alert_thresholds(
+            json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()),
+            args.project,
+            args.sql_instance,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     return args
 
 
@@ -86,11 +111,16 @@ def run(*command: str, allow_missing: bool = False) -> Any:
 
 def render(path: Path, args: argparse.Namespace) -> dict[str, Any]:
     source = path.read_text()
+    thresholds = _CAPACITY.sql_alert_thresholds(
+        json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()), args.project, args.sql_instance
+    )
     substitutions = {
         "__PROJECT_ID__": args.project,
         "__SQL_INSTANCE__": args.sql_instance,
         "__BACKEND_SERVICE__": args.backend_service,
         "__FRONTEND_SERVICE__": args.frontend_service,
+        "__SQL_CONNECTION_WARNING__": str(thresholds["warning"]),
+        "__SQL_CONNECTION_CRITICAL__": str(thresholds["critical"]),
     }
     for before, after in substitutions.items():
         source = source.replace(before, after)
@@ -125,6 +155,94 @@ def same_config(
     )
 
 
+def same_log_metric(current: dict[str, Any], desired: dict[str, Any]) -> bool:
+    """Compare authored fields while ignoring server-assigned descriptor metadata."""
+    if not same_config(
+        current, desired, ("description", "filter", "valueExtractor", "bucketOptions")
+    ):
+        return False
+    if "labelExtractors" not in desired:
+        return True
+    if current.get("labelExtractors", {}) != desired["labelExtractors"]:
+        return False
+    actual_descriptor = current.get("metricDescriptor", {})
+    expected_descriptor = desired["metricDescriptor"]
+    if any(
+        actual_descriptor.get(field) != expected_descriptor[field]
+        for field in ("metricKind", "valueType", "unit")
+    ):
+        return False
+    def authored_labels(labels: list[dict[str, Any]]) -> list[tuple[Any, Any, Any]]:
+        return sorted(
+            (
+                # Cloud Monitoring omits the default STRING value type on readback.
+                label.get("key"),
+                label.get("valueType", "STRING"),
+                label.get("description", ""),
+            )
+            for label in labels
+        )
+    return authored_labels(actual_descriptor.get("labels", [])) == authored_labels(
+        expected_descriptor["labels"]
+    )
+
+
+def reconcile_dashboard(args: argparse.Namespace) -> None:
+    project = args.project
+    desired_dashboard = render(ROOT / "dashboard-observability.json.in", args)
+    dashboard_name = desired_dashboard["name"]
+    current_dashboard = run(
+        "gcloud",
+        "monitoring",
+        "dashboards",
+        "describe",
+        dashboard_name,
+        "--project",
+        project,
+        "--format=json",
+        allow_missing=True,
+    )
+    dashboard_fields = ("displayName", "labels", "gridLayout")
+    # gridLayout.columns is an int64: API JSON returns its decimal string.
+    desired_dashboard["gridLayout"]["columns"] = str(
+        desired_dashboard["gridLayout"]["columns"]
+    )
+    if current_dashboard and same_config(
+        current_dashboard, desired_dashboard, dashboard_fields
+    ):
+        print(f"dashboard unchanged: {dashboard_name}")
+    else:
+        print(
+            f"dashboard {'update' if current_dashboard else 'create'}: {dashboard_name}"
+        )
+        if args.apply:
+            if current_dashboard:
+                if not current_dashboard.get("etag"):
+                    raise RuntimeError("Dashboard etag unavailable; refusing update")
+                desired_dashboard["etag"] = current_dashboard["etag"]
+                command = [
+                    "gcloud",
+                    "monitoring",
+                    "dashboards",
+                    "update",
+                    dashboard_name,
+                    "--project",
+                    project,
+                    "--config-from-file=__CONFIG__",
+                ]
+            else:
+                command = [
+                    "gcloud",
+                    "monitoring",
+                    "dashboards",
+                    "create",
+                    "--project",
+                    project,
+                    "--config-from-file=__CONFIG__",
+                ]
+            write_config(desired_dashboard, command)
+
+
 def reconcile(args: argparse.Namespace) -> None:
     project = args.project
     current_metrics = {
@@ -139,14 +257,10 @@ def reconcile(args: argparse.Namespace) -> None:
             "--format=json",
         )
     }
-    for name in METRICS:
+    for name in VOICE_METRICS if args.voice_only else METRICS:
         desired = render(ROOT / "log-metrics" / f"{name}.json", args)
         current = current_metrics.get(name)
-        if current and same_config(
-            current,
-            desired,
-            ("description", "filter", "valueExtractor", "bucketOptions"),
-        ):
+        if current and same_log_metric(current, desired):
             print(f"metric unchanged: {name}")
             continue
         verb = "update" if current else "create"
@@ -165,6 +279,10 @@ def reconcile(args: argparse.Namespace) -> None:
                     project,
                 ],
             )
+
+    if args.voice_only:
+        reconcile_dashboard(args)
+        return
 
     channels = run(
         "gcloud",
@@ -294,58 +412,7 @@ def reconcile(args: argparse.Namespace) -> None:
                 ]
             write_config(desired, command)
 
-    desired_dashboard = render(ROOT / "dashboard-observability.json.in", args)
-    dashboard_name = desired_dashboard["name"]
-    current_dashboard = run(
-        "gcloud",
-        "monitoring",
-        "dashboards",
-        "describe",
-        dashboard_name,
-        "--project",
-        project,
-        "--format=json",
-        allow_missing=True,
-    )
-    dashboard_fields = ("displayName", "labels", "gridLayout")
-    # gridLayout.columns is an int64: API JSON returns its decimal string.
-    desired_dashboard["gridLayout"]["columns"] = str(
-        desired_dashboard["gridLayout"]["columns"]
-    )
-    if current_dashboard and same_config(
-        current_dashboard, desired_dashboard, dashboard_fields
-    ):
-        print(f"dashboard unchanged: {dashboard_name}")
-    else:
-        print(
-            f"dashboard {'update' if current_dashboard else 'create'}: {dashboard_name}"
-        )
-        if args.apply:
-            if current_dashboard:
-                if not current_dashboard.get("etag"):
-                    raise RuntimeError("Dashboard etag unavailable; refusing update")
-                desired_dashboard["etag"] = current_dashboard["etag"]
-                command = [
-                    "gcloud",
-                    "monitoring",
-                    "dashboards",
-                    "update",
-                    dashboard_name,
-                    "--project",
-                    project,
-                    "--config-from-file=__CONFIG__",
-                ]
-            else:
-                command = [
-                    "gcloud",
-                    "monitoring",
-                    "dashboards",
-                    "create",
-                    "--project",
-                    project,
-                    "--config-from-file=__CONFIG__",
-                ]
-            write_config(desired_dashboard, command)
+    reconcile_dashboard(args)
 
 
 if __name__ == "__main__":

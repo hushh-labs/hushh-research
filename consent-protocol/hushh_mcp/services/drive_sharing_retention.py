@@ -334,6 +334,23 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
                     text("DELETE FROM drive_bulk_shares WHERE origin_request_id=:request"),
                     identifiers,
                 )
+            if _exists(connection, "drive_request_bulk_removals"):
+                if owns:
+                    # The owner is deleting the account and its management
+                    # authority. Do not let the queue's FK block erasure.
+                    connection.execute(
+                        text("DELETE FROM drive_request_bulk_removals WHERE request_id=:request"),
+                        identifiers,
+                    )
+                else:
+                    # Keep the owner's sealed removal plan while erasing the
+                    # departed recipient's plaintext app identifier.
+                    connection.execute(
+                        text("""UPDATE drive_request_bulk_removals
+                          SET recipient_user_id='erased:' || removal_id::text
+                          WHERE request_id=:request"""),
+                        identifiers,
+                    )
             if _exists(connection, "drive_request_payment_orders"):
                 # The opaque obligation was snapshotted above and survives.
                 # Remove raw participant IDs explicitly for erasure coverage.
@@ -351,11 +368,18 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
                     identifiers,
                 )
             else:
+                removal_guard = (
+                    "AND NOT EXISTS(SELECT 1 FROM drive_request_bulk_removals r "
+                    "WHERE r.request_id=m.request_id)"
+                    if _exists(connection, "drive_request_bulk_removals")
+                    else ""
+                )
                 connection.execute(
-                    text("""
+                    text(f"""
                     DELETE FROM drive_share_management_contexts m WHERE request_id=:request
                       AND NOT EXISTS(SELECT 1 FROM drive_share_permission_operations p WHERE p.request_id=m.request_id)
-                """),
+                      {removal_guard}
+                """),  # nosec B608 -- suffix is one of two static literals
                     identifiers,
                 )
 

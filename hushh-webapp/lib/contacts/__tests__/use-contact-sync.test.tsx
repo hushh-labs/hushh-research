@@ -218,6 +218,32 @@ it("keeps invite rows outside sync results and clears them on dismissal without 
 });
 
 describe("useContactSync — which source it reads", () => {
+  it.each(["web", "ios", "android", "google"] as const)(
+    "finishes %s sync when signup identity has no hydrated phone payload",
+    async (platform) => {
+      const hydrate = vi.fn(async () => null);
+      mocks.isNative.mockReturnValue(platform === "ios" || platform === "android");
+      if (platform === "google") {
+        mocks.permissionState = "unavailable";
+        mocks.googleAvailability = "connectable";
+        mocks.requestGoogleToken.mockResolvedValue("google-token");
+        mocks.googleSource.mockReturnValue("google-source");
+      }
+      mocks.syncSignals.mockImplementation(async (options) => {
+        await expect(options.resolveAccountPhoneNumber()).resolves.toBeNull();
+        await expect(options.resolveIdToken()).resolves.toBe("id-token");
+        return { ...EMPTY_RESULT, sourcePlatform: platform };
+      });
+      const { result } = setup({ accountPhoneNumber: null, resolveVerifiedAccountPhoneNumber: hydrate });
+      await waitFor(() => expect(result.current.available).toBe(true));
+      await act(async () => { await result.current.sync(); });
+      expect(result.current.result?.sourcePlatform).toBe(platform);
+      expect(result.current.resultsOpen).toBe(true);
+      expect(mocks.toastError).not.toHaveBeenCalled();
+      expect(hydrate).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("does not read a contact source until the privacy decision gate permits it", async () => {
     mocks.contactCheckAllowed = false;
     const { result } = setup();

@@ -12,10 +12,9 @@
  * then, only when a name or tone was given, one confirmation turn. Nothing is
  * saved to memory before that confirmation.
  *
- * Free text is never classified here. A typed composer message is treated as
- * an onboarding answer ONLY after the person explicitly tapped "Something
- * else" on the name question (an explicit signal, not an interpretation);
- * anything else they type goes to One as an ordinary turn and onboarding waits.
+ * Free text is never classified here. "Something else" explicitly exits
+ * the optional questions, leaving the composer for ordinary chat. The old
+ * name-entry format validator remains for an already-open legacy session.
  */
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -24,12 +23,15 @@ export type ChatOnboardingQuestionId = (typeof CHAT_ONBOARDING_QUESTIONS)[number
 export type ChatOnboardingQuestionStatus = "pending" | "answered" | "skipped";
 
 export const CHAT_ONBOARDING_FOCUS = [
+  "location",
   "email",
   "calendar",
   "money",
+  "advisor",
+  "wallet",
+  "consent",
   "memory",
-  "location",
-  "chat",
+  "messages",
 ] as const;
 export type ChatOnboardingFocus = (typeof CHAT_ONBOARDING_FOCUS)[number];
 
@@ -44,12 +46,15 @@ export const CHAT_ONBOARDING_TONE_LABEL: Record<ChatOnboardingTone, string> = {
 };
 
 const FOCUS_LABEL: Record<ChatOnboardingFocus, string> = {
-  email: "Email",
+  email: "Mail",
   calendar: "Calendar",
-  money: "Money",
+  money: "Finance",
   memory: "Memory",
   location: "Location",
-  chat: "Just chat",
+  advisor: "Advisor",
+  wallet: "Wallet",
+  consent: "Consent",
+  messages: "Messages",
 };
 
 /**
@@ -65,14 +70,14 @@ export type ChatOnboardingConnectAction =
   | { kind: "route"; href: string; label: string };
 
 export type ChatOnboardingFocusPlan = {
-  focus: ChatOnboardingFocus;
+  focus: ChatOnboardingFocus | "chat";
   /** Short "what this lets me do" explanation, as One's reply. */
   explanation: string;
-  /** Exactly one inline action, or none for "Just chat". */
+  /** Exactly one inline action; the compatibility-only chat choice has none. */
   action: ChatOnboardingConnectAction | null;
 };
 
-export const CHAT_ONBOARDING_FOCUS_PLAN: Record<ChatOnboardingFocus, ChatOnboardingFocusPlan> = {
+export const CHAT_ONBOARDING_FOCUS_PLAN: Record<ChatOnboardingFocus | "chat", ChatOnboardingFocusPlan> = {
   email: {
     focus: "email",
     explanation:
@@ -103,6 +108,26 @@ export const CHAT_ONBOARDING_FOCUS_PLAN: Record<ChatOnboardingFocus, ChatOnboard
       "Set up location and I can help with places near you. You choose who can see where you are, and for how long.",
     action: { kind: "route", href: ROUTES.ONE_SETUP_LOCATION, label: "Set up location" },
   },
+  advisor: {
+    focus: "advisor",
+    explanation: "Open Advisor to set up your advisor profile and review requests.",
+    action: { kind: "route", href: ROUTES.RIA_ONBOARDING, label: "Open Advisor" },
+  },
+  wallet: {
+    focus: "wallet",
+    explanation: "Open Wallet to manage the items in your private vault.",
+    action: { kind: "route", href: ROUTES.ONE_WALLET, label: "Open Wallet" },
+  },
+  consent: {
+    focus: "consent",
+    explanation: "Review who can access what you share. You can change or revoke access.",
+    action: { kind: "route", href: ROUTES.CONSENTS, label: "Open Consent" },
+  },
+  messages: {
+    focus: "messages",
+    explanation: "Open Messages to talk with your connections and Circles.",
+    action: { kind: "route", href: ROUTES.ONE_MESSAGES, label: "Open Messages" },
+  },
   chat: {
     focus: "chat",
     explanation: "Sounds good. Ask me anything, whenever you like.",
@@ -113,7 +138,7 @@ export const CHAT_ONBOARDING_FOCUS_PLAN: Record<ChatOnboardingFocus, ChatOnboard
 export type ChatOnboardingChipId =
   | "name_signin"
   | "name_other"
-  | `focus_${ChatOnboardingFocus}`
+  | `focus_${ChatOnboardingFocus | "chat"}`
   | `tone_${ChatOnboardingTone}`
   | "skip"
   | "save"
@@ -187,8 +212,8 @@ export function confirmChips(): ChatOnboardingChip[] {
   ];
 }
 
-export function focusLabel(focus: ChatOnboardingFocus): string {
-  return FOCUS_LABEL[focus];
+export function focusLabel(focus: ChatOnboardingFocus | "chat"): string {
+  return focus === "chat" ? "Just chat" : FOCUS_LABEL[focus];
 }
 
 // ---------------------------------------------------------------------------

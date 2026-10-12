@@ -27,6 +27,8 @@ Hussh uses a code-owned route contract plus docs/runtime checks to keep the decl
 - Capacitor TypeScript, iOS, and Android plugin surfaces
 - mobile parity guidance for the visible page tree
 
+The lost-vault deletion journey is a state inside the existing locked-vault view, not a new app page. Its `GET /api/account/delete-lost-vault/options` and `POST /api/account/delete-lost-vault` calls use the account API proxy on web and the existing platform-aware API transport on native. A native client that cannot mint fresh provider and linked-phone proof shows the web/support route instead of offering a weaker deletion path. See [Lost vault access](../one/lost-vault-account-deletion.md).
+
 For One Voice onboarding, middleware remains route protection and static
 redirect infrastructure only. It cannot be the mutable journey planner because
 it cannot reliably observe Firebase callback settlement or browser-local UI
@@ -115,6 +117,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/connect`
   - The Connections introduction offers Family, Finance, Investor/RIA, Business, Location, and SMS circle starters inside the existing card. Selecting an idea only previews it; an explicit Create action uses the existing circle service, then opens `?tab=circles&action=circle-detail&circleId=<id>` for the existing member-add flow. Ordinary starters are names using current `family`/`other` kinds, not new agent capabilities or permission grants. SMS uses the canonical system roster provisioning service, never an ordinary named-circle substitute.
   - The existing Circles tab owns list fetching and realtime reconciliation; it relays session-scoped summaries to the introduction. Trusted is provisioned as an empty, manually curated default Circle: accepting a connection never adds anyone to it. Owners add existing connections through the same Circle member flow used by named Circles. Owned starter matches show Open circle; renamed/custom circles remain in the full list. New users can create an empty circle or find people, send a request, and add them after acceptance. This is the same shared web/Capacitor view; navigation and consent review are unchanged.
+  - Custom creation and new named starters open Circle detail with `circleSetup=1`, selecting Members and the inline add-people flow. Setup offers Open chat only after the refreshed server roster includes another member; sharing an invite code alone does not complete it. Opening chat consumes the setup marker with replace. Reopening an owner-only named circle defaults to Members while retaining access to existing chat history. Explicit `circleChat=1` entry remains on Chat after its transient marker is consumed. System circles keep their existing member flow.
   - The mobile introduction uses a compact radial layout and inline Create action. Browser contracts cover 375×812, 390×844, and 430×932 viewports with top safe-area and bottom-chrome allowances; very short viewports and enlarged text retain the shell's normal scrolling instead of clipping content. Entry motion uses the shared `motion-step-enter` treatment with staggered category reveals and respects reduced motion.
   - `?reviewPerson=<exact-person-id>` opens Connect's existing scope review after an authenticated directory-bounded lookup. Loading the route sends nothing. Incoming requests open their exact Consent Center review; outgoing requests remain pending. A Location prerequisite retains its original person and task until the owner returns with Continue and current Location eligibility is checked again. Closing the review consumes this query so the same target can be reopened.
 - `/one/connect/settings`
@@ -127,7 +130,9 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
+- `/one/todos` — encrypted owner items plus Calendar and owner-confirmed Gmail follow-ups. Calendar remains the event source of truth; Gmail message identifiers never enter the To-do record, and completion or dismissal stays private.
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
+- `/one/wallet-card` (Wallet Profile management; also composed inside Profile/NWS card details in Wallet, with automatic owner-session provisioning)
 - `/one/pkm/recent`
 - `/one/pkm/location` — readable saved places, visits and Location memory details
 - `/one/pkm/location/detail?memory=<opaque-selector>` — existing actions for a current Location memory field; Back returns to Location memory
@@ -135,6 +140,8 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/email`
 - `/one/kyc`
 - `/one/career`
+- `/one/referrals` — authenticated referral dashboard; `/one/profile/referrals` redirects here. Account totals and milestone cards come from the referral API, with explicit unavailable states and no sample balances.
+  - The standard shared shell provides Back, the top-right profile avatar, Talk to One, and the five-item bottom navigation on web and Capacitor. The Share button expands into Copy link, WhatsApp, SMS, and more sharing options; Back or Escape closes it. How it works opens the existing coins and rules view; Back closes that view before returning to `/one`. Viewing the dashboard never completes setup, qualifies a referral, or awards points.
 - `/one/location`
 - `/one/location/map`
 - `/one/location/check-in`
@@ -217,6 +224,16 @@ contract is added.
 The access manager is the One-owned `/one/consent` workspace. Legacy
 `/consents` links redirect there while preserving transient query state such as
 the selected review tab and request identifier.
+
+## Hierarchical Back verification
+
+The runtime parent authority remains `resolveTopShellBackAction`. Shell Back and iOS edge gestures call `navigateTopShellBack`; Android calls the same owner after overlay and feature handling. Precedence is top overlay, deepest matching feature layer, route parent, then native root minimise. An overlay refusing Escape consumes Back. A same-path query climb uses replace/contextual navigation.
+
+Memory registers card, nested path and category unwind without putting private details or queries in URLs. Wallet closes edit, preview or success before the selected card, then returns to all cards; inactive panes release their layers and busy card mutations consume Back. Location Share/Ask unwind their selection steps before leaving the flow; Share also clears its consent-review flag. SMS Circle retains Settings/SOS origin. Circle-owned tasks retain their Circle parent. Profile keeps a validated origin through detail, panel and root.
+
+`backVerification` in the existing route layout contract is verification metadata, not a second runtime router. Its cases exercise production parent resolution, canonical targets, query replacements and eventual root reachability. Every physical route needs coverage, every Location action needs cases for Now/People/Links, and new history bypasses fail. Existing entry, redirect and hidden surfaces explicitly describe their shell boundary; this gate does not invent a parent for them.
+
+Before UI edits, follow the [UI contract contributor scaffold](./ui-contract-contributor-guide.md) and run `npm run ui:doctor`. After reviewing changed behavior and updating cases, run `npm run build:ui-contracts` (Back before Search). It runs the shared hierarchy regressions before stamping the source revision. The mandatory UI Contracts job runs `npm run verify:ui-contracts` read-only, including stale-source checks, AST bypass checks, generated mirrors and mutation controls. Required frontend lanes retain Memory integration and native gesture regressions. Both Preflight Gate and CI Status Gate require success, including on documentation-only PRs. Authenticated browser and physical-device certification remains a separate release check.
 
 ## Shell and navigation
 
@@ -327,3 +344,39 @@ private vault and saves the encrypted key through the existing settings route.
 - [api-contracts.md](./api-contracts.md) describes the API surface itself.
 - `hushh-webapp/lib/navigation/routes.ts` is the code-owned navigation source of truth.
 - [../mobile/capacitor-parity-audit.md](../mobile/capacitor-parity-audit.md) defines the stricter mobile release gate layered on top of route contracts.
+
+
+### Search contract gate
+
+Search consumes the authored voice action gateway and generated route index. Do not maintain a separate Search action list. Declare labels, aliases, reachability, execution targets and public query defaults in the owning web voice action contract. RIA Picks declares `source` and `category` defaults; partial route targets compare only the dimensions they change.
+
+Every PR runs **UI Contracts**, independently of changed-path filtering. Both **Preflight Gate** and **CI Status Gate** require combined Back/Search success and reject skips. The read-only gate checks route coverage, source revisions, all generated gateway mirrors and route-index freshness. UI revisions include pages, layouts, templates and their transitive local modules and authored JSON, normalized across Windows/Linux line endings. Generated contracts are excluded from their own source digest. Follow the [contributor scaffold](./ui-contract-contributor-guide.md) before editing.
+
+After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit authored edits, review receipts and changed generated mirrors in the same PR. Run `npm run verify:search-contracts` locally; CI never repairs stale files. Global source freshness is recorded in immutable content-addressed receipts under `hushh-webapp/contracts/ui-review`, not copied into every surface or runtime gateway. Independent source reviews add distinct files instead of conflicting shared stamps; combined sources still require their own exact review receipt. Back uses the same receipt boundary while retaining authored route-case hashing. A fingerprint proves freshness, not semantic correctness: authors remain responsible for describing new interactions in web contracts, while Search derives its catalog automatically. New route coverage and generated reachability validation remain mandatory.
+
+The gate also validates literal `data-voice-control-id` values against authored action `control_ids`. New controls require action coverage before regeneration succeeds. Existing 28 uncovered controls are explicitly listed as legacy coverage debt in the global command-bar contract. Dynamic or unannotated interactions still require author review; the checker cannot infer their meaning. Suggestion subview priorities live in authored `search.subview_action_boost` metadata rather than a Search source-code map.
+
+### Messages workspace layout
+
+The `/one/messages` workspace hides the shared top profile header and retains
+persistent bottom navigation with no route-specific footer styling. The inbox
+provides a Home link; its Chat title matches the conversation contact title.
+Outgoing bubbles use royal blue, and editing uses a compact dialog with a
+separate inner message field. The phone control reports that calls are not
+available yet; the composer mic retains the private-agent voice entry. The message composer projects into
+the existing centered Agent Dock above navigation; both panes reserve the full
+dock height, while keyboard lift reserves only navigation and outer insets.
+Every bubble shows its timestamp beside the existing delivery status. The inbox
+keeps the message-shaped dock visible, with typing and sending disabled until a
+writable conversation is selected. Its mic opens the existing private-agent
+voice entry; an engaged voice or command surface retains the inbox dock. Active
+global commands and voice controls remain available and measured. On
+mobile, a selected conversation replaces the inbox and Back to chats restores
+it. Inbox filtering matches contact names and message previews; an empty inbox
+links to the existing Connect entry point. Browser selection restoration uses
+the authenticated encrypted-token contract described in
+[API Contracts](./api-contracts.md). After validation, the token is kept in
+owner-scoped browser history state and the address becomes `/one/messages`.
+Refresh and history navigation revalidate the token; invalid selections return
+to the inbox. The disconnected notice sits directly above the input in the
+shared composer column.

@@ -126,7 +126,7 @@ vi.mock("@/lib/kai/kai-financial-resource", () => ({
   }),
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: () => undefined,
   useVoiceSurfaceControlTracking: () => ({
     activeControlId: null,
@@ -317,6 +317,18 @@ describe.each<Platform>(["web", "native"])(
         expect(setup.syncOnboardingJourney).not.toHaveBeenCalled();
       },
     );
+
+    it("does not navigate again when the import snapshot stays in the same stage", async () => {
+      seedCompletedImport(platform, "import_run_synthetic");
+      renderSetupImportFlow();
+      await screen.findByText("Review Extracted Portfolio");
+      const navigationCount = nav.hrefs.length;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      });
+      expect(nav.hrefs).toHaveLength(navigationCount);
+      expect(nav.getSearch()).toBe("stage=import_complete");
+    });
 
     it("opens the review after a completed import and stays there", async () => {
       seedCompletedImport(platform, "import_run_synthetic");

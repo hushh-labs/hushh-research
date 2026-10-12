@@ -72,7 +72,7 @@ vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => brid
     return { remove: async () => { privacy.callbacks.delete(callback); } };
   } }));
 const voiceSurface = vi.hoisted(() => ({ current: null as null | { interactionLayer: { blocksUnderlyingActions: boolean } } }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => voiceSurface.current, getVoiceSurfaceMetadata: () => voiceSurface.current }));
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => voiceSurface.current, getVoiceSurfaceMetadata: () => voiceSurface.current }));
 describe("private native drawer action boundary", () => {
   it("selects recovery before discovery unless the wrapper explicitly bootstraps qualification", () => {
     const key = "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__";

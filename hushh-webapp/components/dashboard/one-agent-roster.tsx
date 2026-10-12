@@ -9,6 +9,7 @@ import {
   ListIcon,
   SearchIcon,
 } from "@/components/icons/ui";
+import { OneRosterAgentIcon } from "@/components/icons/agents/one-roster-agent-icon";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -26,6 +27,7 @@ import {
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
+import { compareOneRosterDisplayOrder } from "@/lib/onboarding/roster-display-order";
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -89,14 +91,14 @@ const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
  * `/one`.
  */
 function readPersistedRosterView(): AgentRosterView {
-  if (typeof window === "undefined") return "list";
+  if (typeof window === "undefined") return "grid";
   try {
     const persisted = window.localStorage.getItem(
       AGENT_ROSTER_VIEW_STORAGE_KEY,
     );
-    return persisted === "grid" ? "grid" : "list";
+    return persisted === "list" ? "list" : "grid";
   } catch {
-    return "list";
+    return "grid";
   }
 }
 
@@ -264,16 +266,13 @@ function useCachedAgentMetrics(
   return resolveCachedAgentMetrics(userId);
 }
 
-const ROSTER_DISPLAY_ORDER: readonly string[] = [
-  "gmail",
-  "calendar",
-  "location",
-  "finance",
-  "ria",
-  "wallet",
-  "pkm",
-  "consent",
-];
+// The welcome illustration shares this roster's outline treatment.
+function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
+  return {
+    kind: "custom",
+    component: (props) => <OneRosterAgentIcon {...props} agentId={mode.id} />,
+  };
+}
 
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
@@ -339,13 +338,7 @@ function buildModes(
       tone: capability.tone,
       isExploreOnly: capability.isExploreOnly === true,
     };
-  }).sort((a, b) => {
-    const rank = (id: string) => {
-      const index = ROSTER_DISPLAY_ORDER.indexOf(id);
-      return index < 0 ? ROSTER_DISPLAY_ORDER.length : index;
-    };
-    return rank(a.id) - rank(b.id);
-  });
+  }).sort(compareOneRosterDisplayOrder);
 }
 
 /**
@@ -530,14 +523,14 @@ function AgentGridItem({
     >
       <AgentSectionIcon
         id={mode.id}
-        icon={mode.icon}
+        icon={rosterIcon(mode)}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
         // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
         // own comment. Icons stay full color regardless of setup state.
         isActive
         size="roster-lg"
-        treatment="app"
+        treatment="profile"
         glyphContrast="default"
         className="relative z-10"
       />
@@ -573,12 +566,12 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       <span className="relative z-10 flex items-center justify-center">
         <AgentSectionIcon
           id={mode.id}
-          icon={mode.icon}
+          icon={rosterIcon(mode)}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
           isActive
           size="roster"
-          treatment="app"
+          treatment="profile"
           glyphContrast="default"
         />
       </span>

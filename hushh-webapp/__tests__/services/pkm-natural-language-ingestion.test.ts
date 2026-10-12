@@ -23,6 +23,20 @@ import {
 } from "@/lib/pkm/pkm-natural-language-ingestion";
 
 describe("ingestNaturalLanguagePkm", () => {
+  it("keeps business source atomic and refuses oversized or split-required preparation", async () => {
+    const input = { userId: "user_1", message: JSON.stringify({ name: "Example", state: "TX" }),
+      currentDomains: [], vaultOwnerToken: "owner-token", source: "business_profile_review", memoryProfile: "business_directory_v1" as const, allowEmpty: true };
+    mocks.preview.mockResolvedValue({ cards: [], preview_summary: { split_recommended: true } });
+    const result = await prepareNaturalLanguagePkm(input);
+    expect(mocks.preview).toHaveBeenCalledTimes(1);
+    expect(mocks.preview).toHaveBeenCalledWith(expect.objectContaining({ message: input.message, memoryProfile: "business_directory_v1" }));
+    expect(result.sourceCoverage.some(isUnresolvedSourceBlock)).toBe(true);
+    mocks.preview.mockClear();
+    const oversized = await prepareNaturalLanguagePkm({ ...input, message: "x".repeat(4001) });
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(oversized.cards).toEqual([]);
+    expect(oversized.sourceCoverage.some(isUnresolvedSourceBlock)).toBe(true);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.preview.mockReset();

@@ -35,3 +35,7 @@ Run the same local blocking CI surface that GitHub expects for `PR Validation` a
 6. treating `merge triggered` or `queued to merge` as task completion
 7. creating a new PR branch for routine follow-up when the existing developer branch should be preserved
 8. leaving the workspace on an isolated branch after the PR lands
+
+## UI contract preflight
+
+Before route or UI edits, follow the [Back/Search contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md) and run `cd hushh-webapp && npm run ui:doctor`. Review authored cases/actions before `npm run build:ui-contracts`; finish with `npm run verify:ui-contracts` and the owning behavioral tests.

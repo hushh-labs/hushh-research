@@ -42,7 +42,7 @@ import {
   resolveVerifiedPhone,
 } from "@/lib/ria/ria-claim-entry";
 import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
 import { cn } from "@/lib/utils";
 import styles from "./page.module.css";

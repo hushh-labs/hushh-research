@@ -225,6 +225,16 @@ def get_referral_summary(user_id: str) -> dict:
     required_minutes = policy.required_active_seconds // 60
 
     with get_db_connection() as connection:
+        opens = connection.execute(
+            text(
+                """
+                SELECT COUNT(*) AS link_open_count, MAX(first_seen_at) AS last_opened_at
+                  FROM one_referral_attributions
+                 WHERE referrer_user_id = :uid
+                """
+            ),
+            {"uid": user_id},
+        ).fetchone()
         all_statuses = connection.execute(
             text(
                 """
@@ -288,6 +298,12 @@ def get_referral_summary(user_id: str) -> dict:
     return {
         "slug": code["slug"],
         "link": f"{referral_base_url()}/r/{code['slug']}",
+        # These are accepted link openings, including QR navigation. They are
+        # not unique visitors; preview bots are excluded by the resolver.
+        "link_open_count": int(opens.link_open_count or 0) if opens else 0,
+        "last_opened_at": opens.last_opened_at.isoformat()
+        if opens and opens.last_opened_at
+        else None,
         "qualified_count": qualified,
         "in_progress_count": in_progress,
         "under_review_count": under_review,

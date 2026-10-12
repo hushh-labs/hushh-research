@@ -33,14 +33,17 @@ import {
   AppPageContentRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { WalletSavedCardDetails } from "./wallet-saved-card-details";
+import { WalletSavedCardSharing } from "./wallet-saved-card-sharing";
+import { WalletCardAccessService } from "@/lib/services/wallet-card-access-service";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   PageTitle,
   TYPOGRAPHY_CLASSNAMES,
 } from "@/components/app-ui/typography";
-import { Lock, Plus, Search } from "@/components/icons";
+import { Lock, Plus } from "@/components/icons";
+import { ProfilePaneSearchIcon } from "@/components/profile/profile-pane-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,6 +63,7 @@ import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handof
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
+import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
@@ -73,6 +77,9 @@ import {
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
+import { loadWalletCardArtwork } from "@/lib/services/wallet-card-artwork-service";
+import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
+import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { CARD_CORNER_RADIUS_RATIO } from "@/lib/wallet/wallet-card-presentation";
@@ -93,7 +100,7 @@ const WALLET_TABS = [
 type WalletTab = "cards" | "add" | "sharing";
 
 /** One column for header and content, so both share a start line. */
-const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-1.5 sm:space-y-3.5";
+const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]";
 
 const CARD_SLOT_RADIUS = { borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})` };
 
@@ -195,7 +202,16 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
 }
 
 export function WalletWorkspace() {
+  useEffect(() => {
+    // Public artwork can load alongside the protected card read, rather than
+    // beginning another network waterfall after the vault has opened.
+    for (const kind of ["profile", "referral", "nws"] as const) {
+      void loadWalletCardArtwork(kind).catch(() => {});
+    }
+  }, []);
   const { user, loading: authLoading } = useAuth();
+  const sharingUserRef = useRef(user);
+  sharingUserRef.current = user;
   const renderedOwnerId = user?.uid ?? null;
   const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
   activeOwnerIdRef.current = renderedOwnerId;
@@ -207,7 +223,7 @@ export function WalletWorkspace() {
       }
     };
   }, [renderedOwnerId]);
-  const { vaultKey, getVaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken, getVaultOwnerToken } = useVault();
   const profileToken = vaultKey ? getVaultOwnerToken() : null;
   const profileVisit = useMemo(
     () => ({ ownerId: renderedOwnerId, authorized: Boolean(vaultKey && profileToken) }),
@@ -220,11 +236,10 @@ export function WalletWorkspace() {
     profile: WalletDemoProfile;
   } | null>(null);
   const fallbackName = user?.displayName?.trim() || null;
-  // Fence rendering as well as settlement: an A → B → A visit or a lock
-  // must not expose the old profile while the next read is still pending.
+  // A lock or A → B → A visit must not expose a previous protected snapshot.
   const demoProfile = profileVisit.authorized && loadedProfile?.visit === profileVisit
     ? loadedProfile.profile
-    : { displayName: fallbackName, shareUrl: null, cardPayload: null };
+    : { ownerId: renderedOwnerId ?? undefined, displayName: fallbackName, shareUrl: null, cardPayload: null };
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
@@ -240,6 +255,7 @@ export function WalletWorkspace() {
   const introductionSaving = introductionWrite?.ownerId === renderedOwnerId;
   const introductionLoading = !renderedOwnerId || introduction?.ownerId !== renderedOwnerId;
   const introductionOpen = introductionLoading || !introduction?.seen;
+  const [cardDockHost, setCardDockHost] = useState<HTMLDivElement | null>(null);
   const [formRevision, setFormRevision] = useState(0);
   const [removingCardId, setRemovingCardId] = useState<string | null>(null);
   useEffect(() => {
@@ -281,9 +297,20 @@ export function WalletWorkspace() {
   const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
   const ready = view.kind === "list" || view.kind === "add" || view.kind === "reveal";
   const activeTab = view.kind === "add" ? "add" : tab;
-  const [cards, setCards] = useState<WalletCardSummary[]>([]);
+  const cardReadRevision = useRef(0);
+  const [cardSnapshot, setCardSnapshot] = useState<{
+    ownerId: string;
+    cards: WalletCardSummary[];
+    cardholderNames: Record<string, string>;
+  } | null>(null);
+  const ownedSnapshot = vaultKey && cardSnapshot?.ownerId === renderedOwnerId ? cardSnapshot : null;
+  const cards = useMemo(() => ownedSnapshot?.cards ?? [], [ownedSnapshot]);
+  const cardholderNames = ownedSnapshot?.cardholderNames ?? {};
   const [busyCardId, setBusyCardId] = useState<string | null>(null);
-  const [removeTarget, setRemoveTarget] = useState<WalletCardSummary | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<{
+    card: WalletCardSummary;
+    context: NonNullable<ReturnType<typeof vaultContext>>;
+  } | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
   // A chat offer ("Add Amex Gold to Wallet") hands over the nickname in memory
   // (lib/pkm/reserved-offer.ts); the owner enters the card here, as always.
@@ -298,6 +325,7 @@ export function WalletWorkspace() {
       setTab("cards");
       setFiling(null);
       setOfferNickname(null);
+      setCardSnapshot(null);
     }
   }, [ready, view.kind]);
 
@@ -306,18 +334,24 @@ export function WalletWorkspace() {
     // Drop revealed values and reject an in-flight reveal when leaving Cards.
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
+    setSelectedDeckCardId(null);
     setTab(value as WalletTab);
   };
   // Metadata search stays in q; presentation selection stays in memory.
   const routeQuery = searchParams?.get("q") || "";
   const [searchValue, setSearchValue] = useState(routeQuery);
+  const localSearchWrite = useRef<string | null>(null);
   const deferredQuery = useDeferredValue(searchValue.trim());
   useEffect(() => {
+    const locallyWritten = localSearchWrite.current === routeQuery;
+    if (locallyWritten) localSearchWrite.current = null;
     setSearchValue(routeQuery);
     setSearchOpen(Boolean(routeQuery));
-    dispatch({ type: "unfocus" });
+    if (!locallyWritten) dispatch({ type: "unfocus" });
   }, [routeQuery]);
   const updateSearch = (value: string) => {
+    localSearchWrite.current = value.trim();
+    dispatch({ type: "unfocus" });
     setSearchValue(value);
     const next = new URLSearchParams(searchParams?.toString() || "");
     if (value.trim()) next.set("q", value.trim());
@@ -332,10 +366,10 @@ export function WalletWorkspace() {
     [cards, deferredQuery],
   );
   const vaultContext = useCallback(() => {
-    const token = getVaultOwnerTokenRef.current();
+    const token = vaultOwnerToken && getVaultOwnerTokenRef.current();
     if (!user?.uid || !vaultKey || !token) return null;
     return { userId: user.uid, vaultKey, vaultOwnerToken: token };
-  }, [user?.uid, vaultKey]);
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
   useEffect(() => {
     const ownerId = profileVisit.ownerId;
     if (!ownerId || !profileVisit.authorized) {
@@ -343,19 +377,18 @@ export function WalletWorkspace() {
       return;
     }
     let cancelled = false;
-    let requestSequence = 0;
+    let loading = false;
+    const recoveryAttempts = new Set<number | null>();
     const load = async () => {
-      const sequence = ++requestSequence;
+      if (cancelled || loading || document.visibilityState === "hidden") return;
       const token = getVaultOwnerTokenRef.current();
-      if (!token) {
-        if (!cancelled && profileVisitRef.current === profileVisit) setLoadedProfile(null);
-        return;
-      }
+      if (!token) return;
       const isCurrent = () =>
-        !cancelled && sequence === requestSequence &&
-        profileVisitRef.current === profileVisit &&
+        !cancelled && profileVisitRef.current === profileVisit &&
         activeOwnerIdRef.current === ownerId &&
         getVaultOwnerTokenRef.current() === token;
+      if (!isCurrent()) return;
+      loading = true;
       try {
         const state = await WalletCardService.getCard({ userId: ownerId, vaultOwnerToken: token });
         if (!isCurrent()) return;
@@ -363,23 +396,91 @@ export function WalletWorkspace() {
         setLoadedProfile({
           visit: profileVisit,
           profile: {
+            ownerId,
             displayName: payloadName || state.card?.displayName?.trim() || fallbackName,
-            shareUrl: state.shareUrl,
+            shareUrl: state.card?.status === "active" ? state.shareUrl : null,
             cardPayload: state.card?.cardPayload ?? null,
+            memberSince: user?.metadata?.creationTime,
+            walletId: state.card?.passSerial,
+            shareToken: WalletCardService.readShareLink(ownerId, state.card)?.shareToken ?? null,
           },
         });
-      } catch {
-        if (isCurrent()) setLoadedProfile({ visit: profileVisit, profile: { displayName: fallbackName, shareUrl: null, cardPayload: null } });
-      }
+        if (state.card && state.card.status !== "revoked" && !WalletCardService.readShareLink(ownerId, state.card)) {
+          const version = state.card.shareTokenVersion ?? null;
+          if (!recoveryAttempts.has(version) && isCurrent()) {
+            recoveryAttempts.add(version);
+            const recovered = await WalletCardService.ensureCard({ userId: ownerId, vaultOwnerToken: token });
+            if (!isCurrent()) return;
+            const link = WalletCardService.readShareLink(ownerId, recovered.card);
+            setLoadedProfile({
+              visit: profileVisit,
+              profile: {
+                ownerId,
+                displayName: recovered.card.cardPayload.full_name?.trim() || recovered.card.displayName?.trim() || fallbackName,
+                shareUrl: recovered.card.status === "active" ? link?.shareUrl ?? null : null,
+                cardPayload: recovered.card.cardPayload,
+                memberSince: user?.metadata?.creationTime,
+                walletId: recovered.card.passSerial,
+                shareToken: link?.shareToken ?? null,
+              },
+            });
+          }
+        }
+      } catch { /* Retain this visit's confirmed snapshot during a transient outage. */ }
+      finally { loading = false; }
     };
     void load();
     const timer = window.setInterval(load, 15000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [profileVisit, fallbackName]);
+    const refreshVisible = () => void load();
+    const unsubscribe = WalletCardService.subscribe(ownerId, refreshVisible);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      unsubscribe();
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [profileVisit, fallbackName, user?.metadata?.creationTime]);
+  const [referralState, setReferralState] = useState<{ visit: typeof profileVisit; summary: ReferralSummary } | null>(null);
+  const [referralErrorVisit, setReferralErrorVisit] = useState<typeof profileVisit | null>(null);
+  const referralReadRevision = useRef(0);
+  const loadReferral = useCallback(async () => {
+    if (!user) return;
+    const visit = profileVisit;
+    const revision = ++referralReadRevision.current;
+    const isCurrent = () => profileVisitRef.current === visit &&
+      activeOwnerIdRef.current === user.uid && revision === referralReadRevision.current;
+    if (!isCurrent()) return;
+    setReferralErrorVisit(null);
+    try {
+      const idToken = await user.getIdToken();
+      if (!isCurrent()) return;
+      const summary = await ReferralService.getSummary({ idToken });
+      if (isCurrent()) setReferralState({ visit, summary });
+    } catch {
+      if (isCurrent()) setReferralErrorVisit(visit);
+    }
+  }, [user, profileVisit]);
+  useEffect(() => { void loadReferral(); }, [loadReferral]);
+  const { connected: referralConnected } = useReferralStream(user, loadReferral);
+  useEffect(() => {
+    if (!user || referralConnected) return;
+    const visible = () => { if (document.visibilityState !== "hidden") void loadReferral(); };
+    const timer = window.setInterval(visible, 30000);
+    window.addEventListener("focus", visible);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", visible); };
+  }, [user, referralConnected, loadReferral]);
+  const referralSummary = referralState?.visit === profileVisit ? referralState.summary : null;
+  const walletIdentity = demoProfile.ownerId === renderedOwnerId ? { ...demoProfile, referralUrl: referralSummary?.link ?? null } : null;
   // Decryption is asynchronous; whether the vault is still open is re-read
   // from the latest render when it settles, never from the tap that began it.
   const vaultContextRef = useRef(vaultContext);
   vaultContextRef.current = vaultContext;
+  useEffect(() => {
+    setRemoveTarget(null);
+  }, [renderedOwnerId, vaultKey]);
 
   const refresh = useCallback(
     async (options?: { quiet?: boolean }) => {
@@ -387,6 +488,7 @@ export function WalletWorkspace() {
         dispatch({ type: "disabled" });
         return;
       }
+      const readRevision = ++cardReadRevision.current;
       const context = vaultContext();
       if (!context) {
         dispatch({ type: "vault_unavailable" });
@@ -394,18 +496,20 @@ export function WalletWorkspace() {
       }
       if (!options?.quiet) dispatch({ type: "load_started" });
       try {
-        const summaries = await WalletService.listCardSummaries(context);
-        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-        setCards(summaries);
+        const presentations = await WalletService.listCardPresentations(context);
+        const summaries = presentations.map((card) => card.summary);
+        if (readRevision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+        setCardSnapshot({
+          ownerId: context.userId,
+          cards: summaries,
+          cardholderNames: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.cardholderName])),
+        });
         dispatch({ type: "load_succeeded", cardIds: summaries.map((card) => card.cardId) });
-      } catch (error) {
-        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+      } catch {
+        if (readRevision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         dispatch({
           type: "load_failed",
-          message:
-            error instanceof Error && error.message
-              ? error.message
-              : "Your cards could not be loaded.",
+          message: "Your cards could not be loaded. Please try again.",
         });
       }
     },
@@ -453,43 +557,158 @@ export function WalletWorkspace() {
 
   const focusedCardId = focusedCardIdOf(view);
   const focusedCard = cards.find((card) => card.cardId === selectedDeckCardId) ?? cards[0] ?? null;
+  const cardActionScopeRef = useRef({
+    ownerId: renderedOwnerId,
+    vaultKey,
+    tab: activeTab,
+    cardId: focusedCard?.cardId,
+    focusedId: focusedCardId,
+    revision: 0,
+  });
+  const previousScope = cardActionScopeRef.current;
+  if (previousScope.ownerId !== renderedOwnerId || previousScope.vaultKey !== vaultKey ||
+      previousScope.tab !== activeTab || previousScope.cardId !== focusedCard?.cardId ||
+      previousScope.focusedId !== focusedCardId) {
+    cardActionScopeRef.current = {
+      ownerId: renderedOwnerId, vaultKey, tab: activeTab, cardId: focusedCard?.cardId,
+      focusedId: focusedCardId,
+      revision: previousScope.revision + 1,
+    };
+  }
+  const numberScopeRevision = cardActionScopeRef.current.revision;
+  const [ownerNumber, setOwnerNumber] = useState<{ revision: number; pan: string } | null>(null);
+  const [numberUnavailable, setNumberUnavailable] = useState(false);
+  const [numberReadRevision, setNumberReadRevision] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    let readRevision = 0;
+    const load = async () => {
+      const read = ++readRevision;
+      setOwnerNumber(null);
+      setNumberUnavailable(false);
+      const context = vaultContextRef.current();
+      const scope = cardActionScopeRef.current;
+      if (!context || activeTab !== "cards" || view.kind !== "list" ||
+          !focusedCardId || focusedCardId !== focusedCard?.cardId || document.visibilityState === "hidden") return;
+      const revision = scope.revision;
+      const isCurrent = () => {
+        const current = vaultContextRef.current();
+        return !cancelled && read === readRevision && document.visibilityState !== "hidden" &&
+          current?.userId === context.userId && current.vaultKey === context.vaultKey &&
+          current.vaultOwnerToken === context.vaultOwnerToken && cardActionScopeRef.current.revision === revision;
+      };
+      try {
+        const saved = await WalletService.getCard({ ...context, cardId: focusedCardId });
+        if (!isCurrent()) return;
+        if (!saved?.secrets.pan) { setNumberUnavailable(true); return; }
+        // Only the selected owner's number is retained for display. Security
+        // codes never enter this projection, the collection, or telemetry.
+        setOwnerNumber({ revision, pan: saved.secrets.pan });
+      } catch {
+        if (isCurrent()) setNumberUnavailable(true);
+      }
+    };
+    const visibility = () => { void load(); };
+    void load();
+    document.addEventListener("visibilitychange", visibility);
+    return () => { cancelled = true; readRevision += 1; document.removeEventListener("visibilitychange", visibility); };
+  }, [numberScopeRevision, numberReadRevision, activeTab, view.kind, focusedCardId, focusedCard?.cardId]);
+  const displayedNumber = ownerNumber?.revision === cardActionScopeRef.current.revision ? ownerNumber.pan : undefined;
+  const getHistoryContext = useCallback((_cardId: string) => {
+    const context = vaultContextRef.current();
+    const revision = cardActionScopeRef.current.revision;
+    const isCurrent = () => {
+      const current = vaultContextRef.current();
+      return Boolean(context && current?.userId === context.userId && current.vaultKey === context.vaultKey &&
+        current.vaultOwnerToken === context.vaultOwnerToken && cardActionScopeRef.current.revision === revision &&
+        cardActionScopeRef.current.tab === "sharing" && document.visibilityState !== "hidden");
+    };
+    if (!context || !isCurrent()) return null;
+    return { ...context, isCurrent, getIdToken: async () => {
+      if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
+      return sharingUserRef.current.getIdToken();
+    } };
+  }, []);
+  const getCardShareContext = useCallback((cardId: string) => {
+    const context = vaultContextRef.current();
+    const revision = cardActionScopeRef.current.revision;
+    const isCurrent = () => {
+      const current = vaultContextRef.current();
+      const scope = cardActionScopeRef.current;
+      return Boolean(context && current?.userId === context.userId && current.vaultKey === context.vaultKey &&
+        current.vaultOwnerToken === context.vaultOwnerToken && scope.revision === revision && scope.tab === "cards" &&
+        scope.focusedId === cardId && scope.cardId === cardId && document.visibilityState !== "hidden");
+    };
+    if (!context || !isCurrent()) return null;
+    return { ...context, isCurrent, getIdToken: async () => {
+      if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
+      return sharingUserRef.current.getIdToken();
+    } };
+  }, []);
+  useEffect(() => {
+    const invalidateCopy = () => {
+      if (document.visibilityState === "hidden") cardActionScopeRef.current.revision += 1;
+    };
+    document.addEventListener("visibilitychange", invalidateCopy);
+    return () => {
+      cardActionScopeRef.current.revision += 1;
+      document.removeEventListener("visibilitychange", invalidateCopy);
+    };
+  }, []);
+
+  const copyCardNumber = async (cardId: string): Promise<boolean> => {
+    const context = vaultContextRef.current();
+    const revision = cardActionScopeRef.current.revision;
+    const isCurrent = () => {
+      const current = vaultContextRef.current();
+      const scope = cardActionScopeRef.current;
+      return context && current?.userId === context.userId && current.vaultKey === context.vaultKey &&
+        current.vaultOwnerToken === context.vaultOwnerToken && scope.revision === revision &&
+        scope.tab === "cards" && scope.focusedId === cardId && scope.cardId === cardId &&
+        document.visibilityState !== "hidden";
+    };
+    if (!context || !isCurrent()) return false;
+    const clipboard = navigator.clipboard;
+    if (!clipboard?.writeText && !clipboard?.write) throw new Error("Card copy unavailable");
+    // Copy remains an explicit action with its own owner/surface validity check.
+    const readNumber = async () => {
+      const saved = await WalletService.getCard({ ...context, cardId });
+      if (!isCurrent() || !saved?.secrets.pan) throw new Error("Card copy unavailable");
+      return saved.secrets.pan;
+    };
+    try {
+      if (clipboard.write && typeof ClipboardItem === "function") {
+        // Start the write inside the click gesture. WebKit accepts the locally
+        // decrypted value through the item's promise after that gesture ends.
+        const data = readNumber().then(pan => new Blob([pan], { type: "text/plain" }));
+        void data.catch(() => {}); // A denied write may never consume the item.
+        await clipboard.write([new ClipboardItem({ "text/plain": data })]);
+      } else {
+        const pan = await readNumber();
+        if (!isCurrent()) return false;
+        await clipboard.writeText(pan);
+      }
+      return Boolean(isCurrent());
+    } catch (error) {
+      if (!isCurrent()) return false;
+      throw error;
+    }
+  };
+
+  const requestRemove = (card: WalletCardSummary) => {
+    const context = vaultContextRef.current();
+    if (context && !busyCardId) setRemoveTarget({ card, context });
+  };
   const selectCard = (cardId: string) => {
+    // Clearing a search also unfocuses the old card; focus the chosen result last.
+    if (searchValue) updateSearch("");
+    setSearchOpen(false);
     setSelectedDeckCardId(cardId);
     dispatch({ type: "unfocus" });
     dispatch({ type: "focus", cardId });
-    if (searchValue) updateSearch("");
-    setSearchOpen(false);
   };
 
-  const revealCard = async (cardId: string) => {
-    const context = vaultContext();
-    if (!context) {
-      dispatch({ type: "vault_unavailable" });
-      return;
-    }
-    dispatch({ type: "focus", cardId });
-    setBusyCardId(cardId);
-    try {
-      const full = await WalletService.getCard({ ...context, cardId });
-      if (full && activeOwnerIdRef.current === context.userId && vaultContextRef.current()?.vaultKey === context.vaultKey) {
-        dispatch({
-          type: "revealed",
-          cardId,
-          summary: full.summary,
-          secrets: full.secrets,
-          vaultUnlocked: vaultContextRef.current() !== null,
-        });
-      }
-    } catch {
-      morphyToast.error("This card could not be opened.");
-    } finally {
-      setBusyCardId(null);
-    }
-  };
-
-  const removeCard = async (cardId: string) => {
-    const context = vaultContext();
-    if (!context) return;
+  const removeCard = async (cardId: string, context: NonNullable<ReturnType<typeof vaultContext>>) => {
     setBusyCardId(cardId);
     try {
       try {
@@ -518,6 +737,13 @@ export function WalletWorkspace() {
           ? cards[index + 1]?.cardId ?? cards[index - 1]?.cardId ?? null
           : current);
       }
+      cardReadRevision.current += 1;
+      setCardSnapshot((previous) => {
+        if (previous?.ownerId !== context.userId) return previous;
+        const names = { ...previous.cardholderNames };
+        delete names[cardId];
+        return { ...previous, cards: previous.cards.filter((card) => card.cardId !== cardId), cardholderNames: names };
+      });
       dispatch({ type: "unfocus" });
       await refresh({ quiet: true });
       setRemovingCardId(null);
@@ -530,7 +756,9 @@ export function WalletWorkspace() {
     const target = removeTarget;
     setRemoveTarget(null);
     if (!target) return;
-    void morphyToast.promise(removeCard(target.cardId), {
+    const current = vaultContextRef.current();
+    if (!current || current.userId !== target.context.userId || current.vaultKey !== target.context.vaultKey) return;
+    void morphyToast.promise(removeCard(target.card.cardId, current), {
       loading: "Removing card…",
       success: "Card removed.",
       error: "The card could not be removed.",
@@ -538,6 +766,7 @@ export function WalletWorkspace() {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || (event.target instanceof Element && event.target.closest('[role="dialog"]'))) return;
     if (event.key === "Escape" && focusedCardId && !removeTarget) {
       dispatch({ type: "unfocus" });
     }
@@ -574,31 +803,19 @@ export function WalletWorkspace() {
       className="motion-step-enter [animation-delay:var(--motion-duration-sm)]"
       data-testid="one-wallet-card-actions"
     >
-      <FlowActionGroup
-        stacked
-        primary={
-          <Button
-            size="standard"
-            isLoading={busyCardId === focusedCard.cardId}
-            onClick={() => void revealCard(focusedCard.cardId)}
-            data-testid={`one-wallet-reveal-${focusedCard.last4}`}
-          >
-            Show card details
-          </Button>
-        }
-        tertiary={
-          <Button
-            variant="ghost"
-            size="compact"
-            disabled={busyCardId === focusedCard.cardId}
-            className="text-[color:var(--app-destructive)] hover:bg-[color:color-mix(in_srgb,var(--app-destructive)_10%,transparent)]"
-            onClick={() => setRemoveTarget(focusedCard)}
-            data-testid="one-wallet-remove"
-          >
-            Remove card
-          </Button>
-        }
+      <WalletSavedCardDetails
+        key={focusedCard.cardId}
+        card={focusedCard}
+        name={cardholderNames[focusedCard.cardId]}
+        pan={displayedNumber}
+        numberUnavailable={numberUnavailable}
+        onRetryNumber={() => setNumberReadRevision(value => value + 1)}
+        onCopyCardNumber={() => copyCardNumber(focusedCard.cardId)}
+        onRemove={() => requestRemove(focusedCard)}
+        disabled={Boolean(busyCardId)}
       />
+      <WalletSavedCardSharing key={`${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} getContext={getCardShareContext} disabled={Boolean(busyCardId)} />
+
     </div>
   ) : null}
 
@@ -616,13 +833,14 @@ export function WalletWorkspace() {
   );
 
   const removeTitle = removeTarget
-    ? removeTarget.nickname || `${cardNetworkLabel(removeTarget.brand)} ending ${removeTarget.last4}`
+    ? removeTarget.card.nickname || `${cardNetworkLabel(removeTarget.card.brand)} ending ${removeTarget.card.last4}`
     : "";
 
   return (
     <AppPageShell
       as="div"
       width="standard"
+      headerContentSpacing="compact"
       fitContent
       className="relative isolate [--app-page-content-bottom-gap:0px]"
     >
@@ -643,10 +861,9 @@ export function WalletWorkspace() {
             actionsInlineMobile
             titleRole="agent"
             className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-            // Match Location's 31px switch + 4px gap + 18px status row.
-            // Reserve it even without an action so loading never shifts tabs.
+            // Keep the same action track across tabs and loading states.
             actions={
-              <span className="flex h-[53px] items-center" data-slot="wallet-header-action">
+              <span className="flex h-11 items-center sm:h-[53px]" data-slot="wallet-header-action">
                 {headerAction}
               </span>
             }
@@ -697,12 +914,15 @@ export function WalletWorkspace() {
             heightMode="active"
             holdHeightDuringTransition={false}
           >
-          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
+          <div className="space-y-2 px-[var(--page-inline-gutter-standard)] sm:space-y-3.5">
           {view.kind === "disabled" ? (
             <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Wallet is not available here yet.</p>
           ) : null}
 
-          {view.kind === "loading" ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText}>Opening your wallet…</p> : null}
+          {view.kind === "loading" ? <div className="mx-auto w-full max-w-[420px] space-y-3 py-5" role="status" aria-label="Opening your wallet">
+            <CardSlot variant="placeholder" />
+            <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Opening your wallet…</p>
+          </div> : null}
 
           {view.kind === "locked" ? (
             <div className="flex flex-col items-center gap-6" data-testid="one-wallet-locked">
@@ -733,12 +953,12 @@ export function WalletWorkspace() {
             </div>
           ) : null}
 
-          {showSearch ? <div className="mx-auto flex w-full max-w-[820px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><Search aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
+          {showSearch ? <div className="mx-auto flex w-full max-w-[820px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><ProfilePaneSearchIcon aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
           {showSearch && searchOpen ? (
             <div className="relative mx-auto w-full max-w-[820px]">
-              <Search
+              <ProfilePaneSearchIcon
                 aria-hidden="true"
-                className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2"
               />
               <Input
                 value={searchValue}
@@ -759,16 +979,19 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser demoProfile={demoProfile} ownerId={renderedOwnerId || undefined}
-              key={renderedOwnerId}
+            <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={referralErrorVisit === profileVisit} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
+              key={renderedOwnerId || "wallet"}
               cards={cards}
+              cardholderNames={cardholderNames}
               selectedCardId={selectedDeckCardId}
+              selectedCardNumber={displayedNumber}
               onSelect={selectCard}
-              onOverview={() => dispatch({ type: "unfocus" })}
+              onOverview={() => { setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
               onAdd={() => { dispatch({ type: "unfocus" }); dispatch({ type: "open_add" }); }}
               details={cardDetails}
+              dockHost={cardDockHost}
               active={activeTab === "cards"}
-              onRemove={setRemoveTarget}
+              onRemove={requestRemove}
               busyCardId={removingCardId}
               disabled={Boolean(busyCardId)}
             />
@@ -776,9 +999,9 @@ export function WalletWorkspace() {
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
           {ready ? (
-            <div className="mx-auto w-full max-w-[820px] py-4">
+            <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
-                scanEnabled
+                scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
                 initialNickname={offerNickname ?? undefined}
@@ -786,17 +1009,38 @@ export function WalletWorkspace() {
                 onSubmit={async (card) => {
                   const context = vaultContext();
                   if (!context) throw new Error("Unlock your vault to save a card.");
+                  let savedCardId: string | null = null;
                   try {
                     const saved = await WalletService.addCard({
                       ...context,
                       card,
                       surface: "web",
                       source: "one_wallet_add",
+                      reserveCardId: async () => {
+                        let registered: string | null = null;
+                        try {
+                          const token = await user!.getIdToken();
+                          if (activeOwnerIdRef.current !== context.userId) throw new Error("Wallet changed.");
+                          registered = (await WalletCardAccessService.reserve(token, context.vaultOwnerToken, crypto.randomUUID())).cardId;
+                        } catch { /* A backend rollout must not prevent saving an unverified card. */ }
+                        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) throw new Error("Wallet changed.");
+                        return registered;
+                      },
                     });
                     const current = vaultContextRef.current();
                     if (activeOwnerIdRef.current !== context.userId || !current || current.vaultKey !== context.vaultKey) return;
-                    setCards((existing) => [...existing.filter((item) => item.cardId !== saved.cardId), saved.summary]);
+                    // A list request begun before this receipt cannot remove the new card.
+                    cardReadRevision.current += 1;
+                    setCardSnapshot((previous) => {
+                      const owned = previous?.ownerId === context.userId ? previous : null;
+                      return {
+                        ownerId: context.userId,
+                        cards: [...(owned?.cards ?? []).filter((item) => item.cardId !== saved.cardId), saved.summary],
+                        cardholderNames: { ...owned?.cardholderNames, [saved.cardId]: saved.cardholderName },
+                      };
+                    });
                     setSelectedDeckCardId(saved.cardId);
+                    savedCardId = saved.cardId;
                     if (activeOwnerIdRef.current === context.userId) {
                       trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
                     }
@@ -809,6 +1053,7 @@ export function WalletWorkspace() {
                   setFormRevision((revision) => revision + 1);
                   setTab("cards");
                   dispatch({ type: "close_add" });
+                  if (savedCardId) dispatch({ type: "focus", cardId: savedCardId });
                   setOfferNickname(null);
                   if (filing) {
                     clearSecretOffer();
@@ -829,7 +1074,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready && activeTab === "sharing" ? <WalletSharing key={renderedOwnerId} profile={demoProfile} /> : null}
+            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
           </div>
           </SwipeViews>
           </div>
@@ -842,7 +1087,7 @@ export function WalletWorkspace() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <AlertDialogContent data-testid="one-wallet-remove-confirm">
+          <AlertDialogContent className={browserStyles.removeDialog} data-testid="one-wallet-remove-confirm">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {removeTitle}?</AlertDialogTitle>
               <AlertDialogDescription>
@@ -874,6 +1119,7 @@ export function WalletWorkspace() {
           />
         ) : null}
       </AppPageContentRegion>
+      <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto h-0 w-full max-w-[820px] overflow-hidden bg-transparent p-0")} data-testid="wallet-card-dock-host" />
     </AppPageShell>
   );
 }

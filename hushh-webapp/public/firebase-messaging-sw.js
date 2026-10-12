@@ -19,6 +19,8 @@ const DOCUMENT_SHARE_NOTIFICATION_TYPES = new Set([
   "document_share_outcome",
   "document_share_revoked",
   "document_share_revocation_outcome",
+  // To the owner: the requester asked about files a partial delivery missed.
+  "document_share_review_requested",
   // Drive questions (drive_query_events): their request_id is a question.
   "document_share_question",
   "document_share_answered",
@@ -31,6 +33,15 @@ const DRIVE_QUESTION_NOTIFICATION_TYPES = new Set([
 ]);
 const DOCUMENT_REQUEST_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The screen that clears each owner setup step a document_share_request push
+// may name. This worker cannot import TypeScript: keep every value equal to
+// documentRequestSetupHref(step) in lib/consent/document-request-setup.ts.
+const DOCUMENT_REQUEST_SETUP_TARGETS = {
+  drive:
+    "/one/feed?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+  payouts: "/one/profile/payouts?from=%2Fone%2Ffeed",
+  price: "/one/profile/request-pricing?from=%2Fone%2Ffeed",
+};
 const DOCUMENT_SHARE_NOTIFICATION_COPY = {
   title: "Document request",
   body: "Open One for next steps.",
@@ -45,7 +56,7 @@ const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE = {
   },
   document_share_payment_ready: {
     title: "Payment needed",
-    body: "Pay $10 in One to continue your document request.",
+    body: "Pay in One to continue your document request.",
   },
   document_share_payment_confirmed: {
     title: "Payment confirmed",
@@ -70,6 +81,10 @@ const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE = {
   document_share_revocation_outcome: {
     title: "Drive access changed",
     body: "Open One to see what changed.",
+  },
+  document_share_review_requested: {
+    title: "Review requested",
+    body: "Open One to see the files that weren't shared.",
   },
   document_share_question: {
     title: "Drive question",
@@ -114,6 +129,16 @@ function documentShareNotificationRequestId(data) {
   return DOCUMENT_REQUEST_UUID.test(requestId) ? requestId.toLowerCase() : null;
 }
 
+// Only a closed step on the owner's request push, with an exact request UUID.
+function documentRequestSetupStep(data) {
+  if (normalizedDocumentShareType(data) !== "document_share_request") return null;
+  if (!documentShareNotificationRequestId(data)) return null;
+  const setup = data?.setup;
+  return setup === "drive" || setup === "payouts" || setup === "price"
+    ? setup
+    : null;
+}
+
 function sanitizeDocumentShareNotificationData(data) {
   // Unknown document-share events must remain unacknowledged downstream, but
   // they still cannot carry private content into a log, notification, or click
@@ -123,6 +148,8 @@ function sanitizeDocumentShareNotificationData(data) {
   if (!isDocumentShareNotificationType(data)) return safe;
   const requestId = documentShareNotificationRequestId(data);
   if (requestId) safe.request_id = requestId;
+  const setup = documentRequestSetupStep(data);
+  if (setup) safe.setup = setup;
   const userId = typeof data?.user_id === "string" ? data.user_id.trim() : "";
   if (userId && userId.length <= 128) safe.user_id = userId;
   return safe;
@@ -186,6 +213,8 @@ function notificationTapTarget(data) {
     if (eventType === "document_share_payment_ready" ||
         eventType === "document_share_payment_confirmed" ||
         eventType === "document_share_payment_refunded") return "/one/feed";
+    const setup = documentRequestSetupStep(data);
+    if (setup) return DOCUMENT_REQUEST_SETUP_TARGETS[setup];
     const selection = DRIVE_QUESTION_NOTIFICATION_TYPES.has(
       normalizedDocumentShareType(data),
     )
@@ -199,16 +228,8 @@ function notificationTapTarget(data) {
   // Private-message pushes carry only opaque identifiers. The app verifies
   // conversation membership before it renders any history.
   if (type === "direct_message") {
-    const conversationId = String(
-      data?.conversation_id || data?.conversationId || "",
-    ).trim();
-    if (
-      conversationId &&
-      conversationId.length <= 256 &&
-      !/[\x00-\x1f]/.test(conversationId)
-    ) {
-      return `/one/messages?conversation=${encodeURIComponent(conversationId)}`;
-    }
+    const routeToken = String(data?.route_token || "");
+    if (routeToken.startsWith("dm1.")) return `/one/messages?token=${encodeURIComponent(routeToken)}`;
     return "/one/messages";
   }
   // Recipient-only alerts match the native/shared FCM tap handler. Historical
@@ -269,6 +290,59 @@ function isEmergencySmsAlert(data) {
       .trim()
       .toLowerCase() === "sos"
   );
+}
+
+function smsHasExpired(data) {
+  if (data.type !== "location_share_created" || !isEmergencySmsAlert(data)) return false;
+  const expiry = String(data.expires_at || "").trim();
+  return !!expiry && (!Number.isFinite(Date.parse(expiry)) || Date.parse(expiry) <= Date.now());
+}
+
+// Opaque per-grant presentation receipts survive worker restarts. They contain
+// no message, location or key material; retain only the maximum push lifetime.
+const locationPresentationFallback = new Map();
+async function locationPresentation(grantId, update) {
+  if (!grantId) return null;
+  let db;
+  const cutoff = Date.now() - 28 * 86400 * 1000;
+  try {
+    db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("hussh-location-presentation-v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("grants");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = reject;
+    });
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction("grants", update ? "readwrite" : "readonly");
+      const store = transaction.objectStore("grants");
+      const request = store.get(grantId);
+      let value;
+      request.onsuccess = () => {
+        value = request.result?.at > cutoff ? request.result : {};
+        if (update) {
+          value = { ...value, ...update, at: Date.now() };
+          store.put(value, grantId);
+          const cursor = store.openCursor();
+          cursor.onsuccess = () => {
+            const entry = cursor.result;
+            if (!entry) return;
+            if (entry.value.at <= cutoff) entry.delete();
+            entry.continue();
+          };
+        }
+      };
+      transaction.oncomplete = () => resolve(value);
+      transaction.onerror = reject;
+      transaction.onabort = reject;
+    });
+  } catch (_) {
+    // Storage failure must not discard a fresh emergency. Still dedup for this
+    // worker lifetime; never persist a failed showNotification as delivered.
+    for (const [key, value] of locationPresentationFallback) if (value.at <= cutoff) locationPresentationFallback.delete(key);
+    const value = locationPresentationFallback.get(grantId) || {};
+    if (update) locationPresentationFallback.set(grantId, { ...value, ...update, at: Date.now() });
+    return locationPresentationFallback.get(grantId) || value;
+  } finally { db?.close(); }
 }
 
 async function deliverPushToClients(payload) {
@@ -352,6 +426,75 @@ async function routeNotificationClick(url, reason, data) {
   return undefined;
 }
 
+importScripts("/chat-notification-preview.js");
+
+// Per-key presentation frontier only; the authenticated message store owns reads.
+let chatPresentation = Promise.resolve();
+function serializeChat(action) {
+  const next = chatPresentation.catch(() => {}).then(action);
+  chatPresentation = next.catch(() => {});
+  return next;
+}
+async function chatFrontier(keyId, threadId, update) {
+  let db;
+  try {
+    db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("hussh-chat-presentation-v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("threads");
+      request.onsuccess = () => resolve(request.result); request.onerror = reject;
+    });
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction("threads", update ? "readwrite" : "readonly");
+      const store = transaction.objectStore("threads");
+      const request = store.get(`${keyId}:${threadId}`);
+      let value;
+      request.onsuccess = () => {
+        value = request.result || { sequence: 0, before: 0, delivered: 0, messages: [] };
+        if (update) { value = update(value); store.put(value, `${keyId}:${threadId}`); }
+      };
+      transaction.oncomplete = () => resolve(value); transaction.onerror = reject; transaction.onabort = reject;
+    });
+  } catch (_) { return null; }
+  finally { db?.close(); }
+}
+async function applyChatRead(boundary) {
+  if (!boundary.keyId || boundary.keyId !== await self.currentChatNotificationKey()) return;
+  await chatFrontier(boundary.keyId, boundary.threadId, old => ({ ...old,
+    sequence: Math.max(old.sequence, Number(boundary.sequence) || 0), before: Math.max(old.before, Number(boundary.before) || 0),
+    messages: [...new Set([...old.messages, ...(boundary.messageId ? [boundary.messageId] : [])])].slice(-200),
+  }));
+  await applyChatBadge({ recipient_key_id: boundary.keyId, chat_badge_count: boundary.badgeCount, chat_badge_version: boundary.badgeVersion });
+  for (const notification of await self.registration.getNotifications()) {
+    const data = notification.data || {};
+    if (boundary.keyId !== await self.currentChatNotificationKey() || data.recipient_key_id !== boundary.keyId || (data.circle_id || data.conversation_id) !== boundary.threadId) continue;
+    const value = Number(boundary.sequence === undefined ? data.chat_sent_at : data.chat_sequence);
+    const limit = boundary.sequence ?? boundary.before;
+    if (boundary.messageId && data.message_id === boundary.messageId || value > 0 && limit !== undefined && value <= limit) notification.close();
+  }
+}
+async function chatCanPresent(data, record = false) {
+  const key = data.recipient_key_id;
+  if (!key) return true; // Historical tokens keep their existing owner checks.
+  if (key !== await self.currentChatNotificationKey()) return false;
+  const thread = data.circle_id || data.conversation_id;
+  const value = Number(data.chat_sequence || data.chat_sent_at);
+  const old = await chatFrontier(key, thread);
+  if (old && (old.messages.includes(data.message_id) || value > 0 && (value <= (data.chat_sequence ? old.sequence : old.before) || value < old.delivered))) return false;
+  if (record) await chatFrontier(key, thread, state => ({ ...state, delivered: Math.max(state.delivered, value || 0), messages: [...new Set([...state.messages, data.message_id])].slice(-200) }));
+  return key === await self.currentChatNotificationKey();
+}
+async function applyChatBadge(data) {
+  if (!data.recipient_key_id || data.recipient_key_id !== await self.currentChatNotificationKey()) return;
+  const count = Number(data.chat_badge_count);
+  if (!Number.isFinite(count) || count < 0) return;
+  const version = Number(data.chat_badge_version) || 0;
+  const old = await chatFrontier(data.recipient_key_id, "__badge__");
+  if (old && version < old.delivered) return;
+  await chatFrontier(data.recipient_key_id, "__badge__", state => ({ ...state, delivered: Math.max(state.delivered, version) }));
+  if (data.recipient_key_id !== await self.currentChatNotificationKey()) return;
+  try { if (count > 0) await self.navigator?.setAppBadge?.(Math.min(9999, count)); else await self.navigator?.clearAppBadge?.(); } catch (_) {}
+}
+
 self.addEventListener("push", function (event) {
   if (!event.data) return;
   try {
@@ -404,6 +547,7 @@ self.addEventListener("push", function (event) {
       : data.notification?.requireInteraction ?? true;
     const isEmergencySms = isEmergencySmsAlert(notificationData);
     const isSilent = isSilentNotification(notificationData);
+    const isChat = ["direct_message", "location_circle_message"].includes(notificationData?.type);
     const notificationOptions = {
       body,
       data: {
@@ -411,15 +555,29 @@ self.addEventListener("push", function (event) {
         source_url: safeDocumentData ? url : sourceUrl,
         url,
       },
-      tag,
+      tag: isChat ? `hussh:chat:${notificationData.recipient_key_id || notificationData.user_id || "legacy"}:${notificationData.circle_id || notificationData.conversation_id}` : tag,
       requireInteraction,
       icon: "/hushh_icon.png",
-      renotify: isEmergencySms,
+      renotify: isEmergencySms || isChat,
       silent: false,
       vibrate: isEmergencySms ? [240, 120, 240, 120, 520] : undefined,
     };
     event.waitUntil(
-      (async () => {
+      serializeChat(async () => {
+        const grantId = String(notificationData.grant_id || "").trim();
+        const smsCreated = isEmergencySms && notificationType === "location_share_created";
+        if (["location_share_revoked", "location_share_expired"].includes(notificationType)) {
+          await locationPresentation(grantId, { ended: true });
+          if (grantId) await closeDeliveredNotificationTag(`one-location-share:${grantId}`);
+        }
+        if (smsCreated) {
+          const previous = await locationPresentation(grantId);
+          if (smsHasExpired(notificationData) || previous?.ended || previous?.presented) return;
+        }
+        if (isChat && notificationData.recipient_key_id && notificationData.recipient_key_id !== await self.currentChatNotificationKey()) return;
+        if (isChat && Number(notificationData.chat_expires_at) < Date.now() / 1000) return;
+        if (isChat && !await chatCanPresent(notificationData)) return;
+        if (isChat) await applyChatBadge(notificationData);
         const deliveryId = nextDeliveryId();
         if (isSilent) {
           await closeDeliveredNotificationTag(tag);
@@ -450,9 +608,24 @@ self.addEventListener("push", function (event) {
         // Suppress the browser notification only after the visible app bridge
         // confirms receipt. Otherwise the system tray remains the reliable fallback.
         if (!acknowledged) {
-          await self.registration.showNotification(title, notificationOptions);
+          const preview = isChat ? await self.openChatNotificationPreview(notificationData) : null;
+          const identity = isChat ? await self.openChatNotificationPreview(notificationData, "chat_identity") : null;
+          const trusted = notificationData?.type === "location_circle_message" ? identity : preview;
+          const sender = String(trusted?.sender || "New message").slice(0, 80);
+          const group = String(trusted?.group || "").slice(0, 80);
+          const text = Array.from(String(preview?.text || (isChat ? "You have a new message" : body))).slice(0, 160).join("");
+          const avatar = trusted?.avatar;
+          const icon = typeof avatar === "string" && avatar.startsWith("data:image/jpeg;base64,") && avatar.length <= 1023 ? avatar : notificationOptions.icon;
+          if (isChat && !await chatCanPresent(notificationData)) return;
+          if (smsHasExpired(notificationData)) return;
+          await self.registration.showNotification(isChat ? group || sender : title, { ...notificationOptions,
+            ...(isChat ? { body: group ? `${sender}: ${text}` : text, icon, requireInteraction: false } : {}) });
+          if (isChat) await chatCanPresent(notificationData, true);
+        } else if (isChat) {
+          await chatCanPresent(notificationData, true);
         }
-      })(),
+        if (smsCreated) await locationPresentation(grantId, { presented: true });
+      }),
     );
   } catch (_) {
     event.waitUntil(
@@ -495,6 +668,10 @@ self.addEventListener("notificationclick", function (event) {
 
 self.addEventListener("message", function (event) {
   const data = event.data || {};
+  if (data.type === "hushh:chat_read") {
+    event.waitUntil(serializeChat(() => applyChatRead(data)));
+    return;
+  }
   if (data.type === "hushh:fcm_push_ack") {
     const acknowledge = pendingForegroundDeliveryAcks.get(data.delivery_id);
     if (acknowledge) acknowledge();

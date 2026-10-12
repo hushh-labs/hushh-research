@@ -7,6 +7,8 @@ from .a2a import well_known_router as a2a_well_known_router
 from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
+from .answer_requests import router as answer_requests_router
+from .answer_work_drain import router as answer_work_drain_router
 from .business_suggestions import router as business_suggestions_router
 from .calendar import router as calendar_router
 from .capability_runtime import router as capability_runtime_router
@@ -20,6 +22,7 @@ from .directory_claims import router as directory_claims_router
 from .drive_actions import router as drive_actions_router
 from .email_chat import router as email_chat_router
 from .feed import router as feed_router
+from .feed_events import router as feed_events_router
 from .first_connect_insights import router as first_connect_insights_router
 from .gmail_delivery import router as gmail_delivery_router
 from .gmail_information_requests import router as gmail_information_requests_router
@@ -37,16 +40,20 @@ from .messages import router as messages_router
 from .models import router as models_router
 from .opportunity_signals import router as opportunity_signals_router
 from .packet_orders import router as packet_orders_router
+from .payout_activity import router as payout_activity_router
+from .payout_balance import router as payout_balance_router
 from .payouts import router as payouts_router
 from .people import public_router as public_people_router
 from .people import router as people_router
 from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
+from .profile_research import router as profile_research_router
 from .referrals import router as referrals_router
 from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
 from .voice import router as voice_router
+from .wallet_card_access import router as wallet_card_access_router
 
 router = APIRouter()
 router.include_router(a2a_well_known_router)
@@ -56,6 +63,7 @@ router.include_router(advisors_router)
 router.include_router(agent_chat_router)
 router.include_router(connections_router)
 router.include_router(messages_router)
+router.include_router(wallet_card_access_router)
 router.include_router(calendar_router)
 router.include_router(circle_chat_router)
 router.include_router(drive_actions_router)
@@ -68,7 +76,9 @@ router.include_router(scheduled_mail_drain_router)
 router.include_router(gmail_information_requests_router)
 router.include_router(google_router)
 router.include_router(feed_router)
+router.include_router(feed_events_router)
 router.include_router(first_connect_insights_router)
+router.include_router(profile_research_router)
 router.include_router(models_router)
 router.include_router(agent_feedback_router)
 router.include_router(business_suggestions_router)
@@ -84,8 +94,12 @@ router.include_router(marketplace_requests_router)
 router.include_router(pkm_packets_router)
 router.include_router(directory_claims_router)
 router.include_router(packet_orders_router)
+router.include_router(answer_requests_router)
+router.include_router(answer_work_drain_router)
 router.include_router(credits_router)
 router.include_router(payouts_router)
+router.include_router(payout_activity_router)
+router.include_router(payout_balance_router)
 router.include_router(career_router)
 router.include_router(opportunity_signals_router)
 router.include_router(places_router)

@@ -61,6 +61,9 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                 self._active(connection, user_id, generation)
                 self._selection_policy(connection, user_id, feature="drive_document_sharing")
             row = self._related_request(connection, user_id, request_id)
+            setup = self._request_setup(connection, row, self._open_request(row))
+            if setup and self._setup_code(setup):
+                return None
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
                 row["status"] not in {"pending", "preparing"}
@@ -120,6 +123,9 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
             self._active(connection, job["user_id"], job["generation"])
             self._selection_policy(connection, job["user_id"], feature="drive_document_sharing")
         row = self._related_request(connection, job["user_id"], job["request_id"])
+        setup = self._request_setup(connection, row, self._open_request(row))
+        if setup and (code := self._setup_code(setup)):
+            raise DriveSharingError(code)
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
         if (
             row["status"] != "preparing"

@@ -75,22 +75,8 @@
 
 .welcomeContent[data-motion="static"] .popTile { animation: none; }
 
-/* Once the tiles settle, paint the untouched export over the clipped layers.
-   This removes raster-mask seams in WebKit without changing the source art. */
-.restingArtwork {
-  animation: welcome-settle 150ms linear 1155ms both;
-}
-
-@keyframes welcome-settle {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.welcomeContent[data-motion="static"] .restingArtwork { animation: none; }
-
 @media (prefers-reduced-motion: reduce) {
   .popTile { animation: none; }
-  .restingArtwork { animation: none; }
 }
 
 .shell .brand {
@@ -118,7 +104,7 @@
   transform: translate(-50%, -50%) scale(calc(var(--intro-art-height) / 360px * 0.9));
 }
 
-/* Keep the original image crop and separate light emoji inside a decorative
+/* Keep the original image crop and separate brand mark inside a decorative
    canvas. No text, control, or interactive ancestor is scaled. */
 :global(html:not(.dark)) .illustration {
   position: absolute;
@@ -154,12 +140,15 @@
   left: 182px;
   width: 45px;
   height: 53px;
-  font-family: var(--font-app-emoji);
-  font-size: 44.7px;
-  line-height: 53px;
 }
 
-:global(.dark) .quietMark { display: none; }
+/* Cover the older baked-in mark with the same canonical artwork as light mode. */
+:global(.dark) .quietMark {
+  top: 250px;
+  left: 170px;
+  width: 56px;
+  height: 60px;
+}
 
 .hero { width: 100%; }
 
@@ -193,11 +182,15 @@
 }
 
 .subtitle {
-  margin: 4px 0 0;
+  margin: 4px auto 0;
+  max-width: 100%;
   color: inherit;
+  font-family: var(--font-app-body);
   font-size: 13px;
   font-weight: 400;
   line-height: 20px;
+  text-align: center;
+  text-wrap: balance;
 }
 
 .footer {
@@ -213,15 +206,17 @@
 
 .privacy { display: flex; justify-content: center; width: 100%; }
 
+/* The handshake mark and the sentence read as one centred unit, on a shared
+   vertical centre so the icon sits level with the text. */
 .shell .privacy > div {
-  /* Measure the CTA gap from the text, not the taller decorative icon. */
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
   width: auto;
   max-width: 100%;
   gap: 10px;
   color: #626b80;
   font-family: var(--font-app-body);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 20px;
 }
@@ -230,26 +225,19 @@
 
 .ctaLabel { position: relative; }
 
+/* Solid primary button on the shared pill: no page-specific glow or gradient. */
 .shell .welcomeCta {
   min-height: 52px;
-  background: transparent;
+  background: #0071e3;
+  color: #fff;
+  font-family: var(--font-app-body);
   font-size: 17px;
-  font-weight: 510;
-  line-height: 18px;
+  font-weight: 500;
+  line-height: 22px;
 }
 
-.welcomeCta::before {
-  position: absolute;
-  inset: -0.5px;
-  content: "";
-  pointer-events: none;
-  border-radius: inherit;
-  background: url("/onboarding/figma/intro-cta-material.png") center / 100% 100% no-repeat;
-}
-
-:global(.dark) .welcomeCta::before {
-  background-image: url("/onboarding/figma/intro-dark-cta-material.png");
-}
+.shell .welcomeCta:hover:not(:disabled) { background: #0077ed; }
+.shell .welcomeCta:active:not(:disabled) { background: #006acf; }
 
 .link:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 4px; }
 

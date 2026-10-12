@@ -481,10 +481,20 @@ class GoogleDrivePermissionAdapter:
         raise DrivePermissionError("permission_catalog_incomplete")
 
     async def inspect_permission_management(
-        self, *, file_id, access_token, require_current, require_app_authorized=True
+        self,
+        *,
+        file_id,
+        access_token,
+        require_current,
+        require_app_authorized=True,
+        resource_key: str | None = None,
     ):
         result = await self._exchange(
-            "inspect", file_id=file_id, access_token=access_token, require_current=require_current
+            "inspect",
+            file_id=file_id,
+            access_token=access_token,
+            require_current=require_current,
+            resource_key=resource_key,
         )
         capabilities = result.get("capabilities")
         if (
@@ -543,6 +553,7 @@ class GoogleDrivePermissionAdapter:
         recorded_permission_id: str,
         access_token: str,
         require_current: Fence,
+        resource_key: str | None = None,
     ) -> None:
         await self._exchange(
             "remove",
@@ -550,4 +561,5 @@ class GoogleDrivePermissionAdapter:
             permission_id=recorded_permission_id,
             access_token=access_token,
             require_current=require_current,
+            resource_key=resource_key,
         )

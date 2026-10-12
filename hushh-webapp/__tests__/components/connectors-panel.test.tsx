@@ -21,6 +21,7 @@ const state = vi.hoisted(() => ({
   financial: { data: null as { data: Record<string, unknown> } | null, loading: false, error: null as string | null },
   gmailStatus: { connected: false, compose_permission_granted: false } as Record<string, boolean>,
   connectGmail: vi.fn(),
+  gmailStartConnect: vi.fn(),
   startNativeConnect: vi.fn(),
   completeNativeConnect: vi.fn(),
   calendarStartConnect: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("@/components/consent/trusted-document-rules", () => ({
 }));
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
   GmailReceiptsService: {
+    startConnect: state.gmailStartConnect,
     startNativeConnect: state.startNativeConnect,
     completeNativeConnect: state.completeNativeConnect,
     recordConsentFailure: vi.fn(),
@@ -134,6 +136,10 @@ describe("supported connector catalog", () => {
     state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected" } };
     state.financial = { data: null, loading: false, error: null };
     state.gmailStatus = { connected: false, compose_permission_granted: false };
+    state.gmailStartConnect.mockReset();
+    state.startNativeConnect.mockReset();
+    state.completeNativeConnect.mockReset();
+    state.connectGmail.mockReset();
     Object.values(callbacks).forEach((callback) => callback.mockClear());
   });
   afterEach(cleanup);
@@ -944,6 +950,17 @@ describe("supported connector catalog", () => {
     expect(await screen.findByRole("region", { name: "Calendar details" })).toBeInTheDocument();
   });
 
+  it.each(["instagram", "linkedin"])("offers %s as a public-link draft without granting a connection", async (id) => {
+    render(<ConnectorsPanel open surface="profile" {...callbacks} />);
+    const name = id === "instagram" ? "Instagram" : "LinkedIn";
+    fireEvent.click(await screen.findByRole("button", { name: `Connect ${name}`, exact: true }));
+    expect(screen.getByText(/Your profile should be a public figure/)).toBeInTheDocument();
+    const input = screen.getByRole("textbox", { name: "Profile link" });
+    fireEvent.change(input, { target: { value: `https://www.${id}.com/example` } });
+    expect(input).toHaveValue(`https://www.${id}.com/example`);
+    expect(state.startOAuthConnect).not.toHaveBeenCalled();
+  });
+
   it("offers explicit Gmail draft permission only for a connected account without it", async () => {
     state.gmailStatus = { connected: true, compose_permission_granted: false };
     render(panel());
@@ -954,6 +971,28 @@ describe("supported connector catalog", () => {
     render(panel());
     fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
     expect(screen.queryByRole("button", { name: "Enable Gmail drafts" })).not.toBeInTheDocument();
+  });
+
+  it("requests the Gmail send grant during the first native connection", async () => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    state.startNativeConnect.mockResolvedValue({ configured: true, server_client_id: "native-client", purpose: "send" });
+    state.connectGmail.mockResolvedValue({ serverAuthCode: "one-time-code" });
+    state.completeNativeConnect.mockResolvedValue(undefined);
+    try {
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Connect Gmail" }));
+      await waitFor(() => expect(state.startNativeConnect).toHaveBeenCalledWith({
+        idToken: "synthetic-firebase-token", userId: "owner-a", purpose: "send",
+      }));
+      expect(state.connectGmail).toHaveBeenCalledWith({
+        serverClientId: "native-client", purpose: "send", preserveSend: false, preserveModify: false,
+      });
+      expect(state.completeNativeConnect).toHaveBeenCalledWith({
+        idToken: "synthetic-firebase-token", userId: "owner-a", serverAuthCode: "one-time-code", purpose: "send",
+      });
+    } finally {
+      vi.mocked(Capacitor.isNativePlatform).mockRestore();
+    }
   });
 
   // The backend refuses a native grant that drops a scope the connection holds,

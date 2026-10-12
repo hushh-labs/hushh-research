@@ -369,6 +369,11 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     fake_sleep = fake_bin / "sleep"
     fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     fake_sleep.chmod(0o755)
+    # Verify repeated log refusal and rollback without 55 identical subprocesses.
+    # The production polling budget and this fixture's watchdog stay unchanged.
+    fake_seq = fake_bin / "seq"
+    fake_seq.write_text("#!/bin/sh\nprintf '1\\n2\\n'\n", encoding="utf-8")
+    fake_seq.chmod(0o755)
     original_document = _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(

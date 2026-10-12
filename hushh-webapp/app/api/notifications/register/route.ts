@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
         degraded: true,
         error: "Notification registration unavailable",
       },
-      { status: 200 }
+      { status: 503 }
     );
   }
 }

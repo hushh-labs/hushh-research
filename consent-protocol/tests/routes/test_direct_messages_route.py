@@ -39,7 +39,50 @@ def test_send_person_ref_threads_authenticated_sender_and_never_accepts_a_peer_u
         recipient_user_id=None,
         recipient_person_ref="11111111-1111-4111-8111-111111111111",
         reply_to_message_id="22222222-2222-4222-8222-222222222222",
+        client_message_id=None,
+        attachment=None,
     )
+
+
+def test_attachment_send_and_read_keep_authenticated_identity_and_private_bytes():
+    service = MagicMock()
+    service.send_message.return_value = {
+        "message": {"id": "message-1", "attachment": {"kind": "document"}}
+    }
+    service.get_attachment.return_value = {
+        "content": b"%PDF-1.4\nprivate",
+        "mimeType": "application/pdf",
+        "name": "notes.pdf",
+    }
+    conversation_id = "11111111-1111-4111-8111-111111111111"
+    message_id = "22222222-2222-4222-8222-222222222222"
+    attachment = {"name": "notes.pdf", "mimeType": "application/pdf", "data": "JVBERi0xLjQK"}
+
+    with patch("api.routes.one.messages._service", return_value=service):
+        client = _client()
+        sent = client.post(
+            "/api/one/messages",
+            json={"recipientPersonRef": conversation_id, "content": "", "attachment": attachment},
+        )
+        fetched = client.get(
+            f"/api/one/messages/conversations/{conversation_id}/messages/{message_id}/attachment"
+        )
+
+    assert sent.status_code == 200
+    service.send_message.assert_called_once_with(
+        "viewer-user",
+        content="",
+        recipient_user_id=None,
+        recipient_person_ref=conversation_id,
+        reply_to_message_id=None,
+        client_message_id=None,
+        attachment=attachment,
+    )
+    assert fetched.status_code == 200
+    assert fetched.content == b"%PDF-1.4\nprivate"
+    assert fetched.headers["cache-control"] == "private, no-store"
+    assert fetched.headers["x-content-type-options"] == "nosniff"
+    service.get_attachment.assert_called_once_with("viewer-user", conversation_id, message_id)
 
 
 def test_send_returns_clear_server_enforced_connection_error():
@@ -129,3 +172,40 @@ def test_message_actions_keep_participant_identity_server_side():
     service.react_to_message.assert_called_once_with(
         "viewer-user", conversation_id, message_id, emoji="😀"
     )
+
+
+def test_route_tokens_require_participation_on_mint_and_restore(monkeypatch):
+    import base64
+
+    monkeypatch.setenv(
+        "DIRECT_MESSAGE_ENCRYPTION_KEY_V1", base64.urlsafe_b64encode(b"t" * 32).decode()
+    )
+    service = MagicMock()
+    conversation = "11111111-1111-4111-8111-111111111111"
+    service._normalize_conversation_id.side_effect = lambda value: value
+    service._conversation_for_participant.return_value = {"id": conversation}
+    with patch("api.routes.one.messages._service", return_value=service):
+        client = _client()
+        minted = client.post("/api/one/messages/route-token", json={"conversationId": conversation})
+        assert minted.status_code == 200
+        assert minted.headers["cache-control"] == "private, no-store"
+        token = minted.json()["token"]
+        assert conversation not in token
+        restored = client.post("/api/one/messages/route-token", json={"token": token})
+        assert restored.status_code == 200
+        assert restored.json()["ref"] == conversation
+        service._conversation_for_participant.assert_called_with("viewer-user", conversation)
+        service._conversation_for_participant.return_value = None
+        assert (
+            client.post("/api/one/messages/route-token", json={"token": token}).status_code == 404
+        )
+        assert (
+            client.post(
+                "/api/one/messages/route-token", json={"conversationId": conversation}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post("/api/one/messages/route-token", json={"token": "dm1.invalid"}).status_code
+            == 400
+        )

@@ -45,6 +45,18 @@ const DOMAIN_DATA = {
 };
 
 describe("WalletService", () => {
+  it("prepares an existing owner's card unchanged and refuses stale or missing cards", async () => {
+    let current = true;
+    const isCurrent = () => current;
+    await WalletService.prepareCardSharing({ ...CONTEXT, cardId: CARD_ID, isCurrent });
+    const params = mockStoreWalletDomain.mock.calls[0][0];
+    expect(params.mayPublish).toBe(isCurrent);
+    expect(params.applyMutation(DOMAIN_DATA)).toBe(DOMAIN_DATA);
+    expect(() => params.applyMutation({ summary: {}, secrets: {} })).toThrow("Card unavailable");
+    current = false;
+    expect(params.mayPublish()).toBe(false);
+    expect(() => params.applyMutation(DOMAIN_DATA)).toThrow("Card unavailable");
+  });
   beforeEach(() => {
     mockLoadDomainData.mockResolvedValue(DOMAIN_DATA);
     mockStoreWalletDomain.mockResolvedValue({ success: true });
@@ -65,6 +77,44 @@ describe("WalletService", () => {
       issuingRegion: "US",
     });
     expect(JSON.stringify(summaries)).not.toContain("4111111111111111");
+    expect(JSON.stringify(summaries)).not.toContain("A Person");
+  });
+
+  it("keeps acknowledged recipients only in encrypted secrets and preserves other cards", async () => {
+    const receipt = { messageId: "message", conversationId: "conversation", recipientPersonRef: "person", recipientName: "Recipient", sentAt: "2026-10-10T10:00:00Z" };
+    const mayPublish = () => true;
+    await WalletService.recordCardShareReceipt({ ...CONTEXT, cardId: CARD_ID, receipt, mayPublish });
+    const params = mockStoreWalletDomain.mock.calls[0][0];
+    expect(params.scopePath).toBe("secrets"); expect(params.mayPublish).toBe(mayPublish);
+    const base = { ...DOMAIN_DATA, secrets: { ...DOMAIN_DATA.secrets, other: { pan: "4242424242424242" } } };
+    const next = params.applyMutation(base);
+    expect(next.summary).toEqual(base.summary); expect(next.secrets.other).toEqual(base.secrets.other);
+    expect(next.secrets[CARD_ID].share_receipts).toEqual([receipt]);
+    expect(params.applyMutation(next).secrets[CARD_ID].share_receipts).toEqual([receipt]);
+    mockLoadDomainData.mockResolvedValue(next);
+    expect(await WalletService.listCardShareReceipts({ ...CONTEXT, cardId: CARD_ID })).toEqual([receipt]);
+    expect(await WalletService.listCardShareReceipts({ ...CONTEXT, cardId: "other" })).toEqual([]);
+    expect(JSON.stringify(await WalletService.listCardSummaries(CONTEXT))).not.toContain(receipt.recipientName);
+    expect(JSON.stringify(await WalletService.getCard({ ...CONTEXT, cardId: CARD_ID }))).not.toContain(receipt.recipientName);
+  });
+
+  it("projects the owner's cardholder name without projecting payment credentials", async () => {
+    const [card] = await WalletService.listCardPresentations(CONTEXT);
+    expect(card.cardholderName).toBe("A Person");
+    expect(card.summary.cardId).toBe(CARD_ID);
+    expect(mockLoadDomainData).toHaveBeenCalledTimes(1);
+    expect(card).not.toHaveProperty("secrets");
+    expect(JSON.stringify(card)).not.toContain("4111111111111111");
+    expect(card.summary).not.toHaveProperty("cardholderName");
+  });
+
+  it("does not turn a failed read into an empty wallet", async () => {
+    mockLoadDomainData.mockResolvedValueOnce(null);
+    await expect(WalletService.listCardSummaries(CONTEXT)).resolves.toEqual([]);
+    const failure = new Error("Synthetic encrypted wallet unavailable");
+    mockLoadDomainData.mockRejectedValue(failure);
+    await expect(WalletService.listCardSummaries(CONTEXT)).rejects.toBe(failure);
+    await expect(WalletService.listCardPresentations(CONTEXT)).rejects.toBe(failure);
   });
 
   it("getCard returns both halves for the reveal surface", async () => {
@@ -123,7 +173,47 @@ describe("WalletService", () => {
       pin: "4321",
     });
     expect(mutated.summary[saved.cardId]).not.toHaveProperty("pan");
+    expect(mutated.summary[saved.cardId]).not.toHaveProperty("cardholder_name");
+    expect(saved.cardholderName).toBe("A Person");
     expect(JSON.stringify(mutated.summary)).not.toContain("378282246310005");
+  });
+
+  it("saves an explicit provider with optional fields empty and preserves other cards", async () => {
+    const saved = await WalletService.addCard({
+      ...CONTEXT,
+      surface: "web",
+      source: "test",
+      card: {
+        cardholderName: "A Person",
+        // This JCB test BIN overlaps the broad RuPay detector window.
+        pan: "3566 0020 2036 0505",
+        brand: "jcb",
+        cvv: "123",
+        expiryMonth: 5,
+        expiryYear: 2031,
+      },
+    });
+    const call = mockStoreWalletDomain.mock.calls[0][0];
+    const original = structuredClone(DOMAIN_DATA);
+    const mutated = call.applyMutation(original);
+    expect(saved.summary).toMatchObject({ brand: "jcb", issuingRegion: "", nickname: "" });
+    expect(mutated.secrets[saved.cardId].pin).toBe("");
+    expect(mutated.summary[CARD_ID]).toEqual(DOMAIN_DATA.summary[CARD_ID]);
+    expect(mutated.secrets[CARD_ID]).toEqual(DOMAIN_DATA.secrets[CARD_ID]);
+    expect(original).toEqual(DOMAIN_DATA);
+  });
+
+  it.each(["cardholderName", "cvv"] as const)("requires %s before saving", async (field) => {
+    await expect(WalletService.addCard({
+      ...CONTEXT,
+      surface: "web",
+      source: "test",
+      card: {
+        cardholderName: "A Person", pan: "4111111111111111", cvv: "123",
+        expiryMonth: 5, expiryYear: 2031, [field]: "",
+      },
+    })).rejects.toThrow("CARD_VALIDATION_FAILED");
+    expect(mockStoreWalletDomain).not.toHaveBeenCalled();
   });
 
   it("deleteCard removes both branches", async () => {

@@ -59,7 +59,7 @@ import { FigmaCountryFlag } from "@/components/onboarding/FigmaOnboardingPrimiti
 import { CountryPicker } from "@/components/auth/country-picker";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 // Country metadata owns national-number length and validity.
 const E164_PHONE_PATTERN = /^\+[1-9]\d{1,14}$/;

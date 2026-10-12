@@ -72,12 +72,20 @@
       "file": "app/api/consent/center/list/route.ts"
     },
     {
+      "template": "/api/consent/center/source-fence",
+      "file": "app/api/consent/center/source-fence/route.ts"
+    },
+    {
       "template": "/api/consent/center/summary",
       "file": "app/api/consent/center/summary/route.ts"
     },
     {
       "template": "/api/consent/data",
       "file": "app/api/consent/data/route.ts"
+    },
+    {
+      "template": "/api/consent/document-feed/{userId}",
+      "file": "app/api/consent/document-feed/[userId]/route.ts"
     },
     {
       "template": "/api/consent/events/{userId}",
@@ -366,7 +374,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds.",
+          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. Magic Intelligence and public business cards start only after personality onboarding finishes, in a separate follow-up turn. After every selected business detail is confirmed saved, a permanent owner-scoped flag suppresses the automatic business card across sessions and devices; partial or failed saves stay retryable. Business website edits accept bare domains as HTTPS and reject unsafe URLs before preparing details. The public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
           "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2399,8 +2407,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/calendar/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "calendar.read"
+      ],
       "api_dependencies": [
         {
           "service_file": "lib/services/google-calendar-service.ts",
@@ -2706,7 +2716,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.connected.systems.systemid",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-          "screen": "app",
+          "screen": "connected_systems",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2734,8 +2744,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.connected_system_list"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -2828,7 +2840,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.email",
           "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-          "screen": "app",
+          "screen": "email_agent",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2870,8 +2882,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/email/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.mail_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -4603,8 +4617,8 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.messages",
-          "purpose": "Read and send private one-to-one messages with accepted connections.",
-          "screen": "app",
+          "purpose": "Read and send private messages with accepted connections and circles you belong to.",
+          "screen": "one_messages",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -4618,10 +4632,10 @@
             "callback_error": "Keep the message screen open and explain that the update could not be verified.",
             "route_mismatch": "Use only the verified private message route and its generated controls."
           },
-          "completion_boundary": "A send completes only after the server accepts the message for the active connection.",
+          "completion_boundary": "A send completes only after the server accepts the message for the selected connection or circle.",
           "next_route": null,
           "return_policy": "stay",
-          "out_of_scope_behavior": "Do not infer a connection or reveal another person's message history."
+          "out_of_scope_behavior": "Do not infer a connection or circle membership or reveal another person's message history."
         }
       },
       "native": {
@@ -4645,8 +4659,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/messages/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.messages_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -4671,7 +4687,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
-          "purpose": "Help the person understand and use the pkm screen through its generated controls.",
+          "purpose": "Memory opens on Soul.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the Soul.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
           "screen": "pkm",
           "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
           "proactivity": "on_entry",
@@ -4998,6 +5014,8 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -5006,9 +5024,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel"
       ],
@@ -5938,6 +5959,72 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/payouts",
+      "page_file": "app/one/profile/payouts/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.payouts",
+          "purpose": "Help the person use payouts through its generated controls.",
+          "screen": "profile_payouts",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/payouts",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpayouts",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/payouts",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/pkm",
       "page_file": "app/one/profile/pkm/page.tsx",
       "physical_page_exists": true,
@@ -6587,29 +6674,21 @@
       "page_file": "app/one/profile/referrals/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility-only redirect; Referrals is now a dedicated dashboard at /one/referrals.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.profile.support",
-          "purpose": "Help the person understand and use the support screen through its generated controls.",
-          "screen": "profile_referrals_panel",
-          "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.profile_referrals_panel",
-          "happy_path_action_ids": [
-            "route.profile_referrals_panel"
-          ],
+          "playbook_id": "route.profile.referrals.redirect",
+          "purpose": "Send the person to the dedicated Referrals dashboard.",
+          "screen": "profile_referrals_redirect",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -6619,22 +6698,24 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/one/profile/referrals",
-          "return_policy": "stay",
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/one/referrals",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
       "native": {
         "route": "/one/profile/referrals",
         "classification": "native-required-functional",
+        "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Freferrals",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/referrals",
+        "expectedMarker": "native-route-one-referrals",
+        "expectedRoute": "/one/referrals",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6691,6 +6772,72 @@
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
         "expectedMarker": "ria-profile-page",
         "expectedRoute": "/ria/profile",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/request-pricing",
+      "page_file": "app/one/profile/request-pricing/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.request.pricing",
+          "purpose": "Help the person use request pricing through its generated controls.",
+          "screen": "profile_request_pricing",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/request-pricing",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Frequest-pricing",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/request-pricing",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -7190,7 +7337,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.puppy",
           "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-          "screen": "app",
+          "screen": "puppy_one",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -7222,9 +7369,95 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
+      "voice_action_contract_file": "app/one/puppy/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.puppy_agents"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/referrals",
+      "page_file": "app/one/referrals/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/referrals/referral-dashboard-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.referrals",
+          "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share expands the sharing options; Back closes them. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+          "screen": "one_referrals",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/referrals",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Freferrals",
+        "expectedMarker": "native-route-one-referrals",
+        "expectedRoute": "/one/referrals",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/referral-service.ts",
+          "service_methods": [
+            "getSummary",
+            "getPoints",
+            "getChallenge",
+            "getMilestones",
+            "getEngagement",
+            "getLeaderboard",
+            "getCircleLeaderboard",
+            "getCircleSelection"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/referrals/*",
+          "native_transport": "Direct backend via ApiService.apiFetch; authenticated owner-scoped reads."
+        }
+      ],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
     },
@@ -8062,6 +8295,75 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/todos/todo-list-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceCard"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.todos",
+          "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/todos",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Ftodos",
+        "expectedMarker": "native-route-one-todos",
+        "expectedRoute": "/one/todos",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loading",
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/wallet",
       "page_file": "app/one/wallet/page.tsx",
       "physical_page_exists": true,
@@ -8156,7 +8458,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.wallet.card",
           "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-          "screen": "app",
+          "screen": "one_wallet_card",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -8197,8 +8499,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.wallet_profile_cards"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -8278,6 +8582,7 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
+        "people.profile.request_scope",
         "people.profile.review_information_request",
         "route.person_profile"
       ],
@@ -9690,6 +9995,59 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/wallet/open",
+      "page_file": "app/wallet/open/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Anonymous encrypted-file reader outside the signed-in shell; all card decryption stays on the recipient device.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.wallet.encrypted_file.open",
+          "purpose": "Let the recipient choose an encrypted card file and decrypt it locally without an account or upload.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that the file and its password are required without asking for their contents.",
+            "cancelled": "Respect cancellation and keep decrypted card information hidden.",
+            "failed": "Offer a local retry without claiming the card opened.",
+            "timeout": "Keep the card hidden and offer one safe retry.",
+            "callback_error": "Keep private values out of recovery messages.",
+            "route_mismatch": "Use only the verified encrypted-file reader route."
+          },
+          "completion_boundary": "The card is open only after authenticated decryption completes locally for the current file and password. No recipient delivery is inferred.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Never ask for, interpret, log or transmit the chosen file, password or decrypted card."
+        }
+      },
+      "native": {
+        "route": "/wallet/open",
+        "classification": "excluded-web-only",
+        "reason": "Anonymous browser reader for externally shared encrypted files; no app installation or signed-in native route is required."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "physical_page_exists": true,
@@ -9743,5 +10101,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "09a9a8d7c7e74e02c2bb481e72c1c099387e4a5f14414fcb82fa348a302eef0e"
+  "content_sha256": "1b1041e6c4839902b27630c65ac0dc16dc60f711db82225aaeac253b546a35d6"
 }

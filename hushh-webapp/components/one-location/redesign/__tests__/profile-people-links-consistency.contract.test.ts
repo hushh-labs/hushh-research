@@ -79,7 +79,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(ctaLayout).toContain(
       "flex w-full max-w-[420px] flex-col items-stretch gap-4 px-4",
     );
-    expect(ctaLayout).toContain("h-12 min-h-12 w-full rounded-full");
+    expect(ctaLayout).toContain("h-12 min-h-12 w-auto max-w-full self-start rounded-full");
     expect(ctaLayout).not.toContain("min-[380px]:pl-16");
   });
 
@@ -99,7 +99,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).not.toContain("Stops in 1h");
   });
 
-  it("draws Profile menu icons in their own colour with no tile, as on /one", () => {
+  it("keeps route icons and pane icons on tile-free Profile rows", () => {
     const source = readSource(
       "components/profile/profile-workspace-page.tsx",
     );
@@ -107,22 +107,26 @@ describe("Profile, Location People, and Location Links consistency contract", ()
 
     expect(source).toContain("title={PROFILE_LABELS.referrals}");
     expect(source).toContain("title={PROFILE_LABELS.developerTools}");
-    for (const icon of [
-      "AccountProfileIcon",
-      "PreferencesProfileIcon",
-      "SecurityProfileIcon",
-      "DevicesProfileIcon",
-      "InviteFriendsProfileIcon",
-      "SupportProfileIcon",
-      "DeveloperToolsProfileIcon",
-      "SignOutProfileIcon",
+    for (const [paneIcon, routeIcon] of [
+      ["ProfilePaneAccountIcon", "AccountProfileIcon"],
+      ["ProfilePaneAppearanceIcon", "PreferencesProfileIcon"],
+      ["ProfilePaneSecurityIcon", "SecurityProfileIcon"],
+      ["ProfilePaneDevicesIcon", "DevicesProfileIcon"],
+      ["ProfilePaneInviteIcon", "InviteFriendsProfileIcon"],
+      ["ProfilePaneHelpIcon", "SupportProfileIcon"],
+      ["ProfilePaneSignOutIcon", "SignOutProfileIcon"],
     ]) {
       expect(source).toMatch(
-        new RegExp(`icon=\\{${icon}\\}\\s+iconTone="capability"`),
+        new RegExp(
+          `icon=\\{\\s*isPanePresentation\\s*\\?\\s*${paneIcon}\\s*:\\s*${routeIcon}\\s*\\}\\s+iconTone="capability"`,
+        ),
       );
     }
+    expect(source).toMatch(
+      /icon=\{DeveloperToolsProfileIcon\}\s+iconTone="capability"/,
+    );
     expect(source).toContain('tone="destructive"');
-    // The capability tone leaves the authored duotone colour in place.
+    // The capability tone leaves each presentation's authored SVG colour in place.
     expect(settingsSource).toContain(
       'color={isCapabilityTone ? undefined : "currentColor"}',
     );

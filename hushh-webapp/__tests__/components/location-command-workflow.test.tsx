@@ -78,7 +78,7 @@ vi.mock("@/lib/agent/agent-action-runtime", () => ({
 vi.mock("@/lib/agent/agent-gateway-action-settlement", () => ({
   settleAgentGatewayAction: async (result: unknown) => result,
 }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   getVoiceSurfaceMetadata: vi.fn(),
 }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({

@@ -94,7 +94,7 @@ import {
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import {
   buildKaiPortfolioSectionRoute,
   type KaiPortfolioSection,
@@ -2074,8 +2074,12 @@ export function DashboardMasterView({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete saved statement?</AlertDialogTitle>
           <AlertDialogDescription>
-            This removes this statement from your saved portfolio history. Your
-            other saved statements and connected brokerages are kept.
+            This removes{" "}
+            <span className="[overflow-wrap:anywhere]">
+              {statementSnapshotToDelete?.label || "this statement"}
+            </span>{" "}
+            from your saved portfolio history. Your other saved statements and
+            connected brokerages are kept.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -2098,7 +2102,7 @@ export function DashboardMasterView({
                 Deleting...
               </>
             ) : (
-              `Delete ${statementSnapshotToDelete?.label || "Statement"}`
+              "Delete statement"
             )}
           </AlertDialogAction>
         </AlertDialogFooter>

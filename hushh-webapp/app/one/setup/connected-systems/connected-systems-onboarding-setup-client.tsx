@@ -59,7 +59,8 @@ export function ConnectedSystemsOnboardingSetupClient() {
       <AppPageShell
         as="main"
         width="reading"
-        className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
+        headerContentSpacing="compact"
+        className="pb-[calc(var(--app-bottom-inset)+1rem)]"
       >
         <AppPageHeaderRegion>
           <PageHeader

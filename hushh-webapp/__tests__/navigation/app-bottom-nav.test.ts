@@ -64,6 +64,7 @@ describe("app bottom navigation", () => {
 
   it("uses the active One agent app as the first tab on One subroutes", () => {
     expect(resolveOneActiveNav("/")).toBe("chat");
+    expect(resolveOneActiveNav(ROUTES.ONE_MESSAGES)).toBe("chat");
     expect(resolveOneActiveNav(ROUTES.ONE_HOME)).toBe("dashboard");
     expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("gmail");
     expect(resolveOneActiveNav(ROUTES.ONE_KYC)).toBe("email");
@@ -89,6 +90,9 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavHref("dashboard", "one")).toBe(ROUTES.ONE_HOME);
     expect(resolveBottomNavHref("dashboard", "investor")).toBe(ROUTES.ONE_HOME);
     expect(resolveBottomNavHref("dashboard", "ria")).toBe(ROUTES.ONE_HOME);
+    expect(resolveBottomNavHref("chat", "one")).toBe(ROUTES.HOME);
+    expect(resolveBottomNavHref("chat", "investor")).toBe(ROUTES.HOME);
+    expect(resolveBottomNavHref("chat", "ria")).toBe(ROUTES.HOME);
     expect(resolveBottomNavHref("search", "one")).toBeNull();
     expect(resolveBottomNavHref("search", "investor")).toBeNull();
     expect(resolveBottomNavAction("search", "one")).toEqual({
@@ -165,6 +169,9 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavActiveKey(ROUTES.ONE_MESSAGES, "one")).toBe(
       "chat",
     );
+    expect(resolveBottomNavActiveKey(ROUTES.ONE_HOME, "one")).toBe("dashboard");
+    expect(resolveInvestorActiveNav(ROUTES.HOME)).toBe("chat");
+    expect(resolveRiaActiveNav(ROUTES.HOME)).toBe("chat");
     expect(resolveBottomNavActiveKey(ROUTES.KAI_ANALYSIS, "investor")).toBe(
       "dashboard",
     );

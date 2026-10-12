@@ -83,6 +83,31 @@ describe("/api/account/[...path] proxy", () => {
     expect(headers.get("Authorization")).toBe("Bearer firebase-token");
   });
 
+  it("forwards lost-vault deletion proof and preserves a verification error", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ detail: { code: "ACCOUNT_DELETE_REAUTH_REQUIRED" } }, { status: 401 }),
+    );
+    const body = { method: "phone", phone_id_token: "fresh-phone-token" };
+    const request = new NextRequest("http://localhost:3000/api/account/delete-lost-vault", {
+      method: "POST",
+      headers: { Authorization: "Bearer fresh-provider-token", "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const response = await route.POST(request, {
+      params: Promise.resolve({ path: ["delete-lost-vault"] }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ detail: { code: "ACCOUNT_DELETE_REAUTH_REQUIRED" } });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend.test/api/account/delete-lost-vault",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer fresh-provider-token");
+  });
+
   it("forwards alias list query parameters", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ success: true, aliases: [] })

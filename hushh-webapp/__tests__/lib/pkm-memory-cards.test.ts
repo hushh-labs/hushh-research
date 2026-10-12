@@ -155,6 +155,15 @@ const metadata: PersonalKnowledgeModelMetadata = {
 };
 
 describe("PKM memory cards", () => {
+  it("does not present a business entity name as the person's name", () => {
+    const snapshot = buildPkmMemorySnapshot({ metadata, fullBlob: {
+      professional: { businesses: { entities: { demo: { name: "Demo Cafe" } } },
+        profile: { name: "Demo Person" } },
+    } });
+    expect(snapshot.cards.map(card => card.title)).toContain("Name: Demo Cafe");
+    expect(snapshot.cards.map(card => card.title)).toContain("Your name is Demo Person");
+    expect(snapshot.cards.map(card => card.title)).not.toContain("Your name is Demo Cafe");
+  });
   it("derives readable memory cards from decrypted PKM", () => {
     const snapshot = buildPkmMemorySnapshot({
       metadata,

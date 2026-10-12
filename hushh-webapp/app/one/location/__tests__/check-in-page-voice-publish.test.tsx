@@ -42,7 +42,7 @@ vi.mock("@/components/one-location/location-immersive-map", () => ({
   LocationImmersiveMap: () => null,
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: (metadata: unknown) => publishSpy(metadata),
 }));
 

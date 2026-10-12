@@ -67,7 +67,7 @@ import {
   type RiaScreeningSection,
 } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type PicksSource = "kai" | "my";
 type PicksCategory = "top-picks" | "avoid" | "screening";
@@ -1672,19 +1672,11 @@ export default function RiaPicksPage() {
   const categoryParam = searchParams?.get("category");
 
   useEffect(() => {
-    if (sourceParam === "kai" || sourceParam === "my") {
-      setSource(sourceParam);
-    }
+    setSource(sourceParam === "my" ? "my" : "kai");
   }, [sourceParam]);
 
   useEffect(() => {
-    if (
-      categoryParam === "top-picks" ||
-      categoryParam === "avoid" ||
-      categoryParam === "screening"
-    ) {
-      setCategory(categoryParam);
-    }
+    setCategory(categoryParam === "avoid" || categoryParam === "screening" ? categoryParam : "top-picks");
   }, [categoryParam]);
 
   const updatePicksRouteState = useCallback(

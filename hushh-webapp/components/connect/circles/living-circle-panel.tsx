@@ -37,6 +37,7 @@ export function LivingCirclePanel({
   onRetry,
   groupPhotoUrl,
   showGroupIdentity = false,
+  focusOnAdding = false,
 }: {
   circleName: string;
   members: readonly OneLocationCircleMember[];
@@ -58,6 +59,8 @@ export function LivingCirclePanel({
   onRetry: () => void;
   groupPhotoUrl?: string | null;
   showGroupIdentity?: boolean;
+  /** First-member setup keeps the next action ahead of the decorative preview. */
+  focusOnAdding?: boolean;
 }) {
   const [overCircle, setOverCircle] = useState(false);
   const [overRemoveZone, setOverRemoveZone] = useState(false);
@@ -109,6 +112,7 @@ export function LivingCirclePanel({
       aria-label={`${circleName} members`}
       className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 sm:px-6 sm:py-6"
     >
+      {!focusOnAdding ? <>
       <div
         data-testid="connect-circle-drop-zone"
         className={`mx-auto w-fit rounded-full bg-[radial-gradient(circle,var(--app-secondary-surface)_0%,transparent_70%)] transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none ${overCircle ? "ring-2 ring-[color:var(--app-accent)]" : ""}`}
@@ -188,11 +192,12 @@ export function LivingCirclePanel({
           Room for the people you choose.
         </p>
       ) : null}
+      </> : null}
 
       {canInvite || onRemove ? (
         <div
           data-testid="connect-circle-remove-drop-zone"
-          className={`mx-auto mt-6 max-w-[34rem] rounded-[var(--app-card-radius-standard)] border-t border-[color:var(--app-card-border-standard)] pt-5 transition-[background-color,box-shadow] duration-200 ${
+          className={`mx-auto w-full max-w-[34rem] rounded-[var(--app-card-radius-standard)] border-[color:var(--app-card-border-standard)] transition-[background-color,box-shadow] duration-200 ${focusOnAdding ? "" : "mt-6 border-t pt-5"} ${
             overRemoveZone
               ? "bg-[color:var(--app-destructive-tint)] p-3 ring-2 ring-[color:var(--app-destructive-border)]"
               : draggingMemberId
@@ -235,7 +240,7 @@ export function LivingCirclePanel({
                 <div>
                   <h2 className="ui-text-card-title text-[color:var(--app-primary-label)]">Bring in your connections</h2>
                   <p className="ui-text-row-description mt-1 text-[color:var(--app-secondary-label)]">
-                    Drag a person into the circle on desktop, or tap Add on any device.
+                    {focusOnAdding ? "Tap Add next to someone you want in this Circle." : "Drag a person into the circle on desktop, or tap Add on any device."}
                   </p>
                 </div>
                 {remainingCapacity > 0 && (availableCount > 6 || expanded) ? (
@@ -289,7 +294,7 @@ export function LivingCirclePanel({
                       <span className="ui-text-row-description min-w-0 flex-1 truncate text-[color:var(--app-primary-label)]" title={person.displayName}>{person.displayName}</span>
                       <button
                         type="button"
-                        className="inline-flex min-h-9 items-center gap-1 rounded-full px-2 text-sm font-semibold text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full px-2 text-sm font-semibold text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
                         onClick={() => onAdd(person.userId)}
                         disabled={Boolean(addingUserId)}
                         aria-label={`Add ${person.displayName} to ${circleName}`}

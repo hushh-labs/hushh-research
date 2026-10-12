@@ -6,6 +6,13 @@ const capacitorMocks = vi.hoisted(() => ({
   request: vi.fn(),
 }));
 
+const previewMocks = vi.hoisted(() => ({ prepare: vi.fn(), keyId: "fixture-key" }));
+vi.mock("@/lib/notifications/preview-keys", () => ({
+  prepareNotificationDevice: previewMocks.prepare,
+  activeNotificationKeyId: () => previewMocks.keyId,
+  notificationDeviceId: async () => "388b1e4b-25cf-4c63-aed0-281607f3dd9b",
+}));
+
 const kaiMocks = vi.hoisted(() => ({
   addListener: vi.fn(),
   streamPortfolioImport: vi.fn(),
@@ -180,7 +187,7 @@ describe("ApiService.apiFetch", () => {
       code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
     });
     expect(result.service).toBe("calendar");
-    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state" });
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state", redirect_uri: `${window.location.origin}/one/profile/google/oauth/return` });
     expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("isEffectCurrent");
   });
 
@@ -1559,4 +1566,27 @@ describe("ApiService.apiFetch", () => {
     expect(payload.phone_verified).toBe(true);
     expect(payload.identity?.source).toBe("uat_test_phone_claim");
   });
+  it("preserves generic push registration when optional preview storage fails", async () => {
+    previewMocks.prepare.mockRejectedValueOnce(new Error("Key storage unavailable"));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ registered: true }));
+    const result = await ApiService.registerPushToken("synthetic-owner", "fixture-token", "web", makeUnsignedToken({ sub: "synthetic-owner" }), () => true);
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(String(mockFetch.mock.calls[0][1].body));
+    expect(body.device_id).toBe("388b1e4b-25cf-4c63-aed0-281607f3dd9b");
+    expect(body.preview_public_key).toBeUndefined();
+  });
+
+  it("rechecks account ownership after preview preparation before token registration", async () => {
+    let current = true;
+    const prepared = deferred<{ deviceId: string; keyId: string; publicKey: string }>();
+    previewMocks.prepare.mockReturnValueOnce(prepared.promise);
+    const operation = ApiService.registerPushToken("old-owner", "fixture-token", "web", "fixture-id-token", () => current);
+    const rejected = expect(operation).rejects.toThrow("Notification session changed");
+    await vi.waitFor(() => expect(previewMocks.prepare).toHaveBeenCalled());
+    current = false;
+    prepared.resolve({ deviceId: "fixture", keyId: previewMocks.keyId, publicKey: "fixture" });
+    await rejected;
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
 });

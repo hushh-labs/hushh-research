@@ -24,7 +24,7 @@ from hushh_mcp.services.one_location_circle_service import (
 )
 
 logger = logging.getLogger(__name__)
-MAX_REQUEST_BYTES = 7_250_000
+MAX_REQUEST_BYTES = 9_000_000
 # Authenticated automatic reads: 4 sessions x 4 coalesced refreshes/sec x
 # 60 seconds = 960, plus manual pagination/roster headroom. Write/image abuse
 # budgets remain independent; every read still authorizes membership.
@@ -110,9 +110,30 @@ class SendMessage(StrictModel):
     )
     imageIv: str | None = Field(default=None, min_length=16, max_length=16, pattern=_B64)
     recipients: list[Recipient] = Field(min_length=1, max_length=100)
+    notificationPreviews: dict[UUID, Annotated[str, Field(max_length=2600)]] = Field(
+        default_factory=dict, max_length=500
+    )
 
     @model_validator(mode="after")
     def attachment_pair(self):
+        import json
+
+        from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1, EllipticCurvePublicKey
+
+        for key_id, sealed in self.notificationPreviews.items():
+            envelope = json.loads(sealed)
+            if not isinstance(envelope, list) or len(envelope) != 4 or envelope[0] != str(key_id):
+                raise ValueError("Invalid preview envelope")
+            for value in envelope[1:]:
+                if not isinstance(value, str):
+                    raise ValueError("Invalid preview encoding")
+                raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+                if base64.urlsafe_b64encode(raw).decode().rstrip("=") != value:
+                    raise ValueError("Invalid preview encoding")
+            point = base64.urlsafe_b64decode(envelope[1] + "=")
+            EllipticCurvePublicKey.from_encoded_point(SECP256R1(), point)
+            if len(envelope[2]) != 16 or not 22 <= len(envelope[3]) <= 2422:
+                raise ValueError("Invalid preview size")
         if (self.imageCiphertext is None) != (self.imageIv is None):
             raise ValueError("Image ciphertext and IV must be supplied together.")
         for value in [self.ciphertext, self.imageCiphertext]:
@@ -250,6 +271,8 @@ async def chat_wait(
     changed = False
     read_changed = False
     receipts_changed = False
+    reactions_changed = False
+    membership_changed = False
     photo_changed = False
     try:
         queue = await subscribe_consent_queue(user)
@@ -268,6 +291,10 @@ async def chat_wait(
                             changed = True
                             read_changed = event.get("type") == "location_circle_chat_read"
                             receipts_changed = event.get("type") == "location_circle_chat_receipts"
+                            reactions_changed = event.get("type") == "location_circle_chat_reaction"
+                            membership_changed = (
+                                event.get("type") == "location_circle_chat_membership"
+                            )
                             photo_changed = event.get("type") == "location_circle_photo_updated"
                             break
             except TimeoutError:
@@ -277,6 +304,8 @@ async def chat_wait(
             "changed": changed,
             "readChanged": read_changed,
             "receiptsChanged": receipts_changed,
+            "reactionsChanged": reactions_changed,
+            "membershipChanged": membership_changed,
             "photoChanged": photo_changed,
         }
     finally:
@@ -310,6 +339,32 @@ def chat_image(
     owner: dict = Depends(require_vault_owner_token),
 ):
     return _call(response, "image", owner, circle, str(message))
+
+
+@router.put("/{circle}/chat/messages/{message}/reactions/{emoji}")
+@limiter.limit("60/minute")
+def chat_react(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    emoji: str,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "react", owner, circle, str(message), emoji, True)
+
+
+@router.delete("/{circle}/chat/messages/{message}/reactions/{emoji}")
+@limiter.limit("60/minute")
+def chat_unreact(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    emoji: str,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "react", owner, circle, str(message), emoji, False)
 
 
 @router.get("/{circle}/chat/keys/{key}")

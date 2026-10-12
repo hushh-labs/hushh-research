@@ -869,6 +869,8 @@ final class AppUITests: XCTestCase {
             throw XCTSkip("Attach only; installation and unlock are separate")
         }
         app.activate()
+        dismissRehearsalChatKeyboard(app)
+        returnToRehearsalChat(app)
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         guard web.waitForExistence(timeout: 15), !web.buttons["Unlock"].exists else {
             XCTFail("COHERENT_SHELL_REQUIRES_UNLOCKED_CHAT"); return
@@ -3221,12 +3223,15 @@ final class AppUITests: XCTestCase {
     private func admittedProfilePaneFrame(_ app: XCUIApplication, web: XCUIElement, close: XCUIElement) throws -> CGRect {
         // A tablet sheet occupies only the right-hand portion of the WebView.
         // Its authored dialog, not the viewport, owns gestures and scrolling.
-        let pane = web.otherElements["Profile"].firstMatch
-        XCTAssertTrue(pane.waitForExistence(timeout: 10), "PROFILE_PANE_FRAME_UNAVAILABLE")
-        let frame = pane.frame.intersection(web.frame).intersection(app.frame)
         let closeCenter = CGPoint(x: close.frame.midX, y: close.frame.midY)
-        guard !frame.isNull, frame.width >= 200, frame.height > 100, frame.contains(closeCenter) else {
-            XCTFail("PROFILE_PANE_FRAME_INVALID"); throw NSError(domain: "ProfilePaneFixture", code: 1)
+        // WebKit can expose an authored dialog as a scroll view or container.
+        // Select its actual accessible bounds; never substitute the viewport.
+        let candidates = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Profile"))
+        _ = candidates.firstMatch.waitForExistence(timeout: 10)
+        let frames = candidates.allElementsBoundByIndex.map { $0.frame.intersection(web.frame).intersection(app.frame) }
+            .filter { !$0.isNull && $0.width >= 200 && $0.height > 100 && $0.contains(closeCenter) }
+        guard let frame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
+            XCTFail("PROFILE_PANE_FRAME_UNAVAILABLE"); throw NSError(domain: "ProfilePaneFixture", code: 1)
         }
         return frame
     }

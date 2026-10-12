@@ -268,6 +268,7 @@ export async function createReviewerSessionHarness({
       if (
         pathname.startsWith("/api/one/connections") ||
         pathname.startsWith("/api/one/people/") ||
+        pathname.startsWith("/api/one/wallet/card-access/") ||
         pathname === "/api/one/models/preference"
       ) {
         identityToken = authorization.slice(7);
@@ -323,7 +324,7 @@ export async function createReviewerSessionHarness({
     const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
     const unlockInput = page.locator("#unlock-passphrase");
     const unlockButton = page
-      .getByRole("button", { name: /unlock with passphrase/i })
+      .getByRole("button", { name: /^(?:unlock with passphrase|unlock)$/i })
       .first();
     const terminalFailures = new Set(["auth_error", "uid_mismatch", "vault_error"]);
     const deadline = Date.now() + unlockTimeoutMs;
@@ -361,6 +362,11 @@ export async function createReviewerSessionHarness({
         reviewerLoginSubmitted = true;
       }
 
+      const passphraseAlternative = page.getByTestId("vault-use-passphrase-instead");
+      if (!manualUnlockSubmitted && !await unlockInput.isVisible().catch(() => false) &&
+          await passphraseAlternative.isVisible().catch(() => false)) {
+        await passphraseAlternative.click();
+      }
       if (!manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
         if (!manualPassphraseFilled) {
           await unlockInput.fill(reviewerPassphrase);
@@ -484,6 +490,10 @@ export async function createReviewerSessionHarness({
         readOnlyGuard.assertNoBlockedMutation();
         capture.assertNoCriticalApiFailures("visible vault challenge");
         if (await unlockInput.isVisible().catch(() => false)) return;
+        const passphraseAlternative = page.getByTestId("vault-use-passphrase-instead");
+        if (await passphraseAlternative.isVisible().catch(() => false)) {
+          await passphraseAlternative.click();
+        }
         await page.waitForTimeout(250);
       }
       const diagnostics = await page.evaluate(() => ({
@@ -494,9 +504,11 @@ export async function createReviewerSessionHarness({
           window.__HUSHH_NATIVE_TEST__?.bootstrapErrorClass || "none",
         openingChat: document.body.textContent?.includes("Opening chat…") === true,
         unlockHeading: document.body.textContent?.includes("Unlock One") === true,
+        inputIds: [...document.querySelectorAll('input')].map(input => input.id).join(','),
+        passphraseChoice: document.querySelector('[data-testid="vault-use-passphrase-instead"]') !== null,
       }));
       throw new Error(
-        `Visible vault challenge timed out (path=${diagnostics.path}, title=${diagnostics.title || "unknown"}, state=${diagnostics.bootstrapState}, error_class=${diagnostics.bootstrapErrorClass}, opening_chat=${diagnostics.openingChat}, unlock_heading=${diagnostics.unlockHeading}).`
+        `Visible vault challenge timed out (path=${diagnostics.path}, title=${diagnostics.title || "unknown"}, state=${diagnostics.bootstrapState}, error_class=${diagnostics.bootstrapErrorClass}, opening_chat=${diagnostics.openingChat}, unlock_heading=${diagnostics.unlockHeading}, input_ids=${diagnostics.inputIds}, passphrase_choice=${diagnostics.passphraseChoice}).`
       );
     } finally {
       await context.close().catch(() => undefined);

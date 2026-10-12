@@ -54,6 +54,7 @@ env:
 concurrency:
   group: deploy-uat
   cancel-in-progress: false
+  queue: max
 
 jobs:
   select-target:
@@ -178,12 +179,17 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
+          cp scripts/ops/verify_uat_release.py \
+            "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
 
       - name: Checkout deployment SHA
         shell: bash
         run: |
           set -euo pipefail
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
+          # Keep the current opt-in contract when verifying an older approved build.
+          cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
+            scripts/ops/verify_uat_release.py
 
       - name: Validate Google Cloud workload identity configuration
         shell: bash
@@ -518,6 +524,11 @@ jobs:
         # through the environment (not inline expressions in shell) keeps an
         # opaque Firebase UID cohort from becoming executable shell text.
         env:
+          UAT_ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'true' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_PHASE: ${{ vars.ONE_MAGIC_INTELLIGENCE_PHASE_UAT || '1' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS_UAT || '' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT || 'ankit@hushh.ai,i-akshat@hush1one.com,i-neelesh@hushh.ai,kushal@hushh.ai' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_QA_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_QA_EMAILS_UAT || 'jhumma@hushh.ai' }}
           UAT_CONNECTIONS_PANEL_V2: ${{ vars.CONNECTIONS_PANEL_V2_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_CONNECTION: ${{ vars.GOOGLE_DRIVE_CONNECTION_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_LIVE: ${{ vars.GOOGLE_DRIVE_LIVE_UAT || 'false' }}
@@ -583,6 +594,12 @@ jobs:
             --advisors-api-base-url "${{ vars.ADVISORS_API_BASE_URL || 'https://brokercheck.35.253.255.106.sslip.io' }}" \
             --insurance-agents-api-base-url "${{ vars.INSURANCE_AGENTS_API_BASE_URL || 'https://insurance-agents.34.61.69.175.sslip.io' }}" \
             --one-places-directory-enabled "${{ vars.ONE_PLACES_DIRECTORY_ENABLED_UAT || 'true' }}" \
+            --one-business-directory-enabled "${{ vars.ONE_BUSINESS_DIRECTORY_ENABLED_UAT || 'false' }}" \
+            --one-profile-research-enabled "$UAT_ONE_PROFILE_RESEARCH_ENABLED" \
+            --one-magic-intelligence-phase "$UAT_ONE_MAGIC_INTELLIGENCE_PHASE" \
+            --one-magic-intelligence-inner-team-emails "$UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS" \
+            --one-magic-intelligence-senior-team-emails "$UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS" \
+            --one-magic-intelligence-qa-emails "$UAT_ONE_MAGIC_INTELLIGENCE_QA_EMAILS" \
             --one-voice-mail-reply-enabled "${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}" \
             --one-voice-mail-schedule-send-enabled "${{ vars.ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_UAT || 'true' }}" \
             --one-voice-mail-drafts-enabled "${{ vars.ONE_VOICE_MAIL_DRAFTS_ENABLED_UAT || 'true' }}" \
@@ -670,7 +687,7 @@ jobs:
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -807,6 +824,11 @@ jobs:
               --release-environment uat \
               --migration-mode "${{ vars.UAT_MIGRATION_MODE || 'replay' }}"
           )
+          # Reconcile the fixed Drive connector after migrations while the
+          # attested UAT database connection is available. This also migrates
+          # the previously reviewed Hushh web return to the Hussh alias.
+          "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py --activate
+          "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
             --release-environment uat \
             --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
@@ -858,11 +880,21 @@ jobs:
           BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
           bash scripts/env/use_profile.sh uat
 
-          if [ "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}" = "true" ]; then
-            PKM_UPGRADE_PROTECTED_UAT=1 \
-            PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1 \
-              ./scripts/ci/pkm-upgrade-gate.sh
+
+      - name: Install PostgreSQL client for selected preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
           fi
+
+      - name: Verify selected PKM preservation before deployment
+        id: verify-pkm-preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: bash scripts/ci/run-release-pkm-gate.sh uat
 
       - name: Verify One mail sender configuration
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -912,13 +944,23 @@ jobs:
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
+        env:
+          STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
+          STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
+          DRIVE_REQUEST_HASHCOINS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash##_ONE_VOICE_LIVE_ENABLED=true##_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio##_VERTEX_LIVE_LOCATION=us-central1##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          source deploy/drive/uat_stripe_bindings.sh
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio##_VERTEX_LIVE_LOCATION=us-central1##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
+          # Older deployment SHAs do not declare this substitution.
+          if grep -q '^[[:space:]]*_WALLET_CARD_ACCESS_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
+          fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
           # Curated connector OAuth client secrets are derived from the checked-in
           # manifests by the "Resolve curated connector secrets" step; empty (the
@@ -926,8 +968,16 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CURATED_CONNECTOR_SECRETS=${{ steps.curated-secrets.outputs.names }}"
           # Keep credentials bound after the rollout switch turns off so existing
           # paid-required requests can finish Checkout and webhook settlement.
-          # Set the UAT variable only after test-mode secret versions are ready.
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}##_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY##_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET"
+          # API and worker share explicit payment and separate Connect modes.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}##_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}##_STRIPE_MODE=${STRIPE_UAT_MODE}##_STRIPE_SECRET_KEY_SECRET=${STRIPE_UAT_KEY_SECRET}##_STRIPE_WEBHOOK_SECRET_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}##_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=${STRIPE_UAT_CONNECT_SECRET}"
+          ANSWER_STRIPE_MODE="${{ vars.PKM_ANSWER_STRIPE_UAT_MODE || 'test' }}"
+          case "$ANSWER_STRIPE_MODE" in
+            test) ANSWER_KEY_SECRET=STRIPE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET ;;
+            live) ANSWER_KEY_SECRET=STRIPE_LIVE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_LIVE_WEBHOOK_SECRET ;;
+            *) echo "Invalid answer Stripe mode" >&2; exit 1 ;;
+          esac
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_UAT_ENABLED || 'true' }}##_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}##_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_UAT_ENABLED || 'false' }}##_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_UAT_REVIEWED || 'false' }}##_PKM_ANSWER_STRIPE_MODE=${ANSWER_STRIPE_MODE}##_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=${ANSWER_KEY_SECRET}##_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=${ANSWER_WEBHOOK_SECRET}##_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}##_ANSWER_WORK_DRAIN_AUDIENCE=https://api.uat.hushh.ai"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED}##_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}##_STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}##_STRIPE_CONNECT_SECRET_KEY_SECRET=${STRIPE_UAT_CONNECT_KEY_SECRET}##_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET=${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_WORK_DRAIN_ENABLED=true##_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}##_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com##_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
@@ -940,6 +990,8 @@ jobs:
           # project. backend.cloudbuild.yaml keeps GOOGLE_CLOUD_PROJECT on
           # hushh-pda-uat for Cloud Run, SQL, secrets and native ADC resources.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GENAI_PROJECT_ID=hushh-vertex-personal54"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_HUSHH_ONE_VOICE_VERTEX_PROJECT=hussh-511311"
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"
@@ -1709,6 +1761,7 @@ jobs:
         run: |
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
             --protocol-env consent-protocol/.env \
@@ -1724,6 +1777,7 @@ jobs:
           set -euo pipefail
           sleep 20
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
             --protocol-env consent-protocol/.env \
@@ -2466,6 +2520,11 @@ jobs:
           CLOUDSQL_INSTANCE: ${{ env.UAT_CLOUDSQL_INSTANCE }}
           RELEASE_RUN_ID: ${{ github.run_id }}
           DRIVE_REQUEST_PAYMENTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}
+          STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
+          STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
+          DRIVE_REQUEST_HASHCOINS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}
         run: |
           set -euo pipefail
           if [ "${{ steps.capture-drive-worker-scheduler.outcome }}" != "success" ]; then
@@ -2846,6 +2905,11 @@ jobs:
             echo "- Frontend Cloud Build: \`${frontend_build_seconds}s\`"
             echo "- Non-build gates and verification: \`${non_build_seconds}s\`"
             echo ""
+            echo "### Revision Maintenance"
+            echo ""
+            echo "Old revisions are retired separately after a successful release; request drainage does not delay this deployment."
+            echo "[View Capacity Maintenance](${{ github.server_url }}/${{ github.repository }}/actions/workflows/capacity-maintenance.yml)"
+            echo ""
             echo "### Auto Scope Evidence"
             echo ""
             echo "- Backend changed files: \`${{ steps.scope.outputs.backend_changed_files || 'none' }}\`"
@@ -2881,7 +2945,7 @@ jobs:
           fi
           bash scripts/ci/tag-last-known-good.sh
 
-      - name: Retire old UAT revisions after a healthy release
+      - name: Retire old UAT revision tags after a healthy release
         if: always()
         shell: bash
         env:
@@ -2893,18 +2957,17 @@ jobs:
           set -euo pipefail
           status="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")"
           if [ "$status" != healthy ]; then
-            echo "Skipping revision cleanup for release status $status"
+            echo "Skipping revision tag retirement for release status $status"
             exit 0
           fi
           bash scripts/ci/cloudrun-retention.sh "$BACKEND_SERVICE" "$GCP_REGION" "$BACKEND_REVISION_RETENTION" \
             "$BACKEND_CURRENT" --rollback-revision "$BACKEND_ROLLBACK" \
-            --last-known-good-revision "$BACKEND_CURRENT" --apply --healthy
+            --last-known-good-revision "$BACKEND_CURRENT" --apply --healthy --tags-only
           bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
             "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
-            --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy
+            --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
           bash scripts/ci/cloudrun-retention.sh consent-protocol-drive-worker "$GCP_REGION" 2 \
-            --apply --healthy
-          python3 scripts/ci/runtime-capacity-budget.py --environment uat
+            --apply --healthy --tags-only
 
       - name: Fail workflow when UAT release did not end healthy
         if: always()

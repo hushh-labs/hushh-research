@@ -234,16 +234,27 @@ describe("ConnectionsService", () => {
     });
   });
 
-  it("searchDirectory hits the directory endpoint with query + auth", async () => {
-    mockApiFetch.mockResolvedValue(
-      jsonResponse({ items: [{ userId: "u2", displayName: "Bo", photoUrl: null, email: null, relationship: "none" }], page: 1, hasMore: false }),
-    );
-    const out = await ConnectionsService.searchDirectory({ idToken: "tok", query: "bo", page: 1 });
-    const [path, opts] = mockApiFetch.mock.calls[0];
-    expect(path).toContain("/api/one/connections/directory");
-    expect(path).toContain("query=bo");
-    expect((opts.headers as Record<string, string>).Authorization).toBe("Bearer tok");
-    expect(out.items[0].userId).toBe("u2");
+  it.each(["bo", "b", "bo+tag@", "BO@EXAMPLE", "+91 (98765) 43210", "98765"])(
+    "searchDirectory preserves query %s and authentication",
+    async (query) => {
+      mockApiFetch.mockResolvedValue(
+        jsonResponse({ items: [{ userId: "u2", displayName: "Bo", photoUrl: null, email: null, relationship: "none" }], page: 1, hasMore: false }),
+      );
+      const out = await ConnectionsService.searchDirectory({ idToken: "tok", query, page: 1 });
+      const [path, opts] = mockApiFetch.mock.calls[0];
+      expect(path).toContain("/api/one/connections/directory");
+      expect(new URL(path, "https://example.test").searchParams.get("query")).toBe(query);
+      expect(new URL(path, "https://example.test").searchParams.has("name_only")).toBe(false);
+      expect((opts.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+      expect(out.items[0].userId).toBe("u2");
+    },
+  );
+
+  it("restricts person resolution to names before the server paginates", async () => {
+    mockApiFetch.mockResolvedValue(jsonResponse({ items: [], page: 1, hasMore: false }));
+    await ConnectionsService.searchDirectory({ idToken: "tok", query: "Priya", nameOnly: true });
+    const [path] = mockApiFetch.mock.calls[0];
+    expect(new URL(path, "https://example.test").searchParams.get("name_only")).toBe("true");
   });
 
   it("sendRequest POSTs the addressee id", async () => {

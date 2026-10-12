@@ -136,11 +136,25 @@ def _person(
     vault: str | None = "active",
     discoverable: bool | None = None,
     trusted_by_owner: bool = False,
+    email: str | None = None,
+    phone: str | None = None,
+    phone_verified: bool = False,
 ) -> None:
-    params = {"uid": user_id, "name": name, "discoverable": discoverable}
+    params = {
+        "uid": user_id,
+        "name": name,
+        "discoverable": discoverable,
+        "email": email,
+        "phone": phone,
+        "phone_verified": phone_verified,
+    }
     conn.execute(text("INSERT INTO actor_profiles (user_id) VALUES (:uid)"), params)
     conn.execute(
-        text("INSERT INTO actor_identity_cache (user_id, display_name) VALUES (:uid, :name)"),
+        text(
+            "INSERT INTO actor_identity_cache"
+            " (user_id, display_name, email, phone_number, phone_verified)"
+            " VALUES (:uid, :name, :email, :phone, :phone_verified)"
+        ),
         params,
     )
     if discoverable is not None:
@@ -401,3 +415,104 @@ def test_bounded_directory_profile_lookup_keeps_visibility_and_empty_list_bounda
         service.search_directory_candidates(owner_user_id=OWNER, candidate_user_ids=[])["items"]
         == []
     )
+
+
+def test_directory_email_typeahead_ranks_names_and_pages_contact_matches(connection, monkeypatch):
+    email = "mailbox.alias+tag@example.test"
+    _person(connection, OWNER, "Owner", email=email)
+    _person(connection, "target", "Zoe Peer", email=email)
+    _person(connection, "second", "Aaron Peer", email="mailbox.other@example.test")
+    _person(connection, "name", "Mailbox Person", email="unrelated@elsewhere.test")
+    _person(connection, "hidden", "Hidden Peer", email=email, discoverable=False)
+    _person(connection, "unfinished", "Unfinished Peer", email=email, vault=None)
+    _person(connection, "disabled", "Disabled Peer", email=email)
+    service = _Directory(connection)
+    monkeypatch.setattr(service, "_active_directory_user_ids", lambda ids: set(ids) - {"disabled"})
+
+    for length in range(1, len(email) + 1):
+        result = service.search_directory_candidates(owner_user_id=OWNER, query=email[:length])
+        ids = [item["userId"] for item in result["items"]]
+        assert "target" in ids, email[:length]
+        assert not {OWNER, "hidden", "unfinished", "disabled"}.intersection(ids)
+        assert all("phoneNumber" not in item and not item.get("email") for item in result["items"])
+
+    for query in ("MAILBOX.ALIAS@", "  ALIAS+TAG@EXAMPLE  ", "@example.test"):
+        result = service.search_directory_candidates(owner_user_id=OWNER, query=query)
+        expected = [] if query == "MAILBOX.ALIAS@" else ["target"]
+        if query == "@example.test":
+            expected = ["second", "target"]
+        assert [item["userId"] for item in result["items"]] == expected
+
+    pages = [
+        service.search_directory_candidates(
+            owner_user_id=OWNER, query="mailbox", page=page, limit=1
+        )
+        for page in range(1, 4)
+    ]
+    assert [page["items"][0]["userId"] for page in pages] == ["name", "second", "target"]
+    assert [page["hasMore"] for page in pages] == [True, True, False]
+    names = service.search_directory_candidates(
+        owner_user_id=OWNER, query="mailbox", limit=1, name_only=True
+    )
+    assert [item["userId"] for item in names["items"]] == ["name"]
+    assert names["hasMore"] is False
+
+
+def test_directory_contact_search_recovers_provider_names_before_paging(connection, monkeypatch):
+    _person(connection, "recovered", "", email="match@example.test")
+    _person(connection, "cached", "Zoe Peer", email="match@example.test")
+    service = _Directory(connection)
+    monkeypatch.setattr(
+        service,
+        "_directory_auth_profiles",
+        lambda ids: {"recovered": {"display_name": "Aaron Peer", "photo_url": None}},
+    )
+    first = service.search_directory_candidates(owner_user_id=OWNER, query="match@", limit=1)
+    second = service.search_directory_candidates(
+        owner_user_id=OWNER, query="match@", limit=1, page=2
+    )
+    assert [item["userId"] for item in first["items"]] == ["recovered"]
+    assert first["hasMore"] is True
+    assert [item["userId"] for item in second["items"]] == ["cached"]
+    assert second["hasMore"] is False
+
+
+@pytest.mark.parametrize(
+    ("phone", "national"),
+    [
+        ("+91 98765-43210", "9876543210"),
+        ("+1 (415) 555-0123", "4155550123"),
+        ("+44 7700 900123", "7700900123"),
+        ("+358 40 1234567", "401234567"),
+    ],
+)
+def test_directory_phone_typeahead_with_and_without_country_code(connection, phone, national):
+    _person(connection, "target", "Zoe Peer", phone=phone, phone_verified=True)
+    _person(connection, "unverified", "Unverified Peer", phone=phone, phone_verified=False)
+    _person(
+        connection, "hidden", "Hidden Peer", phone=phone, phone_verified=True, discoverable=False
+    )
+    _person(connection, "other", "Other Peer", phone="+33 612 345678", phone_verified=True)
+    service = _Directory(connection)
+    international = "".join(char for char in phone if char.isdigit())
+    for query in [phone, international, national, f"{national[:3]} {national[3:6]}-{national[6:]}"]:
+        result = service.search_directory_candidates(owner_user_id=OWNER, query=query)
+        assert [item["userId"] for item in result["items"]] == ["target"], query
+        assert national not in str(result)
+    for digits in (national, international):
+        for length in range(1, len(digits) + 1):
+            result = service.search_directory_candidates(owner_user_id=OWNER, query=digits[:length])
+            ids = [item["userId"] for item in result["items"]]
+            assert "target" in ids, digits[:length]
+            assert not {"unverified", "hidden"}.intersection(ids)
+    for query in ("+999" + national, "call " + national, "+", "()"):
+        assert service.search_directory_candidates(owner_user_id=OWNER, query=query)["items"] == []
+
+
+def test_directory_email_punctuation_is_literal(connection):
+    _person(connection, "target", "Target Peer", email="odd_%!+tag@example.test")
+    _person(connection, "decoy", "Other Peer", email="oddABtag@example.test")
+    service = _Directory(connection)
+    for query in ("_", "%", "%!", "odd_%!+", "odd_%!+tag@example.test"):
+        result = service.search_directory_candidates(owner_user_id=OWNER, query=query)
+        assert [item["userId"] for item in result["items"]] == ["target"], query

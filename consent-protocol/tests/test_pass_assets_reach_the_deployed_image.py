@@ -18,9 +18,12 @@ contain a segment matching an ignored directory.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
+import pathspec
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +37,29 @@ IGNORE_FILES = (
     BACKEND_ROOT / ".gcloudignore",
     BACKEND_ROOT / ".dockerignore",
 )
+
+
+@pytest.mark.parametrize("ignore_file", IGNORE_FILES, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_manifest_prompts_survive_each_build_context_filter(ignore_file: Path) -> None:
+    """The October 7 image failed because upload stripped prompts before Docker."""
+    patterns = ignore_file.read_text(encoding="utf-8").splitlines()
+    spec = pathspec.GitIgnoreSpec.from_lines(patterns)
+    agents = BACKEND_ROOT / "hushh_mcp" / "agents"
+    prompts = set()
+    for manifest in agents.rglob("agent.yaml"):
+        reference = yaml.safe_load(manifest.read_text(encoding="utf-8")).get("prompt_reference")
+        if reference:
+            prompt = (manifest.parent / reference).resolve()
+            assert prompt.is_relative_to(agents)
+            assert prompt.is_file()
+            prompts.add(prompt)
+    assert prompts, "The fixture must exercise actual authored prompt references"
+    for prompt in prompts:
+        relative = prompt.relative_to(ignore_file.parent).as_posix()
+        assert not spec.match_file(relative), f"{ignore_file} removes runtime prompt {relative}"
+    # Negative control: the historical broad exclusion removes those same files.
+    broken = pathspec.GitIgnoreSpec.from_lines(["*.md"])
+    assert all(broken.match_file(p.relative_to(ignore_file.parent).as_posix()) for p in prompts)
 
 
 def _ignored_directory_names(ignore_file: Path) -> set[str]:
@@ -107,3 +133,26 @@ def test_every_apple_image_slot_is_produced_from_the_real_asset() -> None:
         "logo@2x.png",
         "logo@3x.png",
     }
+
+
+def test_cloudbuild_sourced_shell_helpers_survive_the_upload_filter() -> None:
+    """Local preflight passes are useless when Cloud Build never receives its script."""
+    build = yaml.safe_load((REPO_ROOT / "deploy/backend.cloudbuild.yaml").read_text())
+    referenced = set()
+    for step in build["steps"]:
+        for argument in step.get("args", []):
+            referenced.update(
+                re.findall(r"(?m)^\s*source\s+(deploy/[A-Za-z0-9_./-]+\.sh)\b", argument)
+            )
+    assert referenced, "Exercise the actual external preflight helper, not an empty upload list"
+    patterns = (REPO_ROOT / ".gcloudignore").read_text().splitlines()
+    upload_filter = pathspec.GitIgnoreSpec.from_lines(patterns)
+    for helper in referenced:
+        assert (REPO_ROOT / helper).is_file()
+        assert not upload_filter.match_file(helper), f"Cloud Build upload excludes {helper}"
+        for directory in Path(helper).parents:
+            if directory != Path("."):
+                assert not upload_filter.match_file(directory.as_posix() + "/")
+    # The historic broad shell exclusion must break this exact deployment input.
+    broken = pathspec.GitIgnoreSpec.from_lines(["*.sh"])
+    assert all(broken.match_file(helper) for helper in referenced)

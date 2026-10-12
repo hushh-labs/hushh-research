@@ -36,4 +36,30 @@
 
 .browser { padding-top:16px; }
 .browser [data-testid="wallet-preview-collection"],
-.browser [data-testid="wallet-add-collection"] { max-width:clamp(220px, calc((100svh - 360px) * 1.05), 420px); }
+.browser [data-testid="wallet-add-collection"] { max-width:420px; }
+
+/* Compact reference strip: retain touch targets without a tall surrounding shelf. */
+.dock { gap:6px; padding:0; min-height:44px; }
+.dock { position:relative; top:-44px; }
+.thumbnails { gap:6px; padding:0 2px; }
+.thumbnailButton { flex-basis:54px; min-height:44px; display:flex; align-items:center; padding:2px; }
+.thumbnail { width:100%; }
+.allButton { min-height:44px; padding-inline:8px; }
+.plus { width:44px; height:44px; }
+
+/* Hide the complete shelf, including its mask, without changing scroll geometry.
+   Anchored on a local class: CSS-modules pure mode (native webpack build) rejects selectors with only :global parts. */
+.dockHost[data-scrolling-down="true"]:not(:focus-within) { visibility:hidden; pointer-events:none; }
+
+/* Keep the first card inset from the panel's rounded top edge. */
+.browser[data-mode="all"] { margin-top:0; padding-top:20px; }
+@media(min-width:640px) {
+  .browser[data-mode="all"] { padding-top:32px; }
+}
+
+@layer base {
+  .removeDialog { font-family: var(--font-app-body); }
+  .removeDialog [data-slot="alert-dialog-title"] { font-size: 20px !important; line-height: 1.2 !important; }
+  .removeDialog [data-slot="alert-dialog-description"] { font-size: 12px !important; line-height: 1.3 !important; }
+  .removeDialog button { font-family: var(--font-app-body); font-size: 13px !important; line-height: 1.22 !important; }
+}

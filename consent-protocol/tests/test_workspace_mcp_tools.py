@@ -522,7 +522,7 @@ async def test_grant_binding_is_owned_by_connector_services(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["discover", "read"])
-@pytest.mark.parametrize("changed_revision", [None, "connection_revision", "grant_revision"])
+@pytest.mark.parametrize("changed_revision", [None, "refresh_token_ciphertext", "grant_revision"])
 async def test_calendar_uses_actual_service_binding_and_rechecks_both_revisions(
     monkeypatch, operation, changed_revision
 ):
@@ -531,7 +531,7 @@ async def test_calendar_uses_actual_service_binding_and_rechecks_both_revisions(
         "provider_subject": "synthetic-subject",
         "connection_status": "connected",
         "connected_at": "synthetic-time",
-        "connection_revision": "connection-1",
+        "refresh_token_ciphertext": "connection-1",
         "grant_status": "connected",
         "scope_csv": " ".join(google.scopes("calendar", "read")),
         "grant_revision": "grant-1",

@@ -1929,12 +1929,14 @@ final class NativeSupportTests: XCTestCase {
     }
 
     func testKaiStreamLifecycleClassifierFailsClosedForMismatchAndMalformedBodies() {
+        // A lifecycle code on the wrong status is not trusted, and on its own
+        // is not an invalid-owner signal either.
         XCTAssertEqual(
             KaiStreamLifecycleErrorClassifier.bridgeCode(
                 statusCode: 401,
                 body: #"{"code":"AUTH_ACCOUNT_DELETION_IN_PROGRESS"}"#
             ),
-            "AUTH_VAULT_OWNER_INVALID"
+            "HUSHH_HTTP_401"
         )
         XCTAssertEqual(
             KaiStreamLifecycleErrorClassifier.bridgeCode(
@@ -1948,7 +1950,7 @@ final class NativeSupportTests: XCTestCase {
                 statusCode: 403,
                 body: "not-json"
             ),
-            "AUTH_VAULT_OWNER_INVALID"
+            "HUSHH_HTTP_403"
         )
         XCTAssertEqual(
             KaiStreamLifecycleErrorClassifier.bridgeCode(
@@ -1956,6 +1958,34 @@ final class NativeSupportTests: XCTestCase {
                 body: ""
             ),
             "HUSHH_HTTP_500"
+        )
+    }
+
+    func testKaiStreamLifecycleClassifierOnlyLocksOnAnExplicitInvalidOwnerSignal() {
+        // An ordinary feature/permission refusal after a valid owner check
+        // (e.g. a disabled connector) must not clear Vault custody.
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 403,
+                body: #"{"detail":"Drive chat reads are unavailable"}"#
+            ),
+            "HUSHH_HTTP_403"
+        )
+        // The backend's known invalid-token phrasing still clears the vault.
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 401,
+                body: #"{"detail":"Token validation failed."}"#
+            ),
+            "AUTH_VAULT_OWNER_INVALID"
+        )
+        // So does an explicit invalid-owner code, nested in `detail`.
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 403,
+                body: #"{"detail":{"code":"AUTH_VAULT_OWNER_INVALID","message":"Vault owner session was revoked. Unlock again to continue."}}"#
+            ),
+            "AUTH_VAULT_OWNER_INVALID"
         )
     }
 

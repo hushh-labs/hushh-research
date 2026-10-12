@@ -1,5 +1,7 @@
 """EmailAgentA2A adapts the read-only EmailChatService.handle_turn dict into the
-generic SpecialistTurnResult envelope. The email agent emits no client directive."""
+generic SpecialistTurnResult envelope. The email agent issues no client directive
+of its own: its one directive is the receipts "not ready" proposal, which One
+validates and parks through the action gateway."""
 
 import time
 from dataclasses import replace
@@ -92,6 +94,29 @@ async def test_person_timezone_reaches_the_mail_read():
     assert svc.calls[0]["timezone"] == "America/New_York"
 
 
+async def test_typed_offer_is_private_handback_and_latest_needs_explicit_plan():
+    svc = _FakeEmailService()
+    original = svc.handle_delegated_turn
+
+    async def read(**kwargs):
+        outcome = await original(**kwargs)
+        outcome["offer"] = {
+            "message_ids": ["private-mail-id"],
+            "account": "private-google-account",
+            "mailbox": "inbox",
+        }
+        return outcome
+
+    svc.handle_delegated_turn = read
+    result = await EmailAgentA2A(service=svc).handle(_task())
+    assert svc.calls[0]["require_explicit_latest"] is True
+    assert result.mail_read_offer["message_ids"] == ["private-mail-id"]
+    assert result.mail_read_offer["owner_id"] == "u"
+    assert result.mail_read_offer["conversation_id"] == "one-thread"
+    assert "private-mail-id" not in result.text
+    assert "private-mail-id" not in result.structured.model_dump_json()
+
+
 @pytest.mark.asyncio
 async def test_read_only_agent_never_emits_directive():
     svc = _FakeEmailService()
@@ -150,3 +175,47 @@ def test_get_email_a2a_is_singleton():
     from hushh_mcp.adk_bridge.email_agent import get_email_a2a
 
     assert get_email_a2a() is get_email_a2a()
+
+
+async def test_receipt_memory_and_cursor_reach_the_service_and_the_proposal_is_mapped():
+    class _ReceiptsService(_FakeEmailService):
+        async def handle_delegated_turn(self, **kwargs):
+            await kwargs["require_access"]()
+            self.calls.append(kwargs)
+            return {
+                "conversationId": "c1",
+                "response": "Your receipt memory is not ready yet. Sync and save your receipts in Mail.",
+                "isComplete": True,
+                "stateChanged": False,
+                "structured": {
+                    "connector": "mail",
+                    "status": "input_required",
+                    "metadata_only": True,
+                },
+                "receipt_cursor": {"action": "clear", "value": None},
+                "directive": {
+                    "type": "receipts_open_proposal",
+                    "actionId": "route.profile_receipts",
+                    "slots": {},
+                },
+            }
+
+    service = _ReceiptsService()
+    result = await EmailAgentA2A(service=service).handle(
+        _task(message="show my receipts", receipt_memory={"schema": "x"}, receipt_cursor="cursor")
+    )
+    assert service.calls[0]["receipt_memory"] == {"schema": "x"}
+    assert service.calls[0]["receipt_cursor"] == "cursor"
+    assert result.structured.status == "input_required"
+    assert result.directive.kind == "action"
+    assert result.directive.payload["actionId"] == "route.profile_receipts"
+    assert result.continuation == {"action": "clear", "value": None}
+    assert result.state_changed is False
+
+
+async def test_a_plain_read_carries_no_receipt_context_and_no_continuation():
+    service = _FakeEmailService()
+    result = await EmailAgentA2A(service=service).handle(_task())
+    assert service.calls[0]["receipt_memory"] is None
+    assert service.calls[0]["receipt_cursor"] is None
+    assert result.continuation is None

@@ -2,15 +2,15 @@ import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildOneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
-import { VoiceSurfaceActivityBoundary } from "@/lib/voice/voice-surface-activity";
+import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 import {
   clearVoiceSurfaceMetadata,
   getVoiceSurfaceMetadata,
   publishVoiceSurfaceMetadata,
   usePublishVoiceSurfaceMetadata,
   type VoiceSurfaceMetadata,
-} from "@/lib/voice/voice-surface-metadata";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+} from "@/lib/kai/actions/voice-surface-metadata";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 const PUBLISHERS = ["market_panel", "portfolio_panel", "analysis_panel"];
 

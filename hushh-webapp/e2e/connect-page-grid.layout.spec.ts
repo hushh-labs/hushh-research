@@ -18,11 +18,13 @@ const STUBBED = [
   "@/hooks/use-auth",
   "@/lib/vault/vault-context",
   "@/lib/firebase/config",
+  "@/lib/services/direct-messages-service",
   "@/lib/services/connections-service",
   "@/lib/services/cache-service",
   "@/lib/cache/cache-sync-service",
   "@/lib/one-location/service",
   "@/lib/contacts/use-contact-sync",
+  "@/lib/kai/actions/voice-surface-metadata",
   "@/lib/agent/local-onboarding-actions",
   "@/lib/connections/use-outgoing-request-resolution-watch",
   "@/lib/connections/connection-graph-events",
@@ -138,15 +140,16 @@ async function open(
   await page.addScriptTag({ content: script });
 }
 
-async function settle(page: Page) {
+async function settle(page: Page, _width: number) {
   const group = page.getByTestId("connect-my-connections-group");
   // The page bundle is large; its first commit can take a few seconds under
   // parallel workers before the timed network even starts.
   await expect(group.locator("[data-voice-label]")).toHaveCount(6, { timeout: 30_000 });
   await expect(page.getByTestId("connect-directory-group").getByText("Avery Stone")).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Connections", exact: true })).toHaveAttribute("aria-selected", "true");
-  // Circle discovery belongs to Circles, never the Connections panel.
-  await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeHidden();
+  // Circles now lives in an inactive pager pane, including desktop; it must
+  // not expose off-screen controls while the Connections pane is selected.
+  await expect(page.locator('[data-connect-surface="circles"]').getByText("Your Trusted Circle", { exact: true })).toHaveCount(1);
+  await expect(page.locator('[data-connect-surface="circles"]').locator('..')).toHaveAttribute("aria-hidden", "true");
   await expect
     .poll(() =>
       page.evaluate(
@@ -170,7 +173,26 @@ for (const dark of [false, true]) {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, width, dark);
-      await settle(page);
+      await settle(page, width);
+      const connectionGroup = page.getByTestId("connect-my-connections-group");
+      await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(1);
+      await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(1);
+      await expect(connectionGroup.getByLabel("Connected from your contacts")).toHaveCount(0);
+      await expect(page.getByTestId("connection-source-contacts").getByText("Jordan Lee", { exact: true })).toHaveCount(1);
+      await expect(page.getByTestId("connection-source-other").getByText("Alex Chen", { exact: true })).toHaveCount(1);
+      const rowGeometry = await connectionGroup.locator('[data-testid="settings-row"]').evaluateAll(rows => rows.map(row => {
+        const rect = row.getBoundingClientRect();
+        const avatar = row.querySelector('[data-avatar-size="list"]')!.getBoundingClientRect();
+        const title = row.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect();
+        const description = row.querySelector('[data-slot="settings-row-description"]')!;
+        const trailing = row.querySelector('[data-slot="settings-row-trailing"]')!.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, avatarLeft: avatar.left, avatarWidth: avatar.width, titleRight: title.right, trailingLeft: trailing.left, date: description.textContent,
+          actions: [...row.querySelectorAll('[data-slot="settings-row-trailing"] button')].map(button => ({ width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height })),
+        };
+      }));
+      expect(rowGeometry.every(row => Math.abs(row.avatarLeft - row.left) < 1 && row.avatarWidth === 44)).toBe(true);
+      expect(rowGeometry.every(row => row.titleRight <= row.trailingLeft && row.date === "Connected 28 Sep")).toBe(true);
+      expect(rowGeometry.every(row => row.actions.every(action => action.width >= 44 && action.height >= 44))).toBe(true);
       const cards = page.getByTestId("directory-person-card");
       await expect(cards).toHaveCount(3);
       await expect(cards.first()).toContainText("p***0@example.com");
@@ -180,37 +202,19 @@ for (const dark of [false, true]) {
       await mutual.click();
       await expect(page.locator("body")).toHaveAttribute("data-last-navigation", /^\/people\/person_alex\?/);
       await expect(cards.nth(1).getByTestId("mutual-connection")).toHaveCount(0);
-      await page.getByRole("tab", { name: "Circles", exact: true }).click();
-      await expect(page.getByRole("tab", { name: "Circles", exact: true })).toHaveAttribute("aria-selected", "true");
-      if (width >= 640)
-        await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeVisible();
-      await page.getByRole("button", { name: "Create your own circle" }).click();
-      const createDialog = page.getByRole("dialog", { name: "Create a Circle" });
-      await expect(createDialog).toBeVisible();
-      await expect(createDialog.getByRole("textbox")).toBeVisible();
-      const createBounds = await createDialog.boundingBox();
-      expect(createBounds).not.toBeNull();
-      expect(Math.abs(createBounds!.x + createBounds!.width / 2 - width / 2)).toBeLessThan(2);
-      expect(createBounds!.x).toBeGreaterThanOrEqual(0);
-      expect(createBounds!.x + createBounds!.width).toBeLessThanOrEqual(width);
-      await createDialog.getByRole("button", { name: "Close", exact: true }).click();
-      await expect(createDialog).toHaveCount(0);
-      await page.getByRole("tab", { name: "Connections", exact: true }).click();
-      await expect(page.getByRole("tab", { name: "Connections", exact: true })).toHaveAttribute("aria-selected", "true");
-      // Unlike the initial loading state, the Circle card has now actually
-      // been presented. Returning must remove its interaction/accessibility.
-      await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeHidden();
-      const circlesPanel = page.locator('[role="tabpanel"]').filter({ has: page.locator('[data-connect-surface="circles"]') });
-      await expect(circlesPanel).toHaveAttribute("aria-hidden", "true");
-      await expect(circlesPanel).toHaveAttribute("inert", "");
+      // Circle creation moved to its named flow; Connect cards no longer own
+      // the retired discovery-card dialog (also asserted by the page unit contract).
+      await expect(page.getByRole("button", { name: "Create your own circle" })).toHaveCount(0);
       const messageButtons = page.getByRole("button", { name: /^Message / });
       await expect(messageButtons).toHaveCount(6);
-      await expect(messageButtons.first()).toBeEnabled();
-      await messageButtons.first().click();
+      const alexMessage = page.getByRole("button", { name: "Message Alex Chen", exact: true });
+      await expect(alexMessage).toBeEnabled();
+      await alexMessage.click();
       await expect(page.locator("body")).toHaveAttribute(
         "data-last-navigation",
-        "/one/messages?person=person_0",
+        "/one/messages?token=dm1.fixture",
       );
+      await expect(page.locator("body")).toHaveAttribute("data-message-recipient", "person_0");
       const geometry = await cards.evaluateAll((nodes) => nodes.map((node) => {
         const r = node.getBoundingClientRect();
         return { left: r.left, top: r.top, right: r.right, width: r.width };
@@ -222,7 +226,7 @@ for (const dark of [false, true]) {
       await page.getByRole("button", { name: /Remove connection with Alex Chen/ }).click();
       const dialog = page.getByRole("alertdialog");
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
       const bounds = await dialog.boundingBox();
       expect(bounds).not.toBeNull();
       expect(Math.abs(bounds!.x + bounds!.width / 2 - width / 2)).toBeLessThan(2);
@@ -243,4 +247,23 @@ for (const dark of [false, true]) {
       }
     });
   }
+}
+
+for (const width of [320, 1440]) {
+  test(`keeps a long connection name clear of actions at ${width}px`, async ({ page }) => {
+    await open(page, width, false, undefined, () => { document.documentElement.dataset.longConnectionName = "1"; });
+    await settle(page, width);
+    const row = page.getByTestId("connect-my-connections-group").getByTestId("settings-row").filter({ hasText: "24E2100221 Mayank Featherstonehaugh-Rajendran" });
+    await expect(row).toHaveCount(1);
+    const fit = await row.evaluate(node => {
+      const title = node.querySelector<HTMLElement>('[data-slot="settings-row-title"]')!;
+      const trailing = node.querySelector('[data-slot="settings-row-trailing"]')!;
+      const name = title.querySelector('span[title]') as HTMLElement;
+      const style = getComputedStyle(name);
+      return title.scrollWidth <= title.clientWidth + 1 && title.getBoundingClientRect().right <= trailing.getBoundingClientRect().left && style.whiteSpace === 'nowrap' && style.textOverflow === 'ellipsis' && name.getBoundingClientRect().height <= parseFloat(style.lineHeight) + 1;
+    });
+    expect(fit).toBe(true);
+    await expect(row.getByRole("button", { name: /^Message / })).toBeEnabled();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  });
 }

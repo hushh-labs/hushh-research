@@ -1,29 +1,68 @@
+import type { DocumentRequestSetup } from "@/lib/consent/document-request-setup";
+import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
+import {
+  parseRequesterPaymentView,
+  parseRequesterPriceView,
+  type RequesterPaymentView,
+  type RequesterPriceView,
+} from "@/lib/consent/document-request-payment-view";
+import {
+  parseOwnerReviewRequest,
+  parseRequesterRecovery,
+  type OwnerReviewRequest,
+  type RequesterRecovery,
+} from "@/lib/consent/document-request-requester-view";
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { ApiService } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
+  isDriveSearchSelectionReady,
   parseDriveSearchResults,
   parseDriveSearchStatus,
   type DriveSearchResults,
   type DriveSearchStatus,
 } from "@/lib/services/drive-search-service";
 
-export type SharingStatus = {
+export type SharingStatus = DocumentRequestSetup & {
   requestId: string;
   status: string;
   revision: number;
   direction: "incoming" | "outgoing";
+  /** The server's request-time quote, absent on legacy requests. */
+  quotedAmountCents?: number;
+  paymentRequired?: boolean;
+  quoteVersion?: number;
+  /** Requester only: the shared payment view; null when absent or malformed. */
+  payment?: RequesterPaymentView | null;
+  /** Requester only: estimate, current and final price; null when absent or malformed. */
+  price?: RequesterPriceView | null;
+};
+/** A decision's acknowledgement; a withdrawal also carries the payment view. */
+export type SharingDecision = Record<string, unknown> & {
+  payment?: RequesterPaymentView | null;
 };
 export type DocumentRequestDraft = {
   ownerPersonRef: string;
   clientRequestId: string;
+  /** Optimistic guard for the quote the requester saw before sending. */
+  expectedQuoteVersion?: number | null;
   timeZone?: string;
   purpose: {
     purpose: string;
     periodStart: string | null;
     periodEnd: string | null;
   };
+};
+export type SharingRequestContext = {
+  requestId: string;
+  purpose: DocumentRequestDraft["purpose"];
+  /** The Google account files go to, as sealed when sent. Absent from older servers. */
+  recipientEmail?: string | null;
+  /** When the requester sent it (ISO). Absent from older servers. */
+  requestedAt?: string | null;
+  /** The requester's IANA time zone when they sent it, if recorded. */
+  timeZone?: string | null;
 };
 
 export function validDocumentRequestPeriod(
@@ -56,7 +95,7 @@ export function validDocumentRequestTerms(
     validDocumentRequestPeriod(start, end)
   );
 }
-export type SharingReview = {
+export type SharingReview = DocumentRequestSetup & {
   revision: number;
   status: string;
   recipientEmail: string;
@@ -92,7 +131,50 @@ export type SharingReview = {
   recoverablePositions?: number[];
   progressiveAllowed?: boolean;
   aggregateCounts?: DriveBulkShareCounts;
+  /** The owner allowed this request from outside their Trusted circle. */
+  ownerAllowed?: boolean;
+  /** The owner may Allow or Deny now. Nothing searches Drive before Allow. */
+  allowAvailable?: boolean;
+  /** Trusted request awaiting only its per-request price, never new consent. */
+  priceOnlyAvailable?: boolean;
+  /** The requester pays before files are shared, so Allow sets a price. */
+  paymentRequired?: boolean;
+  /** The owner's price in cents once allowed; null when there is none. */
+  priceCents?: number | null;
+  /** The estimate the requester saw when sending; absent when unknown or on older servers. */
+  estimateCents?: number;
+  /** Owner-only, current ledger projection for a paid document request. */
+  ownerPayout?: OwnerDocumentPayout | null;
 };
+export type OwnerDocumentPayoutStatus =
+  | "awaiting_delivery"
+  | "awaiting_refund"
+  | "awaiting_fee"
+  | "awaiting_account"
+  | "due"
+  | "dispatching"
+  | "unknown"
+  | "manual_review"
+  | "transferred"
+  | "hashcoins_credited"
+  | "hashcoins_held"
+  | "hashcoins_reversed"
+  | "reversal_due"
+  | "reversal_unknown"
+  | "reversed"
+  | "void";
+export type OwnerDocumentPayout = {
+  requestId: string;
+  currency: "usd";
+  grossAmountCents: number;
+  retainedAmountCents: number | null;
+  platformFeeCents: number | null;
+  processingFeeCents: number | null;
+  ownerEarningCents: number | null;
+  status: OwnerDocumentPayoutStatus;
+};
+export type SharingAllowInput = { revision: number; amountCents: number | null };
+export type SharingAllowResult = { requestId: string; status: string; revision: number };
 const SHARING_PREPARATION_ERRORS = [
   "no_relevant_files",
   "no_ready_files",
@@ -103,6 +185,9 @@ const SHARING_PREPARATION_ERRORS = [
   "background_preparation_required",
   "trusted_relationship_changed",
   "date_range_required",
+  "owner_price_required",
+  "owner_payout_required",
+  "payout_unavailable",
 ] as const;
 /** Why preparation ended without suggestions. Unknown codes are dropped. */
 export type SharingPreparationError =
@@ -112,8 +197,22 @@ function preparationError(value: unknown): SharingPreparationError | null {
     ? (value as SharingPreparationError)
     : null;
 }
+function parseRequestSetup(value: Record<string, unknown>): DocumentRequestSetup {
+  const ownerDriveReady = optionalFlag(value.ownerDriveReady);
+  const ownerPriceRequired = optionalFlag(value.ownerPriceRequired);
+  const ownerPayoutAccountReady = optionalFlag(value.ownerPayoutAccountReady);
+  const paymentsReady = optionalFlag(value.paymentsReady);
+  return {
+    ...(ownerDriveReady === undefined ? {} : { ownerDriveReady }),
+    ...(ownerPriceRequired === undefined ? {} : { ownerPriceRequired }),
+    ...(ownerPayoutAccountReady === undefined ? {} : { ownerPayoutAccountReady }),
+    ...(paymentsReady === undefined ? {} : { paymentsReady }),
+  };
+}
 export type SharingDelivery = {
   status: string;
+  accessStopStatus?: "pending" | "removed" | "needs_attention" | null;
+  canStopAccess?: boolean;
   files: SharingDeliveryFile[];
   fileCount?: number;
   sharedCount?: number;
@@ -121,7 +220,21 @@ export type SharingDelivery = {
   bulkStatus?: DriveBulkShareView["status"];
   counts?: DriveBulkShareCounts;
   issues?: DriveBulkShareIssue[];
+  /** Requester only: estimate, owner price and final price; null when malformed. */
+  price?: RequesterPriceView | null;
+  /** Requester only: undelivered files, the owner-retry state and their refund. */
+  recovery?: RequesterRecovery | null;
+  /** Owner only: the requester asked for a review of unshared files. */
+  reviewRequest?: OwnerReviewRequest | null;
 };
+function accessStopStatus(value: unknown): NonNullable<SharingDelivery["accessStopStatus"]> {
+  if (value === "pending" || value === "removed" || value === "needs_attention") return value;
+  throw new DriveSharingError("invalid_response");
+}
+function canStopAccess(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  throw new DriveSharingError("invalid_response");
+}
 export type SharingDeliveryFile = {
     name: string;
     status: string;
@@ -141,6 +254,8 @@ export type SharingRevocationReview = {
   reviewDigest: string;
   expiresAt: string;
   files: { grantId: string; name: string; recipientEmail: string }[];
+  affectedCount?: number;
+  pendingCount?: number;
 };
 export type TrustedDocumentRule = {
   ruleId: string;
@@ -686,6 +801,66 @@ function parseBulkCounts(value: unknown, total: number): DriveBulkShareCounts {
   return result;
 }
 
+const SEARCH_PROGRESS_FIELDS = [
+  "batches", "batchCount", "claimedPositions", "recoverablePositions", "aggregateCounts", "progressiveAllowed",
+] as const;
+
+/**
+ * Before a request's Drive search starts, older servers send empty progress beside
+ * `search: null`. It means "no search yet"; any recorded progress is refused.
+ */
+function withoutEmptySearchProgress(value: RecordValue): RecordValue {
+  const empty = (list: unknown) => list === undefined || Array.isArray(list) && list.length === 0;
+  if (!empty(value.batches) || !empty(value.claimedPositions) || !empty(value.recoverablePositions) ||
+    value.batchCount !== undefined && value.batchCount !== 0 ||
+    value.progressiveAllowed !== undefined && typeof value.progressiveAllowed !== "boolean")
+    throw new DriveSharingError("invalid_response");
+  if (value.aggregateCounts !== undefined) parseBulkCounts(value.aggregateCounts, 0);
+  const result = { ...value };
+  for (const field of SEARCH_PROGRESS_FIELDS) delete result[field];
+  return result;
+}
+
+/** Absent on older servers; otherwise strictly a boolean. */
+function optionalFlag(value: unknown): boolean | undefined {
+  if (value === undefined || typeof value === "boolean") return value;
+  throw new DriveSharingError("invalid_response");
+}
+
+function optionalPrice(value: unknown): number | null | undefined {
+  if (value === undefined || value === null || isValidDocumentRequestPriceCents(value)) return value;
+  throw new DriveSharingError("invalid_response");
+}
+
+const OWNER_PAYOUT_STATUSES = new Set<OwnerDocumentPayoutStatus>([
+  "awaiting_delivery", "awaiting_refund", "awaiting_fee", "awaiting_account",
+  "due", "dispatching", "unknown", "manual_review", "transferred", "hashcoins_credited", "hashcoins_held", "hashcoins_reversed",
+  "reversal_due", "reversal_unknown", "reversed", "void",
+]);
+
+function ownerPayoutAmount(value: unknown): number | null {
+  if (value === null) return null;
+  return bulkCount(value, 50_000);
+}
+
+function parseOwnerPayout(value: unknown, requestId: string): OwnerDocumentPayout {
+  const payout = record(value);
+  const status = string(payout.status, 24) as OwnerDocumentPayoutStatus;
+  if (id(payout.requestId) !== requestId || payout.currency !== "usd" ||
+      !OWNER_PAYOUT_STATUSES.has(status))
+    throw new DriveSharingError("invalid_response");
+  return {
+    requestId,
+    currency: "usd",
+    grossAmountCents: bulkCount(payout.grossAmountCents, 50_000),
+    retainedAmountCents: ownerPayoutAmount(payout.retainedAmountCents),
+    platformFeeCents: ownerPayoutAmount(payout.platformFeeCents),
+    processingFeeCents: ownerPayoutAmount(payout.processingFeeCents),
+    ownerEarningCents: ownerPayoutAmount(payout.ownerEarningCents),
+    status,
+  };
+}
+
 function parseBulkIssues(value: unknown, total: number): DriveBulkShareIssue[] {
   if (!Array.isArray(value) || value.length > BULK_REASON_CODES.length) throw new DriveSharingError("invalid_response");
   const issues = value.map(item => {
@@ -896,6 +1071,8 @@ export class DriveSharingService {
     id(draft.clientRequestId);
     if (
       !firebaseToken ||
+      (draft.expectedQuoteVersion !== undefined && draft.expectedQuoteVersion !== null &&
+        (!Number.isSafeInteger(draft.expectedQuoteVersion) || draft.expectedQuoteVersion < 0)) ||
       !validDocumentRequestTerms(
         draft.purpose.purpose,
         draft.purpose.periodStart,
@@ -929,11 +1106,33 @@ export class DriveSharingService {
       throw new DriveSharingError("invalid_response");
     if (id(result.requestId) !== requestId)
       throw new DriveSharingError("invalid_response");
+    const quotedAmountCents = result.quotedAmountCents === undefined
+      ? undefined : optionalPrice(result.quotedAmountCents);
+    if (quotedAmountCents === null)
+      throw new DriveSharingError("invalid_response");
+    const paymentRequired = optionalFlag(result.paymentRequired);
+    const quoteVersion = result.quoteVersion === undefined ? undefined : (() => {
+      if (!Number.isSafeInteger(result.quoteVersion) || (result.quoteVersion as number) < 0)
+        throw new DriveSharingError("invalid_response");
+      return result.quoteVersion as number;
+    })();
     return {
       requestId,
       revision: revision(result.revision),
       status: string(result.status, 80),
       direction: result.direction,
+      ...(quotedAmountCents === undefined ? {} : { quotedAmountCents }),
+      ...(paymentRequired === undefined ? {} : { paymentRequired }),
+      ...(quoteVersion === undefined ? {} : { quoteVersion }),
+      // Additive requester views. A malformed view is dropped (fails closed:
+      // no Pay, no refund claim) instead of hiding the whole request.
+      ...(result.direction === "outgoing" && result.payment !== undefined
+        ? { payment: parseRequesterPaymentView(result.payment) }
+        : {}),
+      ...(result.direction === "outgoing" && result.price !== undefined
+        ? { price: parseRequesterPriceView(result.price) }
+        : {}),
+      ...parseRequestSetup(result),
     };
   }
 
@@ -947,6 +1146,39 @@ export class DriveSharingService {
       token, null, guard, `/by-client/${clientRequestId}`,
     );
     return result.status === "draft" ? null : id(result.requestId);
+  }
+
+  static async requesterContext(
+    token: string,
+    requestId: string,
+    guard: SharingSessionGuard,
+  ): Promise<SharingRequestContext> {
+    const result = await this.request(token, requestId, guard, "/context");
+    if (id(result.requestId) !== requestId)
+      throw new DriveSharingError("invalid_response");
+    const raw = record(result.purpose);
+    const purpose = {
+      purpose: string(raw.purpose, 2000),
+      periodStart: raw.periodStart == null ? null : string(raw.periodStart, 10),
+      periodEnd: raw.periodEnd == null ? null : string(raw.periodEnd, 10),
+    };
+    if (!purpose.purpose.trim() || !validDocumentRequestPeriod(purpose.periodStart, purpose.periodEnd))
+      throw new DriveSharingError("invalid_response");
+    // Newer servers add the sealed Google account and when it was sent.
+    const recipientEmail = result.recipientEmail == null ? null : string(result.recipientEmail, 320);
+    if (recipientEmail !== null && !/^[^\s@]{1,64}@[^\s@]{1,254}$/.test(recipientEmail))
+      throw new DriveSharingError("invalid_response");
+    return {
+      requestId,
+      purpose,
+      ...(result.recipientEmail === undefined ? {} : { recipientEmail }),
+      ...(result.requestedAt === undefined
+        ? {}
+        : { requestedAt: result.requestedAt === null ? null : date(result.requestedAt) }),
+      ...(result.timeZone === undefined
+        ? {}
+        : { timeZone: result.timeZone === null ? null : string(result.timeZone, 64) }),
+    };
   }
 
   static async listRules(token: string, guard: SharingSessionGuard): Promise<TrustedDocumentRule[]> {
@@ -1003,7 +1235,8 @@ export class DriveSharingService {
     requestId: string,
     guard: SharingSessionGuard,
   ): Promise<SharingReview> {
-    const result = await this.request(token, requestId, guard, "/review");
+    const raw = await this.request(token, requestId, guard, "/review");
+    const result = raw.search === null && raw.bulkShare === null ? withoutEmptySearchProgress(raw) : raw;
     if (id(result.requestId) !== requestId)
       throw new DriveSharingError("invalid_response");
     const purpose = record(result.purpose);
@@ -1085,6 +1318,14 @@ export class DriveSharingService {
       throw new DriveSharingError("invalid_response");
     if (result.trustedAuto !== undefined && typeof result.trustedAuto !== "boolean")
       throw new DriveSharingError("invalid_response");
+    const ownerAllowed = optionalFlag(result.ownerAllowed);
+    const allowAvailable = optionalFlag(result.allowAvailable);
+    const priceOnlyAvailable = optionalFlag(result.priceOnlyAvailable);
+    const paymentRequired = optionalFlag(result.paymentRequired);
+    const priceCents = optionalPrice(result.priceCents);
+    const ownerPayout = result.ownerPayout == null
+      ? null
+      : parseOwnerPayout(result.ownerPayout, requestId);
     return {
       revision: revision(result.revision),
       status: string(result.status, 80),
@@ -1126,6 +1367,22 @@ export class DriveSharingService {
       ...(recoverablePositions === undefined ? {} : { recoverablePositions }),
       ...(result.progressiveAllowed === true ? { progressiveAllowed: true } : {}),
       ...(aggregateCounts === undefined ? {} : { aggregateCounts }),
+      ...(ownerAllowed === undefined ? {} : { ownerAllowed }),
+      // Only a pending request not yet allowed can be decided.
+      ...(priceOnlyAvailable === undefined ? {} : {
+        priceOnlyAvailable: priceOnlyAvailable && result.status === "pending" && ownerAllowed !== true,
+      }),
+      ...(allowAvailable === undefined ? {} : {
+        allowAvailable: allowAvailable && result.status === "pending" && ownerAllowed !== true,
+      }),
+      ...(paymentRequired === undefined ? {} : { paymentRequired }),
+      ...(priceCents === undefined ? {} : { priceCents }),
+      // Display only: a missing or malformed estimate never blocks the review.
+      ...(isValidDocumentRequestPriceCents(result.estimateCents)
+        ? { estimateCents: result.estimateCents }
+        : {}),
+      ...(result.ownerPayout === undefined ? {} : { ownerPayout }),
+      ...parseRequestSetup(result),
     };
   }
 
@@ -1152,8 +1409,7 @@ export class DriveSharingService {
     token: string, requestId: string, search: DriveSearchStatus,
     excludedPositions: number[], guard: SharingSessionGuard,
   ): Promise<DriveBulkShareView> {
-    if (search.status !== "completed" || search.incompleteSearch ||
-      search.coverage?.providerPagesExhausted === false || search.coverage?.shareabilityVerified !== true ||
+    if (!isDriveSearchSelectionReady(search) ||
       search.matched - (search.unshareableCount ?? 0) <= 0 ||
       excludedPositions.length >= search.matched ||
       new Set(excludedPositions).size !== excludedPositions.length ||
@@ -1205,6 +1461,12 @@ export class DriveSharingService {
       throw new DriveSharingError("invalid_response");
     return {
       status: string(result.status, 80),
+      ...(result.accessStopStatus == null ? {} : {
+        accessStopStatus: accessStopStatus(result.accessStopStatus),
+      }),
+      ...(result.canStopAccess === undefined ? {} : {
+        canStopAccess: canStopAccess(result.canStopAccess),
+      }),
       files: files(result.files, parseDeliveryFile),
       ...(result.bulkShareId == null ? {} : {
         bulkShareId: id(result.bulkShareId),
@@ -1213,6 +1475,15 @@ export class DriveSharingService {
         ...(counts === undefined ? {} : { counts }),
         ...(result.issues === undefined ? {} : { issues: parseBulkIssues(result.issues, fileCount!) }),
       }),
+      // Additive views. A malformed one is dropped (no action, no refund claim)
+      // instead of hiding the delivery itself.
+      ...(result.price === undefined ? {} : { price: parseRequesterPriceView(result.price) }),
+      ...(result.recovery === undefined
+        ? {}
+        : { recovery: parseRequesterRecovery(result.recovery) }),
+      ...(result.reviewRequest === undefined
+        ? {}
+        : { reviewRequest: parseOwnerReviewRequest(result.reviewRequest) }),
     };
   }
 
@@ -1402,17 +1673,64 @@ export class DriveSharingService {
       ...(trustScope ? {trustScope, trustDisclosureVersion: "drive-any-requested-file-including-future-v1"} : {}),
     });
   }
-  static decide(
+  /**
+   * Decline, withdraw (cancel) or refresh at a revision. A withdrawal's reply
+   * carries the payment view: closed, or refund pending when payment won the
+   * race. A paid or already shared request is refused with `request_paid`.
+   */
+  static async decide(
     token: string,
     requestId: string,
     action: "decline" | "cancel" | "review/refresh",
     value: number,
     guard: SharingSessionGuard,
-  ) {
-    return this.request(token, requestId, guard, `/${action}`, {
+  ): Promise<SharingDecision> {
+    const result = await this.request(token, requestId, guard, `/${action}`, {
       revision: value,
     });
+    if (action !== "cancel" || result.payment === undefined) return result;
+    return { ...result, payment: parseRequesterPaymentView(result.payment) };
   }
+  /**
+   * The owner allows a request from outside their Trusted circle. It then runs the
+   * same automatic search, payment and sharing as a Trusted request, at this price.
+   */
+  static async allow(
+    token: string,
+    requestId: string,
+    input: SharingAllowInput,
+    guard: SharingSessionGuard,
+  ): Promise<SharingAllowResult> {
+    if (!Number.isSafeInteger(input.revision) || input.revision < 0 ||
+      input.amountCents !== null && !isValidDocumentRequestPriceCents(input.amountCents))
+      throw new DriveSharingError("invalid_argument");
+    const result = await this.request(token, requestId, guard, "/allow", {
+      revision: input.revision,
+      ...(input.amountCents === null ? {} : { amountCents: input.amountCents }),
+      confirmed: true,
+    });
+    if (id(result.requestId) !== requestId)
+      throw new DriveSharingError("invalid_response");
+    return {
+      requestId,
+      status: string(result.status, 80),
+      revision: revision(result.revision),
+    };
+  }
+  /** Price a trusted request without granting independent owner-allowed authority. */
+  static async setRequestPrice(
+    token: string, requestId: string, input: SharingAllowInput, guard: SharingSessionGuard,
+  ): Promise<SharingAllowResult> {
+    if (!Number.isSafeInteger(input.revision) || input.revision < 0 ||
+        !isValidDocumentRequestPriceCents(input.amountCents))
+      throw new DriveSharingError("invalid_argument");
+    const result = await this.request(token, requestId, guard, "/price", {
+      revision: input.revision, amountCents: input.amountCents, confirmed: true,
+    });
+    if (id(result.requestId) !== requestId) throw new DriveSharingError("invalid_response");
+    return { requestId, status: string(result.status, 80), revision: revision(result.revision) };
+  }
+
   static async prepareRevocation(
     token: string,
     requestId: string,
@@ -1437,6 +1755,8 @@ export class DriveSharingService {
         name: string(file.name, 1024),
         recipientEmail: string(file.recipientEmail, 320),
       })),
+      ...(result.affectedCount == null ? {} : { affectedCount: bulkCount(result.affectedCount, 10_000) }),
+      ...(result.pendingCount == null ? {} : { pendingCount: bulkCount(result.pendingCount, 10_000) }),
     };
   }
   static revoke(

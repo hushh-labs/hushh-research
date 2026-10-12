@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
@@ -333,4 +333,75 @@ test.describe("Your Map consent panel layout", () => {
       .evaluate((node) => (node as HTMLElement).style.paddingBottom);
     expect(declared).toContain("safe-area-inset-bottom");
   });
+});
+
+test.describe("Inline renderer access on the live map", () => {
+  let script: string;
+  let css: string;
+  test.beforeAll(async () => {
+    const root = process.cwd();
+    const { build } = await import("vite");
+    const { Scanner } = await import("@tailwindcss/oxide");
+    const scanner = new Scanner({});
+    const candidates = new Set<string>();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "map-renderer-access-"));
+    await build({
+      configFile: false, publicDir: false, logLevel: "error",
+      plugins: [{ name: "map-access-styles", transform(source, id) {
+        if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
+          for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
+        }
+      } }],
+      oxc: { jsx: { runtime: "automatic", development: false } },
+      resolve: { alias: { "@": root } },
+      define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+      build: { outDir, emptyOutDir: false, lib: { entry: path.join(root, "e2e/fixtures/map-renderer-access.tsx"), name: "MapAccessFixture", formats: ["iife"], fileName: () => "fixture.js" } },
+    });
+    script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+    const { compile } = await import("tailwindcss");
+    const compiler = await compile(fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""), {
+      base: path.join(root, "app"),
+      loadStylesheet: async (id, base) => {
+        const file = id === "tailwindcss" ? path.join(root, "node_modules/tailwindcss/index.css") : id === "tw-animate-css" ? path.join(root, "node_modules/tw-animate-css/dist/tw-animate.css") : path.resolve(base, id);
+        return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
+      },
+    });
+    css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  });
+
+  for (const width of [320, 390, 1440]) {
+    test(`keeps the production inline action compact and accessible at ${width}px`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 844 });
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      for (const dark of [false, true]) {
+      for (const inline of [false, true]) {
+        await page.setContent(`<html class="${dark ? "dark" : ""}"><head><style>${css}</style></head><body data-inline="${inline}"><div id="root"></div></body></html>`);
+        await page.addScriptTag({ content: script });
+        const panel = page.getByTestId("one-location-map-renderer-access");
+        const button = page.getByRole("button", { name: "Use Google Maps" });
+        await expect(panel).toBeVisible();
+        await awaitProductFont(page);
+        const box = (await panel.boundingBox())!;
+        const action = (await button.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(16);
+        expect(box.x + box.width).toBeLessThanOrEqual(width - 16 + 1);
+        expect(box.width).toBeLessThanOrEqual(512);
+        expect(box.height).toBeLessThanOrEqual(110);
+        expect(action.height).toBeGreaterThanOrEqual(44);
+        expect(action.width).toBeLessThan(box.width * 0.6);
+        expect(action.x + action.width).toBeLessThanOrEqual(box.x + box.width - (inline ? 11 : 15));
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+        await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
+        await expect(page.getByText("Private until you share.")).toHaveCount(0);
+        await button.focus();
+        await expect(button).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(page.locator("body")).toHaveAttribute("data-accepted", "true");
+        expect(errors).toEqual([]);
+        await page.screenshot({ path: testInfo.outputPath(`${inline ? "sheet" : "map"}-${dark ? "dark" : "light"}.png`) });
+      }
+      }
+    });
+  }
 });

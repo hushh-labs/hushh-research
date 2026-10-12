@@ -12,6 +12,9 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
   },
 }));
 
+vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: () => <section>Card recipients</section> }));
+vi.mock("@/lib/services/wallet-card-artwork-service", () => ({ loadWalletCardArtwork: vi.fn().mockResolvedValue("<svg></svg>") }));
+
 const navigationMock = vi.hoisted(() => ({
   pathname: "/one/wallet",
   search: "",
@@ -22,13 +25,15 @@ const authMock = vi.hoisted(() => ({
 }));
 const trackEventMock = vi.hoisted(() => vi.fn());
 const nativeBeaconMock = vi.hoisted(() => vi.fn());
-const vaultMock = vi.hoisted(() => ({ locked: false }));
+const vaultMock = vi.hoisted(() => ({ locked: false, tokenReady: true }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
   useRouter: () => ({ replace: navigationMock.replace, push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(navigationMock.search),
 }));
+
+vi.mock("@/hooks/use-effective-avatar-url", () => ({ useEffectiveAvatarUrl: () => null }));
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: authMock.user, loading: false }),
@@ -41,8 +46,8 @@ vi.mock("@/lib/observability/client", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () =>
     vaultMock.locked
-      ? { vaultKey: null, getVaultOwnerToken: () => null }
-      : { vaultKey: "vault_key", getVaultOwnerToken: () => "owner_token" },
+      ? { vaultKey: null, vaultOwnerToken: null, getVaultOwnerToken: () => null }
+      : { vaultKey: "vault_key", vaultOwnerToken: vaultMock.tokenReady ? "owner_token" : null, getVaultOwnerToken: () => vaultMock.tokenReady ? "owner_token" : null },
 }));
 
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
@@ -63,8 +68,10 @@ const serviceMock = vi.hoisted(() => ({
   getCard: vi.fn(),
   addCard: vi.fn(),
 }));
-const profileMock = vi.hoisted(() => ({ getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }) }));
-vi.mock("@/lib/services/wallet-card-service", () => ({ WalletCardService: profileMock }));
+const profileMock = vi.hoisted(() => ({ getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }), subscribe: vi.fn(() => () => {}), readShareLink: vi.fn(() => null), ensureCard: vi.fn() }));
+vi.mock("@/lib/services/wallet-card-service", async (original) => ({
+  ...await original<object>(), WalletCardService: profileMock, canAddToAppleWallet: () => false,
+}));
 
 vi.mock("@/lib/services/wallet-service", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/wallet-service")>(
@@ -75,9 +82,10 @@ vi.mock("@/lib/services/wallet-service", async () => {
     WalletService: {
       ...actual.WalletService,
       isEnabled: () => true,
-      listCardSummaries: serviceMock.listCardSummaries,
+      listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
+      listCardShareReceipts: vi.fn().mockResolvedValue([]),
       addCard: serviceMock.addCard,
       matchesQuery: actual.WalletService.matchesQuery,
     },
@@ -86,7 +94,11 @@ vi.mock("@/lib/services/wallet-service", async () => {
 
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
+import * as walletDemoCards from "@/components/wallet/wallet-demo-cards";
 import { stageReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+import { WalletCardService, type WalletCardRecord } from "@/lib/services/wallet-card-service";
+import * as walletCardArtwork from "@/lib/services/wallet-card-artwork-service";
+import { decodePayload } from "@/components/wallet-card/__tests__/qr-code-test-decoder";
 
 function makeCards(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -103,6 +115,9 @@ function makeCards(count: number) {
 
 describe("WalletWorkspace at scale", () => {
   it("conceals profile artwork across owner replacement, return and lock", async () => {
+    // Inspect the current protected projection independently of SVG asset I/O.
+    vi.spyOn(walletDemoCards, "WalletDemoCardFace").mockImplementation(({ summary, profile }) =>
+      summary.cardId === "agent-one-profile" ? <div>{profile?.cardPayload?.full_name || profile?.displayName}<span>{profile?.cardPayload?.email}</span></div> : <div />);
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValue(true);
     serviceMock.listCardSummaries.mockResolvedValue([]);
     authMock.user = { uid: "user_1", displayName: "Public owner A" };
@@ -111,16 +126,15 @@ describe("WalletWorkspace at scale", () => {
     const workspace = render(<WalletWorkspace />);
     await screen.findByRole("tab", { name: "Cards", exact: true });
     await act(async () => { completions[0]!({ card: { cardPayload: { full_name: "Saved owner A", email: "owner-a@example.test" } }, shareUrl: null }); });
-    expect(await screen.findAllByText("Saved owner A")).toHaveLength(3);
-    fireEvent.click(screen.getByRole("button", { name: "Everyday", exact: true }));
-    expect(screen.getByTestId("wallet-demo-details")).toHaveTextContent("owner-a@example.test");
+    expect(await screen.findByText("Saved owner A")).toBeVisible();
+    expect(screen.getByText("owner-a@example.test")).toBeVisible();
 
     authMock.user = { uid: "owner_b", displayName: "Public owner B" };
     workspace.rerender(<WalletWorkspace />);
     await screen.findByRole("tab", { name: "Cards", exact: true });
     expect(screen.queryByText("Saved owner A")).toBeNull();
     expect(screen.queryByText("owner-a@example.test")).toBeNull();
-    expect(screen.getAllByText("Public owner B")).toHaveLength(3);
+    expect(screen.getByText("Public owner B")).toBeVisible();
 
     authMock.user = { uid: "user_1", displayName: "Public owner A" };
     workspace.rerender(<WalletWorkspace />);
@@ -138,27 +152,95 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByRole("tab", { name: "Cards", exact: true });
     expect(screen.queryByText("Late owner A")).toBeNull();
   });
-  it("rejects older profile refreshes after a newer result is visible", async () => {
-    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValue(true);
+  it("loads cards when the owner token arrives after the vault key", async () => {
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+    vaultMock.tokenReady = false;
     serviceMock.listCardSummaries.mockResolvedValue([]);
-    const completions: Array<(value: { card: { cardPayload: { full_name: string } }; shareUrl: null }) => void> = [];
-    profileMock.getCard.mockImplementation(() => new Promise((resolve) => { completions.push(resolve); }));
-    vi.useFakeTimers();
-    try {
-      await act(async () => { render(<WalletWorkspace />); });
-      expect(completions).toHaveLength(1);
-      await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
-      expect(completions).toHaveLength(3);
-      await act(async () => { completions[2]!({ card: { cardPayload: { full_name: "Current profile" } }, shareUrl: null }); });
-      expect(screen.getAllByText("Current profile")).toHaveLength(3);
-      await act(async () => {
-        completions[0]!({ card: { cardPayload: { full_name: "Old initial profile" } }, shareUrl: null });
-        completions[1]!({ card: { cardPayload: { full_name: "Old polled profile" } }, shareUrl: null });
+    const view = render(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-locked");
+    expect(serviceMock.listCardSummaries).not.toHaveBeenCalled();
+    vaultMock.tokenReady = true;
+    view.rerender(<WalletWorkspace />);
+    await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Add", exact: true })).toBeEnabled());
+  });
+  it("refreshes the profile QR after a remote rotation without reopening Wallet", async () => {
+    const card = { status: "active", displayName: "Ada", cardPayload: { full_name: "Ada" }, shareTokenVersion: 1 } as WalletCardRecord;
+    const rotated = { ...card, shareTokenVersion: 2 };
+    let changed: (() => void) | undefined;
+    let recovered = false;
+    const getCard = vi.spyOn(WalletCardService, "getCard")
+      .mockResolvedValueOnce({ enabled: true, exists: true, card, shareUrl: "https://one.hushh.ai/c/original" })
+      .mockResolvedValue({ enabled: true, exists: true, card: rotated, shareUrl: null });
+    vi.spyOn(WalletCardService, "subscribe").mockImplementation((_owner, listener) => { changed = listener; return () => { changed = undefined; }; });
+    vi.spyOn(WalletCardService, "readShareLink").mockImplementation((_owner, current) => current?.shareTokenVersion === 1
+      ? { shareToken: "original", shareUrl: "https://one.hushh.ai/c/original", version: 1 }
+      : recovered ? { shareToken: "rotated", shareUrl: "https://one.hushh.ai/c/rotated", version: 2 } : null);
+    let finishRecovery!: () => void;
+    const recovery = new Promise<void>((resolve) => { finishRecovery = resolve; });
+    const ensure = vi.spyOn(WalletCardService, "ensureCard").mockImplementation(async () => {
+      await recovery;
+      recovered = true;
+      changed?.();
+      return { card: rotated, shareToken: "rotated", shareUrl: "https://one.hushh.ai/c/rotated", passUrl: null };
+    });
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    // Exercise the real cohesive SVG renderer; only public asset I/O and the
+    // browser object-URL boundary are replaced in JSDOM.
+    vi.spyOn(walletCardArtwork, "loadWalletCardArtwork").mockImplementation(async (kind) =>
+      readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v1.svg`), "utf8"));
+    const images = new Map<string, Blob>();
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = vi.fn((blob: Blob) => {
+        const url = `blob:wallet-rotation-${images.size + 1}`;
+        images.set(url, blob);
+        return url;
       });
-      expect(screen.getAllByText("Current profile")).toHaveLength(3);
-      expect(screen.queryByText("Old initial profile")).toBeNull();
-      expect(screen.queryByText("Old polled profile")).toBeNull();
-    } finally { vi.useRealTimers(); }
+      static revokeObjectURL = vi.fn();
+    });
+    const { container } = render(<WalletWorkspace />);
+    const profileImage = () => container.querySelector<HTMLImageElement>('[data-agent-card="profile"] img');
+    const renderedQr = async () => {
+      const image = profileImage();
+      expect(image).not.toBeNull();
+      const blob = images.get(image!.getAttribute("src")!);
+      expect(blob).toBeDefined();
+      const svg = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = reject;
+        reader.readAsText(blob!);
+      });
+      const document = new DOMParser().parseFromString(svg, "image/svg+xml");
+      expect(document.querySelector("image")).not.toBeNull();
+      const qr = document.querySelector("[data-wallet-qr]");
+      expect(qr).not.toBeNull();
+      const size = Number(qr!.getAttribute("viewBox")!.split(" ")[2]) - 8;
+      const modules = new Uint8Array(size * size);
+      for (const run of qr!.querySelector("path")!.getAttribute("d")!.matchAll(/M(\d+) (\d+)h(\d+)v1H\d+z/g)) {
+        for (let x = Number(run[1]) - 4; x < Number(run[1]) - 4 + Number(run[3]); x += 1) modules[(Number(run[2]) - 4) * size + x] = 1;
+      }
+      return decodePayload({ size, modules });
+    };
+    await waitFor(async () => expect(await renderedQr()).toBe("https://one.hushh.ai/c/original"), { timeout: 5000 });
+    const originalImage = profileImage()!;
+    const originalSource = originalImage.getAttribute("src");
+    await act(async () => { fireEvent.load(originalImage); });
+    expect(screen.getByRole("img", { name: "Agent One Profile", exact: true })).toBeVisible();
+
+    await act(async () => { changed?.(); });
+    await waitFor(() => expect(ensure).toHaveBeenCalledOnce());
+    // The revoked link must disappear while its replacement is being recovered.
+    expect(originalImage).not.toBeInTheDocument();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(originalSource);
+    await act(async () => { finishRecovery(); });
+    await waitFor(async () => expect(await renderedQr()).toBe("https://one.hushh.ai/c/rotated"), { timeout: 5000 });
+    expect(profileImage()).not.toHaveAttribute("src", originalSource);
+    await act(async () => { fireEvent.load(profileImage()!); });
+    expect(screen.getByRole("img", { name: "Agent One Profile", exact: true })).toBeVisible();
+    expect(ensure).toHaveBeenCalledOnce();
+    expect(getCard).toHaveBeenCalledTimes(2);
   });
   it("skips the introduction for an account that has continued before", async () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
@@ -225,10 +307,11 @@ describe("WalletWorkspace at scale", () => {
     expect(nativeBeaconMock.mock.lastCall?.[0].dataState).toBe("empty-valid");
   });
   const fillCard = () => {
-    fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "New card" } });
+    fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "New card" } });
     fireEvent.change(screen.getByLabelText(/Card number/), { target: { value: "4242424242424242" } });
+    fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "04/30" } });
-    fireEvent.change(screen.getByLabelText("Issuing region"), { target: { value: "IN" } });
+    fireEvent.change(screen.getByLabelText("Issuing region (optional)"), { target: { value: "IN" } });
   };
 
   it.each(["", "   "])("saves a card without an optional PIN (%j)", async (pin) => {
@@ -257,14 +340,37 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fillCard();
-    fireEvent.click(screen.getByTestId("secure-card-save"));
+    await act(async () => { fireEvent.click(screen.getByTestId("secure-card-save")); });
     await screen.findByTestId("wallet-selected-card");
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("New card");
-    expect(screen.getByTestId("one-wallet-reveal-4242")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Copy card number" })).toBeEnabled();
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
+    // Await the user interactions so the save-to-Cards lifecycle commits
+    // before returning to the deck; its complete storage order stays asserted.
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true })); });
+    await waitFor(() => expect(screen.getAllByTestId(/^wallet-add-layer-/).map((el) => el.getAttribute("data-testid"))).toEqual(["wallet-add-layer-agent-one-profile", "wallet-add-layer-agent-one-referral", "wallet-add-layer-agent-one-nws", "wallet-add-layer-1000", "wallet-add-layer-1001", "wallet-add-layer-4242"]));
+    expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns to the overview after leaving a saved card and switching tabs", async () => {
+    serviceMock.listCardSummaries.mockResolvedValue(makeCards(1));
+    render(<WalletWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    await screen.findByTestId("wallet-add-collection");
+    fireEvent.click(screen.getByRole("button", { name: "View details for Card 0" }));
+    await screen.findByTestId("wallet-selected-card");
     fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
-    expect(screen.getAllByTestId(/^wallet-add-layer-/).map((el) => el.getAttribute("data-testid"))).toEqual(["wallet-add-layer-1000", "wallet-add-layer-1001", "wallet-add-layer-4242"]);
+    const browser = screen.getByTestId("wallet-card-browser");
+    const deck = screen.getByTestId("wallet-add-collection");
+    for (const tab of ["Add", "Sharing"]) {
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+      fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
+      await screen.findByTestId("wallet-add-collection");
+      expect(screen.queryByTestId("wallet-selected-card")).toBeNull();
+      expect(screen.getByTestId("wallet-card-browser")).toBe(browser);
+      expect(screen.getByTestId("wallet-add-collection")).toBe(deck);
+    }
   });
 
   it("retains a failed save draft and rejects a late save after vault lock", async () => {
@@ -276,8 +382,8 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(screen.getByTestId("one-wallet-add"));
     fillCard();
     fireEvent.click(screen.getByTestId("secure-card-save"));
-    await screen.findByText("Could not save");
-    expect(screen.getByLabelText("Nickname")).toHaveValue("New card");
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
+    expect(screen.getByLabelText("Name on card")).toHaveValue("New card");
     let finish!: (value: unknown) => void;
     serviceMock.addCard.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     fireEvent.click(screen.getByTestId("secure-card-save"));
@@ -288,6 +394,32 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.queryByTestId("wallet-add-collection")).toBeNull();
     expect(screen.queryByTestId("secure-card-add-form")).toBeNull();
   });
+
+  it("keeps a confirmed save when an older post-delete read finishes later", async () => {
+    const existing = makeCards(2);
+    serviceMock.listCardSummaries.mockResolvedValueOnce(existing);
+    let finishRead!: (cards: ReturnType<typeof makeCards>) => void;
+    serviceMock.listCardSummaries.mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve; }));
+    let finishSave!: (value: unknown) => void;
+    serviceMock.addCard.mockImplementationOnce(() => new Promise((resolve) => { finishSave = resolve; }));
+    render(<WalletWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    await screen.findByTestId("wallet-add-collection");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fillCard();
+    fireEvent.click(screen.getByTestId("secure-card-save"));
+    fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
+    fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
+    await waitFor(() => expect(finishRead).toBeTypeOf("function"));
+    const summary = { ...existing[0], cardId: "saved", nickname: "Visa", last4: "4242" };
+    await act(async () => finishSave({ cardId: "saved", summary, cardholderName: "New card" }));
+    await act(async () => finishRead([existing[1]]));
+    expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("New card");
+    expect(screen.getByRole("button", { name: "Open Visa, ending 4242" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Card 0, ending 1000" })).toBeNull();
+  }, 10000);
 
   it("links all three tabs to their panels and supports keyboard selection", async () => {
     render(<WalletWorkspace />);
@@ -301,8 +433,7 @@ describe("WalletWorkspace at scale", () => {
     }
     fireEvent.keyDown(screen.getByRole("tab", { name: "Cards" }), { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("wallet-add-collection")).toBeTruthy();
-    expect(screen.getByTestId("secure-card-add-form")).toBeTruthy();
+    expect(screen.getByTestId("secure-card-add-form")).toBeVisible();
     fireEvent.keyDown(screen.getByRole("tab", { name: "Add" }), { key: "Home" });
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
   });
@@ -313,13 +444,13 @@ describe("WalletWorkspace at scale", () => {
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "Travel" } });
+    fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Travel" } });
     fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
     fireEvent.click(screen.getByRole("button", { name: "Show CVV and PIN" }));
     expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "text");
     fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    expect(screen.getByLabelText("Nickname")).toHaveValue("Travel");
+    expect(screen.getByLabelText("Name on card")).toHaveValue("Travel");
     expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
     vaultMock.locked = true;
     workspace.rerender(<WalletWorkspace />);
@@ -327,15 +458,15 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.queryByTestId("secure-card-add-form")).toBeNull();
   });
 
-  it("rejects a reveal that completes after leaving Cards", async () => {
+  it("rejects a number copy that completes after leaving Cards", async () => {
     let finish!: (value: unknown) => void;
     serviceMock.getCard.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-add-collection");
-    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
-    fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     await act(async () => finish({
       summary: makeCards(1)[0],
@@ -375,29 +506,34 @@ describe("WalletWorkspace at scale", () => {
     vi.mocked(OnboardingLocalService.markWalletIntroductionSeen).mockReset().mockResolvedValue(undefined);
     authMock.user = { uid: "user_1" };
     vaultMock.locked = false;
+    vaultMock.tokenReady = true;
     navigationMock.search = "";
     navigationMock.replace.mockReset();
-    serviceMock.listCardSummaries.mockResolvedValue(makeCards(25));
+    serviceMock.listCardSummaries.mockResolvedValue(makeCards(4));
     serviceMock.deleteCard.mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("renders every saved card in storage order for scroll unfolding", async () => {
+    serviceMock.listCardSummaries.mockResolvedValueOnce(makeCards(25));
     render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-add-collection");
-    expect(screen.getAllByTestId(/^wallet-add-layer-/)).toHaveLength(25);
+    expect(screen.getAllByTestId(/^wallet-add-layer-/)).toHaveLength(28);
     expect(screen.getAllByTestId(/^wallet-add-layer-/).map(node => node.dataset.gestureCard)).toEqual(
-      Array.from({ length:25 }, (_, index) => `card_${index}`),
+      ["agent-one-profile", "agent-one-referral", "agent-one-nws", ...Array.from({ length:25 }, (_, index) => `card_${index}`)],
     );
     expect(screen.getByTestId("wallet-add-stack")).toHaveAttribute("data-expanded", "true");
   });
 
-  it("opens Add card with the nickname a chat offer handed over in memory", async () => {
+  it("opens Add card from a chat offer without asking for a nickname", async () => {
     stageReservedOfferPrefill({
       ownerUserId: "user_1",
       ownerFeature: "wallet",
@@ -406,7 +542,9 @@ describe("WalletWorkspace at scale", () => {
     render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
-    await waitFor(() => expect(screen.getByLabelText("Nickname")).toHaveValue("Amex Gold"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.queryByLabelText("Nickname")).toBeNull();
+    expect(screen.getByLabelText("Name on card")).toHaveValue("");
     expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true");
     // Only the label: every card detail is still the owner's to type here.
     expect((screen.getByLabelText(/card number/i) as HTMLInputElement).value).toBe("");
@@ -471,12 +609,12 @@ describe("WalletWorkspace at scale", () => {
     await act(async () => { fireEvent.click(continueButton); });
     await waitFor(() => expect(screen.getByTestId("wallet-add-collection")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
-    fireEvent.click(screen.getByTestId("one-wallet-remove"));
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
     await waitFor(() => expect(finishDelete).toBeTypeOf("function"));
-    expect(screen.getByRole("button", { name: "Next card", exact: true })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "All cards", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add a card", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "All (7)" })).toBeDisabled();
     authMock.user = { uid: "user_2" };
     view.rerender(<WalletWorkspace />);
     await act(async () => finishDelete());
@@ -493,15 +631,16 @@ describe("WalletWorkspace at scale", () => {
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
     await waitFor(() => expect(screen.getByTestId("wallet-add-collection")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
-    fireEvent.click(screen.getByTestId("one-wallet-remove"));
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
     expect(await screen.findByTestId("one-wallet-remove-confirm")).toBeTruthy();
     fireEvent.click(screen.getByTestId("one-wallet-remove-cancel"));
     await waitFor(() => expect(screen.queryByTestId("one-wallet-remove-confirm")).toBeNull());
     expect(serviceMock.deleteCard).not.toHaveBeenCalled();
 
     // Negative control: confirming does remove it.
-    fireEvent.click(screen.getByTestId("one-wallet-remove"));
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
     await waitFor(() =>
       expect(serviceMock.deleteCard).toHaveBeenCalledWith(
@@ -524,7 +663,7 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
   });
 
-  it("reveals a focused card only through Show card details", async () => {
+  it("shows the full number only in focused owner details and copies on request", async () => {
     serviceMock.getCard.mockResolvedValue({
       summary: makeCards(1)[0],
       secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Alex Rivera" },
@@ -535,12 +674,11 @@ describe("WalletWorkspace at scale", () => {
     await waitFor(() => expect(screen.getByTestId("wallet-add-collection")).toBeTruthy());
     expect(screen.getByTestId("wallet-add-collection").textContent).not.toContain("4242 4242 4242 1000");
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
-    fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
-    expect(await screen.findByTestId("secure-card-reveal")).toBeTruthy();
-    expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByTestId("secure-card-hide"));
-    await waitFor(() => expect(screen.queryByTestId("secure-card-reveal")).toBeNull());
-    expect(document.body.textContent).not.toContain("4242 4242 4242 1000");
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 1000"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
+    await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
+    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 1000");
   });
 });

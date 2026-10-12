@@ -5,11 +5,12 @@ descriptor CLI deliberately cannot write this row: Drive is a fixed REST
 transport, not an MCP endpoint, and must never accept caller-supplied
 redirects, scopes, capability policy, or credential configuration.
 
-This module owns the one reviewed UAT definition.  It attests the live
-database before every read or write and refuses an existing row with policy
-drift rather than silently broadening or replacing it.  Activating this row
-does not enable any Drive feature; the independent runtime flags and explicit
-internal-owner cohort still fail closed.
+This module owns the one reviewed UAT definition. It attests the live
+database before every read or write and refuses policy drift, except for the
+exact previously reviewed redirect lists that it can migrate additively.
+Migration preserves scopes, credentials and staged live/indexing/sharing
+flags. Ordinary connection, Picker and Chat reads still require the active
+catalog row, credentials, owner grants and scoped authority.
 """
 
 from __future__ import annotations
@@ -38,13 +39,31 @@ from hushh_mcp.services.hushh_tech_uat_database_attestation import (
 
 UAT_PROJECT_ID = "hushh-pda-uat"
 PROVISIONED_BY = "ops_google_drive_uat_registry"
-WEB_REDIRECT_URI = "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+WEB_REDIRECT_URI = "https://uat.one.hussh.ai/one/profile/connectors/oauth/return"
+LEGACY_WEB_REDIRECT_URI = "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
 NATIVE_OAUTH_REDIRECT_URI = "https://api.uat.hushh.ai/api/connectors/oauth/native/callback"
 NATIVE_PICKER_REDIRECT_URI = (
     "https://api.uat.hushh.ai/api/connectors/google_drive/picker/native/callback"
 )
-REGISTERED_REDIRECT_URIS = (
+PREVIOUS_REGISTERED_REDIRECT_URIS = (
     WEB_REDIRECT_URI,
+    LEGACY_WEB_REDIRECT_URI,
+    NATIVE_OAUTH_REDIRECT_URI,
+    NATIVE_PICKER_REDIRECT_URI,
+)
+PRE_SI_REGISTERED_REDIRECT_URIS = (
+    *PREVIOUS_REGISTERED_REDIRECT_URIS,
+    "https://api.uat.hussh.ai/api/connectors/oauth/native/callback",
+    "https://api.uat.hussh.ai/api/connectors/google_drive/picker/native/callback",
+)
+REGISTERED_REDIRECT_URIS = (
+    *PRE_SI_REGISTERED_REDIRECT_URIS,
+    "https://uat.one.hussh.si/one/profile/connectors/oauth/return",
+    "https://api.uat.hussh.si/api/connectors/oauth/native/callback",
+    "https://api.uat.hussh.si/api/connectors/google_drive/picker/native/callback",
+)
+LEGACY_REGISTERED_REDIRECT_URIS = (
+    LEGACY_WEB_REDIRECT_URI,
     NATIVE_OAUTH_REDIRECT_URI,
     NATIVE_PICKER_REDIRECT_URI,
 )
@@ -168,7 +187,12 @@ def _canonical_row() -> dict[str, Any]:
     }
 
 
-def _row_matches_policy(row: Mapping[str, Any], *, require_active: bool) -> bool:
+def _row_matches_policy(
+    row: Mapping[str, Any],
+    *,
+    require_active: bool,
+    redirect_uris: tuple[str, ...] = REGISTERED_REDIRECT_URIS,
+) -> bool:
     expected = _canonical_row()
     for field in (
         "connector_id",
@@ -196,7 +220,7 @@ def _row_matches_policy(row: Mapping[str, Any], *, require_active: bool) -> bool
     if (
         actual_redirects is None
         or len(actual_redirects) != len(set(actual_redirects))
-        or set(actual_redirects) != set(REGISTERED_REDIRECT_URIS)
+        or set(actual_redirects) != set(redirect_uris)
     ):
         return False
     return not require_active or row.get("is_active") is True
@@ -271,7 +295,7 @@ class DriveUatRegistryProvisioner:
             return self._summary(status="verified")
 
     def activate(self) -> dict[str, Any]:
-        """Create/activate the row only when all known configuration is exact."""
+        """Create/activate the row or migrate the exact prior UAT redirect list."""
 
         assert_google_drive_uat_registry_target()
         with self._db.engine.begin() as connection:
@@ -288,6 +312,32 @@ class DriveUatRegistryProvisioner:
                 if row is None:
                     raise DriveUatRegistryProvisioningError("Drive registry policy is unavailable")
                 action = "activated"
+            elif any(
+                _row_matches_policy(row, require_active=False, redirect_uris=prior)
+                for prior in (
+                    LEGACY_REGISTERED_REDIRECT_URIS,
+                    PREVIOUS_REGISTERED_REDIRECT_URIS,
+                    PRE_SI_REGISTERED_REDIRECT_URIS,
+                )
+            ):
+                # Migrate only an exact previously reviewed policy, retaining
+                # every prior callback for in-flight OAuth.
+                connection.execute(
+                    text(
+                        """
+                        UPDATE external_mcp_connectors
+                        SET registered_redirect_uris = CAST(:registered_redirect_uris AS JSONB),
+                            is_active = TRUE, updated_at = NOW()
+                        WHERE connector_id = :connector_id
+                        """
+                    ),
+                    {
+                        "connector_id": CONNECTOR_ID,
+                        "registered_redirect_uris": json.dumps(REGISTERED_REDIRECT_URIS),
+                    },
+                )
+                row = self._load(connection, lock=True)
+                action = "migrated"
             elif not _row_matches_policy(row, require_active=False):
                 # Do not overwrite a possibly deliberate or compromised
                 # operator row. Investigate and remediate drift explicitly.

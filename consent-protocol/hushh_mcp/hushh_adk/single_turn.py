@@ -8,7 +8,9 @@ does not grow a second provider or retry implementation for small model calls.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from google.adk.agents import LlmAgent
@@ -24,6 +26,20 @@ from hushh_mcp.runtime_providers.gemini_config import (
     resolve_fleet_model_name,
     thinking_config_for,
 )
+
+_SINGLE_TURN_REQUEST_LABELS: ContextVar[dict[str, str] | None] = ContextVar(
+    "single_turn_request_labels", default=None
+)
+
+
+@contextmanager
+def bind_single_turn_request_labels(labels: Mapping[str, str] | None) -> Iterator[None]:
+    """Scope low-cardinality Vertex billing labels to one trusted operation."""
+    token = _SINGLE_TURN_REQUEST_LABELS.set(dict(labels) if labels else None)
+    try:
+        yield
+    finally:
+        _SINGLE_TURN_REQUEST_LABELS.reset(token)
 
 
 def _manifest_config(
@@ -65,6 +81,15 @@ def build_single_turn_agent(
     # ADK 2.9 requires a chat/task root for Runner execution.  The manifest's
     # single_turn declaration remains the product contract; this supported
     # runtime mode still creates a fresh session for every invocation.
+    generation_options: dict[str, Any] = {
+        "response_mime_type": "application/json",
+        "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
+        "max_output_tokens": manifest_or_subagent.performance.max_output_tokens,
+        "thinking_config": thinking_config_for(model_name, config.thinking_level, types),
+    }
+    request_labels = _SINGLE_TURN_REQUEST_LABELS.get()
+    if request_labels:
+        generation_options["labels"] = dict(request_labels)
     agent = LlmAgent(
         name=agent_id.replace("-", "_").replace(".", "_"),
         description=str(getattr(manifest_or_subagent, "description", "Single-turn gene")),
@@ -79,10 +104,7 @@ def build_single_turn_agent(
         generate_content_config=build_generate_content_config(
             types,
             model_name,
-            response_mime_type="application/json",
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            max_output_tokens=manifest_or_subagent.performance.max_output_tokens,
-            thinking_config=thinking_config_for(model_name, config.thinking_level, types),
+            **generation_options,
         ),
     )
     return agent
@@ -191,4 +213,4 @@ async def run_single_turn(
     return _decode(text, schema)
 
 
-__all__ = ["build_single_turn_agent", "run_single_turn"]
+__all__ = ["bind_single_turn_request_labels", "build_single_turn_agent", "run_single_turn"]

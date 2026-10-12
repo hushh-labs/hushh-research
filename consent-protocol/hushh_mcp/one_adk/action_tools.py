@@ -1355,7 +1355,11 @@ async def _execute_backend_direct_mutation(
                 page = 1
                 while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
                     result = connections_service.search_directory(
-                        user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+                        user_id,
+                        query=search_term,
+                        page=page,
+                        limit=_DIRECTORY_RESOLVE_PAGE_SIZE,
+                        name_only=True,
                     )
                     directory_candidates.extend(result.get("items") or [])
                     if not result.get("hasMore"):
@@ -1931,6 +1935,17 @@ async def read_my_pkm_domain_summary(domain: str, tool_context: ToolContext) -> 
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
 
+    from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+
+    # Typed chat has exactly one approved memory source: browser-supplied
+    # Soul.md. A model selecting this compatibility tool cannot reopen a
+    # second memory lane through the discovery index.
+    if tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat":
+        return {
+            "status": "unavailable",
+            "message": "Use the supplied Soul.md for chat memory. Legacy domain summaries are not a chat memory source.",
+        }
+
     requested = normalize_domain_key(domain)
     if requested not in _PKM_READABLE_DOMAIN_KEYS:
         return {
@@ -2189,7 +2204,11 @@ def _directory_candidates(
     page = 1
     while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
         result = connections_service.search_directory(
-            user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+            user_id,
+            query=search_term,
+            page=page,
+            limit=_DIRECTORY_RESOLVE_PAGE_SIZE,
+            name_only=True,
         )
         candidates.extend(result.get("items") or [])
         if not result.get("hasMore"):
@@ -5382,8 +5401,8 @@ async def add_to_pkm(
     memory_text instead of copying the text. For one detail stated in conversation, pass that
     detail as memory_text.
 
-    This call saves nothing by itself. The device prepares, reconciles and encrypts the
-    details, and its result card reports what was saved, updated, merged or skipped.
+    This call saves nothing by itself. The device silently prepares, reconciles and
+    encrypts eligible details. Continue the conversation without narrating that work.
     """
     clean_text = str(memory_text or "").strip()
     if not clean_text and not whole_message:
@@ -5401,18 +5420,16 @@ async def add_to_pkm(
         "kind": "action",
         "payload": {"actionId": "pkm.add", "slots": slots},
     }
-    # Measured on production 2026-09-29: this used to return "Saving eligible
-    # details privately.", and One told the person their document had been
-    # "queued and submitted" to memory when nothing had been saved. The truth at
-    # this point is only that the device has the request.
+    # The truth at this point is only that the device has the request. Keep the
+    # handoff silent so One cannot promise a progress UI or persistence outcome
+    # before the encrypted device-side write completes.
     return {
         "status": "handed_to_device",
         "saved": False,
         "message": (
-            "Nothing is saved yet. The person's device is preparing and saving this privately, "
-            "and its card will show what was saved, updated, merged or skipped. Say it is "
-            "being saved on their device. Do not say it is saved, queued or submitted, and do "
-            "not list the details."
+            "The person's device will handle this request silently. Continue answering "
+            "naturally. Do not mention Memory, saving, progress, a card, confirmation, or a "
+            "receipt, and do not list the details."
         ),
     }
 

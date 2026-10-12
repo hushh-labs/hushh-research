@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -104,22 +105,118 @@ def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
 def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     """Existing paid-required requests still need Checkout and signed webhooks."""
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    for lane in ("dev", "uat", "production"):
+    for lane in ("dev", "production"):
         workflow = _read(f".github/workflows/deploy-{lane}.yml")
         assert "_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY" in workflow
         assert "_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET" in workflow
+        assert "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET" in workflow
         assert "_STRIPE_SECRET_KEY_SECRET=${{" not in workflow
         assert "_STRIPE_WEBHOOK_SECRET_SECRET=${{" not in workflow
+        assert "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=${{" not in workflow
+
+    uat = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    steps = uat["jobs"]["deploy"]["steps"]
+    backend = next(step for step in steps if step.get("id") == "deploy-backend")
+    worker = next(step for step in steps if step.get("id") == "deploy-drive-worker")
+    mode_variable = "${{ vars.STRIPE_UAT_MODE || 'test' }}"
+    assert backend["env"]["STRIPE_UAT_MODE"] == mode_variable
+    assert worker["env"]["STRIPE_UAT_MODE"] == mode_variable
+    assert "source deploy/drive/uat_stripe_bindings.sh" in backend["run"]
+    assert backend["env"]["DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED"] == (
+        "${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}"
+    )
+    assert (
+        "_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}"
+        in backend["run"]
+    )
+    assert worker["env"]["DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED"] == (
+        "${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}"
+    )
+    for runtime_name, selector_name in (
+        ("STRIPE_SECRET_KEY", "STRIPE_UAT_KEY_SECRET"),
+        ("STRIPE_WEBHOOK_SECRET", "STRIPE_UAT_WEBHOOK_SECRET"),
+        ("STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_UAT_CONNECT_SECRET"),
+    ):
+        assert f"_{runtime_name}_SECRET=${{{selector_name}}}" in backend["run"]
+
+    worker_script = _read("deploy/drive/deploy_worker_service.sh")
+    assert "source deploy/drive/uat_stripe_bindings.sh" in worker_script
+    assert "STRIPE_SECRET_KEY=${STRIPE_UAT_KEY_SECRET}:latest" in worker_script
+    assert "STRIPE_WEBHOOK_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}:latest" in worker_script
+    assert "STRIPE_CONNECT_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_SECRET}:latest" in worker_script
+    selector = str(REPO_ROOT / "deploy/drive/uat_stripe_bindings.sh")
+    # Selecting mode never depends on either new-order rollout switch: existing
+    # money must retain its exact provider family even when enrollment stops.
+    for mode in ("test", "live"):
+        family = "STRIPE" if mode == "test" else "STRIPE_LIVE"
+        expected = [
+            mode,
+            f"{family}_SECRET_KEY",
+            f"{family}_WEBHOOK_SECRET",
+            f"{family}_CONNECT_WEBHOOK_SECRET",
+        ]
+        for payments in ("false", "true"):
+            for payouts in ("false", "true"):
+                selected = subprocess.run(  # noqa: S603 - fixed shell and repository script; enum-only inputs
+                    [
+                        "/bin/bash",
+                        "-c",
+                        'source "$1"; printf "%s\\n" "$STRIPE_UAT_MODE" '
+                        '"$STRIPE_UAT_KEY_SECRET" "$STRIPE_UAT_WEBHOOK_SECRET" '
+                        '"$STRIPE_UAT_CONNECT_SECRET"',
+                        "stripe-bindings-test",
+                        selector,
+                    ],
+                    env={
+                        "STRIPE_UAT_MODE": mode,
+                        "DRIVE_REQUEST_PAYMENTS_UAT_ENABLED": payments,
+                        "DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED": payouts,
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                assert selected.stdout.splitlines() == expected
 
     # The build binds optional existing secrets, but refuses an enabled
     # new-request rollout unless both names resolve in the deploy project.
-    assert 'if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then' in backend_build
+    assert (
+        '"${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"'
+        in backend_build
+    )
     assert (
         'for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do'
         in backend_build
     )
     assert 'add_secret "${!v}" "${n}"' in backend_build
     assert "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET" in backend_build
+    assert "STRIPE_CONNECT_WEBHOOK_SECRET OPENAI_API_KEY" in backend_build
+    assert '"${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"' in backend_build
+    assert 'gcloud secrets describe "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}"' in backend_build
+    assert '_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET: ""' in backend_build
+
+
+def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -> None:
+    """A UAT payout rollout must reach both runtimes and cannot silently reach production."""
+    uat = _read(".github/workflows/deploy-uat.yml")
+    production = _read(".github/workflows/deploy-production.yml")
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_worker = _read("deploy/drive/deploy_worker_service.sh")
+    production_worker = _read("deploy/drive/deploy_worker_service_prod.sh")
+
+    flag = "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED"
+    uat_variable = "${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}"
+    assert f"_{flag}={uat_variable}" in uat
+    assert f"DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: {uat_variable}" in uat
+    assert f'_{flag}: "false"' in backend_build
+    runtime_env_loops = re.findall(r"for n in ([^;\n]+); do", backend_build)
+    assert any({flag, "STRIPE_MODE"}.issubset(loop.split()) for loop in runtime_env_loops)
+    assert 'add_env "${n}" "${!v}"' in backend_build
+    assert f'"_{flag}=${{_{flag}}}"' in backend_build
+    assert f"{flag}=${{DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}}" in uat_worker
+    assert '"${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}" == "true"' in uat_worker
+    assert f"_{flag}=" not in production
+    assert f"{flag}=false" in production_worker
 
 
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
@@ -208,7 +305,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     # UAT honors the explicit opt-in through the canonical verification plan.
     assert '_VERIFY_MANAGED_VERTEX_RUNTIME: "false"' in backend_build
     assert 'case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in' in backend_build
-    assert "true) ;;" in backend_build
+    assert "true) probe_mode=full ;;" in backend_build
     assert "false)" in backend_build
     assert 'echo "_VERIFY_MANAGED_VERTEX_RUNTIME must be true or false." >&2' in backend_build
     assert (
@@ -223,6 +320,25 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
     assert dispatch["inputs"]["run_live_model_checks"]["default"] is False
     assert '--run-live-model-checks "${{ inputs.run_live_model_checks' in uat_workflow
+    semantic_steps = [
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("id") in {"verify-uat-1", "verify-uat-2"}
+    ]
+    assert len(semantic_steps) == 2
+    for step in semantic_steps:
+        assert (
+            '--run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}"'
+            in step["run"]
+        )
+    steps = workflow["jobs"]["deploy"]["steps"]
+    preserve = next(
+        step for step in steps if step.get("name") == "Preserve current release tooling"
+    )
+    checkout = next(step for step in steps if step.get("name") == "Checkout deployment SHA")
+    assert steps.index(preserve) < steps.index(checkout)
+    assert "cp scripts/ops/verify_uat_release.py" in preserve["run"]
+    assert 'cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py"' in checkout["run"]
 
 
 def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
@@ -282,6 +398,66 @@ def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only
     assert '_GENAI_PROJECT_ID: ""' in backend_build
 
 
+def test_one_chat_vertex_override_is_uat_only_and_keeps_fleet_project() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+    readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
+    agent_chat = _read("consent-protocol/api/routes/one/agent_chat.py")
+
+    assert 'case "${_DEPLOY_ENV}:${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" in' in backend_build
+    assert "uat:hussh-511311)" in backend_build
+    assert "One chat Vertex target is not allowlisted." in backend_build
+    assert (
+        'add_env "HUSHH_ONE_CHAT_VERTEX_PROJECT" "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}"'
+        in backend_build
+    )
+    assert '_HUSHH_ONE_CHAT_VERTEX_PROJECT: ""' in backend_build
+    assert "##_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311" in uat_workflow
+    assert "_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311" not in production_workflow
+    assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
+    assert (
+        'if [[ -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" && -z "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then'
+        in backend_build
+    )
+    assert "|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|" in backend_build
+    assert "HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}" in backend_build
+    assert "probe_mode=scoped" in backend_build
+    assert 'verdict.get("one_chat_probe_ok") is not True' in backend_build
+    assert 'job_name="genai-ready-${BUILD_ID}"' in backend_build
+    assert "binding.build_regional_adk_model(model)" in readiness
+    assert '"one_chat_probe_ok": chat_ok' in readiness
+    assert (
+        "root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),"
+        in agent_chat
+    )
+
+
+def test_one_voice_vertex_override_is_uat_only_and_probed_before_traffic() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    dev_workflow = _read(".github/workflows/deploy-dev.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+    readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
+
+    assert 'case "${_DEPLOY_ENV}:${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in' in backend_build
+    assert "One voice Vertex target is not allowlisted." in backend_build
+    assert '_HUSHH_ONE_VOICE_VERTEX_PROJECT: ""' in backend_build
+    assert (
+        'add_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"'
+        in backend_build
+    )
+    assert "one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in backend_build
+    assert "tr -c 'a-z0-9_-' '-' | cut -c1-63" in backend_build
+    assert "one-voice-live-model=${live_model_label}" in backend_build
+    assert "##_HUSHH_ONE_VOICE_VERTEX_PROJECT=hussh-511311" in uat_workflow
+    assert "HUSHH_ONE_VOICE_VERTEX_PROJECT" not in dev_workflow
+    assert "HUSHH_ONE_VOICE_VERTEX_PROJECT" not in production_workflow
+    assert "|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|" in backend_build
+    assert 'verdict.get("one_voice_probe_ok") is not True' in backend_build
+    assert '"one_voice_project": voice_project or None' in readiness
+
+
 def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:
     sources = [
         _read("deploy/backend.cloudbuild.yaml"),
@@ -304,6 +480,17 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
         assert "AGENT_ONE_ADK_LOCATION" not in source
     assert all("HUSSH_GEMINI_TEXT_MODEL" in source for source in sources[:3])
     assert "resolve_fleet_model_name" in sources[3]
+
+
+def test_calendar_voice_details_are_enabled_only_for_uat_rollout() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+
+    assert '_ONE_VOICE_CALENDAR_NARRATION_ENABLED: "false"' in backend_build
+    assert "ONE_VOICE_CALENDAR_NARRATION_ENABLED" in backend_build
+    assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" in uat_workflow
+    assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" not in production_workflow
 
 
 def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> None:
@@ -465,7 +652,18 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
         "candidate"
     ]
     assert prod_candidate["workers_per_instance"] == gunicorn_workers
-    assert prod_total * 3 <= budget["admission_limit"] - budget["administrative_reserve"]
+    prod_policy = budget["environments"]["production"]["connection_policy"]
+    assert prod_policy == {
+        "database_max_connections": 400,
+        "admission_limit": 300,
+        "administrative_reserve": 30,
+    }
+    # Serving + retained rollback + candidate, optional worker and overlapping
+    # readiness jobs all fit without inheriting UAT's larger database ceiling.
+    assert (
+        prod_total * 3 + 6 + 16 + prod_policy["administrative_reserve"]
+        <= prod_policy["admission_limit"]
+    )
 
     for workflow in (uat_workflow, production_workflow):
         assert 'BACKEND_REVISION_RETENTION: "2"' in workflow

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { DriveRequestQuote } from "../lib/services/drive-request-pricing-service";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -10,6 +11,9 @@ import {
 let script: string;
 let css: string;
 test.beforeEach(async ({ page }) => {
+  await page.route("**/api/one/answer-requests/availability", (route) =>
+    route.fulfill({ contentType: "application/json", body: '{"enabled":true,"requests":true,"payments":true,"payouts":true}' }),
+  );
   await page.route("**/api/connectors", (route) =>
     route.fulfill({
       contentType: "application/json",
@@ -19,6 +23,27 @@ test.beforeEach(async ({ page }) => {
       }),
     }),
   );
+  // Request creation now requires the owner's current price quote. Keep the
+  // transport synthetic while exercising the production quote/version gate.
+  await page.route(/\/api\/connectors\/google_drive\/sharing\/quote\?/, (route) => {
+    expect(route.request().headers().authorization).toBe(
+      "Bearer synthetic-vault-owner",
+    );
+    expect(new URL(route.request().url()).searchParams.get("ownerPersonRef")).toBe(
+      "33333333-3333-4333-8333-333333333333",
+    );
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        amountCents: 1000,
+        version: 1,
+        paymentRequired: true,
+        priceReady: true,
+        payoutReady: true,
+        paymentsReady: true,
+      } satisfies DriveRequestQuote),
+    });
+  });
 });
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -141,6 +166,7 @@ test("relative standup request asks for exact dates before sending", async ({ pa
   await page.addScriptTag({ content: script });
   await page.getByRole("button", { name: "Request files", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "Request files", exact: true });
+  await expect(panel.getByText("Estimated price $10. You'll see the final price before you pay. You pay only if files are found.")).toBeVisible();
   await panel.getByLabel("What do you need?").fill("last 3 days standup notes");
   await expect(panel.getByText("Choose exact start and end dates before sending this request.")).toBeVisible();
   await expect(panel.getByRole("button", { name: "Send request" })).toBeDisabled();
@@ -157,6 +183,7 @@ test("relative standup request asks for exact dates before sending", async ({ pa
     periodStart: "2026-09-29",
     periodEnd: "2026-10-01",
   });
+  expect(submissions[0].expectedQuoteVersion).toBe(1);
 });
 
 for (const width of [320, 390, 768, 1440])
@@ -281,12 +308,14 @@ for (const width of [320, 390, 768, 1440])
       await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
     ).toBe(true);
     const submit = panel.getByRole("button", { name: "Send request" });
+    await expect(submit).toBeEnabled();
     await submit.focus();
     await page.keyboard.press("Enter");
     await expect(panel.getByText("Request sent.")).toBeVisible();
     expect(submissions).toHaveLength(1);
     expect(submissions[0]).toMatchObject({
       ownerPersonRef: "33333333-3333-4333-8333-333333333333",
+      expectedQuoteVersion: 1,
       purpose: { purpose, periodStart: "2026-01-01", periodEnd: "2026-06-30" },
     });
     await expect(
@@ -693,103 +722,108 @@ const reviewBody = (status: string, revision: number) => ({
   preparationError: null,
 });
 
-test("progressive 25-file review and automatic Drive setup fit at 390px", async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 390, height: 820 });
-  const errors: string[] = [];
-  page.on("pageerror", error => errors.push(error.message));
-  const jobId = "33333333-3333-4333-8333-333333333333";
-  const shareId = "55555555-5555-4555-8555-555555555555";
-  const positions = Array.from({ length: 25 }, (_, index) => index + 1);
-  const counts = { total: 25, processed: 0, shared: 0, alreadyShared: 0,
-    skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 25 };
-  const bulk = { shareId, searchJobId: jobId, status: "review_ready", revision: 1,
-    reviewDigest: "b".repeat(64), fileCount: 25, positions, recipientCount: 1,
-    recipients: [{ name: null, email: "verified-recipient@synthetic.invalid" }], excluded: [],
-    counts, notifications: { settled: 0, pending: 0, unavailable: 0 },
-    canApprove: true, canStop: false, createdAt: "2026-09-28T00:00:00Z",
-    updatedAt: "2026-09-28T00:01:00Z", expiresAt: "2099-10-01T00:00:00Z" };
-  const search = { jobId, status: "running", revision: 3, matched: 25, pagesScanned: 1,
-    incompleteSearch: false, unshareableCount: 0, canStop: false, errorCode: null,
-    createdAt: "2026-09-28T00:00:00Z", updatedAt: "2026-09-28T00:01:00Z",
-    expiresAt: "2099-10-01T00:00:00Z",
-    coverage: { corpora: ["user"], fileKind: "document", requestedPeriod: null,
-      dateBasis: "title_date_then_created_or_modified", contentPeriodVerified: false,
-      providerRowsScanned: 80, excludedByDateCount: 0, deduplicatedCount: 0,
-      unavailableShortcutCount: 0, providerPagesExhausted: false, shareabilityVerified: true } };
-  let mode: "manual" | "preview" | "auto_setup" = "manual";
-  await page.route("http://localhost/document-review-fixture", route =>
-    route.fulfill({ contentType: "text/html", body: fixtureHtml() }));
-  await page.route("**/api/connectors/google_drive/sharing/requests/**", async route => {
-    const url = new URL(route.request().url());
-    let result: unknown = { requestId: reviewId, direction: "incoming", status: "pending", revision: 0 };
-    if (url.pathname.endsWith("/review")) result = {
-      ...reviewBody("pending", 0), durableAvailable: true,
-      trustedAuto: mode === "auto_setup",
-      preparationError: mode === "auto_setup" ? "background_preparation_required" : null,
-      search: mode === "auto_setup" ? null : search,
-      bulkShare: mode === "preview" ? bulk : null,
-      ...(mode === "auto_setup" ? {} : {
-        progressiveAllowed: true,
-        batches: mode === "preview" ? [bulk] : [],
-        batchCount: mode === "preview" ? 1 : 0,
-        claimedPositions: mode === "preview" ? positions : [],
-        aggregateCounts: mode === "preview" ? counts : undefined,
-      }),
-    };
-    if (url.pathname.endsWith("/search/files")) result = { jobId, revision: 3, matched: 25,
-      files: positions.map(position => ({ position, id: `drive-${position}`,
-        name: `Onboarding document ${position} ${"very-long-title".repeat(7)}`,
-        mimeType: "application/vnd.google-apps.document", modifiedTime: null,
-        openUrl: null, shareable: true })), nextCursor: null };
-    if (url.pathname.endsWith("/bulk")) {
-      expect(route.request().postDataJSON()).toEqual({ positions });
-      mode = "preview";
-      result = bulk;
+// Each scenario owns its page so an outstanding review poll cannot collide
+// with navigation into the automatic setup fixture in WebKit.
+for (const autoSetup of [false, true]) {
+  test(`${autoSetup ? "automatic Drive setup" : "progressive 25-file review"} fits at 390px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 820 });
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    const jobId = "33333333-3333-4333-8333-333333333333";
+    const shareId = "55555555-5555-4555-8555-555555555555";
+    const positions = Array.from({ length: 25 }, (_, index) => index + 1);
+    const counts = { total: 25, processed: 0, shared: 0, alreadyShared: 0,
+      skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 25 };
+    const bulk = { shareId, searchJobId: jobId, status: "review_ready", revision: 1,
+      reviewDigest: "b".repeat(64), fileCount: 25, positions, recipientCount: 1,
+      recipients: [{ name: null, email: "verified-recipient@synthetic.invalid" }], excluded: [],
+      counts, notifications: { settled: 0, pending: 0, unavailable: 0 },
+      canApprove: true, canStop: false, createdAt: "2026-09-28T00:00:00Z",
+      updatedAt: "2026-09-28T00:01:00Z", expiresAt: "2099-10-01T00:00:00Z" };
+    const search = { jobId, status: "running", revision: 3, matched: 25, pagesScanned: 1,
+      incompleteSearch: false, unshareableCount: 0, canStop: false, errorCode: null,
+      createdAt: "2026-09-28T00:00:00Z", updatedAt: "2026-09-28T00:01:00Z",
+      expiresAt: "2099-10-01T00:00:00Z",
+      coverage: { corpora: ["user"], fileKind: "document", requestedPeriod: null,
+        dateBasis: "title_date_then_created_or_modified", contentPeriodVerified: false,
+        providerRowsScanned: 80, excludedByDateCount: 0, deduplicatedCount: 0,
+        unavailableShortcutCount: 0, providerPagesExhausted: false, shareabilityVerified: true } };
+    let mode: "manual" | "preview" | "auto_setup" = autoSetup ? "auto_setup" : "manual";
+    await page.route("http://localhost/document-review-fixture", route =>
+      route.fulfill({ contentType: "text/html", body: fixtureHtml() }));
+    await page.route("**/api/connectors/google_drive/sharing/requests/**", async route => {
+      const url = new URL(route.request().url());
+      let result: unknown = { requestId: reviewId, direction: "incoming", status: "pending", revision: 0 };
+      if (url.pathname.endsWith("/review")) result = {
+        ...reviewBody("pending", 0), durableAvailable: true,
+        trustedAuto: mode === "auto_setup",
+        preparationError: mode === "auto_setup" ? "background_preparation_required" : null,
+        search: mode === "auto_setup" ? null : search,
+        bulkShare: mode === "preview" ? bulk : null,
+        ...(mode === "auto_setup" ? {} : {
+          progressiveAllowed: true,
+          batches: mode === "preview" ? [bulk] : [],
+          batchCount: mode === "preview" ? 1 : 0,
+          claimedPositions: mode === "preview" ? positions : [],
+          aggregateCounts: mode === "preview" ? counts : undefined,
+        }),
+      };
+      if (url.pathname.endsWith("/delivery")) result = {
+        requestId: reviewId, status: "pending", files: [], canStopAccess: false,
+      };
+      if (url.pathname.endsWith("/search/files")) result = { jobId, revision: 3, matched: 25,
+        files: positions.map(position => ({ position, id: `drive-${position}`,
+          name: `Onboarding document ${position} ${"very-long-title".repeat(7)}`,
+          mimeType: "application/vnd.google-apps.document", modifiedTime: null,
+          openUrl: null, shareable: true })), nextCursor: null };
+      if (url.pathname.endsWith("/bulk")) {
+        expect(route.request().postDataJSON()).toEqual({ positions });
+        mode = "preview";
+        result = bulk;
+      }
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(result) });
+    });
+    await page.route(`**/api/connectors/google_drive/sharing/bulk/${shareId}/files*`, route =>
+      route.fulfill({ contentType: "application/json", body: JSON.stringify({ shareId,
+        files: positions.map(position => ({ position,
+          name: `Onboarding document ${position} ${"very-long-title".repeat(7)}`,
+          mimeType: "application/vnd.google-apps.document", modifiedTime: null,
+          openUrl: null })), nextCursor: null }) }));
+    await page.goto("http://localhost/document-review-fixture");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByRole("button", { name: "Review document request" }).click();
+    if (autoSetup) {
+      const panel = page.getByRole("dialog", { name: "Document request" });
+      const setup = panel.getByRole("button", { name: "Enable background Drive access" });
+      await expect(setup).toBeVisible();
+      await setup.scrollIntoViewIfNeeded();
+      const setupBounds = (await setup.boundingBox())!;
+      expect(setupBounds.height).toBeGreaterThanOrEqual(44);
+      expect(setupBounds.x + setupBounds.width).toBeLessThanOrEqual(391);
+      expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+      await expect(panel.getByRole("button", { name: /Review \d+ files|Share \d+ files/ })).toHaveCount(0);
+      await testInfo.attach("trusted automatic setup", { body: await panel.screenshot(), contentType: "image/png" });
+    } else {
+      const panel = page.getByRole("dialog", { name: "Document request" });
+      const review = panel.getByRole("button", { name: "Review 25 files" });
+      await expect(review).toBeEnabled();
+      await review.scrollIntoViewIfNeeded();
+      expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+      await review.click();
+      const share = panel.getByRole("button", { name: "Share 25 files" });
+      await expect(share).toBeVisible();
+      await share.scrollIntoViewIfNeeded();
+      const shareBounds = (await share.boundingBox())!;
+      expect(shareBounds.height).toBeGreaterThanOrEqual(44);
+      expect(shareBounds.x + shareBounds.width).toBeLessThanOrEqual(391);
+      expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+      await testInfo.attach("progressive owner batch", { body: await panel.screenshot(), contentType: "image/png" });
     }
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify(result) });
+    expect(errors).toEqual([]);
   });
-  await page.route(`**/api/connectors/google_drive/sharing/bulk/${shareId}/files*`, route =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify({ shareId,
-      files: positions.map(position => ({ position,
-        name: `Onboarding document ${position} ${"very-long-title".repeat(7)}`,
-        mimeType: "application/vnd.google-apps.document", modifiedTime: null,
-        openUrl: null })), nextCursor: null }) }));
-  await page.goto("http://localhost/document-review-fixture");
-  await page.addScriptTag({ content: script });
-  await awaitProductFont(page);
-  await page.getByRole("button", { name: "Review document request" }).click();
-  let panel = page.getByRole("dialog", { name: "Document request" });
-  const review = panel.getByRole("button", { name: "Review 25 files" });
-  await expect(review).toBeEnabled();
-  await review.scrollIntoViewIfNeeded();
-  expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
-  await review.click();
-  const share = panel.getByRole("button", { name: "Share 25 files" });
-  await expect(share).toBeVisible();
-  await share.scrollIntoViewIfNeeded();
-  const shareBounds = (await share.boundingBox())!;
-  expect(shareBounds.height).toBeGreaterThanOrEqual(44);
-  expect(shareBounds.x + shareBounds.width).toBeLessThanOrEqual(391);
-  expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
-  await testInfo.attach("progressive owner batch", { body: await panel.screenshot(), contentType: "image/png" });
-
-  mode = "auto_setup";
-  await page.goto("http://localhost/document-review-fixture");
-  await page.addScriptTag({ content: script });
-  await page.getByRole("button", { name: "Review document request" }).click();
-  panel = page.getByRole("dialog", { name: "Document request" });
-  const setup = panel.getByRole("button", { name: "Enable background Drive access" });
-  await expect(setup).toBeVisible();
-  await setup.scrollIntoViewIfNeeded();
-  const setupBounds = (await setup.boundingBox())!;
-  expect(setupBounds.height).toBeGreaterThanOrEqual(44);
-  expect(setupBounds.x + setupBounds.width).toBeLessThanOrEqual(391);
-  expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
-  await expect(panel.getByRole("button", { name: /Review \d+ files|Share \d+ files/ })).toHaveCount(0);
-  await testInfo.attach("trusted automatic setup", { body: await panel.screenshot(), contentType: "image/png" });
-  expect(errors).toEqual([]);
-});
+}
 
 test("partial sharing outcomes and safe retry fit the sheet at 390px", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 820 });
@@ -1109,3 +1143,66 @@ for (const colorScheme of ["light", "dark"] as const)
     });
     expect(errors).toEqual([]);
   });
+
+for (const width of [320, 390, 1440]) {
+  test(`Request scope is a date-free question dialog (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    const submissions: Record<string, unknown>[] = [];
+    await page.route("http://localhost/request-scope-fixture", (route) =>
+      route.fulfill({ contentType: "text/html", body: fixtureHtml() }),
+    );
+    await page.route("**/api/one/answer-requests/availability", (route) =>
+      route.fulfill({ contentType: "application/json", body: '{"enabled":true,"requests":true,"payments":true,"payouts":true}' }),
+    );
+    await page.route("**/api/one/answer-requests", (route) => {
+      expect(route.request().headers().authorization).toBe("Bearer synthetic-firebase-proof");
+      submissions.push(route.request().postDataJSON());
+      return route.fulfill({ contentType: "application/json",
+        body: '{"requestId":"55555555-5555-4555-8555-555555555555"}' });
+    });
+    await page.goto("http://localhost/request-scope-fixture");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByRole("button", { name: "Request scope", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Request scope" });
+    const question = dialog.getByLabel("Question");
+    await expect(question).toBeVisible();
+    await expect(question).toHaveAttribute("placeholder", "E.g. What is your age?");
+    await expect(dialog.getByText("To Asha", { exact: true })).toBeVisible();
+    await expect(dialog.locator('input[type="date"], input[type="checkbox"]')).toHaveCount(0);
+    await expect(dialog.getByText(/Period|Start date|End date|Request files|Drive/)).toHaveCount(0);
+    const send = dialog.getByRole("button", { name: "Send request", exact: true });
+    await expect(send).toBeDisabled();
+    const value = "What did you spend on travel from January through March 2026?";
+    await question.fill(value);
+    await expect(send).toBeEnabled();
+    await dialog.evaluate(async (node) => {
+      await Promise.all(node.getAnimations().map((animation) => animation.finished));
+    });
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    for (const control of [question, send, dialog.getByRole("button", { name: "Cancel" })]) {
+      const box = (await control.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.x).toBeGreaterThanOrEqual(bounds.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+    }
+    expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    expect(await question.evaluate((node) => getComputedStyle(node).fontFamily)).toContain("Inter");
+    if (process.env.REQUEST_SCOPE_SCREENSHOT_DIR) {
+      await dialog.screenshot({ path: path.join(process.env.REQUEST_SCOPE_SCREENSHOT_DIR, `request-scope-${width}.png`) });
+    }
+    await send.click();
+    await expect(dialog.getByText(/Request sent/)).toBeVisible();
+    expect(submissions).toEqual([{ personRef: "33333333-3333-4333-8333-333333333333", question: value }]);
+    await expect(dialog.getByRole("link", { name: "View request" })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}

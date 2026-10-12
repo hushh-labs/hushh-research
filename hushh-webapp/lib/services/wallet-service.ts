@@ -41,14 +41,27 @@ export interface WalletCardSecrets {
 }
 
 export interface WalletCardInput {
-  nickname: string;
+  nickname?: string;
+  brand?: CardBrand;
   pan: string;
   cvv?: string;
   pin?: string;
   cardholderName: string;
   expiryMonth: number;
   expiryYear: number;
-  issuingRegion: string;
+  issuingRegion?: string;
+}
+
+/** An acknowledged sent-copy receipt, not a revocable Wallet access grant. */
+export interface WalletCardShareReceipt {
+  messageId: string; conversationId: string; recipientPersonRef: string;
+  recipientName: string; sentAt: string;
+}
+
+/** Owner-only display projection. Never pass this to agent/chat summary callers. */
+export interface WalletCardPresentation {
+  summary: WalletCardSummary;
+  cardholderName: string;
 }
 
 interface VaultContextParams {
@@ -75,6 +88,14 @@ function toSummary(cardId: string, value: unknown): WalletCardSummary | null {
   };
 }
 
+function summariesFromDomain(data: Record<string, unknown> | null): WalletCardSummary[] {
+  const branch = isRecord(data?.summary) ? data.summary : {};
+  return Object.entries(branch)
+    .map(([cardId, value]) => toSummary(cardId, value))
+    .filter((entry): entry is WalletCardSummary => entry !== null)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.cardId.localeCompare(b.cardId));
+}
+
 export class WalletService {
   static isEnabled(): boolean {
     return true;
@@ -83,8 +104,10 @@ export class WalletService {
   static validateCard(input: WalletCardInput): CardValidationResult {
     return validateCardForRegion({
       pan: input.pan,
+      brand: input.brand,
       cvv: input.cvv,
       pin: input.pin,
+      cardholderName: input.cardholderName,
       expiryMonth: input.expiryMonth,
       expiryYear: input.expiryYear,
       issuingRegion: input.issuingRegion,
@@ -99,19 +122,33 @@ export class WalletService {
       domain: WALLET_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
-    return isRecord(data) ? data : null;
+    });
+    if (data !== null && !isRecord(data)) {
+      throw new Error("Your saved cards could not be read. Please try again.");
+    }
+    return data;
   }
 
   static async listCardSummaries(
     params: VaultContextParams,
   ): Promise<WalletCardSummary[]> {
     const data = await this.loadDomain(params);
-    const branch = isRecord(data?.summary) ? data.summary : {};
-    return Object.entries(branch)
-      .map(([cardId, value]) => toSummary(cardId, value))
-      .filter((entry): entry is WalletCardSummary => entry !== null)
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+    return summariesFromDomain(data);
+  }
+
+  /** One decrypted read for the unlocked owner UI; credentials never leave this service. */
+  static async listCardPresentations(
+    params: VaultContextParams,
+  ): Promise<WalletCardPresentation[]> {
+    const data = await this.loadDomain(params);
+    const secrets = isRecord(data?.secrets) ? data.secrets : {};
+    return summariesFromDomain(data).map((summary) => {
+      const cardSecrets = secrets[summary.cardId];
+      return {
+        summary,
+        cardholderName: isRecord(cardSecrets) ? String(cardSecrets.cardholder_name ?? "") : "",
+      };
+    });
   }
 
   /** Decrypts one card fully. Call only from a reveal surface; never hand the result to a model. */
@@ -140,8 +177,9 @@ export class WalletService {
       card: WalletCardInput;
       surface: PkmUserConfirmation["surface"];
       source: string;
+      reserveCardId?: () => Promise<string | null>;
     },
-  ): Promise<{ cardId: string; summary: WalletCardSummary }> {
+  ): Promise<{ cardId: string; summary: WalletCardSummary; cardholderName: string }> {
     if (!this.isEnabled()) {
       throw new Error("Payment cards are not enabled in this environment.");
     }
@@ -149,15 +187,15 @@ export class WalletService {
     if (!validation.valid) {
       throw new Error(`CARD_VALIDATION_FAILED:${validation.errors.join(",")}`);
     }
-    const cardId = `card_${crypto.randomUUID()}`;
+    const cardId = await params.reserveCardId?.() || `card_${crypto.randomUUID()}`;
     const createdAt = new Date().toISOString();
     const summaryRecord = {
-      nickname: params.card.nickname.trim(),
+      nickname: params.card.nickname?.trim() ?? "",
       brand: validation.brand ?? "other",
       last4: validation.last4,
       expiry_month: params.card.expiryMonth,
       expiry_year: params.card.expiryYear,
-      issuing_region: params.card.issuingRegion.trim().toUpperCase(),
+      issuing_region: params.card.issuingRegion?.trim().toUpperCase() ?? "",
       created_at: createdAt,
     };
     const secretsRecord = {
@@ -188,7 +226,11 @@ export class WalletService {
         return next;
       },
     });
-    return { cardId, summary: toSummary(cardId, summaryRecord)! };
+    return {
+      cardId,
+      summary: toSummary(cardId, summaryRecord)!,
+      cardholderName: secretsRecord.cardholder_name,
+    };
   }
 
   static async updateCardNickname(
@@ -219,6 +261,47 @@ export class WalletService {
         }
         next.summary = summary;
         return next;
+      },
+    });
+  }
+
+  static async listCardShareReceipts(params: VaultContextParams & { cardId: string }): Promise<WalletCardShareReceipt[]> {
+    const data = await this.loadDomain(params);
+    const secrets = isRecord(data?.secrets) ? data.secrets[params.cardId] : null;
+    const receipts = isRecord(secrets) && Array.isArray(secrets.share_receipts) ? secrets.share_receipts : [];
+    return receipts.filter((row): row is WalletCardShareReceipt => isRecord(row) &&
+      ["messageId", "conversationId", "recipientPersonRef", "recipientName", "sentAt"].every(key => typeof row[key] === "string"));
+  }
+
+  static async recordCardShareReceipt(params: VaultContextParams & { cardId: string; receipt: WalletCardShareReceipt; mayPublish?: () => boolean }): Promise<void> {
+    await PersonalKnowledgeModelService.storeWalletDomain({ ...params, scopePath: "secrets",
+      explanation: "The owner confirmed sending this card; record the acknowledged message receipt.",
+      confirmation: { confirmedByUser: true, surface: "web", source: "one_wallet_share_card" },
+      applyMutation: base => {
+        const next = isRecord(base) ? { ...base } : {};
+        const secrets = isRecord(next.secrets) ? { ...next.secrets } : {};
+        const saved = secrets[params.cardId];
+        if (!isRecord(saved)) throw new Error("Card no longer available.");
+        const receipts = Array.isArray(saved.share_receipts) ? saved.share_receipts : [];
+        secrets[params.cardId] = { ...saved, share_receipts: [...receipts.filter(row => !isRecord(row) || row.messageId !== params.receipt.messageId), params.receipt] };
+        return { ...next, secrets };
+      },
+    });
+  }
+
+  /** Refreshes sharing metadata for an existing owner-entered card without changing its details. */
+  static async prepareCardSharing(params: VaultContextParams & { cardId: string; isCurrent: () => boolean }): Promise<void> {
+    if (!params.isCurrent()) throw new Error("Wallet changed.");
+    await PersonalKnowledgeModelService.storeWalletDomain({
+      ...params,
+      scopePath: "summary",
+      explanation: "The owner requested sharing their saved payment card.",
+      confirmation: { confirmedByUser: true, surface: "web", source: "one_wallet_share_card" },
+      mayPublish: params.isCurrent,
+      applyMutation: (base) => {
+        if (!params.isCurrent() || !isRecord(base.summary) || !isRecord(base.summary[params.cardId]) ||
+            !isRecord(base.secrets) || !isRecord(base.secrets[params.cardId])) throw new Error("Card unavailable.");
+        return base;
       },
     });
   }

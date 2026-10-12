@@ -73,6 +73,7 @@ test.beforeAll(async () => {
     build: {
       outDir,
       emptyOutDir: false,
+      copyPublicDir: false,
       lib: {
         entry: path.join(root, "e2e/fixtures/profile-legal-connectors.tsx"),
         name: "Fixture",
@@ -82,6 +83,10 @@ test.beforeAll(async () => {
     },
   });
   script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  const componentCss = fs.readdirSync(outDir)
+    .filter((name) => name.endsWith(".css"))
+    .map((name) => fs.readFileSync(path.join(outDir, name), "utf8"))
+    .join("\n");
   const { compile } = await import("tailwindcss");
   const compiler = await compile(
     fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""),
@@ -98,7 +103,7 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  css = stripAppFontFaces(compiler.build([...candidates])) + componentCss + productFontStyle();
 });
 
 async function mount(
@@ -228,12 +233,16 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
     { width: 393, regions: { top: 120, bottom: 280 } },
     { width: 393, regions: { top: 120, bottom: 280, fullWindow: true } }]) {
     const { width, regions } = options;
+    const rightInset = regions?.fullWindow ? 0 : width < 640 ? 12 : 18;
     await mount(page, { ...options, at: "/one?profile_pane=1" });
     // A visible sheet can still be travelling in from the right. Measure
     // only its settled grid, not the opening animation's translated frame.
+    // The floating Profile pane keeps a 12–18px viewport gutter; it is not
+    // an edge-to-edge drawer. Keep an independent expected inset so removing
+    // the product gutter still fails this assertion.
     await expect.poll(async () => {
       const frame = await pane(page).boundingBox();
-      return frame ? Math.abs(frame.x + frame.width - width) : Number.POSITIVE_INFINITY;
+      return frame ? Math.abs(frame.x + frame.width - (width - rightInset)) : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(0.5);
     if (regions) {
       const box = (await pane(page).boundingBox())!;
@@ -322,6 +331,25 @@ for (const [entry, act, expectedDetail] of [
     expect(errors).toEqual([]);
   });
 }
+
+test("Connector pane text uses the Profile account scale", async ({ page }) => {
+  await mount(page, { at: "/?profile_pane=1&profile_panel=connectors" });
+  const size = (selector: string) =>
+    pane(page).locator(selector).first().evaluate((element) => getComputedStyle(element).fontSize);
+
+  await expect(pane(page).getByTestId("profile-connector-row-calendar")).toBeVisible();
+  expect(await size('[data-testid="profile-connectors-available"] [data-slot="settings-group-heading"]')).toBe("10px");
+  expect(await size('[data-testid="profile-connector-row-calendar"] [data-slot="settings-row-title"]')).toBe("13px");
+  expect(await size('[data-testid="profile-connector-row-calendar"] [data-slot="settings-row-description"]')).toBe("12px");
+
+  await mount(page, {
+    at: "/?profile_pane=1&profile_panel=connectors&profile_detail=connector:calendar",
+  });
+  const detail = pane(page).locator('[data-connector-detail="calendar"]');
+  await expect(detail).toBeVisible();
+  expect(await size('[data-connector-detail="calendar"] h3')).toBe("13px");
+  expect(await size('[data-connector-detail="calendar"] p.text-muted-foreground')).toBe("12px");
+});
 
 test("Back from Connectors opened in chat returns to the chat", async ({ page }) => {
   await mount(page, { at: "/" });

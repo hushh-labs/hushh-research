@@ -49,16 +49,23 @@ export function isFeedIdAtOrBefore(
   return item !== null && watermark !== null && item <= watermark;
 }
 
+export function feedItemIdentity(item: FeedItem): string {
+  if (["location_circle_message", "direct_message_received"].includes(item.event_type)
+      && typeof item.metadata.chat_thread_key === "string") return item.metadata.chat_thread_key;
+  return item.id;
+}
+
 function mergeAdditionalItems(
   firstPageItems: FeedItem[],
   ...itemGroups: FeedItem[][]
 ): FeedItem[] {
-  const firstPageIds = new Set(firstPageItems.map((item) => item.id));
+  const firstPageIds = new Set(firstPageItems.map(feedItemIdentity));
   const seen = new Set<string>();
   const merged: FeedItem[] = [];
   for (const item of itemGroups.flat()) {
-    if (firstPageIds.has(item.id) || seen.has(item.id)) continue;
-    seen.add(item.id);
+    const identity = feedItemIdentity(item);
+    if (firstPageIds.has(identity) || seen.has(identity)) continue;
+    seen.add(identity);
     merged.push(item);
   }
   return merged;
@@ -95,7 +102,9 @@ export function reconcileFeedFirstPage(
     };
   }
 
-  const nextIds = new Set(page.items.map((item) => item.id));
+  // Only an unchanged representative id proves a continuous cursor chain.
+  // A conversation moving to the top does not prove no intervening rows arrived.
+  const nextIds = new Set(page.items.map(item => item.id));
   const pagesOverlap = state.previousFirstPageItems.some((item) =>
     nextIds.has(item.id),
   );

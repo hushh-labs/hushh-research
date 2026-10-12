@@ -204,6 +204,17 @@ const routeOverrides = {
         "Granted values remain encrypted through the backend and decrypt only after an explicit reveal in the unlocked client.",
     },
   },
+  "/one/referrals": {
+    api_dependencies: [{
+      service_file: "lib/services/referral-service.ts",
+      service_methods: ["getSummary", "getPoints", "getChallenge", "getMilestones", "getEngagement", "getLeaderboard", "getCircleLeaderboard", "getCircleSelection"],
+      nextjs_api_route: "/api/one/{path*}",
+      nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+      backend_endpoint_family: "/api/one/referrals/*",
+      native_transport: "Direct backend via ApiService.apiFetch; authenticated owner-scoped reads.",
+    }],
+    native_plugin_dependencies: [],
+  },
   "/one/calendar": {
     api_dependencies: [
       {

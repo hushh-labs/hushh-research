@@ -435,6 +435,8 @@ textarea {
      text and fills on light — never a derived darker tone. */
   --app-accent: #007aff; /* solid fills / CTAs */
   --app-accent-deep: #007aff; /* TEXT / icons on light = same system blue */
+  /* Location keeps its Apple blue identity alongside the multicolor roster. */
+  --agent-location-blue: #007aff;
   --app-accent-bright: #4a9eff; /* dark-mode solid partner */
   --app-accent-tint: rgba(0, 122, 255, 0.1);
   /* Soft accent well behind an accent glyph. Eight call sites across Location
@@ -717,7 +719,7 @@ textarea {
    * so from ~576px up it sat 96 to 192px narrower than the navigation under it.
    * The inset is symmetric and clears a landscape notch on either side.
    * Held by e2e/bottom-chrome-width.layout.spec.ts. */
-  --app-bottom-shell-max-width: 48rem;
+  --app-bottom-shell-max-width: 760px;
   --app-bottom-shell-inline-inset: max(
     1rem,
     env(safe-area-inset-left, 0px),
@@ -2160,25 +2162,616 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-secondary-label) !important;
 }
 
-html:has(.profile-home-screen),
-html:has(.profile-account-content),
-html:has([data-profile-stack="true"]),
-body:has(.profile-home-screen),
-body:has(.profile-account-content),
-body:has([data-profile-stack="true"]) {
+/*
+ * Profile pane: a bounded liquid-glass card shared with the Chats drawer.
+ * Each panel keeps its existing content and interaction ownership. The reference surface owns its breathing room
+ * outside the card, so both panels share one safe-area-aware inset, height,
+ * width and radius. Route-level pages and persistent desktop columns keep
+ * their existing presentation.
+ */
+.profile-pane-sheet[data-slot="sheet-content"],
+[data-agent-history-drawer] {
+  --app-side-pane-gutter: clamp(12px, 2.5vw, 18px);
+  --app-side-pane-top-inset: max(
+    var(--app-side-pane-gutter),
+    var(--app-safe-area-top-effective, 0px)
+  );
+  --app-side-pane-right-inset: max(
+    var(--app-side-pane-gutter),
+    env(safe-area-inset-right, 0px)
+  );
+  --tw-enter-translate-x: calc(100% + var(--app-side-pane-right-inset));
+  --tw-exit-translate-x: calc(100% + var(--app-side-pane-right-inset));
+  --app-side-pane-bottom-inset: max(
+    var(--app-side-pane-gutter),
+    env(safe-area-inset-bottom, 0px)
+  );
+  --app-side-pane-left-inset: max(
+    var(--app-side-pane-gutter),
+    env(safe-area-inset-left, 0px)
+  );
+  --app-side-pane-available-height: calc(
+    100dvh - var(--app-side-pane-top-inset) - var(--app-side-pane-bottom-inset)
+  );
+  --app-side-pane-height: min(820px, var(--app-side-pane-available-height));
+  --profile-pane-surface: rgba(255, 255, 255, 0.48);
+  --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
+  --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
+  --profile-pane-card-surface: rgba(255, 255, 255, 0.78);
+  --profile-pane-card-border: rgba(255, 255, 255, 0.38);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.82);
+  --profile-pane-hair: rgba(36, 43, 52, 0.12);
+  --profile-pane-shadow:
+    0 36px 90px rgba(35, 42, 51, 0.22),
+    0 4px 18px rgba(35, 42, 51, 0.1);
+  top: calc(
+    var(--app-side-pane-top-inset) +
+      (var(--app-side-pane-available-height) - var(--app-side-pane-height)) * 0.5
+  ) !important;
+  right: var(--app-side-pane-right-inset) !important;
+  bottom: auto !important;
+  left: auto !important;
+  width: min(
+    430px,
+    calc(100vw - var(--app-side-pane-left-inset) - var(--app-side-pane-right-inset))
+  ) !important;
+  max-width: 430px !important;
+  height: var(--app-side-pane-height) !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  border-radius: 25px !important;
+  background: var(--profile-pane-surface) !important;
+  box-shadow:
+    var(--profile-pane-shadow),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.74),
+    inset -1px -1px 0 rgba(35, 42, 51, 0.08) !important;
+  backdrop-filter: blur(34px) saturate(175%);
+  -webkit-backdrop-filter: blur(34px) saturate(175%);
+  color: var(--ios-account-label);
+  color-scheme: light;
+}
+
+.profile-pane-sheet[data-slot="sheet-content"]::after {
+  content: "";
+  position: absolute;
+  z-index: 5;
+  inset: -35% -85%;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.17) 49%,
+    rgba(255, 255, 255, 0.05) 54%,
+    transparent 62%
+  );
+  transform: translateX(-38%) rotate(2deg);
+  animation: profile-pane-sheen 11s ease-in-out infinite;
+}
+
+@keyframes profile-pane-sheen {
+  0%,
+  38% {
+    transform: translateX(-38%) rotate(2deg);
+  }
+  72%,
+  100% {
+    transform: translateX(42%) rotate(2deg);
+  }
+}
+
+html.dark .profile-pane-sheet[data-slot="sheet-content"],
+.dark .profile-pane-sheet[data-slot="sheet-content"],
+.dark [data-agent-history-drawer] {
+  --profile-pane-surface: rgba(22, 24, 29, 0.73);
+  --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
+  --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
+  --profile-pane-card-surface: rgba(39, 42, 49, 0.78);
+  --profile-pane-card-border: rgba(255, 255, 255, 0.08);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.12);
+  --profile-pane-hair: rgba(237, 234, 228, 0.14);
+  --profile-pane-shadow:
+    0 42px 110px rgba(0, 0, 0, 0.58),
+    0 4px 20px rgba(0, 0, 0, 0.32);
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  box-shadow:
+    var(--profile-pane-shadow),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.18),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.35) !important;
+  color-scheme: dark;
+}
+
+/* Chat mirrors Profile at the leading edge. The card owns its material;
+ * the inner sidebar only owns content and scrolling. */
+[data-agent-history-drawer],
+.dark [data-agent-history-drawer] {
+  /* A transformed WKWebView surface cannot reliably blur its backdrop.
+   * Keep the bounded frame and shared scrim, but make chat text independent
+   * of backdrop-filter support during and after the slide. */
+  --profile-pane-surface: var(--background);
+  --agent-history-shadow-clearance: 48px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  right: auto !important;
+  left: var(--app-side-pane-left-inset) !important;
+  overflow: hidden;
+}
+
+[data-agent-history-drawer] [data-agent-history-sidebar="drawer"] {
+  height: 100%;
+  width: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent !important;
+  padding-block: 0;
+  box-shadow: none;
+}
+
+[data-agent-history-drawer] [data-agent-history-title] {
+  font-family: var(--font-app-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 23px;
+}
+
+[data-agent-history-drawer] [data-agent-history-footer] {
+  border-color: var(--profile-pane-hair);
+}
+
+.profile-pane-header {
+  z-index: 2 !important;
+  gap: 4px !important;
+  padding: 20px 68px 15px 20px !important;
+  border-color: var(--profile-pane-hair) !important;
+  background: linear-gradient(180deg, var(--profile-pane-surface-soft), transparent);
+}
+
+.profile-pane-header [data-slot="sheet-title"] {
+  color: var(--ios-account-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em !important;
+  line-height: 1.15 !important;
+}
+
+.profile-pane-header [data-slot="sheet-description"] {
+  color: var(--ios-account-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+/* Inner views use the reference's balanced Back / title / Close header. */
+.profile-pane-header--inner {
+  display: grid !important;
+  align-items: center;
+  min-height: 79px;
+  padding: 16px !important;
+}
+
+.profile-pane-header--inner > div:first-child {
+  display: grid !important;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-pane-header--inner > div:first-child > :is(button, [data-native-chrome-slot]) {
+  width: 44px !important;
+  height: 44px !important;
+  margin-left: 0 !important;
+}
+
+.profile-pane-header--inner [data-slot="sheet-title"] {
+  text-align: center;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  text-wrap: balance;
+}
+
+.profile-pane-header--inner ~ .profile-pane-close {
+  top: 17px !important;
+  width: 44px !important;
+  height: 44px !important;
+}
+
+.profile-pane-header--inner :is(button, [data-slot="sheet-title"]) svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.8;
+}
+
+.profile-pane-close {
+  top: 20px !important;
+  width: 44px !important;
+  height: 44px !important;
+  border: 1px solid transparent !important;
+  background: var(--profile-pane-surface-soft) !important;
+  color: var(--ios-account-secondary-label) !important;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 280ms cubic-bezier(0.2, 0.9, 0.2, 1) !important;
+}
+
+.profile-pane-close:hover {
+  background: var(--profile-pane-surface-strong) !important;
+  color: var(--ios-account-label) !important;
+  transform: rotate(5deg);
+}
+
+.profile-pane-scroll-root {
+  z-index: 2 !important;
+  background: transparent !important;
+}
+
+.profile-pane-scroll-root .profile-home-screen--pane {
+  padding-top: 0 !important;
+}
+
+.profile-pane-scroll-root .profile-home-hero {
+  gap: 13px !important;
+  padding: 15px 4px 12px !important;
+}
+
+.profile-pane-scroll-root .profile-home-screen [data-profile-avatar-frame="true"] {
+  height: 44px !important;
+  width: 44px !important;
+}
+
+.profile-pane-scroll-root .profile-home-screen [data-profile-avatar-display="true"],
+.profile-pane-scroll-root .profile-home-screen [data-profile-avatar-frame="true"] [data-slot="avatar-fallback"] {
+  font-size: 13px !important;
+}
+
+.profile-pane-scroll-root .profile-home-screen [data-profile-avatar-camera="true"] {
+  right: -3px !important;
+  bottom: -2px !important;
+  height: 17px !important;
+  width: 17px !important;
+  border: 2px solid var(--profile-pane-surface-strong) !important;
+}
+
+.profile-pane-scroll-root .profile-home-copy {
+  gap: 4px !important;
+}
+
+.profile-pane-scroll-root .profile-home-name {
+  font-size: clamp(19px, 4vw, 24px) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.045em !important;
+  line-height: 1.1 !important;
+}
+
+.profile-pane-scroll-root .profile-home-meta {
+  gap: 6px !important;
+  font-size: 10.5px !important;
+  line-height: 1.3 !important;
+}
+
+.profile-pane-scroll-root .profile-home-meta svg {
+  height: 14px !important;
+  width: 14px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content {
+  gap: 0 !important;
+  margin-top: 0 !important;
+  padding: 0 0 16px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-testid="settings-group"] > div:first-child {
+  margin-bottom: 5px !important;
+  margin-top: 10px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-testid="settings-group"]:first-child > div:first-child {
+  margin-top: 0 !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-group-heading"] {
+  padding-inline: 6px !important;
+  color: var(--ios-account-secondary-label) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  line-height: 14px !important;
+}
+
+/* Every Profile panel shares the pane's material, including nested details. */
+.profile-pane-scroll-root [data-slot="settings-group-shell"] {
+  border: 0 !important;
+  border-radius: 15px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.profile-pane-scroll-root [data-row-layout="settings"] {
+  background: transparent !important;
+}
+
+/* Profile can be a narrow pane in a wide viewport. Size controls to the
+   section, so their labels keep the same leading alignment as other rows. */
+.profile-preferences-content {
+  container: profile-preferences / inline-size;
+}
+
+.profile-preferences-content .profile-preferences-control-row {
+  --profile-control-icon-size: 34px;
+}
+
+.profile-preferences-content .profile-preferences-control-row > .grid {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: var(--settings-row-stack-gap);
+}
+
+.profile-preferences-control-row[data-settings-density="compact"] {
+  --profile-control-icon-size: 28px;
+}
+
+.profile-preferences-control-row [data-slot="settings-row-trailing"] {
+  width: 100%;
+  min-width: 0;
+  padding-inline-start: calc(var(--profile-control-icon-size) + var(--settings-row-gap));
+  padding-top: 4px;
+}
+
+@container profile-preferences (min-width: 560px) {
+  .profile-preferences-content .profile-preferences-control-row > .grid {
+    grid-template-columns: minmax(0, 1fr) 240px;
+    row-gap: 0;
+  }
+
+  .profile-preferences-control-row [data-slot="settings-row-trailing"] {
+    padding-inline-start: 0;
+    padding-top: 0;
+  }
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
+  --settings-row-px: 6px !important;
+  --settings-row-py: 6px !important;
+  --settings-row-gap: 5px !important;
+  min-height: 43px !important;
+  padding: 0 !important;
+  transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1), color 200ms ease;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] > button:not([data-slot="settings-row-action"]),
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"] {
+  min-height: 43px !important;
+  padding: 6px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]::after {
+  background: var(--profile-pane-hair) !important;
+  left: 37px !important;
+  right: 6px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:hover),
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:focus-visible) {
+  transform: translateX(3px);
+}
+
+/* Share the home menu's glass highlight across every Profile section,
+   including keyboard focus on preference fields. The sheet owns the blur. */
+.profile-pane-scroll-root [data-row-layout="settings"]:has(:is(button, input, textarea):not(:disabled):hover)::before,
+.profile-pane-scroll-root [data-row-layout="settings"]:has(:focus-visible)::before,
+.profile-pane-scroll-root [data-row-layout="settings"][data-state="active"]::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 2px 0;
+  border-radius: 12px;
+  background: linear-gradient(
+    110deg,
+    var(--profile-pane-surface-strong),
+    var(--profile-pane-surface-soft)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  opacity: 1;
+  pointer-events: none;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"] {
+  gap: 5px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-icon"] {
+  height: 22px !important;
+  width: 22px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-icon"] svg {
+  height: 22px !important;
+  width: 22px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content .profile-pane-icon {
+  color: var(--ios-account-label) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content .profile-pane-icon-accent {
+  stroke: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content .profile-pane-icon-accent-fill {
+  fill: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-tone="destructive"] .profile-pane-icon {
+  color: var(--app-destructive) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-tone="destructive"] .profile-pane-icon-accent {
+  stroke: var(--app-destructive) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-title"] {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.2 !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-description"] {
+  margin-top: 2px !important;
+  color: var(--ios-account-secondary-label) !important;
+  font-size: 9px !important;
+  line-height: 1.2 !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-chevron"] {
+  height: 15px !important;
+  width: 15px !important;
+  color: var(--ios-account-secondary-label) !important;
+  opacity: 0.68;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-tone="destructive"] [data-slot="settings-row-icon"] {
+  color: var(--app-destructive) !important;
+}
+
+/* The reference's inner views share one card, row, icon, and type rhythm.
+   Keep these selectors inside the pane stack: route-level Profile remains on
+   the app's ordinary settings presentation. */
+.profile-pane-scroll-root .profile-pane-page--inner {
+  padding-inline: 28px !important;
+  padding-bottom: 28px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] {
+  gap: 0 !important;
+  padding-top: 22px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-group-shell"] {
+  border: 1px solid var(--profile-pane-card-border) !important;
+  border-radius: 17px !important;
+  background: var(--profile-pane-card-surface) !important;
+  box-shadow:
+    inset 0 1px 0 var(--profile-pane-card-highlight),
+    0 8px 24px rgba(35, 42, 51, 0.05) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] {
+  --settings-row-px: 14px;
+  --settings-row-py: 9px;
+  --settings-row-gap: 9px;
+  min-height: 58px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] > :is(button, [data-slot="settings-row-content"]) {
+  min-height: 58px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"]::after {
+  left: 0 !important;
+  right: 0 !important;
+  background: var(--profile-pane-hair) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] {
+  width: 24px !important;
+  height: 24px !important;
+  color: var(--ios-account-label) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] svg {
+  width: 24px !important;
+  height: 24px !important;
+  stroke-width: 1.8 !important;
+}
+
+.profile-pane-scroll-root .profile-pane-icon {
+  color: var(--ios-account-label) !important;
+}
+
+.profile-pane-scroll-root :is(.profile-pane-icon-accent, .profile-account-icon-accent) {
+  stroke: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root :is(.profile-pane-icon-accent-fill, .profile-account-icon-accent-fill) {
+  fill: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-chevron"] {
+  width: 14px !important;
+  height: 14px !important;
+  color: var(--ios-account-secondary-label) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-tone="destructive"]
+  :is([data-slot="settings-row-icon"], .profile-pane-icon) {
+  color: var(--app-destructive) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-tone="destructive"]
+  :is(.profile-pane-icon-accent, .profile-account-icon-accent) {
+  stroke: var(--app-destructive) !important;
+}
+
+@media (max-width: 440px) {
+  .profile-pane-scroll-root .profile-pane-page--inner {
+    padding-inline: 12px !important;
+  }
+
+  .profile-pane-scroll-root [data-profile-stack-content="true"] {
+    padding-top: 17px !important;
+  }
+
+  .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] {
+    --settings-row-px: 10px;
+    --settings-row-gap: 7px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .profile-pane-sheet[data-slot="sheet-content"],
+  [data-agent-history-drawer] {
+    background: var(--app-card-surface-default-solid) !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .profile-pane-sheet[data-slot="sheet-content"]::after {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-pane-sheet[data-slot="sheet-content"]::after {
+    animation: none;
+  }
+
+  .profile-pane-close,
+  .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
+    transition: none !important;
+  }
+}
+
+html:has(.profile-home-screen:not(.profile-pane-sheet *)),
+html:has(.profile-account-content:not(.profile-pane-sheet *)),
+html:has([data-profile-stack="true"]:not(.profile-pane-sheet *)),
+body:has(.profile-home-screen:not(.profile-pane-sheet *)),
+body:has(.profile-account-content:not(.profile-pane-sheet *)),
+body:has([data-profile-stack="true"]:not(.profile-pane-sheet *)) {
   background: var(--ios-account-screen-background) !important;
   min-height: 100dvh;
 }
 
-body:has(.profile-home-screen) .foundation-public-ambient,
-body:has(.profile-account-content) .foundation-public-ambient,
-body:has([data-profile-stack="true"]) .foundation-public-ambient {
+body:has(.profile-home-screen:not(.profile-pane-sheet *)) .foundation-public-ambient,
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .foundation-public-ambient,
+body:has([data-profile-stack="true"]:not(.profile-pane-sheet *)) .foundation-public-ambient {
   display: none;
 }
 
-body:has(.profile-account-content) [data-app-top-bar],
-body:has(.profile-account-content) .bottom-chrome-surface,
-body:has(.profile-account-content) .kai-bottom-nav-pill {
+body:has(.profile-account-content:not(.profile-pane-sheet *)) [data-app-top-bar],
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .bottom-chrome-surface,
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .kai-bottom-nav-pill {
   background: var(--ios-account-nav-material-background) !important;
   border-color: var(--ios-account-nav-material-border) !important;
   box-shadow: var(--ios-account-nav-material-shadow) !important;
@@ -2186,7 +2779,7 @@ body:has(.profile-account-content) .kai-bottom-nav-pill {
   backdrop-filter: var(--ios-account-nav-material-blur);
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [data-segment-indicator] {
   background: transparent !important;
@@ -2195,35 +2788,35 @@ body:has(.profile-account-content)
   opacity: 0;
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [data-segment-active-pulse] {
   animation: none;
   background: transparent;
 }
 
-body:has(.profile-account-content) .kai-bottom-nav-pill [role="radio"] {
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .kai-bottom-nav-pill [role="radio"] {
   color: var(--ios-account-secondary-label) !important;
   font-weight: var(--ios-account-medium-weight);
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [role="radio"]:active,
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [role="radio"][aria-checked="true"] {
   color: var(--ios-account-accent) !important;
   font-weight: var(--ios-account-medium-weight);
 }
 
-body:has(.profile-account-content) .kai-bottom-nav-pill [role="radio"] svg {
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .kai-bottom-nav-pill [role="radio"] svg {
   color: currentColor;
   filter: none;
   transform: none;
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [role="radio"]
   > span:last-of-type {
@@ -2232,12 +2825,12 @@ body:has(.profile-account-content)
   line-height: var(--ios-account-tab-label-line);
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   [data-testid="one-voice-agent-bar-start-icon"] {
   color: var(--ios-account-secondary-label);
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   [data-testid="one-voice-agent-bar-start-icon"]
   > span:nth-of-type(2) {
   font-size: var(--ios-account-description-size);
@@ -2635,6 +3228,16 @@ html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
  * covers it on iOS, it steps aside on Android), yet its height was still
  * reserved: the palette floated ~160 dp above the keyboard and its top ran
  * under the status bar (Galaxy S24 Ultra, 2026-09-22). */
+[data-keyboard-anchor="bottom"][data-search-surface] {
+  /* Bound the entire surface, including its input and padding, to the band
+   * between the status bar and the keyboard/chrome. Results alone may shrink. */
+  max-height: max(0px, calc(
+    100dvh - var(--kb-height, 0px) -
+    var(--palette-chrome-clearance, var(--bottom-chrome-stack-height, 0px)) -
+    var(--app-safe-area-top-effective, 0px) - 1rem
+  )) !important;
+}
+
 html.kb-open [data-keyboard-anchor="bottom"][data-search-surface] {
   --palette-chrome-clearance: 0px;
 }
@@ -2820,6 +3423,13 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   --data-table-cell-py: 9px;
 }
 
+/* Agent workspaces move directly from identity to the first action or
+ * information surface. Keep this opt-in so general page headers retain the
+ * default reading rhythm. */
+.app-page-shell[data-app-header-content-spacing="compact"] {
+  --page-header-section-gap: 0px;
+}
+
 @media (min-width: 640px) {
   .app-page-shell[data-app-density="compact"] {
     --page-header-stack-gap: 10px;
@@ -2848,12 +3458,27 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
     --data-table-cell-px: 12px;
     --data-table-cell-py: 10px;
   }
+
+  .app-page-shell[data-app-header-content-spacing="compact"] {
+    --page-header-section-gap: 6px;
+  }
 }
 
 [data-app-shell-top-spacer="true"] {
   height: var(--app-top-content-offset);
   flex-shrink: 0;
   pointer-events: none;
+}
+
+/* Direct messages already has a compact split-view header immediately below
+ * the persistent top shell. The standard route contract adds a 32px body
+ * start gap for page heroes; keeping that gap here creates the unexplained
+ * blank band above Chats and makes the shared top and bottom navigation look
+ * vertically displaced. Reuse the measured shell reservation, while leaving
+ * both persistent navigation bars owned by the app shell. */
+body:has([data-direct-message-page="true"])
+  [data-app-scroll-root="true"] {
+  --app-top-content-offset: var(--top-shell-reserved-height);
 }
 
 /* Location owns a compact module header rather than a large route hero. Keep
@@ -3031,7 +3656,6 @@ body:has([data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="tru
     --top-bar-h: 64px;
     --top-systembar-row-gap: 0px;
     --top-fade-active: 22px;
-    --app-bottom-shell-max-width: 40rem;
   }
 }
 
@@ -3067,8 +3691,11 @@ body:has([data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="tru
 
 /* Capacitor iOS uses `ios.contentInset = "never"` with CSS-owned insets; don't double-count shell spacing. */
 html.native-ios {
-  /* Enforce a minimum status bar safe area top of 44px to prevent overlapping on iOS Capacitor */
-  --app-safe-area-top: max(44px, env(safe-area-inset-top, 0px));
+  /* UIKit supplies the real inset even when WKWebView env() is zero. Older
+   * binaries and the first document frame use a Dynamic-Island-safe fallback. */
+  --app-safe-area-top: max(var(--app-native-safe-area-top, 59px), env(safe-area-inset-top, 0px));
+  /* A measured zero is valid after rotation; stale CSS probes must not win. */
+  --app-safe-area-top-effective: var(--app-native-safe-area-top, max(var(--app-safe-area-top), env(safe-area-max-inset-top, 0px), var(--app-safe-area-top-probe)));
   /* Lift persistent bottom chrome above the iOS home indicator zone. */
   --app-bottom-chrome-lift: 10px;
   /* Keep a small effective inset because WKWebView already applies content inset on iOS. */
@@ -3077,17 +3704,9 @@ html.native-ios {
   --app-screen-footer-pad: calc(56px + var(--app-bottom-inset));
 }
 
-/* One Location onboarding is a full-bleed overlay whose top nav (back / Skip /
- * headings) sits at the very top edge. On some iOS Capacitor builds
- * env(safe-area-inset-top) resolves to 0 in the WebView, and the runtime probe
- * (#app-safe-area-probe) also reads env(), so it cannot recover the real inset
- * either — leaving only the global 44px floor, which under-clears the ~59px
- * Dynamic Island. Give the onboarding subtree a Dynamic-Island-safe floor so it
- * clears the notch on every iOS device. Scoped to the onboarding overlay only,
- * so the rest of the app keeps the standard 44px floor; devices that DO report a
- * larger real inset still win via max(). The onboarding screens consume
- * --app-safe-area-top-effective directly, so overriding it here reaches all four
- * screens without per-screen changes. */
+/* Full-screen Location onboarding owns its top navigation.
+ * Some iOS WebViews report a zero inset, so share a Dynamic-Island-safe floor
+ * while allowing larger measured device insets to win. */
 html.native-ios [data-testid="one-location-onboarding"] {
   --app-safe-area-top-effective: max(
     59px,
@@ -4831,6 +5450,55 @@ body:has([data-testid="one-location-onboarding"])
     letter-spacing: var(--foundation-headline-tracking) !important;
   }
 
+  /* Soul.md is a reading document, not a collection of settings rows. Scoped
+     heading rules must beat the page-shell heading locks in this same layer. */
+  .soul-memory-document,
+  .soul-memory-editor {
+    min-width: 0;
+    font-family: var(--font-app-body);
+    font-size: var(--foundation-body-size);
+    line-height: 1.7;
+    color: var(--foreground);
+    overflow-wrap: anywhere;
+  }
+
+  .soul-memory-document { max-width: 68ch; }
+  .soul-memory-editor { font-size: var(--foundation-body-size) !important; }
+  .soul-memory-document :is(p, ul, ol) { margin-block: 1rem; }
+  .soul-memory-document :is(ul, ol) { padding-left: 1.5rem; }
+  .soul-memory-document ul { list-style-type: disc; }
+  .soul-memory-document ol { list-style-type: decimal; }
+  .soul-memory-document li { margin-block: 0.75rem; padding-left: 0.25rem; }
+  .soul-memory-document li::marker { color: var(--foreground); }
+  .soul-memory-document strong { font-weight: 700; }
+  .soul-memory-document :is(h1, h2, h3, h4, h5, h6),
+  .app-page-shell .soul-memory-document :is(h1, h2, h3, h4, h5, h6) {
+    font-family: var(--font-app-display);
+    font-weight: 700 !important;
+    line-height: 1.3 !important;
+    letter-spacing: var(--foundation-title1-tracking) !important;
+    color: var(--foreground);
+    margin-block: 2rem 0.75rem;
+  }
+  .soul-memory-document h1,
+  .app-page-shell .soul-memory-document h1 {
+    font-size: var(--foundation-title2-size) !important;
+    margin-top: 0;
+  }
+  .soul-memory-document h2,
+  .app-page-shell .soul-memory-document h2 {
+    font-size: var(--type-major-section-title-size) !important;
+  }
+  .soul-memory-document :is(h3, h4, h5, h6),
+  .app-page-shell .soul-memory-document :is(h3, h4, h5, h6) {
+    font-size: var(--foundation-body-size) !important;
+  }
+  .soul-memory-document blockquote { border-left: 2px solid var(--border); padding-left: 1rem; color: var(--muted-foreground); }
+  .soul-memory-document a { color: var(--foreground); text-decoration: underline; }
+  .soul-memory-document pre { overflow-x: auto; padding: 1rem; background: var(--muted); }
+  .soul-memory-document code { font-family: var(--font-app-mono); }
+  .soul-memory-document hr { margin-block: 2rem; }
+
   .app-page-shell .font-black,
   .app-page-shell .font-extrabold,
   .font-black,
@@ -5562,10 +6230,52 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 /* The retained Agent Bar owns the material in both modes. Chat projects its
  * existing form into that bar, not another glass pill or another text box. */
 [data-agent-dock-surface="text"] {
+  /* The fixed composer can overlap the last message while the keyboard is
+   * present. Give that overlap an iOS material so the transcript recedes
+   * behind the writing surface instead of reading through it. */
+  --agent-composer-material: color-mix(
+    in oklab,
+    var(--background) 72%,
+    transparent
+  );
+  --agent-composer-rim: color-mix(
+    in oklab,
+    var(--foreground) 10%,
+    transparent
+  );
   display: block;
   min-width: 0;
   overflow: visible;
   border-radius: 1.5rem;
+  border-color: var(--agent-composer-rim) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+}
+
+.dark [data-agent-dock-surface="text"] {
+  --agent-composer-material: color-mix(
+    in oklab,
+    var(--background) 76%,
+    transparent
+  );
+  --agent-composer-rim: color-mix(
+    in oklab,
+    var(--foreground) 16%,
+    transparent
+  );
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-agent-dock-surface="text"] {
+    background: var(--background) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 [data-agent-dock-surface="voice"] {
   /* Same resting frame as the one-line composer: only content changes on
@@ -5630,6 +6340,12 @@ html.kb-open [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
   visibility: hidden;
   pointer-events: none;
 }
+/* Inbox search hides its inactive message bar like other search pages.
+ * Active private-agent voice and command controls stay usable. */
+html.kb-open [data-messages-dock]:not([data-command-active="true"]):not(:has([data-command-active="true"])):is(:not(:has([data-agent-dock-composer]:not([hidden]))), :has([data-direct-message-inbox-composer="true"])) [data-bottom-shell-agent-slot] {
+  visibility: hidden;
+  pointer-events: none;
+}
 html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
   transform: none !important;
 }
@@ -5643,7 +6359,7 @@ html:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
 }
 html.kb-open:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
-  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-height, 0px) + 0.5rem) * -1);
+  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-keyboard-reservation, var(--app-bottom-shell-height, 0px)) + 0.5rem) * -1);
 }
 html.kb-open.kb-resizes [data-agent-dock-chat] {
   padding-bottom: 0.5rem !important;
@@ -5806,6 +6522,39 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
   box-shadow:
     0 10px 30px -18px rgba(0, 0, 0, 0.28),
     0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
+}
+
+/* The canonical chat composer is embedded in the shared dock rather than the
+   route tree. The embedded reset above keeps voice chrome plain, but must not
+   cancel the text composer's material while it overlaps the transcript. */
+[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface {
+  border-color: var(--agent-composer-rim) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+}
+
+[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
+  border-color: color-mix(in oklab, var(--app-accent) 55%, transparent) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface,
+  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
+    background: var(--background) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* Copy / like / dislike on a settled answer. With a fine pointer on a wide
@@ -6626,6 +7375,86 @@ html[data-accent="gold"].dark {
   --app-accent-hero-to: #fff8ea;
 }
 
+/* Chat keeps the same shared navbar as every other route, but its accent is
+   always iOS blue. The bottom shell is outside the Chat page's token scope. */
+html:has([data-direct-message-page]) {
+  --chat-ios-accent: #007aff;
+  --chat-glass: rgba(255, 255, 255, 0.68);
+  --chat-glass-edge: rgba(255, 255, 255, 0.65);
+  --chat-text: #1c1c1e;
+  --chat-muted: #8e8e93;
+  --chat-sender-1: #006cc4;
+  --chat-sender-2: #208048;
+  --chat-sender-3: #8e44ad;
+  --chat-sender-4: #007f8f;
+  --chat-sender-5: #bd4053;
+  --chat-sender-6: #4f5dc8;
+  --app-accent: #007aff;
+  --app-accent-deep: #007aff;
+  --app-accent-bright: #007aff;
+  --app-accent-hover: #0066d6;
+  --app-accent-fg: #ffffff;
+  --app-accent-tint: rgba(0, 122, 255, 0.1);
+  --app-accent-surface: #e6f0ff;
+  --app-accent-surface-strong: #d8eaff;
+  --app-accent-border: rgba(0, 122, 255, 0.32);
+  --app-accent-ring: rgba(0, 122, 255, 0.35);
+  --app-accent-hero-from: #005fc7;
+  --app-accent-hero-mid: #007aff;
+  --app-accent-hero-to: #e6f0ff;
+  --accent: #007aff;
+}
+
+html.dark:has([data-direct-message-page]) {
+  --chat-ios-accent: #0a84ff;
+  --chat-glass: rgba(30, 30, 36, 0.62);
+  --chat-glass-edge: rgba(255, 255, 255, 0.14);
+  --chat-text: #f5f5f7;
+  --chat-muted: #9a9aa2;
+  --chat-sender-1: #64b5ff;
+  --chat-sender-2: #67d694;
+  --chat-sender-3: #c89bff;
+  --chat-sender-4: #5bd6d9;
+  --chat-sender-5: #ff8a9a;
+  --chat-sender-6: #a3a7ff;
+  --app-accent: #0a84ff;
+  --app-accent-deep: #0a84ff;
+  --app-accent-bright: #0a84ff;
+  --app-accent-hover: #409cff;
+  --app-accent-fg: #ffffff;
+  --app-accent-tint: rgba(10, 132, 255, 0.15);
+  --app-accent-surface: rgba(10, 132, 255, 0.15);
+  --app-accent-surface-strong: rgba(10, 132, 255, 0.22);
+  --app-accent-border: rgba(10, 132, 255, 0.35);
+  --app-accent-ring: rgba(10, 132, 255, 0.4);
+  --app-accent-hero-from: #005aa9;
+  --app-accent-hero-mid: #0a84ff;
+  --app-accent-hero-to: #1b1b20;
+  --accent: #0a84ff;
+}
+
+html:has([data-direct-message-page]) [data-app-bottom-shell] {
+  --app-accent: var(--chat-ios-accent);
+  --app-accent-deep: var(--chat-ios-accent);
+  --app-accent-bright: var(--chat-ios-accent);
+  --app-accent-tint: rgba(0, 122, 255, 0.1);
+  --app-accent-surface: #e6f0ff;
+  --app-accent-border: rgba(0, 122, 255, 0.32);
+  --app-accent-fg: #ffffff;
+  --accent: var(--chat-ios-accent);
+}
+
+html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
+  --app-accent: var(--chat-ios-accent);
+  --app-accent-deep: var(--chat-ios-accent);
+  --app-accent-bright: var(--chat-ios-accent);
+  --app-accent-tint: rgba(10, 132, 255, 0.15);
+  --app-accent-surface: rgba(10, 132, 255, 0.15);
+  --app-accent-border: rgba(10, 132, 255, 0.35);
+  --app-accent-fg: #ffffff;
+  --accent: var(--chat-ios-accent);
+}
+
 @layer utilities {
   .type-display,
   .type-title1,
@@ -6950,9 +7779,21 @@ html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-
 html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) :is(
   [data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]
 ) {
-  top: 0;
-  bottom: 0;
-  height: auto;
+  /* Do not let the web card's geometry defeat negotiated full-window coverage. */
+  top: 0 !important;
+  bottom: 0 !important;
+  height: 100dvh !important;
+}
+html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-testid="profile-pane"] {
+  right: 0 !important;
+  width: min(430px, 100vw) !important;
+  border-radius: 24px 0 0 24px !important;
+}
+html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-agent-history-drawer] {
+  left: 0 !important;
+  right: auto !important;
+  width: min(430px, 100vw) !important;
+  border-radius: 0 24px 24px 0 !important;
 }
 html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   [data-profile-preview], [data-profile-preview-scrim],
@@ -7014,7 +7855,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
 }
 @keyframes profile-pull-exit {
   from { transform: translate3d(var(--profile-pull-x, 0px), 0, 0); }
-  to { transform: translate3d(100%, 0, 0); }
+  to { transform: translate3d(calc(100% + var(--app-side-pane-right-inset, 0px)), 0, 0); }
 }
 @keyframes profile-pull-scrim-exit {
   from { opacity: var(--profile-pull-opacity, 1); }
@@ -8271,4 +9112,203 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   to {
     opacity: 0;
   }
+}
+
+/* Base-layer important type rules own app headings and row labels. Keep the
+   pane's reference scale in that same layer so it survives those locks. */
+@layer base {
+  .profile-pane-sheet .profile-pane-header [data-slot="sheet-title"],
+  [data-agent-history-drawer] [data-agent-history-title] {
+    font-size: 20px !important;
+    line-height: 1.15 !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.025em !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell .profile-home-name {
+    font-size: clamp(19px, 4vw, 24px) !important;
+    line-height: 1.1 !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.045em !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell .profile-home-content
+    [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-size: 10px !important;
+    line-height: 14px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell .profile-home-content
+    [data-slot="settings-row-title"] {
+    color: var(--ios-account-label) !important;
+    font-size: 13px !important;
+    line-height: 1.2 !important;
+    font-weight: 500 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell .profile-home-content
+    [data-slot="settings-row-description"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-size: 9px !important;
+    line-height: 1.2 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-slot="settings-group-heading"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+    line-height: 14px !important;
+    text-transform: none !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-slot="settings-row-title"] {
+    color: var(--ios-account-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.22 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-tone="destructive"] [data-slot="settings-row-title"] {
+    color: var(--app-destructive) !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-slot="settings-row-description"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.3 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    :is([data-slot="settings-row-trailing"], .profile-account-row-value, .profile-account-inline-action) {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+  }
+
+  /* Text fields inherit the app's larger form scale unless the pane supplies
+     its own value size. Keep nested Profile controls aligned with Your account. */
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    :is(
+      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+      textarea,
+      select,
+      [data-slot="select-trigger"],
+      [role="combobox"]
+    ) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    font-weight: 400 !important;
+    line-height: 1.3 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    :is(input, textarea)::placeholder {
+    font-size: 13px !important;
+  }
+}
+
+/* Referral artwork has an approved fixed light identity, independent of the
+   account's accent preference. Components consume the canonical token family. */
+.referral-dashboard,
+[data-referral-introduction="true"] {
+  --app-accent: #007aff;
+  --referral-medal-deep: #b8894d;
+  --referral-medal-light: #d4a574;
+}
+
+/* Equal outer tracks center One with the controls on wide screens;
+   narrow phones keep a separate control row to prevent overlap. */
+.agent-chat-header[data-one-centered-header="true"] {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: 120px 44px;
+  column-gap: 12px;
+  row-gap: 8px;
+  height: calc(184px + var(--agent-chat-header-safe-top));
+  padding-top: calc(4px + var(--agent-chat-header-safe-top));
+  padding-bottom: 8px;
+}
+.agent-chat-header[data-one-centered-header="true"] > :first-child {
+  grid-column: 1;
+  grid-row: 2;
+}
+.agent-chat-header[data-one-centered-header="true"] > :last-child {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+  width: 64px;
+  height: 64px;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+  max-width: 100%;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+  justify-content: center;
+}
+
+@media (min-width: 768px) {
+  .agent-chat-header[data-one-centered-header="true"] {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: 120px;
+    height: calc(136px + var(--agent-chat-header-safe-top));
+    padding-top: calc(8px + var(--agent-chat-header-safe-top));
+  }
+  .agent-chat-header[data-one-centered-header="true"] > :first-child {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    align-self: start;
+    margin-top: 10px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] > :last-child {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    margin-top: 10px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+    grid-column: 2;
+    align-self: start;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    max-width: 128px;
+  }
+}
+@media (min-width: 1024px) {
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    max-width: 256px;
+  }
+}
+
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child > div {
+  display: table;
+  margin-inline: auto;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--app-card-surface-default);
+  box-shadow: var(--app-card-shadow-standard);
 }

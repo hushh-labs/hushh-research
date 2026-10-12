@@ -60,6 +60,7 @@ from hushh_mcp.services.one_wallet_card_service import (
     OneWalletCardService,
     wallet_card_error_detail,
 )
+from hushh_mcp.services.one_wallet_card_username import validate_wallet_username
 from hushh_mcp.services.wallet_pass_provider import (
     build_wallet_pass,
 )
@@ -180,6 +181,7 @@ class WalletCardPayload(_StrictModel):
     """Closed, server-validated allowlist for the shared card (contract §3)."""
 
     full_name: str | None = Field(default=None, alias="fullName", max_length=80)
+    username: str | None = Field(default=None, max_length=30)
     headline: str | None = Field(default=None, max_length=120)
     organisation: str | None = Field(default=None, max_length=80)
     location_label: str | None = Field(default=None, alias="locationLabel", max_length=80)
@@ -226,6 +228,11 @@ class WalletCardPayload(_StrictModel):
                 raise ValueError(f"Each skill must be {_MAX_SKILL_LENGTH} characters or fewer")
         return cleaned or None
 
+    @field_validator("username")
+    @classmethod
+    def _check_username(cls, value: str | None) -> str | None:
+        return validate_wallet_username(value) if value else None
+
     @field_validator("email")
     @classmethod
     def _check_email(cls, value: str | None) -> str | None:
@@ -253,6 +260,20 @@ class UpsertWalletCardRequest(_StrictModel):
     expires_at: str | None = Field(default=None, alias="expiresAt", max_length=64)
 
 
+class EnsureWalletCardRequest(_StrictModel):
+    user_id: str = Field(alias="userId", min_length=1, max_length=160)
+    card_payload: WalletCardPayload = Field(default_factory=WalletCardPayload, alias="cardPayload")
+    avatar_url: str | None = Field(default=None, alias="avatarUrl", max_length=300)
+    share_token: str | None = Field(
+        default=None, alias="shareToken", min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
+    @field_validator("avatar_url")
+    @classmethod
+    def _check_avatar(cls, value: str | None) -> str | None:
+        return _validate_https_url(value)
+
+
 class WalletCardOwnerActionRequest(_StrictModel):
     user_id: str = Field(alias="userId", min_length=1, max_length=160)
 
@@ -275,8 +296,7 @@ class WalletCardView(_ResponseModel):
 
 class WalletCardResponse(_ResponseModel):
     """Owner view. ``share_token``/``share_url`` are populated on create and
-    rotate only — every other route leaves them null and the client reuses the
-    URL it stored locally."""
+    rotate and authenticated ensure recovery. Plain GET omits the token."""
 
     card: WalletCardView | None = None
     share_token: str | None = Field(default=None, alias="shareToken")
@@ -491,6 +511,7 @@ def _pass_content(material: dict[str, Any]) -> WalletPassContent:
         display_name=_clean_optional(material.get("displayName") or material.get("display_name")),
         headline=_clean_optional(material.get("headline")),
         expires_at=_as_datetime(material.get("expiresAt") or material.get("expires_at")),
+        variant=str(material.get("variant") or "profile"),
     )
 
 
@@ -538,6 +559,26 @@ def get_wallet_card(
     if card is None:
         return WalletCardResponse(card=None)
     return _card_response({"card": card})
+
+
+@router.post("/ensure", response_model=WalletCardResponse)
+def ensure_wallet_card(
+    payload: EnsureWalletCardRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> WalletCardResponse:
+    """Create missing profiles and recover their link without replacing owner choices."""
+    _require_owner_feature_enabled()
+    owner_id = _owner_user_id(token_data, payload.user_id)
+    try:
+        result = _card_service().ensure_card(
+            user_id=owner_id,
+            card_payload=payload.card_payload.model_dump(exclude_none=True),
+            avatar_url=payload.avatar_url,
+            share_token=payload.share_token,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return _card_response(result)
 
 
 @router.post("", response_model=WalletCardResponse)
@@ -705,6 +746,7 @@ def resolve_public_wallet_card(
 def download_wallet_pass(
     request: Request,
     share_token: _ShareToken,
+    variant: Literal["profile", "referral", "nws"] = "profile",
 ) -> Response:
     """Return the signed `.pkpass` bundle for an active card.
 
@@ -716,7 +758,11 @@ def download_wallet_pass(
     if not _feature_enabled():
         return _public_status_response(_NOT_FOUND)
     try:
-        result = _card_service().resolve_pass_material(share_token=share_token)
+        result = (
+            _card_service().resolve_pass_material(share_token=share_token)
+            if variant == "profile"
+            else _card_service().resolve_pass_material(share_token=share_token, variant=variant)
+        )
     except OneWalletCardError as exc:
         logger.warning("wallet_card.pass_resolve_rejected code=%s", exc.code)
         return _public_status_response(_NOT_FOUND)

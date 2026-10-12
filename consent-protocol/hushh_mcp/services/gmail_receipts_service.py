@@ -67,6 +67,7 @@ from hushh_mcp.services.gmail_receipt_cutover import (
 )
 from hushh_mcp.services.kyc_debug_log import message_ref as kyc_message_ref
 from hushh_mcp.services.kyc_debug_log import trace as trace_kyc_debug
+from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
 
 logger = logging.getLogger(__name__)
 
@@ -362,7 +363,7 @@ class GmailReceiptsService:
         return _clean_text(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
 
     def _expected_oauth_redirect_uri(self) -> str:
-        """Build the only web callback this backend may use for Gmail OAuth.
+        """Build the canonical web callback this backend may use for Gmail OAuth.
 
         The browser may report its callback as part of the connect/complete
         request, but it is not an authority for choosing a redirect host. The
@@ -385,12 +386,12 @@ class GmailReceiptsService:
         return f"{normalized_origin}{_GMAIL_OAUTH_RETURN_PATH}"
 
     def _resolve_oauth_redirect_uri(self, requested_redirect_uri: str | None) -> str:
-        """Validate the optional caller echo against the environment callback.
+        """Validate the caller echo against this environment's callback policy.
 
         OAuth state integrity alone does not make a caller-selected callback
         safe: a state token can faithfully preserve an untrusted origin. Keep
         the configured secret and APP_FRONTEND_ORIGIN in lockstep, then accept
-        only an exact echo of that canonical callback.
+        the canonical callback or its explicitly admitted domain alias.
         """
 
         configured_redirect = self._oauth_redirect_uri()
@@ -405,9 +406,11 @@ class GmailReceiptsService:
             )
 
         requested_redirect = _clean_text(requested_redirect_uri)
-        if requested_redirect and not hmac.compare_digest(requested_redirect, configured_redirect):
+        if requested_redirect and requested_redirect not in allowed_oauth_callback_uris(
+            configured_redirect
+        ):
             raise GmailApiError("Gmail OAuth redirect URI is not allowed", status_code=400)
-        return configured_redirect
+        return requested_redirect or configured_redirect
 
     def _state_secret(self) -> str:
         try:
@@ -955,7 +958,9 @@ class GmailReceiptsService:
         ).digest()
         return f"{encoded}.{_b64url_encode(signature)}"
 
-    def _verify_state_token(self, *, state: str, user_id: str, redirect_uri: str) -> dict[str, Any]:
+    def _verify_state_token(
+        self, *, state: str, user_id: str, redirect_uri: str | None
+    ) -> dict[str, Any]:
         parts = state.split(".")
         if len(parts) != 2:
             raise GmailApiError("Invalid OAuth state token", status_code=400)
@@ -978,7 +983,8 @@ class GmailReceiptsService:
             raise GmailApiError("Invalid OAuth state payload", status_code=400) from exc
         if _clean_text(payload.get("uid")) != user_id:
             raise GmailApiError("OAuth state user mismatch", status_code=403)
-        if _clean_text(payload.get("redirect_uri")) != redirect_uri:
+        signed_redirect = _clean_text(payload.get("redirect_uri"))
+        if not signed_redirect or (redirect_uri is not None and signed_redirect != redirect_uri):
             raise GmailApiError("OAuth redirect mismatch", status_code=400)
         try:
             exp = int(payload.get("exp") or 0)
@@ -1007,17 +1013,11 @@ class GmailReceiptsService:
             # Mailbox organization is likewise its own explicit capability; the
             # web connect adds it on top of existing grants (include_granted_scopes).
             return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_MODIFY_SCOPE)
-        # `purpose` intentionally does not gate the send scope: no call site
-        # in this codebase (web popup, native, or the connectors panel) ever
-        # passes purpose="send" -- every real connect/reconnect defaults or
-        # hardcodes "read", so gating gmail.send on that value made send
-        # capability unreachable through any live path, with no working
-        # recovery flow (the app's own "Reconnect Mail" link re-runs the
-        # same read-only connect). Request both scopes unconditionally, as
-        # this did before purpose existed, until a real incremental-consent
-        # UI actually calls this with "send".
-        del purpose
-        return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_SEND_SCOPE)
+        if purpose == "send":
+            # The reviewed send path requests this incrementally in Chat and
+            # in the Gmail workspace's information-request flow.
+            return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_SEND_SCOPE)
+        return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE)
 
     def _encrypt_token(self, token: str) -> dict[str, str]:
         aesgcm = AESGCM(self._token_key())
@@ -1055,11 +1055,11 @@ class GmailReceiptsService:
         timeout = httpx.Timeout(self._http_timeout)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(url, data=data, headers=headers)
-        payload: dict[str, Any]
         try:
-            payload = response.json()
+            parsed = response.json()
         except Exception:
-            payload = {}
+            parsed = {}
+        payload = parsed if isinstance(parsed, dict) else {}
         if response.status_code >= 400:
             message = _clean_text(payload.get("error_description")) or _clean_text(
                 payload.get("error")
@@ -1069,6 +1069,7 @@ class GmailReceiptsService:
                 message or f"Google request failed ({response.status_code})",
                 status_code=status_code,
                 payload=payload,
+                provider_status_code=response.status_code,
             )
         return payload
 
@@ -1727,10 +1728,15 @@ class GmailReceiptsService:
         if not self.is_configured():
             raise GmailApiError("Gmail OAuth is not configured", status_code=503)
 
-        resolved_redirect = self._resolve_oauth_redirect_uri(redirect_uri)
+        requested = _clean_text(redirect_uri)
+        resolved_redirect = self._resolve_oauth_redirect_uri(requested)
         state_payload = self._verify_state_token(
-            state=state, user_id=user_id, redirect_uri=resolved_redirect
+            state=state, user_id=user_id, redirect_uri=resolved_redirect if requested else None
         )
+        if not requested:
+            # Older clients omit the echo. Only a verified, owner-bound state
+            # can choose its original callback, which must still be admitted.
+            resolved_redirect = self._resolve_oauth_redirect_uri(state_payload.get("redirect_uri"))
         issued_at = int(state_payload["iat"])
         issued_at_ms = int(state_payload.get("iat_ms") or issued_at * 1000)
         oauth_started_at = datetime.fromtimestamp(issued_at_ms / 1000, timezone.utc)
@@ -2378,12 +2384,14 @@ class GmailReceiptsService:
                 message=message,
                 observed=observed,
             )
-            raise GmailApiError(message, status_code=401)
+            raise GmailApiError(message, status_code=401, code="GMAIL_REAUTH_REQUIRED")
 
         try:
             refreshed = await self._refresh_access_token(refresh_token=refresh_token)
         except GmailApiError as exc:
-            if exc.status_code in {400, 401, 403, 404, 502}:
+            provider_error = _clean_text((exc.payload or {}).get("error"))
+            provider_status = exc.provider_status_code or exc.status_code
+            if provider_error == "invalid_grant" and provider_status in {400, 401}:
                 message = "Gmail token refresh failed. Reconnect Gmail to continue."
                 await asyncio.to_thread(
                     self._mark_connection_needs_reauth,
@@ -2391,23 +2399,32 @@ class GmailReceiptsService:
                     message=message,
                     observed=observed,
                 )
-                raise GmailApiError(message, status_code=401) from None
+                raise GmailApiError(
+                    message, status_code=401, code="GMAIL_REAUTH_REQUIRED"
+                ) from None
+            # Rate limits, provider outages and OAuth client/configuration errors
+            # do not prove that this owner's refresh grant is invalid.
             raise GmailApiError(
                 "Gmail token refresh is unavailable. Retry the request.",
-                status_code=exc.status_code,
+                status_code=503,
+                code="GMAIL_PROVIDER_UNAVAILABLE",
+            ) from None
+        except httpx.RequestError:
+            raise GmailApiError(
+                "Gmail token refresh is unavailable. Retry the request.",
+                status_code=503,
+                code="GMAIL_PROVIDER_UNAVAILABLE",
             ) from None
         next_access = _clean_text(refreshed.get("access_token"))
         next_expires = int(refreshed.get("expires_in") or 3600)
         next_refresh = _clean_text(refreshed.get("refresh_token")) or refresh_token
         if not next_access:
-            message = "Gmail token refresh did not return an access token. Reconnect Gmail."
-            await asyncio.to_thread(
-                self._mark_connection_needs_reauth,
-                user_id=user_id,
-                message=message,
-                observed=observed,
+            # A malformed success response does not invalidate the stored grant.
+            raise GmailApiError(
+                "Gmail token refresh is unavailable. Retry the request.",
+                status_code=503,
+                code="GMAIL_PROVIDER_UNAVAILABLE",
             )
-            raise GmailApiError(message, status_code=401)
 
         access_env = self._encrypt_token(next_access)
         refresh_env = self._encrypt_token(next_refresh)

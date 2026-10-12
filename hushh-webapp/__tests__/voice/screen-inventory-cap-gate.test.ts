@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { listKaiActions } from "@/lib/voice/kai-action-gateway";
+import { listKaiActions } from "@/lib/kai/actions/kai-action-gateway";
 import {
   ACTION_ID_SCREEN_SEGMENT_CAP,
   SUBVIEW_ACTION_BOOST,

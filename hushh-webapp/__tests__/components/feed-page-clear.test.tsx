@@ -48,6 +48,8 @@ const mocks = vi.hoisted(() => {
     toastError: vi.fn(),
     feedRowRender: vi.fn(),
     useRealFeedRow: false,
+    // Undefined leaves the Feed on its closed default price step.
+    documentPricePrompt: undefined as Record<string, unknown> | undefined,
   };
 });
 
@@ -125,6 +127,7 @@ vi.mock("@/lib/feed/use-feed-actionables", () => ({
       description: "",
       cancel: () => undefined,
     },
+    documentPricePrompt: mocks.documentPricePrompt,
   }),
 }));
 
@@ -151,6 +154,11 @@ vi.mock("@/components/feed/feed-push-prompt", () => ({
 
 vi.mock("@/components/feed/feed-actionable-row", () => ({
   FeedActionableRow: () => null,
+}));
+
+vi.mock("@/components/consent/document-payout-account", () => ({
+  DocumentBankPayoutStatusCard: () => null,
+  DocumentPayoutAccountCard: () => null,
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
@@ -499,5 +507,53 @@ describe("Feed history interactions", () => {
       window.localStorage.getItem("hushh:feed-cleared-through-id:feed-user"),
     ).toBeNull();
     expect(screen.getByText("row-5")).toBeInTheDocument();
+  });
+});
+
+describe("Feed document price step", () => {
+  function pricePrompt(overrides: Record<string, unknown> = {}) {
+    return {
+      open: true,
+      requesterLabel: "Kushal Trivedi",
+      paymentRequired: true,
+      lockedAmountCents: null,
+      initialAmountCents: null,
+      priceOnly: false,
+      purpose: "Tax returns",
+      recipientEmail: "kushal@example.invalid",
+      periodStart: null,
+      periodEnd: null,
+      detailsPending: false,
+      busy: false,
+      error: null,
+      submit: vi.fn(),
+      cancel: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.documentPricePrompt = undefined;
+  });
+
+  it("shows the owner the estimate the requester saw, and still sends the owner's price", () => {
+    const prompt = pricePrompt({ estimateCents: 2500 });
+    mocks.documentPricePrompt = prompt;
+    render(<FeedPage />);
+
+    expect(screen.getByText("Requester saw an estimate of $25")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Allow · $10" }));
+    expect(prompt.submit).toHaveBeenCalledExactlyOnceWith(1000);
+  });
+
+  it("prices normally when no estimate is known", () => {
+    const prompt = pricePrompt();
+    mocks.documentPricePrompt = prompt;
+    render(<FeedPage />);
+
+    expect(screen.queryByText(/Requester saw an estimate/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Allow · $10" }));
+    expect(prompt.submit).toHaveBeenCalledExactlyOnceWith(1000);
   });
 });

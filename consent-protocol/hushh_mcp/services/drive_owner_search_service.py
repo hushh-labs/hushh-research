@@ -13,6 +13,7 @@ import json
 import re
 import time
 from calendar import monthrange
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -20,7 +21,7 @@ from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, 
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_sharing_contract import request_requires_explicit_dates
-from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation, drive_stage
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY, DriveReadError
@@ -365,9 +366,21 @@ def compile_request_queries(
                 )
     period = {"start": start, "end": end, "timezone": timezone} if start and end else None
     base = []
-    kind_clause = _request_discovery_clause(parsed.file_kind)
+    direct_originals = (
+        parsed.result_limit is not None and not parsed.terms and not parsed.exact_title
+    )
+    kind_clause = (
+        _request_kind_clause(parsed.file_kind)
+        if direct_originals
+        else _request_discovery_clause(parsed.file_kind)
+    )
     if kind_clause:
         base.append(kind_clause)
+    if direct_originals:
+        # A generic latest-N request ranks originals by their own timestamps.
+        # Alias timestamps and recursive folder discovery cannot establish
+        # that order. Originals anywhere in each corpus remain searchable.
+        base.extend([f"mimeType != '{FOLDER_MIME}'", f"mimeType != '{SHORTCUT_MIME}'"])
     if parsed.shared_with_me:
         base.append("sharedWithMe = true")
     if parsed.exact_title:
@@ -409,7 +422,16 @@ def compile_request_queries(
     query = " and ".join(clauses)
     if len(query) > 1800:
         raise DriveReadError("invalid_argument")
-    return [{"arguments": {"query": query, "orderBy": "createdTime desc"}}], period
+    # Google warns that createdTime sorting can time out on large collections.
+    # Discovery normally has no creation-order promise: date membership is
+    # checked from each file's metadata below. Preserve an explicit file-time
+    # intent, while using modifiedTime for generic discovery and exact titles.
+    order = (
+        parsed.file_time_field
+        if parsed.result_limit is not None or parsed.time_intent == "file_activity"
+        else "modifiedTime"
+    )
+    return [{"arguments": {"query": query, "orderBy": f"{order} desc"}}], period
 
 
 def _in_requested_period(match: dict, period: dict | None) -> bool:
@@ -510,6 +532,61 @@ def _phase(checkpoint, name):
     checkpoint["phase"] = name
     checkpoint["page_token"] = None
     checkpoint["seen_tokens"] = []
+    checkpoint.pop("request_rank_scan", None)
+
+
+def _rank_timestamp(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if timestamp.tzinfo is not None and timestamp.utcoffset() is not None:
+            return timestamp.astimezone(UTC)
+    except (ValueError, OverflowError):
+        pass
+    return None
+
+
+def _bounded_corpus_complete(checkpoint, candidates, files, *, incomplete):
+    """Prove a corpus cannot add a newer result, without ignoring ties.
+
+    Drive pagination is not a snapshot. Validate observed descending order
+    across pages and preserve the existing exhaustive fallback when the
+    provider cannot supply a trustworthy ordering or complete response.
+    """
+    if not checkpoint.get("request_direct_originals"):
+        return False
+    limit = checkpoint["request_result_limit"]
+    field = checkpoint["request_order_field"]
+    scan = checkpoint.setdefault(
+        "request_rank_scan",
+        {"digests": [], "valid_order": True, "incomplete": False},
+    )
+    scan["incomplete"] = scan["incomplete"] or incomplete
+    previous = _rank_timestamp(scan.get("last_timestamp"))
+    for candidate in candidates:
+        timestamp = _rank_timestamp(candidate.get(field)) if isinstance(candidate, dict) else None
+        if timestamp is None or previous is not None and timestamp > previous:
+            scan["valid_order"] = False
+        if timestamp is not None:
+            previous = timestamp
+            scan["last_timestamp"] = timestamp.isoformat()
+    if not scan["valid_order"] or scan["incomplete"]:
+        return False
+    seen = set(scan["digests"])
+    for file in files:
+        if len(seen) >= limit:
+            break
+        digest = hashlib.sha256(file["id"].encode()).hexdigest()
+        if digest not in seen:
+            seen.add(digest)
+            scan["digests"].append(digest)
+            if len(seen) == limit:
+                scan["cutoff_timestamp"] = file[field]
+    cutoff = _rank_timestamp(scan.get("cutoff_timestamp"))
+    # Exhaust every equal timestamp at the boundary so the store can apply
+    # its deterministic ID tiebreak globally across user and shared drives.
+    return cutoff is not None and previous is not None and previous < cutoff
 
 
 def _advance_query(checkpoint):
@@ -652,6 +729,11 @@ class DriveOwnerSearchService:
         queries, period = compile_request_queries(
             plan, purpose, timezone, requested_at=requested_at
         )
+        result_limit = plan.get("result_limit")
+        direct_originals = (
+            result_limit is not None and not plan.get("terms") and not plan.get("exact_title")
+        )
+        order_field = queries[0]["arguments"]["orderBy"].split()[0]
         state, created = await self.store.create(
             user_id=user_id,
             client_request_id=request_id,
@@ -669,6 +751,9 @@ class DriveOwnerSearchService:
                 "request_file_kind": plan.get("file_kind", "any"),
                 "request_subject_terms": plan.get("terms", []),
                 "request_exact_title": plan.get("exact_title"),
+                "request_result_limit": result_limit,
+                "request_order_field": order_field,
+                "request_direct_originals": direct_originals,
                 "request_notes": bool(re.search(r"\b(?:notes?|minutes)\b", query, re.I)),
                 "request_explicit_dates": bool(
                     purpose.get("periodStart") and purpose.get("periodEnd")
@@ -680,7 +765,12 @@ class DriveOwnerSearchService:
                     "requestedPeriod": period,
                     "dateBasis": "title_date_then_created_or_modified",
                     "contentPeriodVerified": False,
-                    "folderDiscovery": "matching_topic_folders_and_descendants",
+                    "folderDiscovery": "none_direct_originals"
+                    if direct_originals
+                    else "matching_topic_folders_and_descendants",
+                    "shortcutDiscovery": "excluded" if direct_originals else "resolve_targets",
+                    "resultLimit": result_limit,
+                    "orderBy": f"{order_field} desc",
                 },
                 "coverage_counts": {},
                 "folder_queue": [],
@@ -701,7 +791,7 @@ class DriveOwnerSearchService:
                 job_id=state["jobId"],
                 max_pages=1,
                 deadline_seconds=15,
-                initial_page_size=PAGE_SIZE,
+                **({} if direct_originals else {"initial_page_size": PAGE_SIZE}),
                 require_current=require_current,
                 **({"after_page": after_page} if after_page is not None else {}),
             )
@@ -1092,7 +1182,10 @@ class DriveOwnerSearchService:
             args = {
                 "folderId": folder["id"],
                 "query": clause or "trashed = false",
-                "orderBy": "createdTime desc",
+                # New checkpoints carry the discovery order. Keep the saved
+                # order for resumed folder pages so their token is not reused
+                # with different provider arguments after a rollout.
+                "orderBy": checkpoint["arguments"].get("orderBy", "modifiedTime desc"),
                 "pageSize": file_page_size,
                 **({"driveId": folder["driveId"]} if folder.get("driveId") else {}),
                 **({"resourceKey": folder["resourceKey"]} if folder.get("resourceKey") else {}),
@@ -1168,6 +1261,17 @@ class DriveOwnerSearchService:
         if checkpoint.get("request_origin_id"):
             _counter(checkpoint, "providerRowsScanned", len(candidates))
             _counter(checkpoint, "providerFilePages")
+            original_candidates = candidates
+            if checkpoint.get("request_direct_originals"):
+                # Do not expand aliases or folders when the provider violates
+                # the direct-original query; neither belongs to this scope.
+                candidates = [
+                    candidate
+                    for candidate in candidates
+                    if isinstance(candidate, dict)
+                    and candidate.get("mimeType") not in {FOLDER_MIME, SHORTCUT_MIME}
+                ]
+                incomplete = incomplete or len(candidates) != len(original_candidates)
             files, candidate_incomplete = await self._request_candidates(
                 job,
                 checkpoint,
@@ -1176,7 +1280,11 @@ class DriveOwnerSearchService:
                 drive_id=args.get("driveId"),
             )
             incomplete = incomplete or candidate_incomplete
+            bounded_complete = _bounded_corpus_complete(
+                checkpoint, original_candidates, files, incomplete=incomplete
+            )
         else:
+            bounded_complete = False
             files = []
             for candidate in candidates:
                 match = DriveLiveReader._match(candidate)
@@ -1197,6 +1305,10 @@ class DriveOwnerSearchService:
                     }
                 )
         next_token = _token(payload, checkpoint["page_token"], checkpoint)
+        if next_token and bounded_complete:
+            _counter(checkpoint, "boundedCorporaCompleted")
+            checkpoint["request_rank_pruned"] = True
+            next_token = None
         checkpoint["page_token"] = next_token
         done = False
         if not next_token:
@@ -1246,7 +1358,8 @@ class DriveOwnerSearchService:
             and (type(initial_page_size) is not int or initial_page_size != PAGE_SIZE)
         ):
             raise ValueError("invalid search slice bounds")
-        job = await self.store.claim(user_id=user_id, job_id=job_id)
+        with drive_stage(logger, "search_claim"):
+            job = await self.store.claim(user_id=user_id, job_id=job_id)
         if job is None:
             return "not_claimed"
         started = time.monotonic()
@@ -1266,11 +1379,13 @@ class DriveOwnerSearchService:
             return status
 
         try:
-            async with asyncio.timeout(deadline_seconds):
+            session = getattr(self.transport, "owner_search_session", nullcontext)
+            async with asyncio.timeout(deadline_seconds), session():
                 for _ in range(max_pages):
-                    if require_current:
-                        await require_current()
-                    await self.store.require_current(job)
+                    with drive_stage(logger, "search_authority"):
+                        if require_current:
+                            await require_current()
+                        await self.store.require_current(job)
                     page_started = time.monotonic()
                     phase = job["checkpoint"].get("phase")
                     phase = (
@@ -1297,11 +1412,16 @@ class DriveOwnerSearchService:
                             page_count,
                             (time.monotonic() - page_started) * 1000,
                         )
-                    if require_current:
-                        await require_current()
-                    result = await self.store.commit_page(
-                        job, checkpoint=checkpoint, files=files, incomplete=incomplete, done=done
-                    )
+                    with drive_stage(logger, "search_commit"):
+                        if require_current:
+                            await require_current()
+                        result = await self.store.commit_page(
+                            job,
+                            checkpoint=checkpoint,
+                            files=files,
+                            incomplete=incomplete,
+                            done=done,
+                        )
                     job["checkpoint"] = checkpoint
                     pages += 1
                     found = result["matched"]
@@ -1312,7 +1432,8 @@ class DriveOwnerSearchService:
                         # Even an empty final page must flush/resume a batch.
                         try:
                             handing_off = True
-                            await after_page(user_id=user_id, job_id=job_id)
+                            with drive_stage(logger, "search_handoff"):
+                                await after_page(user_id=user_id, job_id=job_id)
                             handing_off = False
                         except Exception:  # noqa: BLE001 - durable pages remain resumable
                             logger.warning("drive_search.page_handoff status=deferred")

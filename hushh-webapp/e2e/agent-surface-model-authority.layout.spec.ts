@@ -214,7 +214,7 @@ function renderScreen(mode: Mode, variant: Variant): string {
         <div data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}"></div>
         <div class="min-w-0">
           <div data-testid="agent-name" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
-          <p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}">${escapeHtml(plan.subtitle)}</p>
+          ${plan.subtitle ? `<p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}">${escapeHtml(plan.subtitle)}</p>` : ""}
         </div>
       </div>
       <div data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">${actions}</div>
@@ -492,7 +492,7 @@ test.describe("Agent Chat: which agent is answering", () => {
     expect(puppyName).not.toBe(oneName);
 
     await expect(page.getByTestId("agent-name")).toHaveText(oneName);
-    await expect(page.getByTestId("agent-subtitle")).toBeVisible();
+    await expect(page.getByTestId("agent-subtitle")).toHaveCount(0);
     await expect(
       page.locator(`[aria-label="${oneOption.accessibleLabel}"]`),
     ).toHaveAttribute("aria-checked", "true");
@@ -502,6 +502,7 @@ test.describe("Agent Chat: which agent is answering", () => {
     // The name is the reader's only guarantee about which agent is answering,
     // so it names the agent on screen, not the workspace.
     await expect(page.getByTestId("agent-name")).toHaveText(puppyName);
+    await expect(page.getByTestId("agent-subtitle")).toHaveText(decide("puppy", SHIPPED).subtitle);
     await expect(
       page.locator(`[aria-label="${puppyOption.accessibleLabel}"]`),
     ).toHaveAttribute("aria-checked", "true");

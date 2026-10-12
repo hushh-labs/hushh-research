@@ -185,6 +185,22 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: Soul.md reconciliation profile
+
+- Owners: existing Memory Segmentation, Intent, Merge and PKM Structure agents;
+  manifests in `consent-protocol/hushh_mcp/agents/{memory_segmentation,memory_intent,memory_merge,pkm_structure}/agent.yaml`.
+- Output: existing stage schemas; Soul structure payload contains exactly
+  `soul_text` (complete attributed fact) and `soul_section` (Facts, Preferences,
+  Commitments). Merge owns create/extend/correct/delete/no-op and exact targeting.
+- Validators reject unknown targets, oversized snapshots, invalid payloads,
+  credential material and export paths; they never select a replacement target
+  or rewrite a successful model's fact. Skipped no-op stages remain traced.
+- The browser validates the offered bullet again before RAM mutation and cloud
+  CAS. Masked or ambiguous targets are refused rather than partially replaced.
+- Promotion evidence: synthetic full-pipeline/negative-control tests are the UAT
+  contract gate; owner verification of live correction, deletion and attribution
+  is required before claiming live-model quality or production readiness.
+
 ### Declared: first-connect insights
 
 - Owning agent: `agent_one`, gene `one_first_connect_insights`.
@@ -197,6 +213,109 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   A model failure is recorded as `failed` and retried after an hour.
 - Live eval before promotion: none yet. Mocked contract tests only; extraction
   quality on real mailboxes and calendars is unmeasured.
+
+### Declared: Magic Intelligence
+
+- Owning agent: `agent_one`, bounded task `one_profile_research`; its existing
+  `google_search` child supplies public evidence. No new top-level router.
+  Magic Intelligence researches the owner's public personal profile after
+  onboarding; business information is optional.
+- Manifest path: `consent-protocol/hushh_mcp/agents/one/agent.yaml`.
+- Structured output: `ProfileReport` in `hushh_mcp/one_adk/profile_research.py`;
+  match status, name, concise summary, up to four sections and eight facts per
+  section, each with confidence and HTTPS source links.
+- Single-shot discovery: `run_profile_discovery` calls the existing grounded
+  research task once with all available full owner identifiers. The separate
+  `one_profile_verify` agent, score computation and numerical release gate are
+  removed. The researcher owns match status, statements, summary and categorical
+  source uncertainty; the host validates source/schema/authority without
+  upgrading meaning or forcing a match.
+- Execution is bounded to one 160-second discovery deadline and one Search child
+  call (up to three logical model calls). There are no query permutations or
+  automatic research retries. Existing 200-second jobs, key/lease limits and the
+  three-start/hour admission limit remain unchanged.
+- The child request preserves the owner's name, full verified email and full
+  verified phone together, unchanged and JSON-quoted. Missing fields stay missing.
+  Native Google grounding may reformulate its internal queries, as authorized;
+  received grounding/source references remain required, but literal query
+  receipt matching is not an acceptance condition. No private-account tools,
+  caller-selected identities, PKM authority or sharing grants are added.
+- Profile retrieval intent is authored in the existing Search child's manifest,
+  so an exact identifier-only child request still asks for roles, education,
+  projects and public activities. Identifiers are anchors, not a mandatory
+  conjunction or a requirement for contacts to be published. A coherent cited
+  candidate without a secure owner link remains uncertain; missing public
+  contacts alone must not turn findings into no-match. This is agent guidance,
+  not a host-side override of the report or a second confidence stage.
+- The sole research slot is charged before provider dispatch under revision and
+  ciphertext CAS. Interrupted or failed charged tasks cannot replay it for the
+  same identity/policy/window. Failures return terminal unavailable without
+  invented confidence or no-match evidence. Old seven-mask and scored checkpoint
+  states are recognized only during migration: a changed policy binding prevents
+  their release, preserves paid-start history, and admits one new-policy slot.
+  Frontend decoders retain old metadata compatibility, never a current score gate.
+- Raw compatibility Search strategy: the authored task starts with the public name, using an
+  organizational email domain only as a hint. It keeps full email/phone as
+  private matching context, without requiring a public contact match. At most
+  one follow-up fits the existing five-call/160-second task budget: broader
+  targeted public-name recovery for an unmatched first pass, or focused missing education,
+  projects, competitions, leadership and achievements after a credible match.
+  The model chooses queries and facts; host code does not fabricate coverage.
+  Attendance, organization and winning are distinct, historical sources do not
+  establish current roles, and duplicate facts belong in one section only.
+  Namesake candidates remain separate; a report contains one coherent person,
+  not unrelated candidates relabelled as uncertain. Occurrence lists and
+  answer-site assertions alone cannot establish biographical claims.
+  Search calls run sequentially so each attempt carries only its own receipts;
+  the host rejects parallel tool calls and more than two Search attempts.
+  The tool result exposes whether Search execution was observed; a refusal
+  cannot be treated as proof that a profile does not exist.
+- The internal model contract selects short source refs exposed by the Search
+  child. Host transport resolves only those exact invocation-local refs to
+  received URLs; facts, confidence, titles and order stay model-authored. The
+  public report retains `sources:{title,url}`, with no ref field or URL guessing.
+- Validator rejects unknown fields, duplicate sections, unsupported URLs and
+  incoherent no-match results. Every cited URL must have a Search grounding
+  receipt exposed to the model. Unknown refs, parent-only metadata and raw-URL
+  fallbacks cannot authorize a citation. A no-match report also needs Search execution evidence; an offline
+  answer or refusal is unavailable, not proof of absence. Empty results show
+  an explanation and Skip, without preparing memory. Failed research can retry.
+  Host policy does not rewrite facts or choose their meaning.
+- Admission: current first-party owner/chat key, completed account setup,
+  fresh Firebase identity plus the canonical onboarding name when Firebase's
+  name is absent, verified contact identifiers, bounded owner checks and
+  `ONE_PROFILE_RESEARCH_ENABLED` (default off). Background drafts use bounded
+  person-key encrypted checkpoints in the existing session store, private
+  no-store responses and a session-only chat card; they bypass transcript
+  persistence, PKM writes and automatic memory capture. Cached release binds
+  current identity and authored research policy; policy changes preserve the
+  three-starts/hour research budget rather than resetting it.
+- Independence: personal research has its own flag and generic owner/setup
+  admission and private-response utilities. It never requires Business
+  Intelligence, a company record, or company ownership. Career, education and
+  public personal findings can form a complete card; business is optional.
+- Wire boundary: `POST /api/one/profile-research` takes no identity body;
+  owner identity is selected at ingress. It returns `status`, `pkm_written:false`
+  and, when offered, `report` plus bounded Google Search suggestions. The
+  platform-aware One API transport supports both web and native callers.
+  The compatible synchronous POST retains three requests/hour and a 40-second
+  deadline. The authenticated POST/GET jobs path detaches a 200-second execution
+  from browser polling, with at most three actual research starts/hour. No
+  provider error text is returned.
+- Saving: checked/edited statements go through the existing semantic PKM
+  preview. Only final confirmation writes ciphertext. Reconciliation includes
+  relevant existing personal and business entities. A known business keeps its
+  pinned UID, including retargeted scopes; the writer rechecks current origin
+  on conflict retries. Stable review scopes use owner-bound commit receipts to
+  recover lost responses. New public business facts can be kept through this
+  same review; they do not mint directory provenance or assert verified
+  ownership. Sharing changes require acknowledgement.
+- Licensed use: the operator confirmed the Google agreement permits these
+  owner-reviewed research findings to be saved in PKM.
+- Live eval before promotion: synthetic installed-ADK and host boundary tests
+  only. Before enabling the flag, evaluate owner-consented public profiles,
+  common-name/no-match/conflicting evidence, citation attribution, and exact
+  web/native review/save flows. No live quality or device proof is claimed.
 
 ### Declared: explicit memory save from chat
 
@@ -422,6 +541,66 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   extraction and responsive fixtures prove contracts only; until this live gate
   passes, browser/iOS/Android receipt readers remain demoted rollback code rather
   than a parallel production authority.
+
+### Declared: Email receipts read from saved receipt memory
+
+- Owning agent: `agent_email_read_planner`. From the owner's current request alone
+  it decides that the question is about their own receipts, invoices, bills or
+  purchases (`read_receipts`) and not a search of their mail, and it chooses the
+  window, status, identifier kind, merchant and "show more". No phrase table,
+  regular expression or keyword list on the device, in the route or in host code
+  selects the operation. One's runtime Mail instruction only states which tool
+  to call; the planner's authored instruction owns the distinction between "show
+  my receipts" and "find emails mentioning receipts".
+- Manifest path: `consent-protocol/hushh_mcp/agents/email/agent.yaml`.
+- Structured output: `MailReadPlan` in
+  `consent-protocol/hushh_mcp/services/email_delegated_read.py`. `operation:
+  "read_receipts"` plus flat `receipt_since`, `receipt_until`, `receipt_statuses`,
+  `receipt_identifier_kinds`, `receipt_merchant`, `receipt_window_label` and
+  `receipt_more` (no nested objects, which Vertex rejected for `MailItemGist`).
+- Validator: `consent-protocol/hushh_mcp/services/receipt_memory_read.py`. Dates
+  must be real `YYYY-MM-DD` calendar dates with `since` not after `until`;
+  statuses and identifier kinds must be members of the closed sets; a malformed
+  plan is refused as `invalid_argument`, never repaired, widened or turned into
+  an inbox search. The read builds no Gmail reader, so a receipts plan cannot
+  reach `search_inbox`, and `read_receipts` is admitted only for typed chat (One
+  Live Voice refuses it). The interpreter stage is deliberately not run: every
+  amount, date, status and identifier in the answer is copied from the owner's
+  saved index and formatted by code, and a model re-writing one of them is the
+  failure this avoids. That skip is recorded, not silent
+  (`one_voice.mail.latency stage=interpret status=skipped`, `coverage.source =
+  receipt_memory`). Only the planner's own fields choose the window and filters;
+  code filters, sorts newest first, pages by ten, and omits any value the index
+  does not hold. A missing, malformed, empty, or older-than-seven-days index is
+  "not ready" with the exact sentence `Your receipt memory is not ready yet. Sync
+  and save your receipts in Mail.` and the generated `route.profile_receipts`
+  action; it is never reported as an empty mailbox. A "show more" continues a
+  server-held position (`hussh:receipt_cursor`: filters and an offset, never a
+  receipt) that expires after thirty minutes and is void after a new save.
+- Authority and storage: the index is derived on the owner's device from the same
+  canonical rows Mail > Receipts renders (`buildRecentReceiptRows`), never from
+  the retired `kai_gmail_receipts` table. It is saved only by the owner-confirmed
+  `gmail_receipt_memory_save_button` writer into the private
+  `shopping.receipts_memory._canonical_index` branch (leading underscore: never a
+  shareable path, Memory card or prompt-packet fact) and holds only an opaque
+  reference, merchant, amount and currency, category, lifecycle status,
+  transaction date, typed order/invoice/receipt/PNR identifiers, one grounded
+  short detail and a generated-at time. No subject, preview, body, sender
+  address, provider id, signed source handle or link is stored. The server never
+  holds the vault key: the device sends the decrypted index beside a typed turn
+  as `forwardedProps.receiptMemory`; the route validates it against a closed
+  schema, holds it only as an expiring request secret for that turn, and shows it
+  to no model.
+- Live eval before production promotion: the planner's operation choice is
+  measured only by mocked contract tests. On an owner mailbox with a saved
+  receipt memory, run requests such as "show my receipts", "receipts from the
+  last 2 months", "recent invoices", "what purchases did I make", "show overdue
+  bills" and "show more" and confirm `read_receipts` with the right window and
+  filters every time; run "find emails mentioning receipts", "emails from Amazon
+  about my order" and "what does the Supabase invoice email say" and confirm
+  `search_inbox` or `read_message`, never `read_receipts`. Include a missing,
+  stale and truncated memory, a locked vault, and a second page. Until then the
+  Email Mail-read kill switch (`GMAIL_CHAT_READS`) remains the rollback.
 
 
 ### Declared: typed-chat message reactions

@@ -1,7 +1,7 @@
 // Semantic preview and encrypted writer effects are synthetic here. The
 // shipped review UI, selection, explicit confirmation, and session guard run
 // unchanged. Encryption/persistence is covered by the canonical writer suite.
-export { isReservedPkmCard, describeAgentPkmCardDestination, formatAgentPkmCardDestination } from "../../lib/agent/agent-pkm-memory";
+export { isReservedPkmCard, resolveCardTargetDomain, describeAgentPkmCardDestination, formatAgentPkmCardDestination } from "../../lib/agent/agent-pkm-memory";
 import type { AgentPkmPreviewCard } from "../../lib/agent/agent-pkm-memory";
 export const loadPkmAgentLabContext = async () => ({ metadata: { domains: [{ key: "professional" }] }, manifests: {} });
 export const AgentPkmContextStore = { findLocalDuplicate: () => ({ kind: "none" }), load: async () => null };

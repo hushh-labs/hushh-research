@@ -79,7 +79,7 @@ describe("Drive rows in the Feed", () => {
     ).toBe("No matching files found; nothing was shared");
   });
 
-  it("announces an approved share before it finishes, and a decline", () => {
+  it("announces consent without claiming pre-payment sharing, and a decline", () => {
     expect(
       presentFeedItem(
         item("document_share_decided", {
@@ -87,7 +87,7 @@ describe("Drive rows in the Feed", () => {
           user_facing_status: "approved",
         }),
       ).description,
-    ).toBe("Is sharing Drive files with you");
+    ).toBe("Approved your document request");
     expect(
       presentFeedItem(
         item("document_share_decided", {
@@ -99,6 +99,9 @@ describe("Drive rows in the Feed", () => {
   });
 
   it("tells the owner about a request, and about their finished share", () => {
+    expect(presentFeedItem(item("document_share_request_sent", recipient)).description).toBe(
+      "Request sent",
+    );
     expect(presentFeedItem(item("document_share_request")).description).toBe(
       "Document request received",
     );
@@ -118,7 +121,7 @@ describe("Drive rows in the Feed", () => {
     const ready = presentFeedItem(item("document_share_payment_ready", {
       file_names: ["private.pdf"],
     }));
-    expect(ready.description).toBe("Pay $10 to continue your document request");
+    expect(ready.description).toBe("Payment due for your document request");
     expect(ready.href).toBe("/one/feed");
     expect(JSON.stringify(ready)).not.toContain("private.pdf");
     expect(presentFeedItem(item("document_share_payment_confirmed")).description)
@@ -126,6 +129,77 @@ describe("Drive rows in the Feed", () => {
     const refunded = presentFeedItem(item("document_share_payment_refunded"));
     expect(refunded.description).toBe("Payment refunded for your document request");
     expect(refunded.href).toBe("/one/feed");
+  });
+
+  it("renders current payment state instead of an obsolete Pay instruction", () => {
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "paid",
+    })).description).toBe("Payment confirmed");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "refunded",
+    })).description).toBe("Payment refunded");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_checkout_expired: true,
+    })).description).toBe("Payment link expired");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_request_expired: true,
+    })).description).toBe("Document request expired");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "unavailable",
+    })).description).toBe("Check document request");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_owner_payout_account_ready: false,
+    })).description).toBe("Waiting for owner payout setup");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_owner_payout_account_ready: true,
+    })).description).toBe("Payment due for your document request");
+  });
+
+  it("reads the shared payment view state before the older payment fields", () => {
+    const line = (metadata: Record<string, unknown>) =>
+      presentFeedItem(item("document_share_payment_ready", metadata)).description;
+    // The order is paid, but the money is going back: never "Payment confirmed".
+    expect(line({ current_payment_state: "refund_pending", current_payment_status: "paid" }))
+      .toBe("Refund pending");
+    expect(line({ current_payment_state: "closed", current_payment_status: "expired" }))
+      .toBe("Document request closed");
+    expect(line({ current_payment_state: "link_expired" })).toBe("Payment link expired");
+    expect(line({ current_payment_state: "request_expired" })).toBe("Document request expired");
+    // Payable still honours the live deadline the row carries.
+    expect(line({
+      current_payment_state: "payable",
+      current_payment_status: "checkout_open",
+      current_checkout_expires_at: "2026-09-25T15:00:00.000Z",
+    })).toBe("Payment link expired");
+    expect(line({ current_payment_state: "payable", current_payment_status: "checkout_open" }))
+      .toBe("Payment due for your document request");
+  });
+
+  it("never confirms a payment that goes back after the request closed", () => {
+    const line = (metadata: Record<string, unknown>) =>
+      presentFeedItem(item("document_share_payment_confirmed", metadata)).description;
+    expect(line({})).toBe("Payment confirmed for your document request");
+    expect(line({
+      current_payment_state: "refund_pending",
+      current_request_status: "cancelled",
+      current_refund_amount_cents: 2500,
+    })).toBe("Payment received after you withdrew · Refund of $25 pending");
+    expect(line({
+      current_payment_state: "refunded",
+      current_request_status: "declined",
+      current_refund_amount_cents: 2500,
+    })).toBe("Payment received after the request closed · Refunded $25");
+  });
+
+  it("tells the owner the requester asked for a review of unshared files", () => {
+    const row = presentFeedItem(item("document_share_review_requested"));
+    expect(row.description).toBe("Asked you to review unshared files");
+    expect(row.label).toBe("Ankit");
+    expect(row.domainLabel).toBe("Google Drive");
   });
 
   it("opens the Drive question card for question rows", () => {

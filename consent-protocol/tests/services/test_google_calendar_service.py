@@ -5,13 +5,16 @@ import base64
 import copy
 import json
 import threading
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
 from hushh_mcp.services.google_connection_service import (
+    CALENDAR_LIST_READ_SCOPE,
     GoogleConnectionError,
     GoogleConnectionService,
 )
@@ -53,8 +56,25 @@ class _ConnectionStatusDb(_Db):
 
 
 class _Connections:
+    def __init__(self) -> None:
+        self.binding = (
+            "owner",
+            "calendar",
+            "google-sub",
+            "connected-at",
+            "connection-rev",
+            "grant-rev",
+        )
+        self.list_scope = False
+
     async def access_token(self, **_: object) -> str:
         return "access-token"
+
+    async def read_grant_binding(self, **_: object) -> tuple[str, ...]:
+        return self.binding
+
+    async def has_service_scope(self, **_: object) -> bool:
+        return self.list_scope
 
 
 class _ReadOnlyConnections:
@@ -62,6 +82,189 @@ class _ReadOnlyConnections:
         raise GoogleConnectionError(
             "Additional Google Calendar permission is required", status_code=403
         )
+
+
+def _record_calendar_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    response: httpx.Response,
+    *,
+    after_request: object = None,
+) -> list[dict[str, object]]:
+    requests: list[dict[str, object]] = []
+
+    class _Client:
+        async def __aenter__(self):  # noqa: ANN204
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+        @asynccontextmanager
+        async def stream(self, method: str, url: str, **kwargs: object):
+            yield await self.request(method, url, **kwargs)
+
+        async def request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
+            requests.append({"method": method, "url": url, **kwargs})
+            if callable(after_request):
+                after_request()
+            return response
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_calendar_service.httpx.AsyncClient",
+        lambda **_: _Client(),
+    )
+    return requests
+
+
+def _provider_response(status: int, body: dict[str, object]) -> httpx.Response:
+    return httpx.Response(
+        status, json=body, request=httpx.Request("GET", "https://www.googleapis.com")
+    )
+
+
+def test_calendar_read_discards_result_when_owner_grant_changes_after_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connections = _Connections()
+    service = GoogleCalendarService(db=_Db(), connections=connections)
+
+    def revoke() -> None:
+        connections.binding = (
+            "owner",
+            "calendar",
+            "new-google-sub",
+            "connected-at",
+            "new-rev",
+            "new-grant",
+        )
+
+    _record_calendar_provider(
+        monkeypatch,
+        _provider_response(200, {"items": [{"id": "private", "summary": "Private event"}]}),
+        after_request=revoke,
+    )
+    with pytest.raises(GoogleConnectionError, match="connection changed") as exc_info:
+        asyncio.run(
+            service.list_events(
+                user_id="user-1",
+                start_at="2026-08-11T00:00:00Z",
+                end_at="2026-08-12T00:00:00Z",
+            )
+        )
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_status"),
+    [
+        ("rateLimitExceeded", 429),
+        ("userRateLimitExceeded", 429),
+        ("quotaExceeded", 429),
+        ("forbidden", 403),
+    ],
+)
+def test_calendar_provider_403_distinguishes_quota_from_permission(
+    monkeypatch: pytest.MonkeyPatch, reason: str, expected_status: int
+) -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    _record_calendar_provider(
+        monkeypatch,
+        _provider_response(403, {"error": {"errors": [{"reason": reason}]}}),
+    )
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            service.list_events(
+                user_id="user-1",
+                start_at="2026-08-11T00:00:00Z",
+                end_at="2026-08-12T00:00:00Z",
+            )
+        )
+    assert exc_info.value.status_code == expected_status
+
+
+def test_calendar_freebusy_rejects_embedded_provider_error_in_http_200(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    _record_calendar_provider(
+        monkeypatch,
+        _provider_response(200, {"calendars": {"primary": {"errors": [{"reason": "notFound"}]}}}),
+    )
+    with pytest.raises(GoogleConnectionError, match="could not be checked") as exc_info:
+        asyncio.run(
+            service.freebusy(
+                user_id="user-1",
+                start_at="2026-08-11T00:00:00Z",
+                end_at="2026-08-12T00:00:00Z",
+            )
+        )
+    assert exc_info.value.status_code == 502
+
+
+def test_calendar_list_requires_its_incremental_scope_without_breaking_base_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connections = _Connections()
+    service = GoogleCalendarService(db=_Db(), connections=connections)
+    requests = _record_calendar_provider(
+        monkeypatch,
+        _provider_response(
+            200,
+            {
+                "items": [
+                    {"id": "secondary@example.com", "summary": "Team", "timeZone": "Asia/Kolkata"}
+                ],
+                "nextPageToken": "next-page",
+            },
+        ),
+    )
+
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(service.list_calendars(user_id="user-1"))
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.reason_code == "calendar_list_permission_required"
+    assert requests == []
+
+    connections.list_scope = True
+    result = asyncio.run(service.list_calendars(user_id="user-1", max_results=20))
+    assert result["calendars"] == [
+        {
+            "id": "secondary@example.com",
+            "name": "Team",
+            "primary": False,
+            "access_role": None,
+            "time_zone": "Asia/Kolkata",
+        }
+    ]
+    assert result["truncated"] is True
+    assert result["next_page_token"] == "next-page"
+    assert requests[0]["url"].endswith("/users/me/calendarList")
+    assert requests[0]["params"] == {"maxResults": 20}
+    assert CALENDAR_LIST_READ_SCOPE
+
+
+def test_calendar_event_detail_encodes_selected_calendar_and_event_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    requests = _record_calendar_provider(
+        monkeypatch,
+        _provider_response(
+            200,
+            {
+                "id": "event/one",
+                "summary": "Planning",
+                "description": "Notes",
+                "start": {"dateTime": "2026-08-11T10:00:00Z"},
+            },
+        ),
+    )
+    result = asyncio.run(
+        service.get_event(user_id="user-1", calendar_id="team@example.com", event_id="event/one")
+    )
+    assert result["calendar_id"] == "team@example.com"
+    assert result["event"]["description"] == "Notes"
+    assert requests[0]["url"].endswith("/calendars/team%40example.com/events/event%2Fone")
 
 
 async def _no_conflicts(**_: object) -> list[dict[str, object]]:
@@ -84,6 +287,70 @@ def test_calendar_manage_scope_keeps_availability_permission() -> None:
 
     assert "https://www.googleapis.com/auth/calendar.events" in scopes
     assert "https://www.googleapis.com/auth/calendar.freebusy" in scopes
+
+
+def test_calendar_web_oauth_requests_incremental_list_scope_without_changing_native(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(service, "_signed_state", lambda _: "test-state")
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_args, **_kwargs: {"ciphertext": "test", "iv": "test", "tag": "aad-gcm-v1"},
+    )
+    web = asyncio.run(
+        service._create_oauth_attempt(
+            user_id="user-1",
+            service="calendar",
+            access_level="read",
+            redirect_uri="https://example.com/callback",
+            transport="web",
+        )
+    )
+    native = asyncio.run(
+        service._create_oauth_attempt(
+            user_id="user-1",
+            service="calendar",
+            access_level="read",
+            redirect_uri="hushh://callback",
+            transport="native",
+        )
+    )
+    assert CALENDAR_LIST_READ_SCOPE in web["scopes"]
+    assert CALENDAR_LIST_READ_SCOPE not in native["scopes"]
+    assert set(GoogleConnectionService.scopes("calendar", "read")) <= set(native["scopes"])
+
+
+def test_calendar_web_oauth_does_not_assume_optional_scope_was_granted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(
+        service,
+        "_userinfo",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result={"sub": "google-sub"}),
+    )
+    monkeypatch.setattr(
+        service, "_connection", lambda *_args, **_kwargs: asyncio.sleep(0, result=None)
+    )
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            service._store_authorized_connection(
+                user_id="user-1",
+                token={"access_token": "access", "refresh_token": "refresh", "expires_in": 3600},
+                service="calendar",
+                requested_scopes=(
+                    *GoogleConnectionService.scopes("calendar", "read"),
+                    CALENDAR_LIST_READ_SCOPE,
+                ),
+                oauth_started_at=datetime(2026, 1, 1, tzinfo=UTC),
+                attempt_id="synthetic-attempt",
+                expected_generation=connection_generation(None),
+            )
+        )
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.reason_code == "calendar_list_permission_required"
 
 
 def test_google_drive_authorization_is_read_only() -> None:
@@ -857,3 +1124,299 @@ def test_event_listing_is_bounded_searchable_and_honest_about_truncation() -> No
     assert params["q"] == "quarterly review"
     assert result["truncated"] is True
     assert "more exist" in str(result["more_events_exist"])
+
+
+@pytest.mark.parametrize(
+    "calendars,groups",
+    [
+        ({"primary": {}}, {}),
+        ({"primary": {"busy": None}}, {}),
+        ({"primary": {"busy": {}}}, {}),
+        ({"primary": {"busy": [None]}}, {}),
+        ({"primary": {"busy": [{"start": "invalid", "end": "invalid"}]}}, {}),
+        ({"primary": {"busy": [{"start": "2026-08-11T09:00:00Z"}]}}, {}),
+        (
+            {"primary": {"busy": [{"start": "2026-08-11T09:00:00", "end": "2026-08-11T10:00:00"}]}},
+            {},
+        ),
+        (
+            {
+                "primary": {
+                    "busy": [{"start": "2026-08-11T10:00:00Z", "end": "2026-08-11T09:00:00Z"}]
+                }
+            },
+            {},
+        ),
+        ({"primary": {"busy": []}}, {"team": {"calendars": ["missing"]}}),
+        ({"primary": {"busy": []}}, {"team": {"calendars": None}}),
+    ],
+)
+def test_calendar_openings_fail_closed_on_incomplete_provider_availability(
+    monkeypatch: pytest.MonkeyPatch, calendars: object, groups: object
+) -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    _record_calendar_provider(
+        monkeypatch, _provider_response(200, {"calendars": calendars, "groups": groups})
+    )
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            service.find_openings(
+                user_id="owner",
+                start_at="2026-08-11T08:00:00Z",
+                end_at="2026-08-11T12:00:00Z",
+                duration_minutes=30,
+            )
+        )
+    assert exc_info.value.reason_code == "calendar_invalid_response"
+
+
+def test_calendar_empty_busy_list_is_known_availability(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    _record_calendar_provider(
+        monkeypatch, _provider_response(200, {"calendars": {"primary": {"busy": []}}})
+    )
+    result = asyncio.run(
+        service.find_openings(
+            user_id="owner",
+            start_at="2026-08-11T08:00:00Z",
+            end_at="2026-08-11T12:00:00Z",
+            duration_minutes=30,
+        )
+    )
+    assert result["openings"][0]["start_at"] == "2026-08-11T08:00:00Z"
+
+
+@pytest.mark.parametrize("method", ["list_events", "freebusy"])
+def test_calendar_range_compares_instants_not_iso_strings(method: str) -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    # Lexical ordering places '.' before 'Z', even though .5 is later.
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            getattr(service, method)(
+                user_id="owner",
+                start_at="2026-08-11T08:00:00.5Z",
+                end_at="2026-08-11T08:00:00Z",
+            )
+        )
+    assert exc_info.value.status_code == 422
+
+
+def _calendar_provider_sequence(
+    monkeypatch: pytest.MonkeyPatch, outcomes: list[httpx.Response | Exception]
+) -> list[str]:
+    calls: list[str] = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+        @asynccontextmanager
+        async def stream(self, method: str, url: str, **kwargs: object):
+            yield await self.request(method, url, **kwargs)
+
+        async def request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
+            calls.append(method)
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_calendar_service.httpx.AsyncClient", lambda **_: Client()
+    )
+    monkeypatch.setattr(GoogleCalendarService, "_read_retry_delay", staticmethod(lambda _: 0.0))
+    return calls
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        httpx.ConnectError("synthetic transport error"),
+        _provider_response(503, {}),
+        _provider_response(429, {}),
+        _provider_response(403, {"error": {"errors": [{"reason": "rateLimitExceeded"}]}}),
+    ],
+)
+def test_calendar_read_retries_one_transient_failure(
+    monkeypatch: pytest.MonkeyPatch, first: httpx.Response | Exception
+) -> None:
+    calls = _calendar_provider_sequence(
+        monkeypatch, [first, _provider_response(200, {"items": []})]
+    )
+    result = asyncio.run(
+        GoogleCalendarService(db=_Db(), connections=_Connections()).list_events(
+            user_id="owner",
+            start_at="2026-08-11T08:00:00Z",
+            end_at="2026-08-11T09:00:00Z",
+        )
+    )
+    assert result["events"] == []
+    assert calls == ["GET", "GET"]
+
+
+@pytest.mark.parametrize(
+    "access,status,expected_calls,reason",
+    [
+        ("manage", 503, 1, "calendar_unavailable"),
+        ("read", 503, 2, "calendar_unavailable"),
+        ("read", 401, 1, "calendar_reauthorization_required"),
+        ("read", 403, 1, "calendar_permission_required"),
+    ],
+)
+def test_calendar_retry_boundary_and_auth_reasons(
+    monkeypatch: pytest.MonkeyPatch, access: str, status: int, expected_calls: int, reason: str
+) -> None:
+    calls = _calendar_provider_sequence(
+        monkeypatch, [_provider_response(status, {}) for _ in range(2)]
+    )
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            GoogleCalendarService(db=_Db(), connections=_Connections())._request(
+                user_id="owner",
+                method="GET" if access == "read" else "POST",
+                path="/calendars/primary/events",
+                access=access,
+            )
+        )
+    assert len(calls) == expected_calls
+    assert exc_info.value.reason_code == reason
+
+
+def test_calendar_read_deadline_includes_oauth_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StalledConnections(_Connections):
+        async def access_token(self, **_: object) -> str:
+            await asyncio.Event().wait()
+            return "unreachable"
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_calendar_service.CALENDAR_READ_DEADLINE_SECONDS", 0.01
+    )
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            GoogleCalendarService(db=_Db(), connections=StalledConnections()).list_events(
+                user_id="owner",
+                start_at="2026-08-11T08:00:00Z",
+                end_at="2026-08-11T09:00:00Z",
+            )
+        )
+    assert exc_info.value.status_code == 504
+    assert exc_info.value.reason_code == "calendar_timeout"
+
+
+def test_calendar_retry_cannot_cross_revocation(monkeypatch: pytest.MonkeyPatch) -> None:
+    connections = _Connections()
+    calls = _calendar_provider_sequence(monkeypatch, [_provider_response(503, {})])
+
+    async def revoke(_: float) -> None:
+        connections.binding = None
+
+    monkeypatch.setattr("hushh_mcp.services.google_calendar_service.asyncio.sleep", revoke)
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            GoogleCalendarService(db=_Db(), connections=connections).list_events(
+                user_id="owner",
+                start_at="2026-08-11T08:00:00Z",
+                end_at="2026-08-11T09:00:00Z",
+            )
+        )
+    assert calls == ["GET"]
+    assert exc_info.value.reason_code == "calendar_connection_changed"
+
+
+def test_calendar_long_retry_after_is_not_retried_early() -> None:
+    response = _provider_response(429, {})
+    response.headers["Retry-After"] = "30"
+    assert GoogleCalendarService._read_retry_delay(response) is None
+
+
+def test_calendar_read_accepts_manage_scope_without_requesting_extra_consent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ScopeDb(_Db):
+        def execute_raw(self, sql: str, params: dict | None = None):
+            return SimpleNamespace(
+                data=[
+                    {
+                        "status": "connected",
+                        "service_status": "connected",
+                        "service_access_level": "manage",
+                        "service_scope_csv": " ".join(
+                            GoogleConnectionService.scopes("calendar", "manage")
+                        ),
+                        "access_token_expires_at": "2999-01-01T00:00:00+00:00",
+                    }
+                ]
+            )
+
+    service = GoogleConnectionService(db=ScopeDb())
+    monkeypatch.setattr(service, "_decrypt", lambda *_args, **_kwargs: "synthetic-access")
+    assert (
+        asyncio.run(service.access_token(user_id="owner", service="calendar", access_level="read"))
+        == "synthetic-access"
+    )
+
+
+@pytest.mark.parametrize("body", [b"[]", b"not-json", b"x" * 200])
+def test_calendar_read_rejects_invalid_or_oversized_response(
+    monkeypatch: pytest.MonkeyPatch,
+    body: bytes,
+) -> None:
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_calendar_service._CALENDAR_READ_MAX_RESPONSE_BYTES", 100
+    )
+    _record_calendar_provider(
+        monkeypatch,
+        httpx.Response(
+            200,
+            content=body,
+            request=httpx.Request("GET", "https://www.googleapis.com"),
+        ),
+    )
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            GoogleCalendarService(db=_Db(), connections=_Connections()).list_events(
+                user_id="owner",
+                start_at="2026-08-11T08:00:00Z",
+                end_at="2026-08-11T09:00:00Z",
+            )
+        )
+    assert exc_info.value.reason_code == "calendar_invalid_response"
+
+
+def test_calendar_stream_cap_applies_without_content_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Body(httpx.AsyncByteStream):
+        closed = False
+
+        async def __aiter__(self):
+            yield b"x" * 65536
+            yield b"x" * 65536
+            raise AssertionError("The oversized body must stop streaming")
+
+        async def aclose(self):
+            self.closed = True
+
+    body = Body()
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, stream=body))
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_calendar_service._CALENDAR_READ_MAX_RESPONSE_BYTES", 65536
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_calendar_service.httpx.AsyncClient",
+        lambda **kwargs: client_type(transport=transport, **kwargs),
+    )
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            GoogleCalendarService(db=_Db(), connections=_Connections()).list_events(
+                user_id="owner",
+                start_at="2026-08-11T08:00:00Z",
+                end_at="2026-08-11T09:00:00Z",
+            )
+        )
+    assert exc_info.value.reason_code == "calendar_invalid_response"
+    assert body.closed

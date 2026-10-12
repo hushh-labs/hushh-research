@@ -22,7 +22,7 @@
   "non_owned_paths": [
     "frontend",
     "backend-api-contracts",
-    "vault-pkm-governance",
+    "security-audit",
     "docs-governance",
     "quality-contracts"
   ],
@@ -68,14 +68,14 @@
   "handoff_targets": [
     "frontend",
     "backend-api-contracts",
-    "vault-pkm-governance",
+    "security-audit",
     "docs-governance",
     "quality-contracts"
   ],
   "adjacent_skills": [
     "frontend",
     "backend-api-contracts",
-    "vault-pkm-governance",
+    "security-audit",
     "docs-governance",
     "quality-contracts",
     "repo-context"

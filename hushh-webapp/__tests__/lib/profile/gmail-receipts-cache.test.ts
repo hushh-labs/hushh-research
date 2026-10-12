@@ -74,6 +74,35 @@ describe("gmail receipts cache ownership", () => {
     ).toBeNull();
   });
 
+  it("clears only the disconnected owner's live rows and rejects an older scan revision", async () => {
+    const {
+      clearCachedGmailReceipts,
+      getCachedGmailReceipts,
+      getGmailReceiptCacheRevision,
+      primeCachedGmailReceipts,
+    } = await import("@/lib/profile/gmail-receipts-cache");
+    const response = (messageId: string) => ({
+      items: [receipt(messageId, "gmail_live")],
+      page: 1,
+      per_page: 20,
+      total: 1,
+      has_more: false,
+    });
+    primeCachedGmailReceipts({ userId: "owner-1", accountKey: "first@example.com", response: response("first") });
+    primeCachedGmailReceipts({ userId: "owner-1", accountKey: "second@example.com", response: response("second") });
+    primeCachedGmailReceipts({ userId: "owner-2", accountKey: "first@example.com", response: response("other") });
+    window.sessionStorage.setItem(STORAGE_KEY, "old receipt rows");
+    const previousRevision = getGmailReceiptCacheRevision("owner-1");
+
+    clearCachedGmailReceipts("owner-1");
+
+    expect(getCachedGmailReceipts("owner-1", "first@example.com")).toBeNull();
+    expect(getCachedGmailReceipts("owner-1", "second@example.com")).toBeNull();
+    expect(getCachedGmailReceipts("owner-2", "first@example.com")?.items).toHaveLength(1);
+    expect(getGmailReceiptCacheRevision("owner-1")).toBeGreaterThan(previousRevision);
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
   it("keeps live receipt rows in memory without writing browser storage", async () => {
     const { primeCachedGmailReceipts } = await import(
       "@/lib/profile/gmail-receipts-cache"

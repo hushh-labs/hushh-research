@@ -11,6 +11,7 @@ from google.auth.exceptions import TransportError
 
 from api.middleware import (
     require_firebase_auth,
+    require_firebase_auth_read_only,
     require_vault_owner_token,
 )
 from api.routes import account
@@ -1229,6 +1230,251 @@ def test_delete_account_requires_vault_owner_token():
     response = client.delete("/api/account/delete")
 
     assert response.status_code == 401
+
+
+def _lost_vault_app(
+    monkeypatch,
+    *,
+    phone: str | None = None,
+    firebase_phone: str | None = None,
+    provider: str = "google.com",
+):
+    from firebase_admin import auth as firebase_auth
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "user_123"
+
+    async def _identity(_self, _user_ids):
+        return {
+            "user_123": {
+                "phone_number": phone,
+                "phone_verified": phone is not None,
+            }
+        }
+
+    monkeypatch.setattr(ActorIdentityService, "get_many", _identity)
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "get_user",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            provider_data=[SimpleNamespace(provider_id=provider)],
+            phone_number=firebase_phone,
+        ),
+    )
+    return app
+
+
+def test_lost_vault_options_mask_linked_phone_and_do_not_require_vault(monkeypatch):
+    app = _lost_vault_app(monkeypatch, phone="+15551239876")
+    response = TestClient(app).get("/api/account/delete-lost-vault/options")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json() == {
+        "phone_available": True,
+        "phone_hint": "••76",
+        "providers": ["google.com"],
+    }
+
+
+def test_lost_vault_options_require_firebase_phone_when_shadow_has_no_claim(monkeypatch):
+    app = _lost_vault_app(monkeypatch, firebase_phone="+15551239876")
+    response = TestClient(app).get("/api/account/delete-lost-vault/options")
+
+    assert response.status_code == 200
+    assert response.json()["phone_available"] is True
+    assert response.json()["phone_hint"] == "••76"
+
+
+def test_lost_vault_delete_cannot_bypass_firebase_phone_when_shadow_has_no_claim(
+    monkeypatch,
+):
+    from firebase_admin import auth as firebase_auth
+
+    app = _lost_vault_app(monkeypatch, firebase_phone="+15551239876")
+    deleted = []
+
+    async def _delete(_self, user_id: str, target: str = "both"):
+        deleted.append((user_id, target))
+        return {"success": True, "account_deleted": True}
+
+    monkeypatch.setattr(AccountService, "delete_account", _delete)
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {
+            "uid": "user_123",
+            "auth_time": account.time.time(),
+            "firebase": {"sign_in_provider": "google.com"},
+        },
+    )
+    response = TestClient(app).post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer fresh-provider-token"},
+        json={"method": "provider"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED"
+    assert deleted == []
+
+
+def test_lost_vault_delete_requires_fresh_provider_proof_and_erases_full_account(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    app = _lost_vault_app(monkeypatch)
+    deleted = []
+
+    async def _delete(_self, user_id: str, target: str = "both"):
+        deleted.append((user_id, target))
+        return {"success": True, "account_deleted": True, "details": {}}
+
+    async def _delete_firebase(_user_id: str):
+        return "deleted"
+
+    monkeypatch.setattr(AccountService, "delete_account", _delete)
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", _delete_firebase)
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {
+            "uid": "user_123",
+            "auth_time": account.time.time(),
+            "firebase": {"sign_in_provider": "google.com"},
+        },
+    )
+    response = TestClient(app).post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer fresh-provider-token"},
+        json={"method": "provider"},
+    )
+
+    assert response.status_code == 200
+    assert deleted == [("user_123", "both")]
+    assert response.json()["ready_to_start_fresh"] is True
+    assert response.json()["details"]["firebase_auth_user"] == "deleted"
+
+
+def test_lost_vault_delete_fails_closed_for_stale_provider_or_missing_phone_proof(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    app = _lost_vault_app(monkeypatch, phone="+15551239876")
+    deleted = []
+
+    async def _delete(_self, user_id: str, target: str = "both"):
+        deleted.append((user_id, target))
+        return {"success": True, "account_deleted": True}
+
+    monkeypatch.setattr(AccountService, "delete_account", _delete)
+    claims = {
+        "uid": "user_123",
+        "auth_time": account.time.time() - 600,
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    monkeypatch.setattr(firebase_auth, "verify_id_token", lambda *_args, **_kwargs: claims)
+    client = TestClient(app)
+    stale = client.post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer stale-provider-token"},
+        json={"method": "phone", "phone_id_token": "phone-token"},
+    )
+    assert stale.status_code == 401
+    assert stale.json()["detail"]["code"] == "ACCOUNT_DELETE_REAUTH_REQUIRED"
+
+    claims["auth_time"] = account.time.time()
+    no_phone = client.post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer fresh-provider-token"},
+        json={"method": "provider"},
+    )
+    assert no_phone.status_code == 403
+    assert no_phone.json()["detail"]["code"] == "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED"
+
+    claims.update(
+        {
+            "phone_number": "+15550000000",
+            "firebase": {"sign_in_provider": "phone"},
+        }
+    )
+    # A phone token for another number never authorizes erasure, even with a
+    # fresh provider session. Distinguish the two signed token payloads.
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda token, **_kwargs: (
+            {
+                "uid": "user_123",
+                "auth_time": account.time.time(),
+                "firebase": {"sign_in_provider": "google.com"},
+            }
+            if token == "fresh-provider-token"
+            else claims
+        ),
+    )
+    wrong_phone = client.post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer fresh-provider-token"},
+        json={"method": "phone", "phone_id_token": "wrong-phone-token"},
+    )
+    assert wrong_phone.status_code == 401
+    assert wrong_phone.json()["detail"]["code"] == "ACCOUNT_DELETE_PHONE_PROOF_INVALID"
+    assert deleted == []
+
+    # Phone proof cannot stand in for a fresh federated proof of the signed-in UID.
+    phone_only = client.post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer wrong-phone-token"},
+        json={"method": "phone", "phone_id_token": "wrong-phone-token"},
+    )
+    assert phone_only.status_code == 401
+    assert phone_only.json()["detail"]["code"] == "ACCOUNT_DELETE_REAUTH_REQUIRED"
+    assert deleted == []
+
+
+def test_lost_vault_delete_accepts_matching_fresh_phone_and_reports_pending_identity(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    app = _lost_vault_app(monkeypatch, phone="+15551239876")
+    deleted = []
+
+    async def _delete(_self, user_id: str, target: str = "both"):
+        deleted.append((user_id, target))
+        return {"success": True, "account_deleted": True, "details": {}}
+
+    async def _quarantine(_user_id: str):
+        return "quarantined"
+
+    monkeypatch.setattr(AccountService, "delete_account", _delete)
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", _quarantine)
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda token, **_kwargs: (
+            {
+                "uid": "user_123",
+                "auth_time": account.time.time(),
+                "firebase": {"sign_in_provider": "google.com"},
+            }
+            if token == "provider-token"
+            else {
+                "uid": "phone-session-uid",
+                "phone_number": "+15551239876",
+                "auth_time": account.time.time(),
+                "firebase": {"sign_in_provider": "phone"},
+            }
+        ),
+    )
+    response = TestClient(app).post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer provider-token"},
+        json={"method": "phone", "phone_id_token": "phone-token"},
+    )
+
+    assert response.status_code == 200
+    assert deleted == [("user_123", "both")]
+    assert response.json()["ready_to_start_fresh"] is False
+    assert response.json()["details"]["firebase_auth_user"] == "quarantined"
 
 
 def test_delete_firebase_auth_user_retries_once_before_success(monkeypatch):

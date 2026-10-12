@@ -1,3 +1,5 @@
+const notificationPrivacy = vi.hoisted(() => ({ clear: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("@/lib/notifications/fcm-service", () => ({ clearLocalChatNotificationState: notificationPrivacy.clear }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
 
@@ -334,6 +336,12 @@ describe("AuthService native same-user Google proof", () => {
 });
 
 describe("AuthService.signOut", () => {
+  it("scopes local notification cleanup to the departing owner", async () => {
+    notificationPrivacy.clear.mockResolvedValue(undefined);
+    await AuthService.signOut("departing-owner");
+    expect(notificationPrivacy.clear).toHaveBeenCalledWith("departing-owner");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(HushhAuth.signOut).mockResolvedValue(undefined);
@@ -807,6 +815,30 @@ describe("AuthService.restoreNativeSession", () => {
       autoVerified: false,
       verificationId: "link-verification-id",
     });
+  });
+
+  it("sends deletion proof to an already-linked phone without changing its binding", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockResolvedValue("delete-verification-id");
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return { verifyPhoneNumber };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: "+16505550100",
+    } as any;
+    const verifier = {} as any;
+
+    const verificationId = await AuthService.startPhoneDeletionVerification(
+      "+16505550100",
+      verifier,
+    );
+
+    expect(verificationId).toBe("delete-verification-id");
+    expect(verifyPhoneNumber).toHaveBeenCalledWith("+16505550100", verifier);
+    expect(mockUpdatePhoneNumber).not.toHaveBeenCalled();
+    expect(mockLinkWithCredential).not.toHaveBeenCalled();
+    expect(mockFirebaseAuthentication.unlink).not.toHaveBeenCalled();
   });
 
   it("starts local dev phone verification without calling Firebase for the configured test phone", async () => {

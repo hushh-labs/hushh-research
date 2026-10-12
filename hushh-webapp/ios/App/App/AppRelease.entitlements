@@ -10,9 +10,9 @@
 
   Applied only by the production release workflow via an archive-time build
   setting override:
-      CODE_SIGN_ENTITLEMENTS = App/AppRelease.entitlements
+      HUSSH_APP_ENTITLEMENTS = App/AppRelease.entitlements
   (see .github/workflows/release-ios-appstore.yml). The committed pbxproj is
-  left pointing at App/App.entitlements so no local/dev workflow changes.
+  left resolving to App/App.entitlements so no local/dev workflow changes.
 -->
 <plist version="1.0">
 <dict>
@@ -35,6 +35,9 @@
 	<array>
 		<string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>
 		<string>$(AppIdentifierPrefix)com.hushh.app.imessage</string>
+		<string>$(AppIdentifierPrefix)com.hussh.app.chatnotifications</string>
 	</array>
+	<key>com.apple.developer.usernotifications.communication</key>
+	<true/>
 </dict>
 </plist>

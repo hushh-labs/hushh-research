@@ -317,3 +317,45 @@ async def test_old_api_invoice_without_inline_metadata_reads_the_subscription(wo
     payload = json.dumps({"type": "invoice.paid", "data": {"object": invoice}}).encode()
     await orders.process_webhook(payload=payload, signature="good")
     assert await credits.balance("buyer") == PLANS["professional"]["credits"]
+
+
+async def test_uat_live_document_payments_cannot_spend_credits_or_touch_production_subscriptions(
+    world, monkeypatch
+):
+    orders, credits, db, fake = world
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_" + "x" * 30)
+    db.tables["pkm_credit_subscription_cancellations"] = [
+        {"stripe_subscription_id": "sub_production"}
+    ]
+    with pytest.raises(PacketOrderError):
+        await credits.create_subscription_checkout(user_id="buyer", plan="professional")
+    with pytest.raises(PacketOrderError):
+        await credits.cancel_at_period_end(user_id="buyer")
+    with pytest.raises(PacketOrderError):
+        await credits.spend(user_id="buyer", cost=1, ref="new-live-order")
+    assert await credits.cancel_deleted_subscriptions() == 0
+    await credits.handle_event(
+        {
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "object": "invoice",
+                    "id": "in_production",
+                    "subscription": "sub_production",
+                    "billing_reason": "subscription_cycle",
+                    "amount_paid": 1000,
+                    "metadata": {
+                        "payment_kind": "pkm_credits",
+                        "user_id": "buyer",
+                        "plan": "professional",
+                    },
+                }
+            },
+        }
+    )
+    assert fake.cancelled == []
+    assert not db.tables.get("pkm_credit_subscriptions")
+    assert not db.tables.get("pkm_credit_ledger")

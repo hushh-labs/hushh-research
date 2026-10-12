@@ -160,6 +160,8 @@ export function runChatOnboardingEvent(
 }
 
 export type ChatOnboardingController = {
+  /** Owner progress is loaded and personality onboarding is finished or not due. */
+  resolved: boolean;
   /** Onboarding turns to render (empty when there is nothing to show). */
   turns: readonly ChatOnboardingTurn[];
   /** The one assistant turn whose chips are live, if any. */
@@ -237,15 +239,39 @@ export function useChatOnboarding(input: {
   useEffect(() => {
     if (!userId || session.userId !== userId || session.durable !== undefined) return;
     let active = true;
-    void PreVaultUserStateService.bootstrapState(userId)
-      .then((state) => {
-        if (active && useChatOnboardingSession.getState().userId === userId) {
-          useChatOnboardingSession.getState().patch({ durable: state.oneChatOnboarding });
-        }
-      })
-      .catch(() => undefined);
+    let inFlight = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let backoff = 5000;
+    const load = () => {
+      const current = useChatOnboardingSession.getState();
+      if (!active || inFlight || current.userId !== userId || current.durable !== undefined) return;
+      clearTimeout(retryTimer);
+      inFlight = true;
+      void PreVaultUserStateService.bootstrapState(userId)
+        .then((state) => {
+          if (active && useChatOnboardingSession.getState().userId === userId) {
+            useChatOnboardingSession.getState().patch({ durable: state.oneChatOnboarding });
+          }
+        })
+        .catch(() => {
+          // Never treat a failed read as completed onboarding, but do not leave
+          // discovery disabled forever after a transient bootstrap failure.
+          if (active) {
+            retryTimer = setTimeout(load, backoff);
+            backoff = Math.min(backoff * 2, 30_000);
+          }
+        })
+        .finally(() => { inFlight = false; });
+    };
+    const resume = () => { if (document.visibilityState === "visible") load(); };
+    load();
+    window.addEventListener("online", load);
+    document.addEventListener("visibilitychange", resume);
     return () => {
       active = false;
+      clearTimeout(retryTimer);
+      window.removeEventListener("online", load);
+      document.removeEventListener("visibilitychange", resume);
     };
   }, [userId, session.userId, session.durable]);
 
@@ -291,7 +317,7 @@ export function useChatOnboarding(input: {
   const captureComposerText = useCallback(
     (text: string) => {
       if (!isAwaitingTypedName(useChatOnboardingSession.getState().machine)) return false;
-      return dispatch({ type: "typed_answer", text, anchor: anchor() }) === true;
+      return dispatch({ type: "typed_answer", text, anchor: anchor(), today: localCalendarDate() }) === true;
     },
     [anchor, dispatch],
   );
@@ -316,6 +342,9 @@ export function useChatOnboarding(input: {
     input.conversationId !== session.homeConversationId;
   const visible = ready && !finishedElsewhere ? session.machine : null;
   return {
+    resolved: ready && session.durable !== undefined && (session.machine
+      ? session.machine.step === "done"
+      : session.durable?.status === "completed" || (session.durable === null && !input.startSignal)),
     turns: visible?.turns ?? [],
     activeChipTurnId: activeChipTurnId(visible),
     shownTurns: session.shownTurns,

@@ -8,6 +8,10 @@ import {
   isIncomingLocationRequestActionable,
   isSmsEmergencyGrant,
 } from "@/lib/feed/use-feed-actionables";
+import {
+  isOwnerDecidableDocumentRequest,
+  ownerDocumentDecision,
+} from "@/lib/consent/document-request-decision";
 import type { DebateRunTask } from "@/lib/services/debate-run-manager";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type {
@@ -50,6 +54,67 @@ describe("isConsentFeedActionable", () => {
       }),
     ).toBe(false);
     expect(isConsentFeedActionable({ ...documentRequest(true), kind: "connection_request" })).toBe(false);
+  });
+});
+
+describe("isOwnerDecidableDocumentRequest", () => {
+  const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
+
+  function decidable(
+    metadata: Record<string, unknown> = {},
+    entry: Partial<ConsentCenterEntry> = {},
+  ): ConsentCenterEntry {
+    const base = documentRequest(true);
+    return {
+      ...base,
+      ...entry,
+      metadata: {
+        ...base.metadata,
+        revision: 4,
+        owner_decision_available: true,
+        payment_required: true,
+        ...metadata,
+      },
+    };
+  }
+
+  it("lets the owner answer only what the server marked answerable", () => {
+    expect(isOwnerDecidableDocumentRequest(decidable())).toBe(true);
+    expect(ownerDocumentDecision(decidable())).toEqual({
+      requestId: REQUEST_ID,
+      revision: 4,
+      paymentRequired: true,
+    });
+    expect(ownerDocumentDecision(decidable({ payment_required: false }))?.paymentRequired).toBe(false);
+    // Negative controls: an older server (no flag), or one that says no.
+    expect(isOwnerDecidableDocumentRequest(documentRequest(true))).toBe(false);
+    expect(isOwnerDecidableDocumentRequest(decidable({ owner_decision_available: false }))).toBe(false);
+    expect(isOwnerDecidableDocumentRequest(decidable({ owner_decision_available: "true" }))).toBe(false);
+  });
+
+  it("never offers the requester's own outgoing request", () => {
+    expect(
+      isOwnerDecidableDocumentRequest(
+        decidable({ direction: "outgoing" }, { kind: "outgoing_request" }),
+      ),
+    ).toBe(false);
+    expect(isOwnerDecidableDocumentRequest(decidable({ direction: "outgoing" }))).toBe(false);
+    expect(isOwnerDecidableDocumentRequest(decidable({}, { kind: "outgoing_request" }))).toBe(false);
+  });
+
+  it("refuses an entry it could not decide against", () => {
+    for (const revision of [undefined, null, "4", 4.5, -1]) {
+      expect(isOwnerDecidableDocumentRequest(decidable({ revision }))).toBe(false);
+    }
+    // A Drive question, or an id that is not a request UUID, is not a document request.
+    expect(
+      isOwnerDecidableDocumentRequest(
+        decidable({ request_source: "drive_live_query_request" }, { id: `drive_query_request:${REQUEST_ID}` }),
+      ),
+    ).toBe(false);
+    expect(
+      isOwnerDecidableDocumentRequest(decidable({}, { id: "document_share_request:not-a-uuid" })),
+    ).toBe(false);
   });
 });
 

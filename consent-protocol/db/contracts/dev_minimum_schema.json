@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 283,
+  "expected_migration_version": 325,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -10,7 +10,6 @@
     "resolve_feed_counterpart_user_id",
     "populate_feed_counterpart_identity",
     "merge_pkm_domain_summary",
-    "remove_domain_summary_key",
     "upsert_pkm_data_blob",
     "auto_register_domain",
     "get_user_pkm_metadata",
@@ -36,6 +35,7 @@
     "clear_location_presence_rating_visit",
     "preserve_active_location_rating_visit",
     "require_active_direct_message_connection",
+    "guard_direct_message_attachment_write",
     "guard_direct_message_block_write",
     "guard_direct_message_conversation_write",
     "guard_direct_message_message_write",
@@ -44,6 +44,7 @@
     "notify_direct_message_recipient",
     "project_direct_message_feed_event",
     "remove_direct_message_feed_event",
+    "record_circle_chat_membership_event",
     "circle_chat_membership_ended",
     "circle_chat_recipient_deleted",
     "circle_chat_circle_deleted",
@@ -53,7 +54,28 @@
     "feed_from_bulk_share_outcome",
     "pkm_grant_credits",
     "pkm_spend_credits",
-    "bump_gmail_send_grant_generation"
+    "bump_gmail_send_grant_generation",
+    "notify_document_request_feed_changed",
+    "queue_direct_message_push",
+    "reconcile_legacy_push_owner",
+    "erase_tombstoned_push_registrations",
+    "restore_legacy_push_projection",
+    "preserve_drive_owner_delivery_basis",
+    "preserve_drive_request_owner_payout",
+    "notify_document_owner_earning_changed",
+    "mirror_drive_request_stripe_mode",
+    "bind_stripe_checkout_mode",
+    "bind_drive_settlement_method",
+    "guard_hashcoin_direct_transfer",
+    "reject_hashcoin_ledger_mutation",
+    "detach_hashcoin_wallet_owner",
+    "guard_hashcoin_redemption",
+    "activate_reserved_wallet_cards",
+    "remove_wallet_card_registrations",
+    "guard_wallet_card_access_grant",
+    "notify_pkm_answer_changed",
+    "notify_feed_changed",
+    "stamp_drive_owner_payout_held_at"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -164,6 +186,22 @@
       "created_at",
       "completed_at"
     ],
+    "chat_push_device_deliveries": [
+      "event_id",
+      "device_id",
+      "recipient_user_id",
+      "direct_message_id",
+      "circle_message_id",
+      "accepted_at"
+    ],
+    "circle_chat_membership_events": [
+      "id",
+      "circle_id",
+      "kind",
+      "subject_user_id",
+      "actor_user_id",
+      "created_at"
+    ],
     "circle_chat_messages": [
       "original_recipient_count",
       "id",
@@ -176,12 +214,19 @@
       "image_ciphertext",
       "image_iv",
       "request_digest",
-      "created_at"
+      "created_at",
+      "notification_previews"
     ],
     "circle_chat_preferences": [
       "circle_id",
       "user_id",
       "muted"
+    ],
+    "circle_chat_reactions": [
+      "message_id",
+      "user_id",
+      "emoji",
+      "created_at"
     ],
     "circle_chat_recipients": [
       "message_id",
@@ -430,11 +475,26 @@
       "revoked_at",
       "last_used_at"
     ],
+    "direct_message_attachments": [
+      "message_id",
+      "ciphertext",
+      "iv",
+      "content_digest",
+      "size_bytes",
+      "created_at"
+    ],
     "direct_message_blocks": [
       "id",
       "blocker_user_id",
       "blocked_user_id",
       "created_at"
+    ],
+    "direct_message_push_outbox": [
+      "message_id",
+      "recipient_user_id",
+      "status",
+      "attempts",
+      "due_at"
     ],
     "direct_message_reactions": [
       "message_id",
@@ -657,6 +717,74 @@
       "notification_error_code",
       "notification_settled_at"
     ],
+    "drive_request_bulk_removals": [
+      "removal_id",
+      "request_id",
+      "user_id",
+      "share_id",
+      "position",
+      "recipient_user_id",
+      "plan_envelope",
+      "state",
+      "lease_id",
+      "lease_expires_at",
+      "attempts",
+      "next_at",
+      "safe_error_code",
+      "created_at",
+      "updated_at"
+    ],
+    "drive_request_owner_payouts": [
+      "request_id",
+      "gross_amount_cents",
+      "currency",
+      "commission_bps",
+      "status",
+      "expected_files",
+      "confirmed_files",
+      "retained_amount_cents",
+      "refund_amount_cents",
+      "platform_fee_cents",
+      "actual_processing_fee_cents",
+      "allocated_processing_fee_cents",
+      "owner_earning_cents",
+      "finalized_at",
+      "stripe_payment_intent_id",
+      "stripe_charge_id",
+      "stripe_balance_transaction_id",
+      "destination_account_id",
+      "stripe_transfer_id",
+      "transfer_attempt_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "next_check_at",
+      "transferred_at",
+      "reversal_amount_cents",
+      "stripe_reversal_id",
+      "reversal_attempt_id",
+      "reversal_first_dispatch_at",
+      "reversal_lease_expires_at",
+      "reversed_at",
+      "erased_at",
+      "eligible_at_erasure",
+      "safe_error_code",
+      "created_at",
+      "updated_at",
+      "stripe_mode",
+      "settlement_method",
+      "wallet_id",
+      "sandbox_wallet_id",
+      "credited_at",
+      "held_at"
+    ],
+    "drive_request_owner_pricing": [
+      "user_id",
+      "enabled",
+      "amount_cents",
+      "version",
+      "created_at",
+      "updated_at"
+    ],
     "drive_request_payment_obligations": [
       "request_id",
       "payer_ref",
@@ -672,7 +800,9 @@
       "delivery_confirmed_at_erasure",
       "delivery_unsettled_at_erasure",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode",
+      "settlement_method"
     ],
     "drive_request_payment_orders": [
       "request_id",
@@ -691,11 +821,14 @@
       "reconciliation_reason",
       "reconciliation_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode",
+      "settlement_method"
     ],
     "drive_request_payment_refunds": [
       "request_id",
       "attempt_id",
+      "amount_cents",
       "status",
       "stripe_refund_id",
       "first_dispatch_at",
@@ -795,7 +928,15 @@
       "bulk_search_started_at",
       "created_at",
       "updated_at",
-      "expires_at"
+      "expires_at",
+      "access_stop_requested_at",
+      "owner_allowed_at",
+      "quoted_amount_cents",
+      "quote_version",
+      "settlement_method",
+      "initial_quote_cents",
+      "review_requested_at",
+      "review_request_count"
     ],
     "drive_share_reviews": [
       "request_id",
@@ -1039,6 +1180,53 @@
       "disconnected_at",
       "created_at",
       "updated_at"
+    ],
+    "hashcoin_ledger_entries": [
+      "entry_id",
+      "wallet_id",
+      "entry_kind",
+      "source_ref",
+      "amount_coins",
+      "created_at"
+    ],
+    "hashcoin_redemptions": [
+      "redemption_id",
+      "wallet_id",
+      "request_key",
+      "source_request_id",
+      "source_charge_id",
+      "source_payment_intent_id",
+      "source_gross_cents",
+      "source_refund_cents",
+      "last_provider_checked_at",
+      "provider_review_reason",
+      "provider_reversed_amount_coins",
+      "reversal_status",
+      "stripe_reversal_id",
+      "reversal_attempt_id",
+      "reversal_first_dispatch_at",
+      "reversal_lease_expires_at",
+      "reversal_next_check_at",
+      "reversal_review_reason",
+      "amount_coins",
+      "stripe_mode",
+      "destination_account_id",
+      "status",
+      "stripe_transfer_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "attempt_id",
+      "created_at",
+      "updated_at"
+    ],
+    "hashcoin_wallets": [
+      "wallet_id",
+      "user_id",
+      "stripe_mode",
+      "currency",
+      "held",
+      "erased_at",
+      "created_at"
     ],
     "investor_profiles": [
       "id",
@@ -1445,6 +1633,135 @@
       "created_at",
       "updated_at"
     ],
+    "pkm_answer_deliveries": [
+      "request_id",
+      "recipient_key_id",
+      "ciphertext",
+      "iv",
+      "sender_ephemeral_public_key_jwk",
+      "algorithm",
+      "source_revisions",
+      "has_content",
+      "created_at"
+    ],
+    "pkm_answer_owner_payouts": [
+      "request_id",
+      "gross_amount_cents",
+      "currency",
+      "commission_bps",
+      "status",
+      "platform_fee_cents",
+      "owner_earning_cents",
+      "destination_account_id",
+      "stripe_transfer_id",
+      "transfer_attempt_id",
+      "lease_expires_at",
+      "next_check_at",
+      "attempts",
+      "safe_error_code",
+      "finalized_at",
+      "transferred_at",
+      "created_at",
+      "updated_at",
+      "first_dispatch_at"
+    ],
+    "pkm_answer_payment_obligations": [
+      "request_id",
+      "payer_ref",
+      "amount_cents",
+      "currency",
+      "status",
+      "checkout_attempt_id",
+      "stripe_checkout_session_id",
+      "stripe_payment_intent_id",
+      "paid_at",
+      "reconciliation_required",
+      "erased_at",
+      "delivery_confirmed_at_erasure",
+      "delivery_unsettled_at_erasure",
+      "created_at",
+      "updated_at",
+      "stripe_mode"
+    ],
+    "pkm_answer_payment_orders": [
+      "request_id",
+      "owner_user_id",
+      "requester_user_id",
+      "amount_cents",
+      "currency",
+      "terms_digest",
+      "status",
+      "checkout_attempt_id",
+      "stripe_checkout_session_id",
+      "stripe_checkout_url",
+      "stripe_checkout_expires_at",
+      "stripe_payment_intent_id",
+      "stripe_refund_id",
+      "paid_at",
+      "refunded_at",
+      "refund_reason",
+      "reconciliation_required",
+      "reconciliation_reason",
+      "reconciliation_at",
+      "owner_earning_status",
+      "platform_fee_cents",
+      "stripe_transfer_id",
+      "transferred_at",
+      "created_at",
+      "updated_at",
+      "stripe_mode"
+    ],
+    "pkm_answer_payment_refunds": [
+      "request_id",
+      "attempt_id",
+      "reason",
+      "status",
+      "stripe_refund_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "next_check_at",
+      "attempts",
+      "safe_error_code",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_answer_payment_webhook_events": [
+      "stripe_event_id",
+      "stripe_checkout_session_id",
+      "request_id",
+      "created_at"
+    ],
+    "pkm_answer_request_scopes": [
+      "request_id",
+      "scope",
+      "label",
+      "approved"
+    ],
+    "pkm_answer_requests": [
+      "request_id",
+      "owner_user_id",
+      "requester_user_id",
+      "question",
+      "period_start",
+      "period_end",
+      "status",
+      "amount_cents",
+      "currency",
+      "terms_digest",
+      "resolution_mode",
+      "resolution_skipped_reason",
+      "approved_at",
+      "declined_at",
+      "answer_deadline_at",
+      "answered_at",
+      "cancelled_at",
+      "expires_at",
+      "created_at",
+      "updated_at",
+      "composer_consent_at",
+      "composer_consent_version",
+      "composer_consent_digest"
+    ],
     "pkm_blobs": [
       "user_id",
       "domain",
@@ -1580,7 +1897,8 @@
       "details_submitted",
       "payouts_enabled",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "account_ready"
     ],
     "pkm_packet_orders": [
       "id",
@@ -1605,7 +1923,8 @@
       "credits_spent",
       "owner_earning_status",
       "stripe_transfer_id",
-      "transferred_at"
+      "transferred_at",
+      "stripe_mode"
     ],
     "pkm_packets": [
       "id",
@@ -1802,6 +2121,92 @@
       "last_active_persona",
       "updated_at"
     ],
+    "stripe_connect_balance_snapshots": [
+      "stripe_account_id",
+      "livemode",
+      "currency",
+      "available_cents",
+      "pending_cents",
+      "next_available_on",
+      "next_available_cents",
+      "fetched_at",
+      "refresh_started_at",
+      "refresh_due_at",
+      "updated_at"
+    ],
+    "stripe_connect_balance_transactions": [
+      "stripe_balance_transaction_id",
+      "stripe_account_id",
+      "livemode",
+      "txn_type",
+      "amount_cents",
+      "fee_cents",
+      "net_cents",
+      "status",
+      "available_on",
+      "provider_created_at",
+      "source_id",
+      "source_transfer_id",
+      "source_charge_id",
+      "stripe_payout_id",
+      "observed_at",
+      "updated_at"
+    ],
+    "stripe_connect_bank_payout_events": [
+      "stripe_event_id",
+      "stripe_account_id",
+      "event_type",
+      "stripe_object_id",
+      "livemode",
+      "processed_at"
+    ],
+    "stripe_connect_bank_payouts": [
+      "stripe_payout_id",
+      "stripe_account_id",
+      "livemode",
+      "amount_cents",
+      "currency",
+      "status",
+      "status_rank",
+      "expected_arrival_at",
+      "failure_code",
+      "created_at",
+      "updated_at",
+      "destination_id",
+      "destination_kind",
+      "destination_bank_name",
+      "destination_last4",
+      "payout_method",
+      "automatic",
+      "trace_status",
+      "trace_value",
+      "reconciliation_status",
+      "provider_observed_at",
+      "status_changed_at",
+      "paid_at",
+      "failed_at"
+    ],
+    "stripe_connect_payout_reconciliations": [
+      "stripe_payout_id",
+      "stripe_account_id",
+      "status",
+      "cursor",
+      "scan_started_at",
+      "completed_at",
+      "updated_at"
+    ],
+    "stripe_owner_payout_accounts": [
+      "user_id",
+      "stripe_mode",
+      "stripe_account_id",
+      "details_submitted",
+      "payouts_enabled",
+      "account_ready",
+      "bank_payout_scan_started_at",
+      "bank_payout_scan_cursor",
+      "created_at",
+      "updated_at"
+    ],
     "trusted_connections": [
       "id",
       "owner_user_id",
@@ -1893,6 +2298,26 @@
       "revocation_outcome",
       "revocation_pending_until"
     ],
+    "user_push_installations": [
+      "id",
+      "user_id",
+      "token",
+      "platform",
+      "device_id",
+      "preview_key_id",
+      "preview_public_key",
+      "created_at",
+      "updated_at"
+    ],
+    "user_push_tokens": [
+      "id",
+      "user_id",
+      "token",
+      "platform",
+      "device_id",
+      "preview_key_id",
+      "preview_public_key"
+    ],
     "vault_keys": [
       "user_id",
       "vault_status",
@@ -1904,8 +2329,56 @@
       "recovery_iv",
       "one_runtime_setup_choice",
       "one_chat_onboarding",
+      "one_business_profile_saved",
+      "one_magic_intelligence_saved",
       "created_at",
       "updated_at"
+    ],
+    "wallet_card_access_audit": [
+      "id",
+      "grant_id",
+      "event_type",
+      "profile_grant_id"
+    ],
+    "wallet_card_access_grants": [
+      "id",
+      "recipient_user_id",
+      "message_id",
+      "revoked_at",
+      "last_accessed_at",
+      "trusted_at_creation",
+      "verification_attempts"
+    ],
+    "wallet_card_registrations": [
+      "owner_user_id",
+      "card_id",
+      "state",
+      "source_commit_id",
+      "source_projection",
+      "source_projection_revision"
+    ],
+    "wallet_card_share_requests": [
+      "owner_user_id",
+      "request_id",
+      "expires_at"
+    ],
+    "wallet_profile_access_grants": [
+      "id",
+      "owner_user_id",
+      "recipient_user_id",
+      "card_id",
+      "permitted_fields",
+      "trusted_at_creation",
+      "last_accessed_at",
+      "verification_attempts",
+      "revoked_at"
+    ],
+    "wallet_profile_share_requests": [
+      "owner_user_id",
+      "request_id",
+      "card_id",
+      "expires_at",
+      "duration_minutes"
     ]
   }
 }

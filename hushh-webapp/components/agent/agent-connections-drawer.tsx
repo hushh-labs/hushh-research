@@ -299,19 +299,12 @@ export function AgentConnectionsDrawer({
             inert={!historyDisplayed || externalModalOpen}
             onKeyDown={keyDown}
             className={cn(
-              // Full height, flush to the leading edge, on the sheet tier: the panel
-              // runs over the chat header and the bottom bar, and its surface pads
-              // the safe areas itself (so the notch is surface, not a gap). Phones
-              // get a nearly full-width panel that leaves a strip of scrim to tap
-              // closed; from md up it keeps the drawer's 336px. Closed, it also
-              // clears its own shadow. Motion uses the shared sheet tier.
-              // Keep endpoints on transform: Tailwind translate utilities use a
-              // separate property, bypassing both this transition and re-grabbing.
-              "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) touch-pan-y transition-[transform,visibility] motion-reduce:transition-none",
-              "w-[min(88vw,360px)] md:w-[336px]",
+              // Match Profile's bounded inset card at the leading edge. The
+              // shared CSS owns geometry; this owner retains focus and motion.
+              "pointer-events-none fixed z-(--z-sheet) touch-pan-y transform transition-[transform,visibility] motion-reduce:transition-none",
               historyDisplayed
-                ? "visible [transform:translate3d(0,0,0)] duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
-                : "invisible [transform:translate3d(-100%,0,0)] duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
+                ? "visible translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
+                : "invisible translate-x-[calc(-100%_-_var(--agent-history-shadow-clearance)_-_var(--app-side-pane-left-inset))] duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
             )}
           >
             <div

@@ -946,7 +946,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ownsExpectedSession = stillOwnsExpectedSession();
           if (!ownsExpectedSession) return;
 
-          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut()];
+          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(currentUid)];
           // The httpOnly session cookie exists only on the web/Next.js origin.
           // Native static builds authenticate directly against the backend, where
           // `/api/auth/session` is intentionally not a route.
@@ -1242,7 +1242,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const invalidatedUserId = eventUserId || currentUserId;
       if (
         invalidatedUserId &&
-        (code === "account_not_found" || code === "account_deleted")
+        (code === "account_not_found" || code === "account_deleted" || code === "account_deleted_ready_to_start_fresh" || code === "account_deletion_finishing")
       ) {
         // The backend or Firebase confirmed this account is gone (never an
         // uncertain outcome or a disabled account), so the device key material

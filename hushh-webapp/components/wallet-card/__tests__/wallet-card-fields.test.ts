@@ -149,10 +149,15 @@ describe("wallet card draft validation", () => {
     ).toBeTruthy();
   });
 
+  it("allows a basic profile when no contact information is available", () => {
+    expect(validateDraft(EMPTY_WALLET_CARD_DRAFT)).toEqual({});
+  });
+
   it("will not let the preferred contact point at an empty field", () => {
     const errors = validateDraft({
       ...EMPTY_WALLET_CARD_DRAFT,
       preferredContact: "linkedin",
+      email: "ada@example.com",
     });
 
     expect(errors.preferredContact).toBeTruthy();

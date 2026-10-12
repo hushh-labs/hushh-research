@@ -55,6 +55,48 @@ Hussh frontend cache is split by sensitivity and runtime role:
 
 Every DB-backed mutation must still pass through `CacheSyncService` so views stay coherent without ad-hoc invalidation.
 
+## Feed and payout updates
+
+The authenticated app shares one `/api/consent/document-feed/{uid}` stream per
+owner in each tab. Web uses a fixed same-origin proxy; native uses the existing
+streaming transport. Firebase authentication authorizes metadata hints only.
+Payout and private document snapshots still require their existing owner/vault
+authorization. No vault key, document content, amount, or bank detail enters a
+notification payload. This does not change which payment metadata the server
+must process for Stripe.
+
+Migration 313 emits a committed `feed_changed` hint for Feed inserts, updates,
+and deletes, including changes to read state. General hints invalidate Feed
+list/unread caches through `CacheSyncService.onFeedChanged`. Document hints keep
+their validated request UUID; bank changes and reset hints reconcile the relevant
+owner snapshots. Notifications are lossy wake-ups, never payment authority or a
+durable transaction journal. Initial connection, listener recovery, and Feed
+queue overflow send `feed_reset`; authenticated reads recover the current state.
+Legacy consent queues remain separate from Feed-only burst/reset handling.
+
+The backend shares its existing LISTEN connection, expires Feed streams after
+120 seconds, rechecks authentication every 30 seconds using the existing verifier
+(including its revocation-cache policy), and bounds a stalled send to 10 seconds.
+Clients bound token/header/silent-read waits to 10/15/45 seconds, reconnect with
+jitter and backoff, stop in the background, and repair on return. Unhealthy streams
+retain a visible-page 45-second fallback. Bursts are coalesced with a trailing
+snapshot; briefings separately limit provider refreshes to once per 15 seconds.
+These are recovery bounds, not a zero-latency or bank-arrival guarantee.
+
+Bank display status uses a process-local 30-second cache (at most 256 entries),
+keyed by owner, Stripe mode, provider-configuration digest, and connected-account
+binding. Reads still resolve the current binding. Concurrent readers share the
+provider request. Verified bank webhooks and their cross-process DB notifications
+invalidate it; Stripe return, foreground, and explicit retry can request a fresh
+provider snapshot. The display loader does not write readiness or resume work.
+Redemption and transfer authorization always use fresh provider verification.
+The cache holds only masked display metadata in memory; it does not persist
+decrypted vault content or keys. Client responses remain `private, no-store` and
+are fenced to their owner and vault generation.
+
+Protocol references: [SSE lifecycle](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
+and [Stripe webhook verification and delivery behavior](https://docs.stripe.com/webhooks).
+
 Source files:
 - `hushh-webapp/lib/services/cache-service.ts`
 - `hushh-webapp/lib/cache/cache-sync-service.ts`
@@ -309,6 +351,19 @@ The `verify:cache` script hard-fails when critical mutation/auth paths bypass `C
 The `audit:cache-coherence` script hard-fails when the screen cache manifest is stale or when a physical screen is missing route/surface-map coverage.
 
 ## Reconciliation Notes
+
+### Business Review freshness and recovery
+
+Explicit Review forces both metadata and domain ciphertext reads. A normal
+background read may join an authoritative read, but not the reverse. Per-domain
+publication tickets and the existing PKM mutation epoch prevent an older response
+(including an empty response) from replacing the newer encrypted cache. Domain
+resources also discard late decrypted results after the vault-session epoch
+changes. In-flight reads and working sets are epoch-scoped, and device writes
+serialize stale cleanup before a successor session can publish. Working-context
+warm-up failures do not consume a current session's
+explicit Review attempt. All keys and decrypted context remain memory-only;
+existing secure device snapshots remain encrypted.
 
 ### Cross-route PKM freshness (2026-09-02)
 
