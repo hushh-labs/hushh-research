@@ -22,7 +22,7 @@
  */
 
 import { buildMemoryDocument, type MemoryAccountIdentity } from "@/lib/pkm/memory-document";
-import type { MemoryDocument } from "@/lib/pkm/memory-document";
+import type { MemoryDocument, MemoryDocumentSourceDomain } from "@/lib/pkm/memory-document";
 import type { PkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
 
 const EMPTY_SNAPSHOT: PkmMemorySnapshot = { cards: [], domainInsights: [], totalCards: 0 };
@@ -32,6 +32,7 @@ export interface AnswerMemorySliceParams {
   byScope: Record<string, unknown>;
   /** `content_revision` per scope, for honest freshness in the document. */
   sourceRevisions: Record<string, number | null>;
+  sourceManifestRevisions?: Record<string, number | null>;
   /** The owner's own public identity, as the requester already sees it. */
   ownerIdentity?: {
     displayName?: string | null;
@@ -85,28 +86,28 @@ function mergeInto(target: Record<string, unknown>, source: unknown): void {
  */
 export function buildAnswerMemorySlice(params: AnswerMemorySliceParams): MemoryDocument {
   const domainData: Record<string, unknown> = {};
-  const sources: { domain: string; contentRevision: number | null }[] = [];
+  const sources: MemoryDocumentSourceDomain[] = [];
   const revisionByDomain = new Map<string, number | null>();
 
   for (const [scope, payload] of Object.entries(params.byScope)) {
     const domain = scopeDomain(scope);
     if (!domain) continue;
     const bucket = (domainData[domain] ??= {}) as Record<string, unknown>;
-    mergeInto(bucket, payload);
+    mergeInto(bucket, isRecord(payload) && isRecord(payload[domain]) ? payload[domain] : payload);
     // Keep the oldest revision across the domain's scopes: a section is only
     // as current as its least current input.
     const revision = params.sourceRevisions[scope] ?? null;
     if (!revisionByDomain.has(domain)) revisionByDomain.set(domain, revision);
     else {
       const existing = revisionByDomain.get(domain) ?? null;
-      if (existing === null || (revision !== null && revision < existing)) {
-        revisionByDomain.set(domain, revision);
-      }
+      revisionByDomain.set(domain, existing === null || revision === null ? null : Math.min(existing, revision));
     }
   }
 
   for (const [domain, contentRevision] of revisionByDomain) {
-    sources.push({ domain, contentRevision });
+    const domainScopes = Object.keys(params.byScope).filter(scope => scopeDomain(scope) === domain);
+    const revisions = domainScopes.map(scope => params.sourceManifestRevisions?.[scope] ?? null);
+    sources.push({ domain, contentRevision, manifestRevision: revisions.some(value => value === null) ? null : Math.min(...revisions as number[]) });
   }
 
   const identity = params.ownerIdentity || null;

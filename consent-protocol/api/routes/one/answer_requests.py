@@ -80,6 +80,8 @@ _STATUS = {
     "payment_required": 402,
     "terms_changed": 409,
     "payment_not_ready": 409,
+    "answer_not_ready": 409,
+    "answer_not_found": 409,
     "payment_already_paid": 409,
     # The requester paid a session we were about to replace; the webhook
     # settles it. Retrying checkout would double-charge.
