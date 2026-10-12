@@ -437,6 +437,14 @@ emits only the owner-scoped `bank_payout_changed` wake signal. Amounts, request
 text and provider identifiers stay out of that signal. Clients then reread their
 own authenticated history; Postgres notification is a wakeup, not the ledger.
 
+Migration 318 keeps that trigger and gives its signal the same shape as every
+other payout doorbell: `kinds` (here `earnings` and `wallet`) and an optional
+`request_id`. Kinds are `wallet`, `earnings`, `bank_payouts`, `account` and
+`balance`; missing or unknown kinds mean all of them. v1 Feed streams turn a
+burst of payout doorbells into one `feed_reset`; v2 streams send
+`payout_changed` with the kinds and request IDs. See the
+[Feed stream frames](../architecture/api-contracts.md#sse-server-sent-events).
+
 The rollback drops the trigger, its function and readiness cache without
 changing requests, charges, refunds, transfers or balances. Reapplying starts
 cached readiness at false. Roll back application/worker readers before dropping
@@ -493,6 +501,33 @@ before changing a local order. A full refund keeps the order's
 `reconciliation_required` hold until confirmation; a partial refund preserves the
 paid order for files that were actually delivered. A browser return or operator
 assumption is never payment or refund proof.
+
+### Withdrawal and late payments
+
+A requester can withdraw a pending, preparing, review-ready or approved request
+until it is paid or a file share reaches Google. After that, withdrawal and the
+owner's decline both return `409 request_paid`. Withdrawal expires the unpaid
+order and clears its Checkout URL but keeps the session and attempt IDs, so a
+late signed payment still binds to the order. After commit, the API asks Stripe
+to expire the open Checkout Session, best effort within 4 s. A payment that
+completes anyway settles as `request_closed` and is refunded in full
+automatically; no operator action is needed.
+
+These info-level log events mark a Checkout whose end Hussh could not confirm.
+None of them changes money state; the signed webhook and the refund worker stay
+the authority.
+
+- `drive_request.checkout_expire_unconfirmed`: Stripe's expire call failed or
+  timed out.
+- `drive_request.checkout_state_unreadable`: the follow-up session read also
+  failed.
+- `drive_request.checkout_retire_unknown error=…`: the retire step failed or
+  ran past 4 s.
+- `drive_request.withdraw_checkout_unconfirmed error=…`: the withdrawal
+  returned without a verdict from Stripe.
+
+If one appears, check `drive_request_payment_orders` and
+`drive_request_payment_refunds` for that request after the next refund drain.
 
 ### UAT Hussh Coins activation
 

@@ -34,6 +34,17 @@ from hushh_mcp.services.drive_owner_allowed import (
     owner_allowed_record,
     valid_owner_price_cents,
 )
+from hushh_mcp.services.drive_request_payment_view import (
+    order_view_input,
+    requester_payment_view,
+)
+from hushh_mcp.services.drive_request_requester_store import (
+    REQUESTER_ORIGIN,
+    requester_price_view,
+)
+from hushh_mcp.services.drive_request_requester_store import (
+    requester_context as read_requester_context,
+)
 from hushh_mcp.services.drive_sharing_contract import (
     BROAD_TRUST_DISCLOSURE,
     BROAD_TRUST_SCOPE,
@@ -214,6 +225,16 @@ class DriveSharingStore(DriveDocumentStore):
             if row.get("quoted_amount_cents") is not None:
                 result["quotedAmountCents"] = row["quoted_amount_cents"]
                 result["quoteVersion"] = row["quote_version"]
+            # The requester's estimate, owner price and final price. Only a
+            # caller that read the order (its amount, or NULL for none) passes
+            # order_amount_cents, so a row without it never claims a price.
+            if recipient and "order_amount_cents" in row:
+                result["price"] = requester_price_view(
+                    initial_quote_cents=row.get("initial_quote_cents"),
+                    quoted_amount_cents=row.get("quoted_amount_cents"),
+                    owner_allowed=row.get("owner_allowed_at") is not None,
+                    order_amount_cents=row["order_amount_cents"],
+                )
         return result
 
     def _owner_pricing(self, connection, owner_user_id: str) -> dict:
@@ -536,18 +557,39 @@ class DriveSharingStore(DriveDocumentStore):
 
     @staticmethod
     def _payment_metadata(connection, request_id):
-        order = (
+        """Requester-only payment fields: the legacy order keys plus ``payment``.
+
+        ``payment`` is the shared RequesterPaymentView, present only when the
+        request requires payment; free requests keep their exact legacy shape.
+        """
+        row = (
             connection.execute(
-                text("""SELECT status,amount_cents,currency,reconciliation_required,
-                    stripe_checkout_session_id,
-                    stripe_checkout_expires_at
-                FROM drive_request_payment_orders WHERE request_id=:request"""),
-                {"request": request_id},
+                text("""SELECT o.request_id AS order_request_id,o.status,o.amount_cents,
+                    o.currency,o.reconciliation_required,o.reconciliation_reason,
+                    o.stripe_checkout_session_id,o.stripe_checkout_expires_at,o.stripe_mode,
+                    r.status AS request_status,r.expires_at AS request_expires_at,
+                    r.access_stop_requested_at,r.payment_required,r.preparation_error_code,
+                    r.quoted_amount_cents,
+                    f.status AS refund_status,f.amount_cents AS refund_amount_cents,
+                    CASE WHEN p.request_id IS NOT NULL AND r.settlement_method<>'hashcoins'
+                      THEN COALESCE(a.account_ready,FALSE) END AS owner_payout_ready
+                FROM drive_share_requests r
+                LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
+                LEFT JOIN drive_request_payment_refunds f ON f.request_id=r.request_id
+                LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
+                  AND p.erased_at IS NULL
+                LEFT JOIN stripe_owner_payout_accounts a ON a.user_id=r.user_id
+                  AND a.stripe_mode=:stripe_mode
+                WHERE r.request_id=:request"""),
+                {"request": request_id, "stripe_mode": configured_stripe_mode()},
             )
             .mappings()
             .first()
         )
-        return (
+        if row is None:
+            return {}
+        order = row if row["order_request_id"] is not None else None
+        legacy = (
             {
                 "paymentStatus": order["status"],
                 "paymentAmountCents": order["amount_cents"],
@@ -569,6 +611,28 @@ class DriveSharingStore(DriveDocumentStore):
             if order
             else {}
         )
+        if row["payment_required"] is not True:
+            return legacy
+        return {
+            **legacy,
+            "payment": requester_payment_view(
+                payment_required=True,
+                request_status=row["request_status"],
+                request_expires_at=row["request_expires_at"],
+                now=datetime.now(UTC),
+                access_stopped=row["access_stop_requested_at"] is not None,
+                preparation_error_code=row["preparation_error_code"],
+                quoted_amount_cents=row["quoted_amount_cents"],
+                order=order_view_input(order),
+                refund=(
+                    {"status": row["refund_status"], "amount_cents": row["refund_amount_cents"]}
+                    if row["refund_status"] is not None
+                    else None
+                ),
+                owner_payout_ready=row["owner_payout_ready"],
+                configured_mode=configured_stripe_mode(),
+            ),
+        }
 
     def _open_request(self, row):
         return self.sharing_cipher.open(
@@ -1034,9 +1098,12 @@ class DriveSharingStore(DriveDocumentStore):
             if old:
                 if old["request_digest"] != digest or old["user_id"] != owner_user_id:
                     raise DriveSharingError("request_changed")
+                sealed = self._open_request(old)
                 return {
                     **self._summary(old, recipient=True),
-                    **self._request_setup(connection, old, self._open_request(old)),
+                    **self._request_setup(connection, old, sealed),
+                    # The Google account files go to, as sealed in the request.
+                    "recipientEmail": sealed["recipient"]["email"],
                 }
             # Only newly created requests receive this authority marker. An
             # old pending request must not turn into an automatic grant after
@@ -1101,19 +1168,27 @@ class DriveSharingStore(DriveDocumentStore):
                     **payload,
                     **({"trusted_auto": True} if trusted_auto else {}),
                     **({"owner_settlement_required": True} if payment_required else {}),
+                    # The requester wrote these terms, so they may read them back
+                    # (requester_context). Owner-initiated shares never carry it.
+                    **({"origin": REQUESTER_ORIGIN} if not owner_initiated else {}),
                 },
                 user_id=owner_user_id,
                 resource_id=request_id,
                 purpose="request",
             )
+            # initial_quote_cents is the estimate the requester saw. It is
+            # written only here; the owner's Allow may still change
+            # quoted_amount_cents until an order freezes the final price.
             row = self._row(
                 connection,
                 """
                 INSERT INTO drive_share_requests(request_id,user_id,recipient_user_id,client_request_id,
                   request_envelope,recipient_binding,request_digest,preparation_error_code,
-                  payment_required,quoted_amount_cents,quote_version,settlement_method)
+                  payment_required,quoted_amount_cents,initial_quote_cents,quote_version,
+                  settlement_method)
                 VALUES (:id,:owner,:recipient,:client,CAST(:envelope AS jsonb),:binding,:digest,
-                  :preparation_code,:payment_required,:quoted_amount,:quote_version,:settlement_method)
+                  :preparation_code,:payment_required,:quoted_amount,:quoted_amount,:quote_version,
+                  :settlement_method)
                 ON CONFLICT (recipient_user_id,client_request_id) DO NOTHING
                 RETURNING *
             """,
@@ -1135,6 +1210,7 @@ class DriveSharingStore(DriveDocumentStore):
                     else None,
                 },
             )
+            sealed_email = recipient.email
             if not row:
                 row = self._row(
                     connection,
@@ -1146,6 +1222,7 @@ class DriveSharingStore(DriveDocumentStore):
                 )
                 if not row or row["request_digest"] != digest or row["user_id"] != owner_user_id:
                     raise DriveSharingError("request_changed")
+                sealed_email = self._open_request(row)["recipient"]["email"]
             else:
                 connection.execute(
                     text("""
@@ -1175,7 +1252,7 @@ class DriveSharingStore(DriveDocumentStore):
                         row["recipient_user_id"],
                         "document_share_request_sent",
                     )
-            return {**self._summary(row, recipient=True), **setup}
+            return {**self._summary(row, recipient=True), **setup, "recipientEmail": sealed_email}
 
         return cast(dict, await self._transaction(operation))
 
@@ -2002,16 +2079,20 @@ class DriveSharingStore(DriveDocumentStore):
         """Owner-authorized participant metadata for cold review links; no matches."""
 
         def operation(connection):
+            # order_amount_cents (NULL until an order exists) lets _summary give
+            # the requester their estimate, the owner's price and the final price.
             row = self._row(
                 connection,
                 """
                 SELECT r.*,p.status AS owner_payout_status,
-                       account.account_ready AS payout_account_ready
+                       account.account_ready AS payout_account_ready,
+                       o.amount_cents AS order_amount_cents
                 FROM drive_share_requests r
                 LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
                   AND p.erased_at IS NULL
                 LEFT JOIN stripe_owner_payout_accounts account ON account.user_id=r.user_id
                   AND account.stripe_mode=:stripe_mode
+                LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
                 WHERE r.request_id=:id
                   AND (r.user_id=:user OR r.recipient_user_id=:user)
             """,
@@ -2095,28 +2176,15 @@ class DriveSharingStore(DriveDocumentStore):
         return cast(dict, await self._transaction(operation))
 
     async def requester_context(self, *, user_id: str, request_id: str) -> dict:
-        """The payer's own request text, never owner matches or review contents.
+        """The requester's own request terms, never owner matches or review contents.
 
         The caller requires current Vault Owner authority. Keep this separate
-        from the metadata-only status/projection, which can be cached. A paid
-        request was authored by its recipient; owner-initiated shares are free.
+        from the metadata-only status/projection, which can be cached. See
+        drive_request_requester_store.requester_context for who may read it.
         """
 
         def operation(connection):
-            row = self._row(
-                connection,
-                """SELECT * FROM drive_share_requests
-                   WHERE request_id=:id AND recipient_user_id=:user
-                     AND payment_required=TRUE""",
-                {
-                    "id": str(UUID(request_id)),
-                    "user": user_id,
-                },
-            )
-            if not row:
-                raise DriveSharingError("request_unavailable")
-            purpose = ShareRequestPurpose.model_validate(self._open_request(row)["purpose"])
-            return {"requestId": str(row["request_id"]), "purpose": purpose.model_dump()}
+            return read_requester_context(self, connection, user_id=user_id, request_id=request_id)
 
         return cast(dict, await self._transaction(operation))
 
@@ -2179,6 +2247,9 @@ class DriveSharingStore(DriveDocumentStore):
                 and self._price_only_available(connection, row, private, current_connection),
                 "paymentRequired": row["payment_required"] is True,
                 "priceCents": row.get("quoted_amount_cents") or owner_allowed_price_cents(private),
+                # What the requester saw when sending; the owner may still
+                # choose another price before an order exists. NULL if unknown.
+                "estimateCents": row.get("initial_quote_cents"),
             }
             result.update(self._request_setup(connection, row, private))
             result.update(self._owner_drive_setup(connection, row))
@@ -2535,19 +2606,33 @@ class DriveSharingStore(DriveDocumentStore):
     ) -> dict:
         if decision not in {"declined", "cancelled"}:
             raise DriveSharingError("decision_not_allowed")
+        from hushh_mcp.services.drive_request_withdrawal_store import (
+            lock_closable_request,
+            require_unpaid_and_undispatched,
+            withdraw_in_transaction,
+        )
 
         def operation(connection):
-            self._participant_gate(
-                connection, user_id, request_id, recipient=decision == "cancelled"
+            if decision == "cancelled":
+                # The requester's withdrawal also stops queued work and closes
+                # the unpaid order; a paid or shared request is refused.
+                return withdraw_in_transaction(
+                    self, connection, user_id=user_id, request_id=request_id, revision=revision
+                )
+            locked = lock_closable_request(
+                self, connection, user_id=user_id, request_id=request_id, recipient=False
             )
-            row = self._request(connection, user_id, request_id, recipient=decision == "cancelled")
+            row = locked["request"]
             if row["revision"] != revision:
                 raise DriveSharingError("review_changed")
             if row["status"] == decision:
-                return self._summary(row, recipient=decision == "cancelled")
+                return self._summary(row)
             if row["status"] not in {"pending", "preparing", "review_ready"}:
                 # An approved Google effect requires a separately reviewed revoke.
                 raise DriveSharingError("request_already_decided")
+            # Payment does not bump the revision: a stale review must not
+            # decline a request that was paid or already shared meanwhile.
+            require_unpaid_and_undispatched(connection, locked)
             connection.execute(
                 text("""
                 UPDATE one_action_directive_ledger SET state='cancelled',settled_at=clock_timestamp(),
@@ -2557,14 +2642,13 @@ class DriveSharingStore(DriveDocumentStore):
             """),
                 {"id": request_id, "owner": row["user_id"]},
             )
-            if decision == "declined":
-                connection.execute(
-                    text("""
-                    UPDATE drive_share_reviews SET decision='declined',decided_at=clock_timestamp()
-                    WHERE request_id=:id AND revision=:revision AND decision IS NULL
-                """),
-                    {"id": request_id, "revision": revision},
-                )
+            connection.execute(
+                text("""
+                UPDATE drive_share_reviews SET decision='declined',decided_at=clock_timestamp()
+                WHERE request_id=:id AND revision=:revision AND decision IS NULL
+            """),
+                {"id": request_id, "revision": revision},
+            )
             updated = self._row(
                 connection,
                 """
@@ -2576,13 +2660,8 @@ class DriveSharingStore(DriveDocumentStore):
             )
             # An owner's own share that failed was never announced to the
             # recipient, so its closing is not news to them either.
-            if decision == "cancelled" or notify_recipient:
-                self._event(
-                    connection,
-                    updated,
-                    row["recipient_user_id"] if decision == "declined" else row["user_id"],
-                    "document_share_decided",
-                )
-            return self._summary(updated, recipient=decision == "cancelled")
+            if notify_recipient:
+                self._event(connection, updated, row["recipient_user_id"], "document_share_decided")
+            return self._summary(updated)
 
         return cast(dict, await self._transaction(operation))

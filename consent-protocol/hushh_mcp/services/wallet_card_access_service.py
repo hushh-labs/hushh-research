@@ -177,32 +177,67 @@ class WalletCardAccessService:
             return "expired"
         return "active"
 
-    def _owner_grants(self, conn, owner, card_id):
+    def _owner_grants(self, conn, owner, card_id, cursor=None):
+        values = {"owner": owner, "card": card_id, "limit": 21}
+        query = """SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
+ FROM wallet_card_access_grants g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
+ WHERE g.owner_user_id=:owner AND g.card_id=:card
+ ORDER BY g.created_at DESC,g.id ASC LIMIT :limit"""
+        if cursor is not None:
+            try:
+                grant_id = str(uuid.UUID(cursor))
+            except (ValueError, AttributeError):
+                raise WalletCardAccessError("WALLET_CARD_REQUEST_INVALID", 422) from None
+            anchor = one(
+                conn,
+                """SELECT created_at FROM wallet_card_access_grants
+ WHERE owner_user_id=:owner AND card_id=:card AND id=CAST(:grant_id AS uuid)""",
+                {"owner": owner, "card": card_id, "grant_id": grant_id},
+            )
+            if not anchor:
+                raise WalletCardAccessError("WALLET_CARD_REQUEST_INVALID", 422)
+            values.update(created=anchor["created_at"], grant_id=grant_id)
+            query = """SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
+ FROM wallet_card_access_grants g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
+ WHERE g.owner_user_id=:owner AND g.card_id=:card
+ AND (g.created_at < :created OR (g.created_at=:created AND g.id>CAST(:grant_id AS uuid)))
+ ORDER BY g.created_at DESC,g.id ASC LIMIT :limit"""
         rows = many(
             conn,
-            """SELECT g.id,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
- FROM wallet_card_access_grants g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
- WHERE g.owner_user_id=:owner AND g.card_id=:card ORDER BY g.created_at DESC,g.id""",
-            {"owner": owner, "card": card_id},
+            query,
+            values,
         )
-        return [
-            {
-                "id": str(r["id"]),
-                "recipientName": r.get("display_name") or "A connection",
-                "expiresAt": iso(r["expires_at"]),
-                "status": self._grant_status(r, r["server_now"]),
-            }
-            for r in rows
-        ]
+        page = rows[:20]
+        more = len(rows) > 20
+        return {
+            "grants": [
+                {
+                    "id": str(r["id"]),
+                    "recipientName": r.get("display_name") or "A connection",
+                    "createdAt": iso(r["created_at"]),
+                    "expiresAt": iso(r["expires_at"]),
+                    "status": self._grant_status(r, r["server_now"]),
+                }
+                for r in page
+            ],
+            "hasMore": more,
+            "nextCursor": str(page[-1]["id"]) if more else None,
+        }
 
-    def card_access(self, owner, card_id):
+    def card_access(self, owner, card_id, cursor=None):
         with self.db.engine.begin() as conn:
             self.require_available(conn)
             try:
                 self._card(conn, owner, card_id)
             except WalletCardAccessError:
-                return {"eligible": False, "reason": "card_not_ready", "grants": []}
-            return {"eligible": True, "grants": self._owner_grants(conn, owner, card_id)}
+                return {
+                    "eligible": False,
+                    "reason": "card_not_ready",
+                    "grants": [],
+                    "hasMore": False,
+                    "nextCursor": None,
+                }
+            return {"eligible": True, **self._owner_grants(conn, owner, card_id, cursor)}
 
     def connections(self, owner, query=""):
         with self.db.engine.begin() as conn:
@@ -240,7 +275,7 @@ class WalletCardAccessService:
     def _request_grants(self, conn, owner, request_id):
         rows = many(
             conn,
-            """SELECT g.id,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
+            """SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
  FROM wallet_card_access_grants g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
  WHERE g.owner_user_id=:owner AND g.request_id=CAST(:request AS uuid) ORDER BY g.id""",
             {"owner": owner, "request": request_id},
@@ -249,6 +284,7 @@ class WalletCardAccessService:
             {
                 "id": str(r["id"]),
                 "recipientName": r.get("display_name") or "A connection",
+                "createdAt": iso(r["created_at"]),
                 "expiresAt": iso(r["expires_at"]),
                 "status": self._grant_status(r, r["server_now"]),
             }

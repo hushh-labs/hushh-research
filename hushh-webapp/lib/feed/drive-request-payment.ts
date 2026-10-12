@@ -5,8 +5,18 @@ import {
   formatDocumentRequestPrice,
   isValidDocumentRequestPriceCents,
 } from "@/lib/consent/document-request-price";
+import {
+  effectiveRequesterPaymentState,
+  formatPaymentRemaining,
+  parseRequesterPaymentView,
+  REQUESTER_PAYMENT_TITLES,
+  type RequesterPaymentView,
+} from "@/lib/consent/document-request-payment-view";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type { SharingRequestContext } from "@/lib/services/drive-sharing-service";
+
+/** The one countdown formatter, shared with the request details. */
+export { formatPaymentRemaining };
 
 export type FeedDrivePaymentStatus = "ready" | "waiting_owner_setup" | "link_expired" | "expired";
 
@@ -22,6 +32,11 @@ export interface FeedDrivePayment {
   href?: string;
   /** Provider checkout deadline in epoch milliseconds, when one is active. */
   expiresAt: number | null;
+  /**
+   * The request's own deadline in epoch milliseconds, from the shared payment
+   * view. It wins over an open Checkout window, as in the request details.
+   */
+  requestExpiresAt?: number | null;
   /** Stable owner label used to recompute concise copy as the deadline ticks. */
   ownerLabel: string | null;
 }
@@ -128,27 +143,56 @@ function paymentState(entry: ConsentCenterEntry, now = Date.now()): FeedDrivePay
   return "ready";
 }
 
-/** Compact deadline copy that stays readable in a narrow Feed row. */
-export function formatPaymentRemaining(remainingMs: number): string {
-  const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
-  if (seconds < 60) return `${seconds}s left`;
-  const minutes = Math.ceil(seconds / 60);
-  if (minutes < 60) return `${minutes}m left`;
-  const hours = Math.ceil(minutes / 60);
-  return `${hours}h left`;
+/**
+ * The Feed status of the server's shared payment view (one definition of
+ * link vs request expiry). `null` hides the row; "settled" suppresses any
+ * older duplicate of the same request.
+ */
+function viewPaymentState(
+  view: RequesterPaymentView,
+  now: number,
+): FeedDrivePaymentStatus | "settled" | null {
+  switch (effectiveRequesterPaymentState(view, now)) {
+    case "payable":
+      return "ready";
+    case "link_expired":
+      return "link_expired";
+    case "request_expired":
+      return "expired";
+    case "awaiting_owner":
+      return "waiting_owner_setup";
+    case "paid":
+    case "refund_pending":
+    case "refunded":
+    case "partially_refunded":
+      return "settled";
+    default:
+      return null;
+  }
 }
 
 /** Recompute copy/status from the local clock without waiting for a refetch. */
 export function describeFeedDrivePayment(
-  payment: Pick<FeedDrivePayment, "status" | "amountCents" | "ownerLabel" | "expiresAt" | "requestedAt">,
+  payment: Pick<
+    FeedDrivePayment,
+    "status" | "amountCents" | "ownerLabel" | "expiresAt" | "requestedAt" | "requestExpiresAt"
+  >,
   now = Date.now(),
   context?: SharingRequestContext,
 ): Pick<FeedDrivePayment, "status" | "title" | "description"> {
-  const locallyExpired =
+  // The same order as effectiveRequesterPaymentState: the request's own
+  // deadline first, then the Checkout window.
+  const requestExpired =
+    payment.status !== "expired" &&
+    payment.requestExpiresAt != null &&
+    payment.requestExpiresAt <= now;
+  const linkExpired =
     payment.status === "ready" &&
     payment.expiresAt !== null &&
     payment.expiresAt <= now;
-  const status: FeedDrivePaymentStatus = locallyExpired ? "link_expired" : payment.status;
+  const status: FeedDrivePaymentStatus = requestExpired
+    ? "expired"
+    : linkExpired ? "link_expired" : payment.status;
   const remainingMs =
     status === "ready" && payment.expiresAt !== null
       ? Math.max(0, payment.expiresAt - now)
@@ -195,9 +239,9 @@ function paymentCopy(
     : null;
   if (subject) {
     return {
-      title: status === "expired" ? "Document request expired"
-        : status === "link_expired" ? "Payment link expired"
-          : status === "waiting_owner_setup" ? "Waiting for owner setup"
+      title: status === "expired" ? REQUESTER_PAYMENT_TITLES.requestExpired
+        : status === "link_expired" ? REQUESTER_PAYMENT_TITLES.linkExpired
+          : status === "waiting_owner_setup" ? REQUESTER_PAYMENT_TITLES.awaitingOwner
             : `Pay ${price} · ${subject}`,
       description: [
         status === "ready" ? null : subject,
@@ -211,9 +255,9 @@ function paymentCopy(
   const requested = requestedDate(requestedAt);
   if (requested) {
     return {
-      title: status === "expired" ? "Document request expired"
-        : status === "link_expired" ? "Payment link expired"
-          : status === "waiting_owner_setup" ? "Waiting for owner setup"
+      title: status === "expired" ? REQUESTER_PAYMENT_TITLES.requestExpired
+        : status === "link_expired" ? REQUESTER_PAYMENT_TITLES.linkExpired
+          : status === "waiting_owner_setup" ? REQUESTER_PAYMENT_TITLES.awaitingOwner
           : owner ? `Pay ${price} for files from ${owner}` : `Pay ${price} for your document request`,
       description: [status === "waiting_owner_setup" ? `Quote ${price}` : null,
         status !== "ready" && owner ? `From ${owner}` : null, requested, deadline]
@@ -223,28 +267,28 @@ function paymentCopy(
   if (status === "expired") {
     return owner
       ? {
-          title: "Document request expired",
+          title: REQUESTER_PAYMENT_TITLES.requestExpired,
           description: `Your request for files from ${owner} expired before payment.`,
         }
       : {
-          title: "Document request expired",
+          title: REQUESTER_PAYMENT_TITLES.requestExpired,
           description: "This request expired before payment.",
         };
   }
   if (status === "link_expired") {
     return owner
       ? {
-          title: "Payment link expired",
+          title: REQUESTER_PAYMENT_TITLES.linkExpired,
           description: `The ${price} link for files from ${owner} expired.`,
         }
       : {
-          title: "Payment link expired",
+          title: REQUESTER_PAYMENT_TITLES.linkExpired,
           description: `The ${price} link expired.`,
         };
   }
   if (status === "waiting_owner_setup") {
     return {
-      title: "Waiting for owner setup",
+      title: REQUESTER_PAYMENT_TITLES.awaitingOwner,
       description: owner ? `Quote ${price} · ${owner} is setting up payouts.` : `Quote ${price} · Owner payout setup pending.`,
     };
   }
@@ -285,21 +329,44 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
       continue;
     }
     if (settledRequestIds.has(requestId)) continue;
-    const status = paymentState(entry, now);
-    if (!status) {
-      // Expired request rows may be emitted as history, but must retain a
-      // payment row if their order is still present in the projection.
-      if (nonEmptyString(entry.status).toLowerCase() !== "expired") continue;
+    // A current server also projects the shared payment view: the same state
+    // and deadline the request details show. Older servers keep the legacy read.
+    const view = parseRequesterPaymentView(metadata.paymentView);
+    let status: FeedDrivePaymentStatus | null;
+    if (view) {
+      const fromView = viewPaymentState(view, now);
+      if (fromView === "settled") {
+        settledRequestIds.add(requestId);
+        byRequest.delete(requestId);
+        continue;
+      }
+      if (
+        fromView === null ||
+        isTruthyMetadata(metadata.accessStopped) ||
+        metadata.ownerPriceRequired === true ||
+        metadata.paymentsReady === false
+      ) continue;
+      status = fromView;
+    } else {
+      status = paymentState(entry, now);
+      if (!status) {
+        // Expired request rows may be emitted as history, but must retain a
+        // payment row if their order is still present in the projection.
+        if (nonEmptyString(entry.status).toLowerCase() !== "expired") continue;
+      }
     }
     const effectiveStatus = status || "expired";
     const requestedAt = parseConsentInstant(entry.issued_at);
     const ownerLabel = counterpartLabel(entry);
-    const expiresAt = expiryTimestamp(
-      metadata.paymentCheckoutExpiresAt ??
-        metadata.payment_checkout_expires_at ??
-        metadata.checkoutExpiresAt ??
-        metadata.checkout_expires_at,
-    );
+    const expiresAt = view
+      ? view.checkoutExpiresAt === null ? null : Date.parse(view.checkoutExpiresAt)
+      : expiryTimestamp(
+        metadata.paymentCheckoutExpiresAt ??
+          metadata.payment_checkout_expires_at ??
+          metadata.checkoutExpiresAt ??
+          metadata.checkout_expires_at,
+      );
+    const requestExpiresAt = view?.requestExpiresAt ? Date.parse(view.requestExpiresAt) : null;
     const copy = paymentCopy(
       effectiveStatus,
       amountCents,
@@ -328,6 +395,7 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
       amountCents,
       ownerLabel,
       expiresAt,
+      requestExpiresAt,
       href:
         effectiveStatus === "expired" || effectiveStatus === "link_expired" || effectiveStatus === "waiting_owner_setup"
           ? buildConsentCenterHref(effectiveStatus === "expired" ? "previous" : "pending", {

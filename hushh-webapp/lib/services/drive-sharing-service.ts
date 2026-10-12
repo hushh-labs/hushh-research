@@ -1,5 +1,17 @@
 import type { DocumentRequestSetup } from "@/lib/consent/document-request-setup";
 import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
+import {
+  parseRequesterPaymentView,
+  parseRequesterPriceView,
+  type RequesterPaymentView,
+  type RequesterPriceView,
+} from "@/lib/consent/document-request-payment-view";
+import {
+  parseOwnerReviewRequest,
+  parseRequesterRecovery,
+  type OwnerReviewRequest,
+  type RequesterRecovery,
+} from "@/lib/consent/document-request-requester-view";
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { ApiService } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
@@ -21,6 +33,14 @@ export type SharingStatus = DocumentRequestSetup & {
   quotedAmountCents?: number;
   paymentRequired?: boolean;
   quoteVersion?: number;
+  /** Requester only: the shared payment view; null when absent or malformed. */
+  payment?: RequesterPaymentView | null;
+  /** Requester only: estimate, current and final price; null when absent or malformed. */
+  price?: RequesterPriceView | null;
+};
+/** A decision's acknowledgement; a withdrawal also carries the payment view. */
+export type SharingDecision = Record<string, unknown> & {
+  payment?: RequesterPaymentView | null;
 };
 export type DocumentRequestDraft = {
   ownerPersonRef: string;
@@ -37,6 +57,12 @@ export type DocumentRequestDraft = {
 export type SharingRequestContext = {
   requestId: string;
   purpose: DocumentRequestDraft["purpose"];
+  /** The Google account files go to, as sealed when sent. Absent from older servers. */
+  recipientEmail?: string | null;
+  /** When the requester sent it (ISO). Absent from older servers. */
+  requestedAt?: string | null;
+  /** The requester's IANA time zone when they sent it, if recorded. */
+  timeZone?: string | null;
 };
 
 export function validDocumentRequestPeriod(
@@ -115,6 +141,8 @@ export type SharingReview = DocumentRequestSetup & {
   paymentRequired?: boolean;
   /** The owner's price in cents once allowed; null when there is none. */
   priceCents?: number | null;
+  /** The estimate the requester saw when sending; absent when unknown or on older servers. */
+  estimateCents?: number;
   /** Owner-only, current ledger projection for a paid document request. */
   ownerPayout?: OwnerDocumentPayout | null;
 };
@@ -192,6 +220,12 @@ export type SharingDelivery = {
   bulkStatus?: DriveBulkShareView["status"];
   counts?: DriveBulkShareCounts;
   issues?: DriveBulkShareIssue[];
+  /** Requester only: estimate, owner price and final price; null when malformed. */
+  price?: RequesterPriceView | null;
+  /** Requester only: undelivered files, the owner-retry state and their refund. */
+  recovery?: RequesterRecovery | null;
+  /** Owner only: the requester asked for a review of unshared files. */
+  reviewRequest?: OwnerReviewRequest | null;
 };
 function accessStopStatus(value: unknown): NonNullable<SharingDelivery["accessStopStatus"]> {
   if (value === "pending" || value === "removed" || value === "needs_attention") return value;
@@ -1090,6 +1124,14 @@ export class DriveSharingService {
       ...(quotedAmountCents === undefined ? {} : { quotedAmountCents }),
       ...(paymentRequired === undefined ? {} : { paymentRequired }),
       ...(quoteVersion === undefined ? {} : { quoteVersion }),
+      // Additive requester views. A malformed view is dropped (fails closed:
+      // no Pay, no refund claim) instead of hiding the whole request.
+      ...(result.direction === "outgoing" && result.payment !== undefined
+        ? { payment: parseRequesterPaymentView(result.payment) }
+        : {}),
+      ...(result.direction === "outgoing" && result.price !== undefined
+        ? { price: parseRequesterPriceView(result.price) }
+        : {}),
       ...parseRequestSetup(result),
     };
   }
@@ -1122,7 +1164,21 @@ export class DriveSharingService {
     };
     if (!purpose.purpose.trim() || !validDocumentRequestPeriod(purpose.periodStart, purpose.periodEnd))
       throw new DriveSharingError("invalid_response");
-    return { requestId, purpose };
+    // Newer servers add the sealed Google account and when it was sent.
+    const recipientEmail = result.recipientEmail == null ? null : string(result.recipientEmail, 320);
+    if (recipientEmail !== null && !/^[^\s@]{1,64}@[^\s@]{1,254}$/.test(recipientEmail))
+      throw new DriveSharingError("invalid_response");
+    return {
+      requestId,
+      purpose,
+      ...(result.recipientEmail === undefined ? {} : { recipientEmail }),
+      ...(result.requestedAt === undefined
+        ? {}
+        : { requestedAt: result.requestedAt === null ? null : date(result.requestedAt) }),
+      ...(result.timeZone === undefined
+        ? {}
+        : { timeZone: result.timeZone === null ? null : string(result.timeZone, 64) }),
+    };
   }
 
   static async listRules(token: string, guard: SharingSessionGuard): Promise<TrustedDocumentRule[]> {
@@ -1321,6 +1377,10 @@ export class DriveSharingService {
       }),
       ...(paymentRequired === undefined ? {} : { paymentRequired }),
       ...(priceCents === undefined ? {} : { priceCents }),
+      // Display only: a missing or malformed estimate never blocks the review.
+      ...(isValidDocumentRequestPriceCents(result.estimateCents)
+        ? { estimateCents: result.estimateCents }
+        : {}),
       ...(result.ownerPayout === undefined ? {} : { ownerPayout }),
       ...parseRequestSetup(result),
     };
@@ -1415,6 +1475,15 @@ export class DriveSharingService {
         ...(counts === undefined ? {} : { counts }),
         ...(result.issues === undefined ? {} : { issues: parseBulkIssues(result.issues, fileCount!) }),
       }),
+      // Additive views. A malformed one is dropped (no action, no refund claim)
+      // instead of hiding the delivery itself.
+      ...(result.price === undefined ? {} : { price: parseRequesterPriceView(result.price) }),
+      ...(result.recovery === undefined
+        ? {}
+        : { recovery: parseRequesterRecovery(result.recovery) }),
+      ...(result.reviewRequest === undefined
+        ? {}
+        : { reviewRequest: parseOwnerReviewRequest(result.reviewRequest) }),
     };
   }
 
@@ -1604,16 +1673,23 @@ export class DriveSharingService {
       ...(trustScope ? {trustScope, trustDisclosureVersion: "drive-any-requested-file-including-future-v1"} : {}),
     });
   }
-  static decide(
+  /**
+   * Decline, withdraw (cancel) or refresh at a revision. A withdrawal's reply
+   * carries the payment view: closed, or refund pending when payment won the
+   * race. A paid or already shared request is refused with `request_paid`.
+   */
+  static async decide(
     token: string,
     requestId: string,
     action: "decline" | "cancel" | "review/refresh",
     value: number,
     guard: SharingSessionGuard,
-  ) {
-    return this.request(token, requestId, guard, `/${action}`, {
+  ): Promise<SharingDecision> {
+    const result = await this.request(token, requestId, guard, `/${action}`, {
       revision: value,
     });
+    if (action !== "cancel" || result.payment === undefined) return result;
+    return { ...result, payment: parseRequesterPaymentView(result.payment) };
   }
   /**
    * The owner allows a request from outside their Trusted circle. It then runs the

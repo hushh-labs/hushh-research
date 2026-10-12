@@ -317,6 +317,7 @@ def _error(error):
         "explicit_approval_required": (409, "Review and explicitly approve these files."),
         "confirmation_required": (409, "Review and explicitly confirm this removal."),
         "request_already_decided": (409, "This request already has a decision."),
+        "request_paid": (409, "This request was paid or files were shared. Refresh it."),
         "request_changed": (409, "This request changed. Refresh its status."),
         "price_changed": (409, "The price changed. Review it again."),
         "payout_unavailable": (503, "Document payments are temporarily unavailable."),
@@ -576,7 +577,8 @@ async def prepare_request_bulk(
 
 @router.get("/requests/{request_id}/delivery")
 async def delivery(request_id: UUID, owner: Owner = Depends(_owner)):
-    return await _call("delivery", owner=owner, request_id=str(request_id))
+    # views: the requester's price and recovery, or the owner's review notice.
+    return await _call("delivery", owner=owner, request_id=str(request_id), views=True)
 
 
 @router.get("/requests/{request_id}/delivery/files")
@@ -1044,12 +1046,20 @@ async def refresh_review(request_id: UUID, body: DecisionRequest, owner: Owner =
 
 @router.post("/requests/{request_id}/cancel")
 async def cancel(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
-    return await _call(
+    """The requester withdraws; a paid or already shared request gets 409 request_paid."""
+    from hushh_mcp.services.drive_request_withdrawal_store import retire_withdrawn_checkout
+
+    result = await _call(
         "decide",
         owner=owner,
         request_id=str(request_id),
         revision=body.revision,
         decision="cancelled",
+    )
+    # After commit and best-effort only: an open Checkout page is expired at
+    # Stripe; a payment that already won the race is reported as refund pending.
+    return await retire_withdrawn_checkout(
+        result, requester_user_id=owner.user_id, request_id=str(request_id)
     )
 
 
