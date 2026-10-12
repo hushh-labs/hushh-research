@@ -3383,10 +3383,11 @@ final class AppUITests: XCTestCase {
             // A complex detail is the only active layer. The native root must
             // be withdrawn, not left hit-testable through its content.
             XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
-            if id == "security" {
-                for title in ["Vault methods"] {
+            if id == "security" || id == "preferences" {
+                let nestedTitles = id == "security" ? ["Vault methods"] : ["Gemini", "Voice"]
+                for title in nestedTitles {
                     let nested = row(title)
-                    print("PROFILE_SECURITY_ROW kind=\(title == "Vault methods" ? "vault" : "session") exists=\(nested.exists) hittable=\(nested.isHittable)")
+                    print("PROFILE_NESTED_ROW kind=\(title == "Vault methods" ? "vault" : title == "Gemini" ? "gemini" : "voice") exists=\(nested.exists) hittable=\(nested.isHittable)")
                     guard waitForAdmittedControl(nested) else { XCTFail("PROFILE_BATCH_SECURITY_ROW_UNAVAILABLE"); return }
                     nested.tap()
                     guard admittedBack() else { XCTFail("PROFILE_BATCH_NESTED_BACK_UNAVAILABLE"); return }
