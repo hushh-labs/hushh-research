@@ -48,6 +48,46 @@ afterEach(() => {
 });
 
 describe("useProactiveAgentWake", () => {
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)(
+    "preserves wake admission while withholding reviewer background writes (%s)",
+    async (policy) => {
+      const originalBridge = window.__HUSHH_NATIVE_TEST__;
+      window.__HUSHH_NATIVE_TEST__ = {
+        enabled: true,
+        autoReviewerLogin: true,
+        reviewerMutationPolicy: policy,
+      };
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      const view = renderHook(
+        ({ health }) => useProactiveAgentWake({
+          userId: "owner-a", state: "active", health,
+        }),
+        { initialProps: { health: "sleeping" } },
+      );
+      try {
+        await act(async () => {});
+        expect(wakePod).not.toHaveBeenCalled();
+        await act(async () => {
+          view.result.current.wakeNow("composer_focus");
+          lifecycleListeners.forEach((listener) => listener());
+        });
+        view.rerender({ health: "healthy" });
+        await act(async () => {
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+        expect(wakePod).not.toHaveBeenCalled();
+        window.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy = "mutation_authorized";
+        await act(async () => {
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+        expect(wakePod).toHaveBeenCalledTimes(1);
+      } finally {
+        view.unmount();
+        window.__HUSHH_NATIVE_TEST__ = originalBridge;
+      }
+    },
+  );
+
   it("wakes on mount when the pod is active and asleep", async () => {
     await act(async () => {
       renderHook(() =>

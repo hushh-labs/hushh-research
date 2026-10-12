@@ -8,6 +8,7 @@ import {
 } from "@/lib/feed/agent-presence-policy";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { ApiService } from "@/lib/services/api-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 /**
  * Proactively wake the person's own pod so it is warm the moment they need it.
@@ -67,6 +68,7 @@ async function issueWakeDeduped(userId: string): Promise<{
   etaMs: number;
   needsFreshSetup?: boolean;
 } | null> {
+  if (shouldSkipReviewerBackgroundWritesForAutomation()) return null;
   if (wakeOwner !== userId) {
     wakeOwner = userId;
     lastWakeAtMs = 0;

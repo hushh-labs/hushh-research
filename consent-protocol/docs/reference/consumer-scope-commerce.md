@@ -17,12 +17,56 @@ flowchart LR
 
 ## Status and authority
 
-This is the canonical package implementation reference, not deployment evidence.
+This is the canonical package implementation reference. Dated deployment
+observations below have their own explicit evidence boundary.
 Checked-in code implements a USD funded-balance and owner tariff lane for existing
 consented scope requests. Source checks, focused contracts and isolated local
 PostgreSQL acceptance establish the bounded behavior below; they do not establish Stripe acceptance, connected-account readiness,
-real sandbox/live financial movement, hosted webhook delivery, a deployed drain
-schedule, native browser returns, or legal/tax approval.
+complete Sandbox/live financial acceptance, native browser returns, or legal/tax
+approval. Signed capital settlement and shared Dev reconciliation are separately
+verified below; they do not prove a consumer purchase or payout.
+
+### Shared Dev checkpoint — 2026-10-12 UTC
+
+- Full application CI passed all 23 jobs at `22e9146432a5`. Dev application
+  release [38191971231](https://github.com/hushh-labs/hushh-research/actions/runs/38191971231)
+  and backend configuration release
+  [38194634611](https://github.com/hushh-labs/hushh-research/actions/runs/38194634611)
+  completed successfully. The frontend is `hushh-webapp-00139-q79`; the backend
+  is `consent-protocol-00164-r2w`. Both health/login reads passed.
+- New paid activity is enabled for the two approved Sandbox reviewers. The
+  account remains pinned to `acct_1UNyyyLsJU9ZDBZX`, test mode, with the approved
+  synthetic cost model and cumulative funding/capital caps. Live approval
+  prerequisites remain absent. Configuration readiness is not provider settlement.
+- The human-confirmed $5 capital Topup settled once through its signed event,
+  source transaction and balanced journal. At `02:20:35Z`, all 17 aggregate
+  Monitoring observations were fresh, settled backing was $5, and liabilities,
+  reconciliation backlog, unbalanced journals and receipt failures were zero.
+  The dedicated Google OIDC reconciliation schedule was healthy.
+- At `02:20:37Z`, there were no reviewer funding, purchase, withdrawal or seller
+  account records. The primary's authorized test-phone transfer is verified; its
+  private Azure setup still requires owner Microsoft OAuth. The completed phone
+  fixture is disabled. The counterpart's existing Azure placement is preserved.
+- Headless inspection reached Memory's Saved/Add tabs, earnings and Saved sharing,
+  then Account's Payments and earnings and three history filters. The journey
+  failed the unchanged read-only gate on an unsolicited private-agent wake.
+  The bounded source correction uses the existing reviewer background-write
+  guard before wake/cooldown state changes. All 14 focused cases and 438 Back
+  cases pass; removing the guard fails all three reviewer-policy controls.
+  Generated UI parity passes. Deployment and repeated browser acceptance of this
+  correction remain required; exact-scope price controls were not yet verified.
+- The installed counterpart image contains the canonical nested Memory proposal
+  route and Stripe verification route. Static source parity does not prove an
+  authenticated private-runtime session. Do not rebuild or relax device authority
+  based on the earlier incorrect flat-path probe.
+
+Acceptance remains open: normal browser-encrypted fixtures, both consumers'
+Connect and Checkout journeys, exact human quote confirmations, real-time access,
+refund and payout receipts, and One's separate owner Stripe OAuth/account reads.
+The ChatGPT Stripe plugin is not a prerequisite. Physical iOS is deferred to the
+independently active native session; physical Android remains a follow-up. Keep
+issue #7587 In Progress. Cleanup pauses new paid admission first and retains
+reconciliation, access enforcement and financial history until obligations resolve.
 
 One is the private agent. It can help discover information and compose a request,
 but spending requires the authenticated human to review and confirm the exact

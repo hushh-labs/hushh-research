@@ -90,6 +90,11 @@ them instead, behind the single shared signal
 `autoReviewerLogin` and a `read_only`, `preparation_only` or `bounded_mutation`
 policy). A `mutation_authorized` run keeps ordinary behavior.
 
+Proactive private-agent wake requests use this same guard before touching owner,
+cooldown or in-flight state. Mount, composer, foreground and visible-tab triggers
+cannot wake a costed private runtime during a read-only or bounded rehearsal;
+an explicitly authorized session retains its ordinary wake allowance.
+
 Read-only reviewer sessions never write Terms and Privacy acceptance.
 `LegalAcceptanceService.recordSignInAcceptance` returns before any request under
 that signal. This defers the record, it does not drop it: the fixture's next
