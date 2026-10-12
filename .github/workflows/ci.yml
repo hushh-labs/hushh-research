@@ -215,6 +215,7 @@ jobs:
               - 'scripts/ci/**'
               - '!scripts/ci/web-*.sh'
             ios:
+              - 'scripts/ci/resolve-ios-packages.sh'
               - 'hushh-webapp/ios/**'
               - 'hushh-webapp/lib/capacitor/**'
               - 'hushh-webapp/scripts/native/**'
@@ -727,12 +728,7 @@ jobs:
       - name: Resolve Swift package dependencies
         shell: bash
         run: |
-          set -euo pipefail
-          xcodebuild -resolvePackageDependencies \
-            -project "${XCODE_PROJECT}" \
-            -scheme "${XCODE_SCHEME}" \
-            -packageCachePath "${RUNNER_TEMP}/spm-cache" \
-            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
+          bash scripts/ci/resolve-ios-packages.sh
 
       - name: Compile app and run native iOS unit tests
         shell: bash
@@ -821,6 +817,7 @@ jobs:
             ${{ runner.temp }}/AppTests.xcresult
             ${{ runner.temp }}/xcodebuild-ios-tests.log
             ${{ runner.temp }}/simulator-boot.log
+            ${{ runner.temp }}/xcodebuild-package-resolution-*.log
           if-no-files-found: ignore
           retention-days: 7
 

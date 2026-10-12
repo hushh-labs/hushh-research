@@ -25,7 +25,10 @@ cannot silently skip the graph check.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import pathspec
@@ -97,6 +100,81 @@ class _Filter:
 
 def _load_workflow(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    "first_error,first_code,second_code,expected_calls,expected_code",
+    [
+        ("", 0, 0, 1, 0),
+        ("collision", 74, 0, 2, 0),
+        ("collision", 74, 74, 2, 74),
+        ("collision", 65, 0, 1, 65),
+        ("checksum", 74, 0, 1, 74),
+        ("foreign-cache", 74, 0, 1, 74),
+        ("collision-and-checksum", 74, 0, 1, 74),
+        ("collision-and-error", 74, 0, 1, 74),
+    ],
+)
+def test_actual_ios_resolve_retries_only_the_bounded_artifact_collision(
+    tmp_path, first_error, first_code, second_code, expected_calls, expected_code
+):
+    stub = tmp_path / "xcodebuild"
+    stub.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, sys\n"
+        "root = pathlib.Path(os.environ['RUNNER_TEMP'])\n"
+        "calls = root / 'calls.jsonl'\n"
+        "attempt = len(calls.read_text().splitlines()) + 1 if calls.exists() else 1\n"
+        "with calls.open('a') as out: out.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "error = os.environ['RESOLVE_TEST_ERROR']\n"
+        "if attempt == 1 and error:\n"
+        "    cache = root if error != 'foreign-cache' else root / 'other'\n"
+        "    prefix = \"failed downloading 'https://example.com/framework.zip' \"\n"
+        "    prefix += \"which is required by binary target 'Framework': \"\n"
+        "    if error != 'checksum':\n"
+        "        print(prefix + str(cache / 'spm-cache/artifacts/framework_zip') "
+        "+ ' already exists in file system')\n"
+        "    if 'checksum' in error:\n"
+        "        print(\"checksum of downloaded artifact of binary target 'Framework' \""
+        " + 'does not match checksum specified by the manifest')\n"
+        "    if error == 'collision-and-error': print('error: authorization refused')\n"
+        "print('attempt-' + str(attempt))\n"
+        "sys.exit(int(os.environ['RESOLVE_TEST_FIRST' if attempt == 1 "
+        "else 'RESOLVE_TEST_SECOND']))\n"
+    )
+    stub.chmod(0o700)
+    step = next(
+        item
+        for item in _steps(_load_workflow(MONO_WORKFLOW_PATH), "ios-native-check")
+        if item.get("name") == "Resolve Swift package dependencies"
+    )
+    result = subprocess.run(
+        ["bash", "-eo", "pipefail"],
+        input=step["run"],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "XCODE_PROJECT": "synthetic/App.xcodeproj",
+            "XCODE_SCHEME": "App",
+            "RESOLVE_TEST_ERROR": first_error,
+            "RESOLVE_TEST_FIRST": str(first_code),
+            "RESOLVE_TEST_SECOND": str(second_code),
+        },
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == expected_code, result.stdout + result.stderr
+    calls = [json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()]
+    assert len(calls) == expected_calls
+    assert all(call == calls[0] for call in calls)
+    assert calls[0][0] == "-resolvePackageDependencies"
+    for attempt in range(1, expected_calls + 1):
+        log = tmp_path / f"xcodebuild-package-resolution-{attempt}.log"
+        assert f"attempt-{attempt}" in log.read_text()
 
 
 def _steps(workflow: dict, job: str) -> list[dict]:
@@ -247,6 +325,7 @@ def test_ios_filter_matches_direct_native_helpers_only() -> None:
     # 'components/app-ui/native-*' is a single-star glob: it must cover the
     # helpers directly under app-ui and must not silently widen to subtrees.
     spec = _ios_spec()
+    assert spec.match_file("scripts/ci/resolve-ios-packages.sh")
     assert spec.match_file("hushh-webapp/components/app-ui/native-route-marker.tsx")
     assert not spec.match_file("hushh-webapp/components/app-ui/other-component.tsx")
     assert not spec.match_file("hushh-webapp/components/app-ui/nested/native-thing.tsx")
