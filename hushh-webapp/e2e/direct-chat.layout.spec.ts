@@ -129,12 +129,13 @@ test("system Back closes message search before returning from a People thread", 
 test("system Back closes the New chat picker before leaving the inbox", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, false, true);
-  await page.getByRole("button", { name: "New chat" }).first().click();
-  await expect(page.getByRole("dialog", { name: "New chat" })).toBeVisible();
-
-  expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(true);
-  await expect(page.getByRole("dialog", { name: "New chat" })).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(false);
+  for (const action of ["New chat", "Compose message"]) {
+    await page.getByRole("button", { name: action, exact: true }).first().click();
+    await expect(page.getByRole("dialog", { name: "New chat" })).toBeVisible();
+    expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(true);
+    await expect(page.getByRole("dialog", { name: "New chat" })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(false);
+  }
 });
 
 test("inbox search keyboard keeps a completed command visible and dismissible", async ({ page }) => {
