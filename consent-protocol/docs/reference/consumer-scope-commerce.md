@@ -2513,8 +2513,9 @@ deployment step. Wallet availability handling and historical UAT guards are
 preserved. The concurrent root merge `1516a90f47` supplies a validated three-flag
 application settings pack, keeping the extracted deploy step at 99 environment
 entries under Cloud Build's 100-entry limit; both Wallet literal
-substitution tokens and the default-disabled sharing flag remain. All 72 nearest
-deployment contracts and all nine mounted Wallet cases passed the earlier
-composition; revalidation now targets the stronger retained pack. Schema head remains
-320; no additional provider transaction or reviewer payment is implied by these
-source checks.
+substitution tokens and the default-disabled sharing flag remain. All 115 nearest
+deployment and release contracts pass on the converged source, including malformed
+packing controls. All 438 Back cases and UI generation/verification pass; the
+earlier nine mounted Wallet cases also passed. Schema head remains 320. The final
+core and exact-source hosted CI remain required; no additional provider transaction
+or reviewer payment is implied by these source checks.
