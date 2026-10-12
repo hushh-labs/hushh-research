@@ -112,6 +112,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             if let previous = self.controllers[next.family] { previous.update(next) }
             else {
                 let controller = NativeDrawerPresentationController(next)
+                if next.family == "history" {
+                    controller.leadingHeaderFrame = { [weak container] in
+                        container?.installedFrame("chat-history-toggle")
+                    }
+                }
                 parent.addChild(controller)
                 controller.view.frame = container.bounds
                 controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]

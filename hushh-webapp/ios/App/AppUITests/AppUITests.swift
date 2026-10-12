@@ -850,6 +850,10 @@ final class AppUITests: XCTestCase {
         guard web.waitForExistence(timeout: 15), !web.buttons["Unlock"].exists else {
             XCTFail("COHERENT_SHELL_REQUIRES_UNLOCKED_CHAT"); return
         }
+        for label in ["Close Profile", "Close chat history"] {
+            let close = app.buttons[label].firstMatch
+            if close.exists && close.isHittable { close.tap() }
+        }
         let editor = app.textViews["native-dock-editor"].firstMatch
         let history = app.buttons["chat-history-toggle"].firstMatch
         let profile = app.buttons["Open Profile"].firstMatch
@@ -882,6 +886,7 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
                 XCTFail("COHERENT_HISTORY_NOT_ADMITTED"); return
             }
+            print("NATIVE_HISTORY_LEADING_SLOT opener_x=\(Int(openerFrame.minX)) opener_y=\(Int(openerFrame.minY)) close_x=\(Int(close.frame.minX)) close_y=\(Int(close.frame.minY))")
             XCTAssertEqual(close.frame.minX, openerFrame.minX, accuracy: 1, "COHERENT_HISTORY_CLOSE_HORIZONTAL_ALIGNMENT")
             XCTAssertEqual(close.frame.minY, openerFrame.minY, accuracy: 1, "COHERENT_HISTORY_CLOSE_VERTICAL_ALIGNMENT")
             if cycle == 0 {

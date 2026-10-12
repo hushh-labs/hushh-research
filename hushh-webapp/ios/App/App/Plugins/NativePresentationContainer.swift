@@ -277,6 +277,15 @@ final class NativePresentationContainer: UIView {
 
     func remove(_ id: String) { controls.removeValue(forKey: id)?.view.removeFromSuperview() }
 
+    /// Geometry only, from the existing authored installation. A drawer may
+    /// align its own Close with its opener without a second CSS inset constant
+    /// or per-frame bridge synchronization. This grants no action admission.
+    func installedFrame(_ id: String) -> CGRect? {
+        guard let control = controls[id], control.view.superview != nil,
+              control.view.window != nil else { return nil }
+        return control.view.convert(control.view.bounds, to: self)
+    }
+
     /// Called synchronously by the complete native drawer owner. Covering a
     /// base surface changes eligibility, never its paint or retained identity.
     func isolateForOwnedDrawer(_ covered: Bool) {

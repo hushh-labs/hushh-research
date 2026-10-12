@@ -204,7 +204,10 @@ final class NativeSupportTests: XCTestCase {
         let window = UIWindow(frame: web.frame)
         window.rootViewController = parent
         window.isHidden = false
+        let opener = UIButton(frame: CGRect(x: 16, y: 72, width: 44, height: 44))
+        container.install(opener, id: "chat-history-toggle", group: nil)
         let controller = NativeDrawerPresentationController(state)
+        controller.leadingHeaderFrame = { container.installedFrame("chat-history-toggle") }
         parent.addChild(controller)
         container.addSubview(controller.view)
         controller.view.frame = container.bounds
@@ -215,6 +218,9 @@ final class NativeSupportTests: XCTestCase {
         controller.invalidateInteractions = { lease.invalidateInteractions() }
         controller.isolation = { container.isolateForOwnedDrawer($0) }
         controller.activateInitialPresentation()
+        XCTAssertEqual(controller.model.headerInsets.leading, 16)
+        XCTAssertEqual(controller.model.headerInsets.top + controller.view.safeAreaInsets.top, 72,
+            accuracy: 1, "Close uses its authored opener seat, not UIKit's different default inset")
         let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: nil)
         await fulfillment(of: [admitted], timeout: 3)
         let host = try XCTUnwrap(controller.host)

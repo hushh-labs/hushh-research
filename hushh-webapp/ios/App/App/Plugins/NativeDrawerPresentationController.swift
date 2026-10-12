@@ -10,6 +10,7 @@ final class NativeDrawerModel: ObservableObject {
     @Published var detailMode = "actions"
     @Published var renameDraft = ""
     @Published var choicePending = false
+    @Published var headerInsets = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
     var pendingSequence: Int?
     var choose: ((String, String?, String?) -> Bool)?
     var close: (() -> Void)?
@@ -56,6 +57,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     private var intentTimeout: DispatchWorkItem?
     var isolation: ((Bool) -> Void)?
     var invalidateInteractions: (() -> Void)?
+    var leadingHeaderFrame: (() -> CGRect?)?
     private var direction: CGFloat { model.projection.family == "history" ? -1 : 1 }
 
     init(_ projection: NativeDrawerProjection) {
@@ -118,6 +120,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             if !initial { settle(open: model.projection.open, userIntent: false) }
         }
         scrim.frame = view.bounds
+        alignHeader()
         // Compatible theme/content layouts never rewind an active drag/settle.
         if changed || animator == nil { pose(motion.progress) }
     }
@@ -131,6 +134,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             model.projection.privacyGeneration == projection.privacyGeneration
         model.update(projection)
         applyAppearance()
+        alignHeader()
         if compatibleTerminal {
             // Content/theme refresh is not acknowledgement of the terminal
             // intent. Keep its pose, token and original bounded deadline.
@@ -157,6 +161,14 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         overrideUserInterfaceStyle = theme.style
         host?.overrideUserInterfaceStyle = theme.style
         host?.view.tintColor = theme.accent
+    }
+    private func alignHeader() {
+        guard model.projection.family == "history", !dragging,
+              let frame = leadingHeaderFrame?(), view.bounds.contains(frame),
+              frame.width == 44, frame.height == 44 else { return }
+        let next = EdgeInsets(top: max(0, frame.minY - view.safeAreaInsets.top),
+            leading: frame.minX, bottom: 8, trailing: 16)
+        if model.headerInsets != next { model.headerInsets = next }
     }
     func beginDrag() {
         guard !motion.retired else { return }
@@ -319,7 +331,8 @@ struct NativeDrawerContent: View {
                 if model.projection.family != "history" {
                     control("xmark", "Close Profile") { model.close?() }
                 }
-            }.padding(.horizontal, 16).padding(.vertical, model.projection.family == "history" ? 8 : 12)
+            }.padding(model.projection.family == "history" ? model.headerInsets :
+                EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
             if let row = detailedRow {
                 details(row)
             } else {
