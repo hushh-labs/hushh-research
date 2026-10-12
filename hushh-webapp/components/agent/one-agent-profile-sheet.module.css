@@ -188,3 +188,5 @@
   .cards { grid-template-columns: 1fr; }
 }
 .scroll { container: one-profile-content / inline-size; }
+
+.avatar canvas { transform: scale(3); }

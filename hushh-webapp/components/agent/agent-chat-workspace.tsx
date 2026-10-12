@@ -15,7 +15,7 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
+import { OnePresenceAvatar } from "@/components/agent/one-presence-avatar";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
@@ -8589,11 +8589,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     onClick={() => setIsOneProfileOpen(true)}
                     className="!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
-                    <HushhMark
-                      aria-hidden="true"
-                      className="size-[72px] items-center justify-center overflow-visible"
-                      imageClassName="!size-16"
-                    />
+                    <OnePresenceAvatar state={activeToolCalls.length > 0 || isPkmMemoryWorking ? "working" : isStreaming ? "answering" : isChatLoading ? "thinking" : "connected"} />
                   </ShellActionSurface>
                 )}
               </div>
@@ -8771,7 +8767,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <OneAgentProfileSheet open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
+          <OneAgentProfileSheet presenceState={activeToolCalls.length > 0 || isPkmMemoryWorking ? "working" : isStreaming ? "answering" : isChatLoading ? "thinking" : "connected"} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface
