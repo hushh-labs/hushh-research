@@ -35,7 +35,8 @@
     "docs/reference/iam/agent-delegation-boundary.md",
     "consent-protocol/docs/reference/consent-protocol.md",
     ".codex/skills/security-audit/references/anti-rationalization.md",
-    "consent-protocol/docs/reference/personal-knowledge-model.md"
+    "consent-protocol/docs/reference/personal-knowledge-model.md",
+    "consent-protocol/docs/reference/private-browser-runtime.md"
   ],
   "required_commands": [
     "./bin/hushh docs verify",
