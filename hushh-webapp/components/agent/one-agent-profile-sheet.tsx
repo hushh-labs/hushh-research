@@ -207,7 +207,7 @@ export function OneAgentProfileSheet({
             <div className={styles.avatar}>
               <HushhMark
                 aria-hidden
-                className="size-20"
+                className="size-20 items-center justify-center"
                 imageClassName="!size-16"
               />
             </div>
