@@ -87,6 +87,46 @@ def test_recipient_view_needs_no_owner_vault_token_and_errors_are_private():
         assert response.headers["cache-control"] == "private, no-store"
 
 
+@pytest.mark.parametrize("suffix", ["/networks", "/networks/resolve"])
+def test_network_requests_require_matching_owner_identity(suffix):
+    with patch("api.routes.one.wallet_card_access.service") as service:
+        response = (
+            client("other").get(ROOT + suffix)
+            if suffix == "/networks"
+            else client("other").post(ROOT + suffix, json={"iinPrefix": "411111", "panLength": 16})
+        )
+        assert response.status_code == 403
+        assert response.headers["cache-control"] == "private, no-store"
+        service.assert_not_called()
+
+
+def test_network_contract_is_available_without_sharing_keys():
+    response = client().post(
+        ROOT + "/networks/resolve", json={"iinPrefix": "411111", "panLength": 16}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"network": "visa", "source": "prefix", "candidates": []}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert "visa" in client().get(ROOT + "/networks").json()["networks"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"iinPrefix": "4111111111111111", "panLength": 16},
+        {"iinPrefix": "411111", "panLength": "16"},
+        {"iinPrefix": "411111", "panLength": True},
+        {"iinPrefix": "411111", "panLength": 16, "pan": "4111111111111111"},
+        {"iinPrefix": "411111", "panLength": 16, "cvv": "123"},
+    ],
+)
+def test_network_endpoint_never_echoes_bad_input(body):
+    response = client().post(ROOT + "/networks/resolve", json=body)
+    assert response.status_code == 422
+    assert response.json() == {"detail": {"code": "WALLET_CARD_REQUEST_INVALID"}}
+    assert response.headers["cache-control"] == "private, no-store"
+
+
 def test_history_cursor_is_forwarded_with_owner_authority():
     service = MagicMock()
     service.card_access.return_value = {

@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_admin import get_firebase_auth_app
@@ -142,6 +142,13 @@ class SharingHistory(BaseModel):
     serverNow: str
 
 
+class CardNetworkBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    iin_prefix: str = Field(alias="iinPrefix", pattern=r"^[0-9]{6}$", min_length=6, max_length=6)
+    pan_length: StrictInt = Field(alias="panLength", ge=13, le=19)
+    selected_network: str | None = Field(default=None, alias="selectedNetwork", max_length=32)
+
+
 async def owner_identity(
     uid: str = Depends(require_firebase_auth), consent: dict = Depends(require_vault_owner_token)
 ):
@@ -152,6 +159,23 @@ async def owner_identity(
 
 def service():
     return WalletCardAccessService()
+
+
+@router.get("/networks")
+async def card_networks(owner: str = Depends(owner_identity)):
+    from hushh_mcp.services.wallet_card_validation import NETWORK_ORDER
+
+    return {"networks": list(NETWORK_ORDER)}
+
+
+@router.post("/networks/resolve")
+async def resolve_card_network(body: CardNetworkBody, owner: str = Depends(owner_identity)):
+    from hushh_mcp.services.wallet_card_validation import classify_card_network
+
+    try:
+        return classify_card_network(body.iin_prefix, body.pan_length, body.selected_network)
+    except ValueError:
+        raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"}) from None
 
 
 @router.post("/registrations")
