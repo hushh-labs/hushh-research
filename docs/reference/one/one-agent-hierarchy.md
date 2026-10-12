@@ -251,7 +251,15 @@ The default shared-runtime `adk_bridge/__init__.py` registration includes `agent
 An owner-bound pod may additionally register Connections and Connected Systems
 for its own turn; those are not ambient shared-runtime handlers.
 Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone
-product surfaces. Email's `ask_email_agent` path admits only owner-authorized
+product surfaces. The same Memory specialist reads recorded commerce metadata
+through its authority-selected port: earnings, readiness, and bounded purchase,
+sale and transaction pages. One keeps consent actions and usable-access checks
+with their existing authorities; consent request lists do not establish payment.
+Owner approval, reserved funds, scheduled activation, current access, mature
+earnings, transfers and bank payouts remain separate states. Conversation tools
+cannot fund, purchase, withdraw, refund or prepare paid exports. Shared-runtime
+source changes alone do not update an owner's installed private-pod software.
+Email's `ask_email_agent` path admits only owner-authorized
 typed-chat metadata reads when the Mail read flag and UAT rollout admission both allow
 them. It preserves One's conversation and permits only `list_recent` (the newest
 INBOX page, "my last N emails"), `list_needs_reply`, `search_inbox`, and the body

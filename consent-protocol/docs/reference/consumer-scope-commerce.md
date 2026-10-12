@@ -198,8 +198,27 @@ link opens Account; missing seller setup leads to Connect onboarding there. Chec
 funds buyer balances. Stripe MCP owner OAuth remains a separate read-tool connection.
 The Memory and PKM Structure agent manifests describe these boundaries; organizing
 information never sets a tariff, authorizes refresh or activates information access.
+One's authored instruction delegates recorded financial facts to the same Memory
+specialist's canonical read port. Direct consent request lists remain consent
+projections, not payment history. Both instructions distinguish inactive owner
+approval, buyer reservation, preparation, fixed scheduled activation, current
+access and earnings maturity. Missing or incomplete commercial reads remain
+unknown. No conversation tool gains a financial or fulfillment action. These
+instruction corrections require their own release; the installed private-pod
+image must be qualified separately. Source contract checks do not establish live
+model behavior or an owner's current MCP authorization.
 Unavailable section manifests show an explicit sharing-check failure with an
 in-place retry; they never imply that the owner has no shareable information.
+
+The Founder Wiki's June 12
+[consent reverse-auction article](https://wiki.hushh.ai/wiki/concepts/consent-reverse-auction)
+is `current_state_vs_north_star_drift` for this lane. Its proposed AP2/UCP auction,
+automatic agent bidding and 10–20% commission do not describe the current Stripe
+funded-balance implementation. The bounded proposed correction is to preserve
+that future design and add the current platform-charge/separate-Connect-transfer
+lane, zero starting commission, display coins, human quote confirmation, signed
+settlement evidence and pending acceptance boundary. Offer metadata and a supplied
+settlement reference cannot prove payment. No Wiki publication was performed.
 
 Account has Purchases, Sales and Transactions filters with counterpart, readable
 scope, gross price, costs, net, refunds, term/maturity and next required action.

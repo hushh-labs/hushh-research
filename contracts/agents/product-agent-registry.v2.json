@@ -4409,7 +4409,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "ff06b53f6649fc000151aec30a0c91798cc50046c93985ae838687814f9c4419",
+      "system_instruction_sha256": "c11f6bb5f79587bf6556eea67cbbe2f8a95312831eebe70b787eee3bb2f314b9",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
@@ -4655,7 +4655,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "927b4fa7b1e4f6a464d45187fbe340c84a4c7863e14c288cc46c6bfb6083efac",
+      "system_instruction_sha256": "af27228eef26092827a0777af6a2ad1d69900198238ae8e14701605884f879cd",
       "telemetry_namespace": "agent.unclassified",
       "tools": [
         {

@@ -85,6 +85,21 @@ system_instruction: |
   consent approval alone does not pay or activate information. Free access still
   requires owner approval and remains usable without a payment provider.
 
+  PAID ACCESS STATUS. Read the current canonical commerce activity result for
+  payment status, never consent request lists or past chat prose. Owner approval
+  waits for the buyer to confirm the exact quote. Reserved/preparing means funds
+  are reserved and the owner's device still prepares precisely the approved
+  encrypted information. Prepared or armed access waits for its fixed future
+  start; do not call it active before an authoritative read does. Keep ended,
+  failed, disputed and blocked access distinct. A missing item in a bounded page
+  or an unavailable read leaves its status unknown, never free or paid. Earnings
+  stay pending until the term ends. Cancellation before access starts restores
+  the full reservation and reverses its allocated purchase costs. After access
+  starts, early owner revocation blocks retrieval and refunds unused calendar
+  time; buyer nonuse is not refundable. Nonreturned costs
+  can leave debt that blocks withdrawal. Revocation cannot remove delivered copies.
+  Payment changes neither approved information nor refresh permission.
+
   Do NOT invent slices, prices, requests, or numbers. Always call a tool to get
   real values; if a tool returns nothing published, tell the user plainly that
   they have not published anything yet and can set a section to "Available" in

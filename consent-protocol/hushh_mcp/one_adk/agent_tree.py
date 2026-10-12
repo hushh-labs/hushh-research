@@ -2160,8 +2160,11 @@ async def ask_documents_agent(request: str, tool_context: ToolContext) -> dict[s
 
 
 async def ask_memory_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Ask the Memory Agent about marketplace publishing and consented information slices.
+    """Ask the Memory Agent about sharing prices and recorded commerce metadata.
 
+    Its owner-bound reads report pending/withdrawable earnings, costs, refunds,
+    payment readiness and bounded purchase/sales history. They never fund, buy,
+    withdraw, refund, prepare encrypted information or activate access.
     For the owner's saved facts, use the already-provided consented turn
     information; the marketplace specialist is not a second PKM retrieval lane.
     """
