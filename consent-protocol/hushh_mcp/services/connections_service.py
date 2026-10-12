@@ -556,7 +556,7 @@ class ConnectionsService:
             if not requester:
                 raise ConnectionsError(
                     "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
-                    "Verify your phone number before syncing contacts.",
+                    "We couldn't confirm your account verification. Please try again or contact support.",
                     status_code=403,
                 )
             # Bound per-user retention while charging. Fixed UTC buckets are
@@ -3886,7 +3886,7 @@ class ConnectionsService:
             ):
                 raise ConnectionsError(
                     "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
-                    "Verify your phone number before syncing contacts.",
+                    "We couldn't confirm your account verification. Please try again or contact support.",
                     status_code=403,
                 )
             proof_match_rows = self._execute_many(

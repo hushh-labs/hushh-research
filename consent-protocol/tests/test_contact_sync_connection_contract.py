@@ -810,14 +810,21 @@ def test_behavior_stale_proof_is_omitted_and_writes_nothing() -> None:
     assert service.writes == []
 
 
-def test_behavior_unverified_requester_is_rejected_before_any_write() -> None:
+@pytest.mark.parametrize("stage", ["budget", "mutation"])
+def test_behavior_unverified_requester_is_rejected_before_any_write(stage: str) -> None:
     service = _ContactSyncService(requester_verified=False)
 
     with pytest.raises(ConnectionsError) as captured:
-        _behavior_sync(service)
+        if stage == "budget":
+            with patch.object(service, "_execute_one", return_value=None):
+                service.reserve_contact_sync_lookup_budget("requester", 1)
+        else:
+            _behavior_sync(service)
 
     assert captured.value.code == "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED"
     assert captured.value.status_code == 403
+    assert "verify your phone" not in captured.value.message.lower()
+    assert "contact support" in captured.value.message.lower()
     assert service.writes == []
 
 

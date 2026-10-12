@@ -1334,7 +1334,9 @@ is unavailable, both contact-sync endpoints return retryable HTTP 503 with
 `CONTACT_SYNC_IDENTITY_UNAVAILABLE`, before lookup charging or matching. That
 failure does not ask for another OTP. A successful refresh with no trusted phone
 proof still fails the existing verified-requester admission gate; vault/setup
-completion and client phone hints are not proof. Previously deleted app-only
+completion and client phone hints are not proof. The refusal describes account
+verification recovery rather than telling a signed-in user to repeat phone OTP.
+Previously deleted app-only
 claims cannot be reconstructed from a phone-less Firebase record.
 
 `actor_identity_cache` stores only canonical E.164 verified phones. Migration 198 clears every
