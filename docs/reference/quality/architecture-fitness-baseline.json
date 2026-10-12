@@ -37090,7 +37090,7 @@
     "ruff_format_review": {
       "incoming_main": "337c4759e1b25a964cf82aaaec8432f648e447cd",
       "independent_reviewer": "ci_registry_review",
-      "proof": "All four complete Python ASTs equal incoming main; mandatory formatter changes only whitespace and source spans. No budgets or gates changed.",
+      "proof": "The complete runtime ASTs and all test bodies equal incoming main after mandatory formatting. One imported pytest fixture is explicitly aliased back to its existing public fixture name so the lint gate does not mistake dependency injection for unused-import redefinition. No budgets, assertions or gates changed.",
       "findings": [
         {
           "key": "module_size|consent-protocol/hushh_mcp/services/pkm_answer_payment_service.py||module exceeds the advisory operon budget",
@@ -37138,7 +37138,7 @@
           "key": "function_size|consent-protocol/tests/services/test_pkm_answer_signed_settlement_postgres.py|test_signed_dispatch_releases_exact_staged_answer_once|function exceeds the advisory gene budget",
           "before": null,
           "after": 89,
-          "source_sha256": "be1eb52995e646fdfb4a055b3f9e1d6845e662442fbd867380832950c41684e7"
+          "source_sha256": "e9e34715828ee60203dcab5e2f8c2a95f0fc34cff6d3f2cfca5c7650dd18abef"
         }
       ]
     }

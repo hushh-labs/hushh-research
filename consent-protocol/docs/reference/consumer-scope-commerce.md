@@ -30,7 +30,7 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
 owner; PR #7555 and issue #7587 remain active. The remote pod-release and Android
-corrections are preserved. Main `337c4759e1b2` is being merged normally; shared
+corrections are preserved. Main `337c4759e1b2` was merged normally at `9e5e58982b1c`; shared
 history, unrelated workspace edits and the frozen migration preservation receipt
 remain intact. Main's 315–325 registrations retain their existing numbers. This lane's six
 registrations move to 326–331 with byte-identical forward and rollback SQL;
@@ -59,7 +59,7 @@ incoming predecessor. The 447 Back cases pass; generated contract parity,
 complete core, exact-source hosted CI and Dev promotion must still complete.
 Source receipts never establish completed consumer purchases or bank payouts.
 
-The last qualified Dev observation at `22:17:38Z` served source `0d00ceaf1e1b` and retained two funding records,
+The last qualified Dev observation at `22:32:50Z` served source `0d00ceaf1e1b` and retained two funding records,
 three journals, zero purchases and zero withdrawals. Counterpart funding totals
 $10.50 ($0.50 plus $10), and the tagged $5 operating Topup was already settled;
 never repeat either. Reconcile fresh provider/application receipts before any
