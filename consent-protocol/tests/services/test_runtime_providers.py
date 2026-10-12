@@ -112,11 +112,11 @@ def test_is_known_provider_and_supported_set():
     assert is_known_provider("grok") is True
     assert is_known_provider("cohere") is False
     providers = supported_providers()
-    assert set(providers) == {"gemini", "anthropic", "openai", "grok"}
+    assert set(providers) == {"gemini", "anthropic", "openai", "grok", "openai_compatible"}
 
 
 def test_default_model_per_provider_is_stable():
-    for provider in ("gemini", "anthropic", "openai", "grok"):
+    for provider in ("gemini", "anthropic", "openai", "grok", "openai_compatible"):
         assert default_model_for_provider(provider)
 
 
@@ -708,7 +708,9 @@ def test_factory_hosted_adc_requires_project_and_location(monkeypatch):
         build_managed_runtime_client("gemini")
 
 
-def test_factory_grok_uses_openai_transport_with_base_url(monkeypatch):
+def _install_fake_openai_constructor(monkeypatch) -> dict[str, Any]:
+    """Fake ``openai.AsyncOpenAI`` that records its constructor kwargs."""
+
     captured: dict[str, Any] = {}
 
     class _FakeAsyncOpenAI:
@@ -718,11 +720,54 @@ def test_factory_grok_uses_openai_transport_with_base_url(monkeypatch):
     fake_module = types.ModuleType("openai")
     fake_module.AsyncOpenAI = _FakeAsyncOpenAI
     monkeypatch.setitem(sys.modules, "openai", fake_module)
+    return captured
+
+
+def test_factory_grok_uses_openai_transport_with_base_url(monkeypatch):
+    captured = _install_fake_openai_constructor(monkeypatch)
 
     transport = _build("grok", "GROK_KEY", managed=False)
     assert transport.provider == "grok"
     assert captured["base_url"] == "https://api.x.ai/v1"
     assert captured["api_key"] == "GROK_KEY"
+
+
+def test_factory_openai_compatible_fails_closed_without_base_url(monkeypatch):
+    _install_fake_openai_constructor(monkeypatch)
+    monkeypatch.delenv("HUSHH_OPENAI_COMPATIBLE_BASE_URL", raising=False)
+
+    with pytest.raises(ValueError, match="HUSHH_OPENAI_COMPATIBLE_BASE_URL is not configured"):
+        _build("openai_compatible", "any-key", managed=False)
+
+
+def test_managed_openai_compatible_allows_empty_credential_only_for_that_provider(monkeypatch):
+    captured = _install_fake_openai_constructor(monkeypatch)
+    monkeypatch.setenv("HUSHH_OPENAI_COMPATIBLE_BASE_URL", "http://127.0.0.1:8000/v1")
+
+    managed = build_managed_runtime_client("openai_compatible", "")
+    assert managed.provider == "openai_compatible"
+    assert captured["base_url"] == "http://127.0.0.1:8000/v1"
+    # A keyless local server still gets a non-empty placeholder for the SDK.
+    assert captured["api_key"] == "not-needed"
+
+    # Negative control: the keyless allowance does not leak to hosted providers.
+    with pytest.raises(RuntimeError, match="Managed runtime API key is not configured"):
+        build_managed_runtime_client("openai", "")
+
+    # Negative control: BYOK resolves the person's vaulted Gemini key for every
+    # provider, so an alias of this provider must never carry it to the
+    # operator-configured host.
+    with pytest.raises(ValueError, match="BYOK is not supported for openai_compatible"):
+        build_runtime_client("ollama", "gemini-key")
+    assert captured["api_key"] == "not-needed"
+
+    # Negative control: in a hosted environment a cleartext host would carry
+    # prompts and credentials unencrypted; only a loopback sidecar may stay on http.
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "production")
+    assert build_managed_runtime_client("openai_compatible", "").provider == "openai_compatible"
+    monkeypatch.setenv("HUSHH_OPENAI_COMPATIBLE_BASE_URL", "http://10.0.0.5/v1")
+    with pytest.raises(ValueError, match="must use https in hosted environments"):
+        build_managed_runtime_client("openai_compatible", "")
 
 
 # --------------------------------------------------------------------------- #

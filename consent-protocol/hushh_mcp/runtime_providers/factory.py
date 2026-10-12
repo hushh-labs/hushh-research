@@ -18,6 +18,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Iterator, Literal
+from urllib.parse import urlparse
 
 from google.genai.types import HttpOptions, HttpOptionsDict
 
@@ -31,7 +32,18 @@ VERTEX_ADC_AUTH_MODE = "vertex_adc"
 DEVELOPER_API_KEY_AUTH_MODE = "developer_api_key"
 VERTEX_LOCATIONS_ENV = "HUSHH_VERTEX_LOCATIONS"
 VERTEX_LOCATION_COOLDOWN_SECONDS_ENV = "HUSHH_VERTEX_LOCATION_COOLDOWN_SECONDS"
+# Host of an OpenAI-compatible server (NIM, vLLM, Ollama, LM Studio, TGI).
+# Server configuration only: the factory fails closed when it is unset, and a
+# provider alias never supplies it.
+OPENAI_COMPATIBLE_BASE_URL_ENV = "HUSHH_OPENAI_COMPATIBLE_BASE_URL"
+# Providers whose managed client needs no platform credential: Gemini uses
+# workload ADC, and an OpenAI-compatible server is addressed by host and
+# commonly runs without a key.
+_MANAGED_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"gemini", "openai_compatible"})
 _HOSTED_ENVIRONMENTS = {"dev", "uat", "staging", "production", "prod"}
+# The only hosts an OpenAI-compatible server may use over plain http in a
+# hosted environment: a loopback sidecar never leaves the machine.
+_LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "::1"})
 _PROJECT_ENV_NAMES = (
     # Managed Vertex can use a separately billed project while the process
     # remains rooted in its native Cloud Run/Cloud SQL project.
@@ -516,6 +528,32 @@ def _build(
         from .openai_transport import GROK_BASE_URL, OpenAITransport
 
         return OpenAITransport(api_key=api_key, base_url=GROK_BASE_URL, provider="grok")
+    if provider == "openai_compatible":
+        from .openai_transport import OpenAITransport
+
+        base_url = _clean_env(OPENAI_COMPATIBLE_BASE_URL_ENV)
+        if not base_url:
+            raise ValueError(f"{OPENAI_COMPATIBLE_BASE_URL_ENV} is not configured")
+        if not base_url.lower().startswith(("http://", "https://")):
+            raise ValueError(f"{OPENAI_COMPATIBLE_BASE_URL_ENV} must be an http(s) URL")
+        # Encryption in transit is a standing requirement: in a hosted
+        # environment every prompt and credential crosses a network, so only a
+        # loopback sidecar may stay on plain http.
+        if (
+            _deployment_environment() in _HOSTED_ENVIRONMENTS
+            and base_url.lower().startswith("http://")
+            and urlparse(base_url).hostname not in _LOOPBACK_HOSTS
+        ):
+            raise ValueError(
+                f"{OPENAI_COMPATIBLE_BASE_URL_ENV} must use https in hosted environments"
+            )
+        # The OpenAI SDK refuses an empty key even when the server ignores it,
+        # so a keyless local server gets a placeholder that is never a secret.
+        return OpenAITransport(
+            api_key=api_key or "not-needed",
+            base_url=base_url,
+            provider="openai_compatible",
+        )
     # normalize_provider already rejects unknown providers, so this is defensive.
     raise ValueError(f"Unsupported runtime provider: {provider!r}")
 
@@ -528,9 +566,19 @@ def build_runtime_client(
     vertex_project: str | None = None,
     vertex_location: str | None = None,
 ) -> Any:
-    """BYOK client: the user supplies the key for the chosen provider."""
+    """BYOK client: the user supplies the key for the chosen provider.
+
+    ``openai_compatible`` is refused here. Its host is operator configuration
+    (``HUSHH_OPENAI_COMPATIBLE_BASE_URL``), not the person's choice, and the
+    BYOK path resolves the person's vaulted Gemini key for every provider, so
+    a BYOK manifest naming ``ollama`` or ``vllm`` would send that key as a
+    bearer token to whatever host the operator named. The managed client is
+    the only path to an OpenAI-compatible server.
+    """
 
     provider = normalize_provider(runtime_provider)
+    if provider == "openai_compatible":
+        raise ValueError("BYOK is not supported for openai_compatible; configure the managed host")
     key = (user_key or "").strip()
     if not key:
         raise ValueError("User BYOK runtime key is required")
@@ -549,14 +597,16 @@ def build_runtime_client(
 def build_managed_runtime_client(runtime_provider: str, managed_credential: str = "") -> Any:
     """Hushh-managed client.
 
-    Gemini uses workload ADC in hosted environments. Other providers retain
-    their explicit platform-credential contract until they gain an equivalent
+    Gemini uses workload ADC in hosted environments. An OpenAI-compatible
+    server is addressed by ``HUSHH_OPENAI_COMPATIBLE_BASE_URL`` and may run
+    without a credential. Other providers retain their explicit
+    platform-credential contract until they gain an equivalent
     workload-identity mechanism.
     """
 
     provider = normalize_provider(runtime_provider)
     key = (managed_credential or "").strip()
-    if provider != "gemini" and not key:
+    if provider not in _MANAGED_KEYLESS_PROVIDERS and not key:
         raise RuntimeError("Managed runtime API key is not configured")
     return _build(provider, key, managed=True)
 

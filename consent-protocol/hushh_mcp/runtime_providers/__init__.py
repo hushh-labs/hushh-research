@@ -4,9 +4,9 @@ The Agent brain stays behind one stable text-generation contract: the
 ``google-genai`` client surface (``client.aio.models.generate_content`` and
 ``client.aio.models.generate_content_stream``) consumed by
 ``AgentChatService``. Gemini uses the real ``genai.Client``; every other
-provider (Anthropic, OpenAI, Grok) is exposed through a native transport
-adapter that translates genai-shaped requests/responses to and from that
-provider's native SDK.
+provider (Anthropic, OpenAI, Grok, and any OpenAI-compatible server) is
+exposed through a native transport adapter that translates genai-shaped
+requests/responses to and from that provider's native SDK.
 
 This keeps provider choice orthogonal to the rest of the runtime: chat,
 command transcription, semantic planning, and subagents call the same

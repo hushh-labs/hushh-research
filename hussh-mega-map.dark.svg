@@ -294,88 +294,102 @@
 <text x="100.0" y="1652.0" font-size="23" fill="#d4a574" text-anchor="start" font-weight="800" letter-spacing="0.4" opacity="1.0">COMMERCE · PAYMENTS · AGENT ECONOMY</text>
 <text x="655.0" y="1652.0" font-size="15" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">— the value-inversion layer — brands&#x27; agents bid; money flows to the user</text>
 <rect x="86.0" y="1666.0" width="3148.0" height="192.0" rx="16" fill="rgba(255,255,255,0.02)" stroke="#d4a574" stroke-width="1.6" stroke-dasharray="1,9" opacity="1.0"/>
-<rect x="100.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
-<rect x="100.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
+<rect x="100.0" y="1676.0" width="503.3" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
+<rect x="100.0" y="1676.0" width="503.3" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
 <circle cx="116.0" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
 <text x="130.0" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">UCP</text>
-<rect x="668.0" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
-<text x="682.0" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">11</text>
+<rect x="563.3" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
+<text x="577.3" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">11</text>
 <rect x="116.0" y="1710.0" width="123.4" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
 <text x="177.7" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">commerce protocol</text>
 <text x="116.0" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">Universal Commerce Protocol</text>
-<line x1="116.0" y1="1752" x2="692.0" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
+<line x1="116.0" y1="1752" x2="587.33" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
 <text x="116.0" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
 <text x="162.0" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">join the agent-commerce rails</text>
 <text x="116.0" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
 <text x="162.0" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">REST/JSON-RPC · business stays MoR</text>
 <text x="116.0" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
 <text x="162.0" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">catalog→cart→checkout</text>
-<rect x="728.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
-<rect x="728.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
-<circle cx="744.0" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
-<text x="758.0" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">AP2</text>
-<rect x="1296.0" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
-<text x="1310.0" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">12</text>
-<rect x="1262.0" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
-<text x="1276.0" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">11</text>
-<rect x="744.0" y="1710.0" width="148.2" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
-<text x="818.1" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">payment-auth protocol</text>
-<text x="744.0" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">Agent Payments Protocol (FIDO)</text>
-<line x1="744.0" y1="1752" x2="1320.0" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
-<text x="744.0" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
-<text x="790.0" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">prove intent-to-pay; settle money</text>
-<text x="744.0" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
-<text x="790.0" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">Intent→Cart→Payment mandate · SCA</text>
-<text x="744.0" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
-<text x="790.0" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">agent pays safely</text>
-<rect x="1356.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
-<rect x="1356.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
-<circle cx="1372.0" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
-<text x="1386.0" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">Demand Agent</text>
-<rect x="1924.0" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
-<text x="1938.0" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">12</text>
-<rect x="1372.0" y="1710.0" width="117.2" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
-<text x="1430.6" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">advertiser agent</text>
-<text x="1372.0" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">brand&#x27;s buyer-of-attention agent</text>
-<line x1="1372.0" y1="1752" x2="1948.0" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
-<text x="1372.0" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
-<text x="1418.0" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">reach users via their agent</text>
-<text x="1372.0" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
-<text x="1418.0" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">request_consent(scope, BID)</text>
-<text x="1372.0" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
-<text x="1418.0" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">brand bids $12</text>
-<rect x="1984.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
-<rect x="1984.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
-<circle cx="2000.0" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
-<text x="2014.0" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">Reverse-Auction Bid</text>
-<rect x="2552.0" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
-<text x="2566.0" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">12</text>
-<rect x="2000.0" y="1710.0" width="104.8" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
-<text x="2052.4" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">priced consent</text>
-<text x="2000.0" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">value flows to the user</text>
-<line x1="2000.0" y1="1752" x2="2576.0" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
-<text x="2000.0" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
-<text x="2046.0" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">flip the ad economy</text>
-<text x="2000.0" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
-<text x="2046.0" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">PCHP bid + AP2 settle · Nav reserve</text>
-<text x="2000.0" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
-<text x="2046.0" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">user gets PAID</text>
-<rect x="2612.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
-<rect x="2612.0" y="1676.0" width="608.0" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
-<circle cx="2628.0" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
-<text x="2642.0" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">Salesforce FSC + MuleSoft Anypoint</text>
+<rect x="623.3" y="1676.0" width="503.3" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
+<rect x="623.3" y="1676.0" width="503.3" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
+<circle cx="639.3" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
+<text x="653.3" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">AP2</text>
+<rect x="1086.7" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
+<text x="1100.7" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">12</text>
+<rect x="1052.7" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
+<text x="1066.7" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">11</text>
+<rect x="639.3" y="1710.0" width="148.2" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
+<text x="713.4" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">payment-auth protocol</text>
+<text x="639.3" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">Agent Payments Protocol (FIDO)</text>
+<line x1="639.33" y1="1752" x2="1110.67" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
+<text x="639.3" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
+<text x="685.3" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">prove intent-to-pay; settle money</text>
+<text x="639.3" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
+<text x="685.3" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">Intent→Cart→Payment mandate · SCA</text>
+<text x="639.3" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
+<text x="685.3" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">agent pays safely</text>
+<rect x="1146.7" y="1676.0" width="503.3" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
+<rect x="1146.7" y="1676.0" width="503.3" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
+<circle cx="1162.7" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
+<text x="1176.7" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">SuperSalesSI Workforce</text>
+<rect x="1162.7" y="1710.0" width="197.8" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
+<text x="1261.6" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">business-side agent workforce</text>
+<text x="1162.7" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">a company&#x27;s PLG, sales and revenue roles as agents</text>
+<line x1="1162.67" y1="1752" x2="1634.00" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
+<text x="1162.7" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
+<text x="1208.7" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">sell to businesses, never the citizen</text>
+<text x="1162.7" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
+<text x="1208.7" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">held 24h then automatic, one human signs, PCHP request_consent only</text>
+<text x="1162.7" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
+<text x="1208.7" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">SDR brief, quote, collect</text>
+<rect x="1670.0" y="1676.0" width="503.3" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
+<rect x="1670.0" y="1676.0" width="503.3" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
+<circle cx="1686.0" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
+<text x="1700.0" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">Demand Agent</text>
+<rect x="2133.3" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
+<text x="2147.3" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">12</text>
+<rect x="1686.0" y="1710.0" width="117.2" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
+<text x="1744.6" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">advertiser agent</text>
+<text x="1686.0" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">brand&#x27;s buyer-of-attention agent</text>
+<line x1="1686.00" y1="1752" x2="2157.33" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
+<text x="1686.0" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
+<text x="1732.0" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">reach users via their agent</text>
+<text x="1686.0" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
+<text x="1732.0" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">request_consent(scope, BID)</text>
+<text x="1686.0" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
+<text x="1732.0" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">brand bids $12</text>
+<rect x="2193.3" y="1676.0" width="503.3" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
+<rect x="2193.3" y="1676.0" width="503.3" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
+<circle cx="2209.3" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
+<text x="2223.3" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">Reverse-Auction Bid</text>
+<rect x="2656.7" y="1686.0" width="28.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
+<text x="2670.7" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">12</text>
+<rect x="2209.3" y="1710.0" width="104.8" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
+<text x="2261.7" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">priced consent</text>
+<text x="2209.3" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">value flows to the user</text>
+<line x1="2209.33" y1="1752" x2="2680.67" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
+<text x="2209.3" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
+<text x="2255.3" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">flip the ad economy</text>
+<text x="2209.3" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
+<text x="2255.3" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">PCHP bid + AP2 settle · Nav reserve</text>
+<text x="2209.3" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
+<text x="2255.3" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">user gets PAID</text>
+<rect x="2716.7" y="1676.0" width="503.3" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
+<rect x="2716.7" y="1676.0" width="503.3" height="172.0" rx="12" fill="rgba(136,19,55,0.24)" stroke="#fb7185" stroke-width="1.6" opacity="1.0"/>
+<circle cx="2732.7" cy="1696.0" r="4.6" fill="none" stroke="#fb7185" stroke-width="2.0"/>
+<text x="2746.7" y="1701.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">Salesforce FSC + MuleSoft Anypoint</text>
 <rect x="3186.0" y="1686.0" width="22.0" height="20.0" rx="10" fill="#fb7185" opacity="1.0"/>
 <text x="3197.0" y="1700.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">6</text>
-<rect x="2628.0" y="1710.0" width="154.4" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
-<text x="2705.2" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">enterprise CRM + iPaaS</text>
-<text x="2628.0" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">partner system sync, user-owned</text>
-<line x1="2628.0" y1="1752" x2="3204.0" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
-<text x="2628.0" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
-<text x="2674.0" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">keep CRM current, no mirror</text>
-<text x="2628.0" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
-<text x="2674.0" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">iPaaS proxy · narrow fields</text>
-<text x="2628.0" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
-<text x="2674.0" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">CRM record update</text>
+<rect x="2732.7" y="1710.0" width="154.4" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
+<text x="2809.9" y="1722.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">enterprise CRM + iPaaS</text>
+<text x="2732.7" y="1742.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">partner system sync, user-owned</text>
+<line x1="2732.67" y1="1752" x2="3204.00" y2="1752" stroke="#2c2c3a" stroke-width="1"/>
+<text x="2732.7" y="1772.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
+<text x="2778.7" y="1772.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">keep CRM current, no mirror</text>
+<text x="2732.7" y="1794.0" font-size="10.5" fill="#7dd3fc" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">HOW</text>
+<text x="2778.7" y="1794.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">iPaaS proxy · narrow fields</text>
+<text x="2732.7" y="1816.0" font-size="10.5" fill="#9fe7c4" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">e.g.</text>
+<text x="2778.7" y="1816.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">CRM record update</text>
 <path d="M1477,1901 L1489,1915 L1501,1901" fill="none" stroke="#d4a574" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
 <text x="1517.2" y="1913.0" font-size="14.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">every transaction is driven by agents that …</text>
 <text x="100.0" y="1944.0" font-size="23" fill="#34d399" text-anchor="start" font-weight="800" letter-spacing="0.4" opacity="1.0">INTELLIGENCE · AGENTS</text>
@@ -772,7 +786,7 @@
 <rect x="728.0" y="3136.0" width="608.0" height="172.0" rx="12" fill="#17171f" opacity="1.0"/>
 <rect x="728.0" y="3136.0" width="608.0" height="172.0" rx="12" fill="rgba(6,78,59,0.30)" stroke="#34d399" stroke-width="1.6" opacity="1.0"/>
 <circle cx="744.0" cy="3156.0" r="4.6" fill="#34d399"/>
-<text x="758.0" y="3161.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">Supabase / Postgres</text>
+<text x="758.0" y="3161.0" font-size="15.5" fill="#f5f5f7" text-anchor="start" font-weight="700" letter-spacing="0" opacity="1.0">Cloud SQL / Postgres</text>
 <rect x="744.0" y="3170.0" width="67.6" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
 <text x="777.8" y="3182.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">database</text>
 <text x="744.0" y="3202.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">relational data plane</text>

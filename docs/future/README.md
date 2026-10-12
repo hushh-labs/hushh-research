@@ -71,6 +71,7 @@ Promotion targets:
 - [one-meta-glasses-ambient-agent-plan.md](./one-meta-glasses-ambient-agent-plan.md): planning-only ambient wearable agent concept
 - [one-meta-glasses-dat-execution-plan.md](./one-meta-glasses-dat-execution-plan.md): planning-only DAT execution path for the wearable concept
 - [one-docusign-fund-setup-plan.md](./one-docusign-fund-setup-plan.md): planning-only vendor-neutral agreement execution and fund-setup workflow under One, with Nav/Connections authorization, trusted action confirmation, and MuleSoft/DocuSign provider options
+- [supersales-siri-app-intent.md](./supersales-siri-app-intent.md): planning-only "Brief me on the workforce" App Intent for tenant humans; Siri reads the weekly scorecard and the holds due in the next 24 hours through the authenticated backend, speaks two sentences, and offers Cancel only as a follow-up that opens the console, never approving, cancelling or sending itself
 
 ## References
 
