@@ -125,6 +125,28 @@ describe("a Consent Center row keeps its lane in the URL", () => {
     },
   );
 
+  it.each([
+    ["Received", "incoming_request", "awaiting_owner"],
+    ["Sent", "outgoing_request", "approved"],
+    ["Previous", "history", "answered"],
+  ] as const)(
+    "keeps the typed id for a row shown on the %s tab",
+    (_tab, kind, status) => {
+      // The row moves bucket as the request progresses -- the owner's row
+      // leaves "Received" once it is approved. Each tab has its own select
+      // handler, and a tab that dropped the prefix would reopen the request
+      // through the generic approve/deny path.
+      const row = {
+        ...answerRow("owner"),
+        kind,
+        status,
+        metadata: { ...answerRow("owner").metadata, request_status: status },
+      } as unknown as ConsentCenterEntry;
+      expect(consentSelectionId(row)).toBe(`answer_request:${REQUEST}`);
+      expect(answerRequestId(consentSelectionId(row))).toBe(REQUEST);
+    },
+  );
+
   it("still routes the Drive lanes and the generic lane unchanged", () => {
     // Negative control: the fix must not broaden recognition. A bare
     // `request_id` remains correct for the generic consent path, and both
