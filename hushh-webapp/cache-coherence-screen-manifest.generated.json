@@ -17,8 +17,8 @@
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
-      "vault-backed": 58,
-      "hidden flow": 21,
+      "vault-backed": 59,
+      "hidden flow": 20,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 2,
@@ -4904,8 +4904,8 @@
     {
       "route": "/one/referrals",
       "page_file": "app/one/referrals/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -4940,9 +4940,11 @@
         "api_service": false,
         "hushh_loader": true,
         "sse_or_streaming": false,
-        "native_beacon": true
+        "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "loader detected; verify warm cache path avoids blocking loader"
+      ]
     },
     {
       "route": "/one/setup",
@@ -6738,5 +6740,5 @@
       ]
     }
   ],
-  "content_sha256": "484c8031ca1e00b54ecca0cc037689bac2e10113155aa26445eacedc21449886"
+  "content_sha256": "e9e8f9ba0515434cec9d022d297d6d2abadff5a6cbff9f7c53f217d9bc70495f"
 }
