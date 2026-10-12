@@ -45,6 +45,11 @@ import {
   type ScopeProjection,
 } from "@/lib/answers/answer-projection";
 import { buildAnswerMemorySlice } from "@/lib/answers/answer-memory-slice";
+import {
+  approvedScopesBackedBySoul,
+  projectApprovedSoulFacts,
+} from "@/lib/answers/identity-soul-facts";
+import { loadMarkdownMemory } from "@/lib/pkm/markdown-memory";
 import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
 
 /**
@@ -192,6 +197,45 @@ export async function buildAnswerPayload(
   for (const scope of failed) if (scope) unavailableScopes.push(scope);
   if (!isVaultSessionEpochCurrent(epoch))
     throw new Error("Vault session changed");
+
+  // The identity intake records what the person states as labelled Soul
+  // bullets, not as structured leaves, so an approved identity scope had no
+  // leaf to project and came back empty even though the fact was sitting in
+  // Profile Memory. Read that document once, and only for the scopes the
+  // owner approved: the mapped labels are the only thing that can leave this
+  // way, and the person's free prose cannot.
+  const soulBackedScopes = approvedScopesBackedBySoul(work.approvedScopes);
+  if (soulBackedScopes.length) {
+    try {
+      const memory = await loadMarkdownMemory({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      if (!isVaultSessionEpochCurrent(epoch))
+        throw new Error("Vault session changed");
+      const revision =
+        typeof memory?.dataVersion === "number" ? memory.dataVersion : null;
+      for (const fact of projectApprovedSoulFacts({
+        approvedScopes: soulBackedScopes,
+        markdown: memory?.markdown,
+      })) {
+        const payload: Record<string, unknown> = {};
+        let branch = payload;
+        const segments = fact.relativePath.split(".");
+        for (const segment of segments.slice(0, -1))
+          branch = (branch[segment] = {}) as Record<string, unknown>;
+        branch[segments[segments.length - 1]!] = fact.value;
+        projections.push({ scope: fact.scope, payload, contentRevision: revision });
+      }
+    } catch {
+      // A Soul document that could not be read is not an absent fact. Naming
+      // the scopes keeps the caller's rule: this request stays queued rather
+      // than being delivered as "Answer not found".
+      for (const scope of soulBackedScopes)
+        if (!unavailableScopes.includes(scope)) unavailableScopes.push(scope);
+    }
+  }
 
   const period =
     work.periodStart && work.periodEnd

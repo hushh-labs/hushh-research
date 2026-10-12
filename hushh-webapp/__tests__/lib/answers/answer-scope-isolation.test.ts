@@ -25,6 +25,10 @@ vi.mock("@/lib/services/answer-request-service", () => ({
     deliver: (...a: unknown[]) => deliver(...a),
   },
 }));
+const loadMarkdownMemory = vi.fn();
+vi.mock("@/lib/pkm/markdown-memory", () => ({
+  loadMarkdownMemory: (...a: unknown[]) => loadMarkdownMemory(...a),
+}));
 const encrypt = vi.fn();
 vi.mock("@/lib/one-marketplace/encryption", () => ({
   encryptSliceForRecipient: (...a: unknown[]) => encrypt(...a),
@@ -59,6 +63,8 @@ beforeEach(() => {
   answerable.mockReset();
   compose.mockReset();
   deliver.mockReset();
+  loadMarkdownMemory.mockReset();
+  loadMarkdownMemory.mockResolvedValue(null);
   encrypt.mockReset().mockResolvedValue({ sealed: "ciphertext" });
   compose.mockResolvedValue({ answerMode: "projection", answer: null });
   deliver.mockResolvedValue(undefined);
@@ -367,4 +373,86 @@ describe("lock fences asynchronous answer work", () => {
       if (stage !== "encrypt") expect(encrypt).not.toHaveBeenCalled();
     },
   );
+});
+
+// The identity intake writes what the person states as labelled Soul bullets,
+// so these are the paths a real "what is your name" / "what is your age"
+// request actually has to read.
+describe("identity facts recorded in Soul.md answer the question they were approved for", () => {
+  const SOUL = [
+    "## Facts",
+    "",
+    "- Legal name: Smirthika Dharmalingam",
+    "- Date of birth: 1998-03-14",
+    "- Sex: female",
+    "- Saving for a trip to Kyoto",
+    "",
+  ].join("\n");
+
+  const identityWork = (scope: string) =>
+    work({ approvedScopes: [scope], question: "What is your age?" });
+
+  beforeEach(() => {
+    loadMarkdownMemory.mockResolvedValue({ markdown: SOUL, dataVersion: 12 });
+    // No structured leaf exists for these; Soul.md is the only source.
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+  });
+
+  it("puts the age, not the birth date, into what the writer is given", async () => {
+    const { payload, hasContent } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.declared_age"),
+      params,
+    );
+
+    expect(hasContent).toBe(true);
+    const rendered = JSON.stringify(payload);
+    expect(rendered).toContain("declared_age");
+    // The birth date is its own approval and was not given here.
+    expect(rendered).not.toContain("1998-03-14");
+    expect(payload.sourceRevisions["attr.identity.identity_profile.declared_age"]).toBe(12);
+  });
+
+  it("answers a name request from the recorded legal name", async () => {
+    const { payload, hasContent } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.full_name"),
+      params,
+    );
+    expect(hasContent).toBe(true);
+    expect(JSON.stringify(payload)).toContain("Smirthika Dharmalingam");
+  });
+
+  it("carries no unapproved fact and none of the surrounding prose", async () => {
+    const { payload } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.declared_age"),
+      params,
+    );
+    const rendered = JSON.stringify(payload);
+    expect(rendered).not.toContain("female");
+    expect(rendered).not.toContain("Kyoto");
+    expect(rendered).not.toContain("Smirthika Dharmalingam");
+  });
+
+  it("stays pending when the Soul document cannot be read", async () => {
+    // Locked or failed: not an absent fact, so it must not deliver "not found".
+    loadMarkdownMemory.mockRejectedValue(new Error("vault locked"));
+    const { payload } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.declared_age"),
+      params,
+    );
+    expect(payload.unavailableScopes).toContain(
+      "attr.identity.identity_profile.declared_age",
+    );
+  });
+
+  it("says nothing rather than guessing a sex that was never recorded", async () => {
+    loadMarkdownMemory.mockResolvedValue({
+      markdown: "## Facts\n\n- Legal name: Smirthika Dharmalingam\n- She prefers window seats\n",
+      dataVersion: 3,
+    });
+    const { hasContent } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.sex"),
+      params,
+    );
+    expect(hasContent).toBe(false);
+  });
 });
