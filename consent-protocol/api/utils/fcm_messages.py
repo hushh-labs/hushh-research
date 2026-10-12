@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 CONSENT_NOTIFICATION_CATEGORY = "CONSENT_REQUEST"
@@ -102,11 +102,27 @@ def build_push_message(
     expiry = int(data.get("chat_expires_at") or (int(time.time()) + 86400)) if is_chat else 0
     chat_ttl = max(0, min(86400, expiry - int(time.time())))
     is_sms_emergency = _is_one_location_sms_emergency(data)
+    is_sms_created = is_sms_emergency and normalized_type == "location_share_created"
+    sms_expiry = 0
+    sms_expired = False
+    if is_sms_created and data.get("expires_at"):
+        try:
+            deadline = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=UTC)
+            sms_expiry = int(deadline.timestamp())
+            sms_expired = sms_expiry <= int(time.time())
+        except (ValueError, OverflowError, TypeError):
+            sms_expired = True
+    # Legacy undated alerts may deliver now but must never queue for weeks.
+    sms_ttl = max(0, min(28 * 86400, sms_expiry - int(time.time())))
+    alert_ttl = sms_ttl if is_sms_created else chat_ttl
+
     force_feed_only_transport = _is_one_location_feed_only_transport(
         normalized_type,
         data=data,
     )
-    show_alert = bool(show_alert) and not force_feed_only_transport
+    show_alert = bool(show_alert) and not force_feed_only_transport and not sms_expired
     if force_feed_only_transport:
         data = {
             key: value
@@ -133,11 +149,14 @@ def build_push_message(
 
     webpush = None
     webpush_link = _webpush_link(request_url)
-    if show_alert and normalized_platform == "web":
+    if normalized_platform == "web" and (show_alert or is_sms_created):
         webpush = messaging.WebpushConfig(
-            headers={"Urgency": "high", **({"TTL": str(chat_ttl)} if is_chat else {})},
+            headers={
+                "Urgency": "high",
+                **({"TTL": str(alert_ttl)} if is_chat or is_sms_created else {}),
+            },
             notification=None
-            if is_chat
+            if is_chat or not show_alert
             else messaging.WebpushNotification(
                 title=title,
                 body=body,
@@ -150,7 +169,7 @@ def build_push_message(
             ),
             fcm_options=(
                 messaging.WebpushFCMOptions(link=webpush_link)
-                if webpush_link and not is_chat
+                if webpush_link and not is_chat and show_alert
                 else None
             ),
         )
@@ -160,10 +179,10 @@ def build_push_message(
         android = messaging.AndroidConfig(priority="high")
     if normalized_platform == "android" and is_chat and data.get("recipient_key_id"):
         android = messaging.AndroidConfig(priority="high", ttl=timedelta(seconds=chat_ttl))
-    if normalized_platform == "android" and show_alert:
+    if normalized_platform == "android" and (show_alert or is_sms_created):
         android = android or messaging.AndroidConfig(
             priority="high",
-            ttl=timedelta(seconds=chat_ttl) if is_chat else None,
+            ttl=timedelta(seconds=alert_ttl) if is_chat or is_sms_created else None,
             notification=messaging.AndroidNotification(
                 title=title,
                 body=body,
@@ -172,10 +191,13 @@ def build_push_message(
                 ),
                 tag=notification_tag,
                 ticker="Emergency SMS alert" if is_sms_emergency else None,
+                sound="default" if is_sms_emergency else None,
                 priority="max" if is_sms_emergency else None,
                 visibility="public" if is_sms_emergency else None,
                 vibrate_timings_millis=([0, 240, 120, 240, 120, 520] if is_sms_emergency else None),
-            ),
+            )
+            if show_alert
+            else None,
         )
 
     apns = None
@@ -184,6 +206,7 @@ def build_push_message(
             headers={
                 "apns-push-type": "alert",
                 "apns-priority": "10",
+                **({"apns-expiration": str(sms_expiry)} if is_sms_created else {}),
                 **(
                     {
                         "apns-expiration": str(expiry),
@@ -224,6 +247,7 @@ def build_push_message(
             headers={
                 "apns-push-type": "alert" if chat_badge is not None else "background",
                 "apns-priority": "5",
+                **({"apns-expiration": str(sms_expiry)} if is_sms_created else {}),
             },
             payload=messaging.APNSPayload(
                 aps=messaging.Aps(
