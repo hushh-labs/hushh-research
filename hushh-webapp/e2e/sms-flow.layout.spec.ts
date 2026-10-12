@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -12,6 +12,7 @@ import {
 // identity readiness and notification delivery contracts have separate tests.
 let css: string;
 let script: string;
+let soundScript: string;
 let fixtureOutputDirectory: string | null = null;
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -56,6 +57,17 @@ test.beforeAll(async () => {
     },
   });
   script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  await build({
+    configFile: false, publicDir: false, logLevel: "error",
+    build: {
+      outDir, emptyOutDir: false,
+      lib: {
+        entry: path.join(root, "lib/one-location/notification-sound.ts"),
+        name: "SmsSound", formats: ["iife"], fileName: () => "sound.js",
+      },
+    },
+  });
+  soundScript = fs.readFileSync(path.join(outDir, "sound.js"), "utf8");
   const { compile } = await import("tailwindcss");
   const compiler = await compile(
     fs
@@ -99,6 +111,65 @@ test.afterAll(() => {
     throw new Error("Unexpected SMS fixture output directory");
   }
   fs.rmSync(target, { recursive: true, force: true });
+});
+
+test("Chrome autoplay blocking uses the system fallback, then a gesture primes later push audio", async ({}, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "Chromium autoplay policy and CDP without synthetic user activation");
+  const browser = await chromium.launch({ args: ["--autoplay-policy=document-user-activation-required"] });
+  try {
+    const page = await browser.newPage();
+    await page.goto("data:text/html,<button>Open One</button>");
+    const cdp = await page.context().newCDPSession(page);
+    // page.evaluate grants transient user activation and would hide this bug.
+    const evaluateWithoutGesture = async (expression: string) => {
+      const result = await cdp.send("Runtime.evaluate", { expression, returnByValue: true, userGesture: false });
+      if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+      return result.result.value;
+    };
+    await evaluateWithoutGesture(`
+      window.createdContexts = [];
+      window.toneConnections = 0;
+      window.vibrationCalls = 0;
+      window.vibrationStopped = false;
+      Object.defineProperty(navigator, "vibrate", { configurable: true, value: (pattern) => { window.vibrationCalls++; window.vibrationStopped = pattern === 0; return true; } });
+      const NativeAudio = window.AudioContext;
+      window.AudioContext = class extends NativeAudio {
+        constructor() { super(); window.createdContexts.push(this); }
+        createOscillator() {
+          const tone = super.createOscillator();
+          const connect = tone.connect.bind(tone), disconnect = tone.disconnect.bind(tone);
+          let connected = false;
+          tone.connect = (...args) => { if (!connected) window.toneConnections++; connected = true; return connect(...args); };
+          tone.disconnect = () => { if (connected) window.toneConnections--; connected = false; disconnect(); };
+          return tone;
+        }
+      };
+      ${soundScript}
+      window.releaseSound = SmsSound.installOneLocationNotificationSound();
+    `);
+    expect(await evaluateWithoutGesture(`SmsSound.playOneLocationNotificationSound("sos")`)).toBe(false);
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
+    expect(await evaluateWithoutGesture("window.vibrationCalls")).toBe(1);
+    await evaluateWithoutGesture("SmsSound.stopOneLocationNotificationSound()");
+    expect(await evaluateWithoutGesture("window.vibrationStopped")).toBe(true);
+    await page.getByRole("button", { name: "Open One" }).click();
+    await expect.poll(() => evaluateWithoutGesture("window.createdContexts[0].state")).toBe("running");
+    expect(await evaluateWithoutGesture(`SmsSound.playOneLocationNotificationSound("sos", "active")`)).toBe(true);
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(1);
+    await evaluateWithoutGesture(`SmsSound.stopOneLocationNotificationSound("unrelated")`);
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(1);
+    await evaluateWithoutGesture(`SmsSound.stopOneLocationNotificationSound("active")`);
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
+    expect(await evaluateWithoutGesture(`SmsSound.playOneLocationNotificationSound("sos", "next")`)).toBe(true);
+    // Hiding the app must disconnect synchronously, even if both native audio
+    // time and JS timers freeze before the tone's scheduled end.
+    await evaluateWithoutGesture(`window.dispatchEvent(new Event("pagehide"))`);
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
+    await evaluateWithoutGesture("window.releaseSound()");
+    await expect.poll(() => evaluateWithoutGesture("window.createdContexts[0].state")).toBe("closed");
+  } finally {
+    await browser.close();
+  }
 });
 
 test("preset, edit, cancel, hold, live receipt and Stop work through real browser events", async ({ page, isMobile, browserName }) => {
