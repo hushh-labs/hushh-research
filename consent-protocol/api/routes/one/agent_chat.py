@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import uuid
 from typing import Any
@@ -96,6 +97,7 @@ from hushh_mcp.one_adk.turn_completion import (
 )
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
+from hushh_mcp.runtime_providers import bind_managed_vertex_project
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
@@ -519,14 +521,20 @@ async def _admit_consent_continuation(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
+_ONE_CHAT_VERTEX_PROJECT = (os.getenv("HUSHH_ONE_CHAT_VERTEX_PROJECT") or "").strip() or None
+
 _app = App(
     name=ONE_APP_NAME,
-    root_agent=build_one_text_agent(allow_workspace_tools=True, include_thought_summaries=True),
+    root_agent=build_one_text_agent(
+        vertex_project=_ONE_CHAT_VERTEX_PROJECT,
+        allow_workspace_tools=True,
+        include_thought_summaries=True,
+    ),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 _intro_app = App(
     name=f"{ONE_APP_NAME}_intro",
-    root_agent=build_one_intro_text_agent(),
+    root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 _session_service = EncryptedAdkSessionService()
@@ -1787,12 +1795,13 @@ async def list_conversations(
     sessions = sorted(response.sessions, key=lambda item: item.last_update_time, reverse=True)[
         :limit
     ]
-    await ensure_conversation_titles(
-        sessions=sessions,
-        service=_session_service,
-        owner=user_id,
-        token=str(token.get("token") or ""),
-    )
+    with bind_managed_vertex_project(_ONE_CHAT_VERTEX_PROJECT):
+        await ensure_conversation_titles(
+            sessions=sessions,
+            service=_session_service,
+            owner=user_id,
+            token=str(token.get("token") or ""),
+        )
     return {
         "user_id": user_id,
         "conversations": [
