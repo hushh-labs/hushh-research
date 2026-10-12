@@ -183,15 +183,16 @@ describe("what to help with first", () => {
     }
   });
 
-  it("reaches only read-first connect paths", () => {
+  it("keeps Calendar read-first and requests Gmail reading/sending in one connection", () => {
     // Calendar routes to the Calendar page, whose setup connect is read-only;
-    // Gmail opens the connectors drawer, whose Connect Mail defaults to read.
+    // Gmail requests its combined grant once; this does not send an email.
     const root = process.cwd();
     const calendar = readFileSync(join(root, "components/calendar/calendar-agent-page.tsx"), "utf8");
     const connectors = readFileSync(join(root, "components/agent/connectors-panel.tsx"), "utf8");
     const workspace = readFileSync(join(root, "components/agent/agent-chat-workspace.tsx"), "utf8");
     expect(calendar).toContain('const connect = async (accessLevel: "read" | "manage" = "read") =>');
-    expect(connectors).toContain('const connectMail = (purpose: "read" | "compose" = "read") =>');
+    expect(connectors).toContain('const connectMail = (purpose: "send" | "compose" = "send") =>');
+    expect(connectors).toContain('createGmailOAuthPopupAttempt(user.uid, purpose === "send" ? "send" : "read")');
     expect(workspace).toMatch(/if \(provider === "calendar"\) \{\s*router\.push\(ROUTES\.CALENDAR\);/);
   });
 

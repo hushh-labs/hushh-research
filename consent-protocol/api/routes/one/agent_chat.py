@@ -554,6 +554,18 @@ class _DurableSessionManager(SessionManager):
     def _start_cleanup_task(self) -> None:
         return None
 
+    async def _find_session_by_thread_id(
+        self, app_name: str, user_id: str, thread_id: str
+    ) -> Any | None:
+        """Use the authored O(1) identity instead of decrypting all history.
+
+        This manager is configured with ``use_thread_id_as_session_id=True``.
+        The bridge nevertheless calls this recovery hook before its direct
+        get-or-create path; the stock implementation scans and decrypts up to
+        100 sessions. One exact encrypted row read is sufficient here.
+        """
+        return await self.get_session(thread_id, app_name, user_id)
+
 
 _durable_session_manager = _DurableSessionManager(
     session_service=RequestStateSessionService(_session_service),

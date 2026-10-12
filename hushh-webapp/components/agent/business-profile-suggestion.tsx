@@ -18,6 +18,7 @@ import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { businessReviewFields, businessReviewItems, initialBusinessFieldSelection, selectBusinessReviewFields, type BusinessFieldSelection, type BusinessReviewItem } from "@/lib/agent/business-profile-fields";
 import { withDeadline } from "@/lib/utils/with-deadline";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
 
 const BUSINESS_REVIEW_BUDGET_MS = 90_000;
 
@@ -47,6 +48,7 @@ type Review = {
 /** On-demand discovery; each distinct business has an independent review. */
 export function BusinessProfileSuggestion(props: Props) {
   const [completedOwner, setCompletedOwner] = useState<string | null>(null);
+  const foregroundChatActive = useForegroundChatActive();
   const [discovery, setDiscovery] = useState<{ ownerId: string; token: string; key: string;
     candidates: BusinessCandidate[]; incomplete: boolean; status: string } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -59,18 +61,21 @@ export function BusinessProfileSuggestion(props: Props) {
       return next;
     });
   }, []);
-  const visible = visibleIds.size > 0;
+  const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
+  const currentDiscovery = enabled && !foregroundChatActive && !!ownerId && !!vaultKey && !!vaultOwnerToken &&
+    tokenExpiresAt !== null && Date.now() < tokenExpiresAt && completedOwner !== ownerId &&
+    discovery?.ownerId === ownerId && discovery.token === vaultOwnerToken && discovery.key === vaultKey;
+  const visible = currentDiscovery && visibleIds.size > 0;
   const { onVisibleChange } = props;
   useEffect(() => {
     onVisibleChange?.(visible);
     return () => onVisibleChange?.(false);
   }, [onVisibleChange, visible]);
-  const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
   useEffect(() => {
     const abort = new AbortController();
     setDiscovery(null);
     const guard = createAgentPkmCaptureGuard({ userId: ownerId || "", signal: abort.signal,
-      isEnabled: () => enabled && !!ownerId && !!vaultKey && !!vaultOwnerToken && tokenExpiresAt !== null && Date.now() < tokenExpiresAt });
+      isEnabled: () => enabled && !foregroundChatActive && !!ownerId && !!vaultKey && !!vaultOwnerToken && tokenExpiresAt !== null && Date.now() < tokenExpiresAt });
     if (guard.isCurrent()) void (async () => {
       try {
         const result = await BusinessSuggestionService.get(vaultOwnerToken!, abort.signal);
@@ -83,10 +88,8 @@ export function BusinessProfileSuggestion(props: Props) {
       }
     })();
     return () => abort.abort();
-  }, [ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt, attempt]);
-  if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken || tokenExpiresAt === null || Date.now() >= tokenExpiresAt ||
-    completedOwner === ownerId ||
-    discovery?.ownerId !== ownerId || discovery.token !== vaultOwnerToken || discovery.key !== vaultKey) return null;
+  }, [ownerId, vaultKey, vaultOwnerToken, enabled, foregroundChatActive, tokenExpiresAt, attempt]);
+  if (!currentDiscovery) return null;
   const candidates = discovery.candidates.filter(candidate => candidate.synthetic === false &&
     candidate.sourceIdentity.source === "directory" && !isDemoBusinessSource(candidate.sourceIdentity.sourceKey) &&
     !props.dismissedBusinessUids?.has(candidate.businessUid));

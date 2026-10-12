@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 
 import { AgentMarkdown } from "../../components/agent/agent-markdown";
+import { SoulMemoryDocument } from "../../components/profile/soul-memory-document";
 import {
   CHAT_USER_BUBBLE_CLASSNAME,
   ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
@@ -183,4 +184,22 @@ function Transcript() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<Transcript />);
+function SoulDocument() {
+  return <main className="app-page-shell px-4 py-6" data-testid="transcript">
+    <SoulMemoryDocument markdown={[
+      "# Soul.md", "", "## Facts", "",
+      "- **Alex** studies a synthetic engineering course at Example University.",
+      "- Works with Example Team on an owner-controlled research project.",
+      `- Project reference: https://example.test/${"a".repeat(160)}`,
+      "", "## Preferences", "",
+      "- Prefers concise replies with clear next steps and links to supporting evidence.",
+      "- Likes readable Markdown documents instead of nested record trees.",
+      "", "## Commitments", "",
+      "- Plans to finish the synthetic project by the end of the month.",
+    ].join("\n")} />
+  </main>;
+}
+
+createRoot(document.getElementById("root")!).render(
+  new URLSearchParams(window.location.search).get("document") === "soul" ? <SoulDocument /> : <Transcript />,
+);

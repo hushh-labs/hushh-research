@@ -38,6 +38,26 @@ LANES = {
     },
 }
 STATE_ARTIFACT = LANES["uat"]["state_artifact"]
+POST_RELEASE_CLEANUP_STEP = "Retire unused production tags after a healthy release"
+REQUIRED_PRODUCTION_STEPS = (
+    "Validate deployment SHA against main",
+    "Enforce production database connection budget before deployment",
+    "Verify production candidate runtime env parity",
+    "Verify production Connected Systems Omni Gateway",
+    "Verify production backend deployment provenance",
+    "Verify production frontend deployment provenance",
+    "Post-deploy backend runtime health gate",
+    "Post-deploy frontend runtime health gate",
+    "Verify production account-session contract",
+    "Verify production native passkey domain associations",
+    "Classify production release outcome",
+    "Activate tombstone-aware account deletion",
+    "Resolve final Cloud Run state",
+    "Write production release status artifact",
+    "Upload production deploy artifacts",
+    "Tag this release as last known good",
+    "Fail workflow when production release did not end healthy",
+)
 
 
 def command(*args: str) -> str:
@@ -52,18 +72,96 @@ def api(repository: str, endpoint: str):
 
 def trusted_run(run: dict, repository: str, workflow: str) -> bool:
     return (
+        trusted_origin(run, repository, workflow) and run.get("conclusion") == "success"
+    )
+
+
+def trusted_origin(run: dict, repository: str, workflow: str) -> bool:
+    return (
         run.get("path") == f".github/workflows/{workflow}"
         and run.get("head_branch") == "main"
         and run.get("status") == "completed"
-        and run.get("conclusion") == "success"
         and (run.get("repository") or {}).get("full_name") == repository
         and (run.get("head_repository") or {}).get("full_name") == repository
     )
 
 
+def verify_post_release_failure(repository: str, run: dict, release: dict) -> None:
+    """A failed hygiene step never substitutes for successful release gates."""
+    result = api(repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100")
+    jobs = result.get("jobs") or []
+    if result.get("total_count") != 1 or len(jobs) != 1:
+        raise retention.UnsafeState("production deployment job inventory is incomplete")
+    job = jobs[0]
+    steps = job.get("steps") or []
+    by_name = {step.get("name"): step for step in steps}
+    failed = [step.get("name") for step in steps if step.get("conclusion") == "failure"]
+    if (
+        job.get("name") != "Deploy Production Scope"
+        or job.get("status") != "completed"
+        or job.get("conclusion") != "failure"
+        or len(by_name) != len(steps)
+        or failed != [POST_RELEASE_CLEANUP_STEP]
+        or any(
+            step.get("status") != "completed"
+            or step.get("conclusion") not in {"success", "skipped", "failure"}
+            for step in steps
+        )
+        or any(
+            by_name.get(name, {}).get("conclusion") != "success"
+            for name in REQUIRED_PRODUCTION_STEPS
+        )
+    ):
+        raise retention.UnsafeState(
+            "production failure is not isolated to post-release cleanup"
+        )
+    verification = release.get("verification") or {}
+    classification = release.get("classification") or {}
+    if (
+        release.get("scope") != "all"
+        or not re.fullmatch(r"[a-f0-9]{40}", str(release.get("sha", "")))
+        or any(
+            verification.get(name) != "success"
+            for name in (
+                "runtime_parity",
+                "connected_systems",
+                "backend_provenance",
+                "frontend_provenance",
+                "backend_health",
+                "frontend_health",
+                "passkey_domain_associations",
+                "account_deletion_activation",
+            )
+        )
+        or verification.get("account_deletion_activated") != "true"
+        or any(
+            classification.get(name) != "false"
+            for name in (
+                "release_failed",
+                "promote_failed",
+                "backend_provenance_failed",
+                "frontend_provenance_failed",
+            )
+        )
+        or release.get("rollback")
+        != {"backend": "skipped", "frontend": "skipped", "drive_jobs": "skipped"}
+    ):
+        raise retention.UnsafeState(
+            "production artifact does not prove complete release health"
+        )
+
+
 def artifact_exists(repository: str, run_id: int, name: str) -> bool:
-    artifacts = api(repository, f"runs/{run_id}/artifacts?per_page=100")["artifacts"]
-    return any(item["name"] == name and not item["expired"] for item in artifacts)
+    result = api(repository, f"runs/{run_id}/artifacts?per_page=100")
+    artifacts = result["artifacts"]
+    if result.get("total_count", len(artifacts)) != len(artifacts):
+        raise retention.UnsafeState("release artifact inventory is incomplete")
+    matches = [item for item in artifacts if item.get("name") == name]
+    if not matches:
+        return False
+    if len(matches) != 1 or matches[0].get("expired") is not False:
+        raise retention.UnsafeState("release artifact is expired or ambiguous")
+    return True
 
 
 def download(repository: str, run_id: int, name: str, directory: Path) -> None:
@@ -95,16 +193,20 @@ def find_release(
     else:
         runs = api(
             repository,
-            f"workflows/{lane_config['workflow']}/runs?branch=main&status=success&per_page=50",
+            f"workflows/{lane_config['workflow']}/runs?branch=main&status={'completed' if environment == 'production' else 'success'}&per_page=50",
         )["workflow_runs"]
     for run in runs:
+        cleanup_failed = (
+            environment == "production" and run.get("conclusion") == "failure"
+        )
         if (
-            not trusted_run(run, repository, lane_config["workflow"])
+            not trusted_origin(run, repository, lane_config["workflow"])
+            or (run.get("conclusion") != "success" and not cleanup_failed)
             or run.get("event") != "workflow_dispatch"
         ):
             if requested:
                 raise retention.UnsafeState(
-                    f"source is not a successful main {environment} deployment"
+                    f"source is not an eligible main {environment} deployment"
                 )
             continue
         actor = (run.get("actor") or {}).get("login")
@@ -131,6 +233,10 @@ def find_release(
         )
         if release.get("status") != "healthy":
             raise retention.UnsafeState("source release artifact is not healthy")
+        if "_maintenance_source_run" in release:
+            raise retention.UnsafeState(
+                "source artifact contains internal maintenance authority"
+            )
         for lane, service in (
             ("backend", "consent-protocol"),
             ("frontend", "hushh-webapp"),
@@ -148,6 +254,10 @@ def find_release(
                 raise retention.UnsafeState(
                     f"source release has invalid {lane} rollback"
                 )
+        if cleanup_failed:
+            verify_post_release_failure(repository, run, release)
+            # Local verified context only; never accepted from an artifact.
+            release["_maintenance_source_run"] = run_id
         if (
             requested
             or not require_live
@@ -261,6 +371,47 @@ def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
         }
         if not ready or serving != {release["final"][f"{lane}_revision"]}:
             return False
+        if "_maintenance_source_run" in release:
+            traffic = [
+                (name, percent)
+                for name, percent, _ in retention.traffic_state(state)
+                if percent
+            ]
+            if traffic != [(release["final"][f"{lane}_revision"], 100)]:
+                return False
+            revisions = retention.revision_state(service, project, REGION)
+            matches = [
+                item
+                for item in revisions
+                if item.get("metadata", {}).get("name") in serving
+            ]
+            if len(matches) != 1:
+                return False
+            revision = matches[0]
+            labels = revision.get("metadata", {}).get("labels") or {}
+            containers = revision.get("spec", {}).get("containers") or []
+            if len(containers) != 1:
+                return False
+            container = containers[0]
+            deploy_sha = [
+                entry.get("value")
+                for entry in container.get("env", [])
+                if entry.get("name") == "HUSHH_DEPLOY_SHA"
+            ]
+            if (
+                labels.get("deploy-sha") != release["sha"]
+                or labels.get("github-run-id")
+                != str(release["_maintenance_source_run"])
+                or deploy_sha != [release["sha"]]
+                or not re.fullmatch(
+                    r"[^\s]+@sha256:[a-f0-9]{64}", container.get("image", "")
+                )
+                or not any(
+                    c.get("type") == "Ready" and c.get("status") == "True"
+                    for c in revision.get("status", {}).get("conditions", [])
+                )
+            ):
+                return False
     if environment == "production":
         return True
     state = retention.service_state("consent-protocol-drive-worker", project, REGION)

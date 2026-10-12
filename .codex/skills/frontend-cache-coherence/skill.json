@@ -17,7 +17,7 @@
     "frontend",
     "frontend-architecture",
     "frontend-native-surface-mapper",
-    "vault-pkm-governance"
+    "security-audit"
   ],
   "task_types": [
     "frontend-cache-coherence",
@@ -60,14 +60,14 @@
     "frontend",
     "frontend-architecture",
     "frontend-native-surface-mapper",
-    "vault-pkm-governance",
+    "security-audit",
     "quality-contracts"
   ],
   "adjacent_skills": [
     "frontend",
     "frontend-architecture",
     "frontend-native-surface-mapper",
-    "vault-pkm-governance",
+    "security-audit",
     "quality-contracts"
   ],
   "risk_tags": [

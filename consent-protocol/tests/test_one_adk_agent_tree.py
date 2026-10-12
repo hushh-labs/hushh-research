@@ -1142,7 +1142,9 @@ class TestGmailEmailDraftDirective:
     def test_memory_in_the_persons_words_means_their_pkm(self):
         # People say "memory" or "what you know about me"; the tools say PKM.
         assert "'what you know about me'" in ONE_IDENTITY_INSTRUCTION
-        assert "otherwise read it with read_my_pkm_domain_summary" in ONE_IDENTITY_INSTRUCTION
+        assert "answer from CONSENTED TURN INFORMATION" in ONE_IDENTITY_INSTRUCTION
+        assert "otherwise read it with read_my_pkm_domain_summary" not in ONE_IDENTITY_INSTRUCTION
+        assert "Do not use a connector to fill a personal-memory gap" in ONE_IDENTITY_INSTRUCTION
         assert "call it their memory, never PKM" in ONE_IDENTITY_INSTRUCTION
 
     @pytest.mark.asyncio
@@ -4520,6 +4522,31 @@ class TestReadMyPkmDomainSummary:
         )
 
     @pytest.mark.asyncio
+    async def test_typed_chat_cannot_reopen_legacy_memory_through_the_summary_tool(self):
+        from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+
+        state = {**self._authorized_state(), STATE_EXECUTION_SURFACE: "typed_chat"}
+        index = _FakePkmIndex(
+            available_domains=["professional"],
+            domain_summaries={"professional": {"readable_summary": "A legacy personal fact"}},
+        )
+        with self._auth_patch(), self._pkm_patch(index) as service:
+            result = await read_my_pkm_domain_summary("professional", _tool_context(state))
+        assert result["status"] == "unavailable"
+        assert "Soul.md" in result["message"]
+        assert "A legacy personal fact" not in str(result)
+        service.return_value.get_index_v2.assert_not_awaited()
+        assert f"{_STATE_PENDING_TOOL_TRACE}:read_my_pkm_domain_summary" not in state
+
+        # Negative control: non-chat compatibility callers still use their
+        # existing consent-gated summary path; no stored domain is deleted.
+        state.pop(STATE_EXECUTION_SURFACE)
+        with self._auth_patch(), self._pkm_patch(index) as service:
+            result = await read_my_pkm_domain_summary("professional", _tool_context(state))
+        assert result["status"] == "ok"
+        service.return_value.get_index_v2.assert_awaited_once_with("user_1")
+
+    @pytest.mark.asyncio
     async def test_reads_the_summary_for_a_domain_the_person_has_data_in(self):
         state = self._authorized_state()
         index = _FakePkmIndex(
@@ -4620,8 +4647,8 @@ class TestReadMyPkmDomainSummary:
         assert "try again" in result["message"].lower()
 
 
-class TestAddToPkmNeverClaimsASave:
-    """add_to_pkm hands work to the device; it must never read as a completed save.
+class TestAddToPkmStaysSilent:
+    """add_to_pkm hands work to the device without narrating private persistence.
 
     Production 2026-09-29: the tool returned "Saving eligible details
     privately." and One told the person their document had been "queued and
@@ -4629,13 +4656,15 @@ class TestAddToPkmNeverClaimsASave:
     """
 
     @pytest.mark.asyncio
-    async def test_the_result_says_nothing_is_saved_yet(self) -> None:
+    async def test_the_result_keeps_the_device_handoff_silent(self) -> None:
         ctx = SimpleNamespace(state={})
         result = await add_to_pkm("I prefer window seats", "owner asked", ctx)
         assert result["saved"] is False
         assert result["status"] == "handed_to_device"
-        assert "Nothing is saved yet" in result["message"]
-        assert "Do not say it is saved" in result["message"]
+        assert "handle this request silently" in result["message"]
+        assert "Continue answering naturally" in result["message"]
+        assert "Do not mention Memory" in result["message"]
+        assert "will show" not in result["message"]
         directive = ctx.state[f"{_STATE_PENDING_DIRECTIVE}:pkm_add"]
         assert directive["payload"] == {
             "actionId": "pkm.add",
@@ -6281,6 +6310,9 @@ def test_one_routes_receipt_questions_to_the_email_specialist_and_keeps_inbox_se
     )
     assert "MAIL READ ADMISSION: enabled" in enabled
     assert "saved receipt memory" in enabled
+    assert "High-level receipt or purchase trends use the supplied Soul.md observations" in enabled
+    assert "not the Email receipt-list tool" in enabled
+    assert "For individual receipts, invoices or bills" in enabled
     assert "do not search the inbox for receipts yourself" in enabled
     assert "Only a request to find emails that mention receipts is an inbox search" in enabled
     assert "never receipts or attachments" not in enabled

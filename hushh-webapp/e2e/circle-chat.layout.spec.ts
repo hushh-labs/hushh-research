@@ -270,3 +270,68 @@ test("the native keyboard reveal keeps an image caption and send control above t
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(321);
   await page.screenshot({ path: test.info().outputPath("circle-caption-keyboard.png"), animations: "disabled" });
 });
+
+for (const width of [320, 393, 1440]) {
+  test(`Circle Messages list heading matches People sizing at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.route("http://localhost/circle-list-fixture*", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    }));
+    await page.goto("http://localhost/circle-list-fixture?lane=1&list=1");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    const heading = page.getByRole("heading", { name: "Messages", exact: true });
+    await expect(heading).toBeVisible();
+    const geometry = await heading.evaluate(el => {
+      const style = getComputedStyle(el);
+      const header = el.parentElement!.getBoundingClientRect();
+      const title = el.getBoundingClientRect();
+      const action = el.parentElement!.querySelector("a")!.getBoundingClientRect();
+      return { fontSize: style.fontSize, lineHeight: style.lineHeight, weight: style.fontWeight,
+        headerHeight: header.height, titleLeft: title.left - header.left,
+        titleRight: title.right, actionLeft: action.left, actionRight: action.right,
+        viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
+        listHeight: el.closest("aside")!.getBoundingClientRect().height,
+        paneHeight: el.closest("[data-circle-messages-pane]")!.getBoundingClientRect().height };
+    });
+    expect(geometry.fontSize).toBe("20px");
+    expect(geometry.lineHeight).toBe("24px");
+    expect(geometry.weight).toBe("700");
+    expect(geometry.headerHeight).toBe(68);
+    expect(Math.abs(geometry.listHeight - geometry.paneHeight)).toBeLessThanOrEqual(1);
+    expect(geometry.titleLeft).toBe(18);
+    expect(geometry.titleRight).toBeLessThanOrEqual(geometry.actionLeft);
+    expect(geometry.actionRight).toBeLessThanOrEqual(width);
+    expect(geometry.pageWidth).toBeLessThanOrEqual(width + 1);
+    const search = page.getByRole("searchbox", { name: "Search circles" });
+    await expect(search).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh circles" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Switch theme" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Edit circles" })).toHaveAttribute("href", "/one/connect?tab=circles");
+    await expect(page.getByRole("link", { name: "Create circle" })).toHaveAttribute("href", "/one/connect?tab=circles&action=create-circle");
+    await expect(search).toHaveAttribute("placeholder", "Search circles");
+    const band = await search.evaluate(el => {
+      const field = el.closest("label")!.getBoundingClientRect();
+      const list = el.closest("aside")!.getBoundingClientRect();
+      const header = el.closest("aside")!.querySelector("header")!.getBoundingClientRect();
+      return { left: field.left - list.left, right: list.right - field.right,
+        height: field.height, gap: field.top - header.bottom, fontWeight: getComputedStyle(el).fontWeight };
+    });
+    expect(band.left).toBe(16);
+    expect(band.right).toBeGreaterThanOrEqual(16);
+    expect(band.right).toBeLessThanOrEqual(17);
+    expect(band.height).toBe(42);
+    expect(band.gap).toBe(4);
+    expect(band.fontWeight).toBe("400");
+    await expect(page.getByRole("button", { name: "Weekend friends 2 members" })).toBeVisible();
+    await search.fill("unmatched");
+    await expect(page.getByText("No matching circles")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Weekend friends 2 members" })).toHaveCount(0);
+    await search.fill("weekend");
+    await expect(page.getByRole("button", { name: "Weekend friends 2 members" })).toBeVisible();
+    await search.fill("");
+    await search.blur();
+    await page.screenshot({ path: test.info().outputPath(`circle-list-heading-${width}.png`) });
+  });
+}

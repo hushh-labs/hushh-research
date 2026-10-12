@@ -94,9 +94,12 @@ describe("passkey RP resolution", () => {
     "accepts reciprocal spelling aliases only for %s",
     (prefix) => {
       const oldHost = `${prefix}.hushh.ai`;
-      const newHost = `${prefix}.hussh.ai`;
+      const newHost = `${prefix}.hussh.si`;
+      const recentHost = `${prefix}.hussh.ai`;
       expect(isPasskeyRpIdCompatibleWithHost(newHost, oldHost)).toBe(true);
       expect(isPasskeyRpIdCompatibleWithHost(oldHost, newHost)).toBe(true);
+      expect(isPasskeyRpIdCompatibleWithHost(newHost, recentHost)).toBe(true);
+      expect(isPasskeyRpIdCompatibleWithHost(recentHost, newHost)).toBe(true);
       expect(resolvePasskeyRpId({ isNative: false, hostname: newHost })).toBe(newHost);
       expect(isPasskeyRpIdCompatibleWithHost(`evil.${newHost}`, oldHost)).toBe(false);
     },
@@ -105,15 +108,15 @@ describe("passkey RP resolution", () => {
   it("rejects foreign environments and unregistered spelling aliases", () => {
     expect(isPasskeyRpIdCompatibleWithHost("dev.one.hussh.ai", "one.hushh.ai")).toBe(false);
     expect(isPasskeyRpIdCompatibleWithHost("uat.one.hussh.ai", "dev.one.hushh.ai")).toBe(false);
-    expect(isPasskeyRpIdCompatibleWithHost("one.hussh.ai", "uat.one.hushh.ai")).toBe(false);
+    expect(isPasskeyRpIdCompatibleWithHost("one.hussh.si", "uat.one.hushh.ai")).toBe(false);
     expect(isPasskeyRpIdCompatibleWithHost("other.hussh.ai", "other.hushh.ai")).toBe(false);
   });
 
-  it.each(["hushh", "hussh"])("resolves handoff environments for %s", (brand) => {
-    expect(resolvePasskeyEnvironment(`one.${brand}.ai`)).toBe("production");
-    expect(resolvePasskeyEnvironment(`uat.one.${brand}.ai`)).toBe("uat");
-    expect(resolvePasskeyEnvironment(`dev.one.${brand}.ai`)).toBe("dev");
-    expect(resolvePasskeyEnvironment(`evil.one.${brand}.ai`)).toBeNull();
+  it.each(["hushh.ai", "hussh.ai", "hussh.si"])("resolves handoff environments for %s", (domain) => {
+    expect(resolvePasskeyEnvironment(`one.${domain}`)).toBe("production");
+    expect(resolvePasskeyEnvironment(`uat.one.${domain}`)).toBe("uat");
+    expect(resolvePasskeyEnvironment(`dev.one.${domain}`)).toBe("dev");
+    expect(resolvePasskeyEnvironment(`evil.one.${domain}`)).toBeNull();
   });
 
   it("rejects unrelated RP IDs even when their text is a suffix", () => {

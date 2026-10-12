@@ -320,6 +320,25 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
     assert dispatch["inputs"]["run_live_model_checks"]["default"] is False
     assert '--run-live-model-checks "${{ inputs.run_live_model_checks' in uat_workflow
+    semantic_steps = [
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("id") in {"verify-uat-1", "verify-uat-2"}
+    ]
+    assert len(semantic_steps) == 2
+    for step in semantic_steps:
+        assert (
+            '--run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}"'
+            in step["run"]
+        )
+    steps = workflow["jobs"]["deploy"]["steps"]
+    preserve = next(
+        step for step in steps if step.get("name") == "Preserve current release tooling"
+    )
+    checkout = next(step for step in steps if step.get("name") == "Checkout deployment SHA")
+    assert steps.index(preserve) < steps.index(checkout)
+    assert "cp scripts/ops/verify_uat_release.py" in preserve["run"]
+    assert 'cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py"' in checkout["run"]
 
 
 def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:

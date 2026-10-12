@@ -74,6 +74,28 @@ _READ_TOOL = ToolSpec(
 )
 
 
+async def _run_until_tool_responses(session, transport, fake, *, call_ids: set[str]):
+    """Close after the expected mail calls settle, without racing slow reads."""
+    responses_done = asyncio.Event()
+    pending = set(call_ids)
+    original_send_tool_response = fake.send_tool_response
+
+    async def respond(*, call_id, name, response):
+        await original_send_tool_response(call_id=call_id, name=name, response=response)
+        if name == "read_mail":
+            pending.discard(call_id)
+            if not pending:
+                responses_done.set()
+
+    fake.send_tool_response = respond
+    task = asyncio.create_task(session.run())
+    try:
+        await asyncio.wait_for(responses_done.wait(), 5)
+    finally:
+        transport.push({"type": "end"})
+        await asyncio.wait_for(task, 5)
+
+
 @pytest.fixture(autouse=True)
 def _catalog(monkeypatch):
     tools = (_READ_TOOL,)
@@ -101,10 +123,7 @@ async def _run_read() -> tuple[FakeTransport, FakeLive]:
         ]
     )
     session = _session(transport, fake)
-    task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.2)
-    transport.push({"type": "end"})
-    await asyncio.wait_for(task, 3)
+    await _run_until_tool_responses(session, transport, fake, call_ids={"c1"})
     return transport, fake
 
 
@@ -193,12 +212,19 @@ def _real_outcome(conversation_id: str) -> dict:
 
 
 async def _run_real_mail(
-    monkeypatch, calls: list[dict], *, second_turn: bool, conversations=None, ordinal_only=False
+    monkeypatch,
+    calls: list[dict],
+    *,
+    second_turn: bool,
+    conversations=None,
+    ordinal_only=False,
+    read_delay_seconds: float = 0,
 ):
     """Drive the shipped read_mail through a real VoiceSession."""
     from hushh_mcp.one_voice.tools import mail as mail_tool
 
     async def _delegated(**kwargs):
+        await asyncio.sleep(read_delay_seconds)
         calls.append(kwargs)
         await kwargs["require_access"]()
         return _real_outcome(kwargs["conversation_id"])
@@ -256,10 +282,8 @@ async def _run_real_mail(
     transport = FakeTransport([AUTH])
     fake = FakeLive(events)
     session = _session(transport, fake, conversations=conversations)
-    task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
-    transport.push({"type": "end"})
-    await asyncio.wait_for(task, 5)
+    call_ids = {"c9"} if ordinal_only else {"c1", "c2"} if second_turn else {"c1"}
+    await _run_until_tool_responses(session, transport, fake, call_ids=call_ids)
     return transport, fake
 
 
@@ -296,7 +320,10 @@ async def test_a_position_named_on_a_later_turn_reaches_the_message_that_was_off
     assert calls[1]["expect_account"] == "google-sub-owner"
 
 
-async def test_the_offer_survives_a_reconnect_and_carries_no_mail_text(monkeypatch):
+@pytest.mark.parametrize("read_delay_seconds", [0, 0.4])
+async def test_the_offer_survives_a_reconnect_and_carries_no_mail_text(
+    monkeypatch, read_delay_seconds
+):
     """The offer is state, so it has to be state that persists.
 
     A ``ToolContext`` lives for one session, so two turns in one socket would
@@ -312,7 +339,13 @@ async def test_the_offer_survives_a_reconnect_and_carries_no_mail_text(monkeypat
 
     store = MemoryConversationStore()
     first: list[dict] = []
-    await _run_real_mail(monkeypatch, first, second_turn=False, conversations=store)
+    await _run_real_mail(
+        monkeypatch,
+        first,
+        second_turn=False,
+        conversations=store,
+        read_delay_seconds=read_delay_seconds,
+    )
 
     saved = store.entity_saves[-1]["offered_mail"]
     assert saved["message_ids"] == ["id-first", "id-second"]

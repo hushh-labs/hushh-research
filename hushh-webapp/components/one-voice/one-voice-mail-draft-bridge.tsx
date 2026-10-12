@@ -102,7 +102,7 @@ function newAttemptId(): string {
 
 function reviewRecovery(reasonCode: string | null) {
   switch (reasonCode) {
-    case "GMAIL_SEND_DISABLED": return { message: "Turn on Gmail sending to continue. Your draft is still here.", action: "Enable sending" };
+    case "GMAIL_SEND_DISABLED": return { message: "Reconnect Gmail to continue. Your draft is still here.", action: "Reconnect Gmail" };
     case "GMAIL_NOT_CONNECTED": return { message: "Connect Gmail to send this email. Your draft is still here.", action: "Connect Gmail" };
     case "GMAIL_SEND_PERMISSION_REQUIRED":
     case "GMAIL_RECONNECT_REQUIRED": return { message: "Reconnect Gmail and allow sending, then review this draft again.", action: "Reconnect Gmail" };

@@ -15,15 +15,29 @@ vi.mock("@/lib/services/wallet-card-service", async (importOriginal) => ({
 }));
 
 import { WalletProfileBootstrap } from "@/components/wallet-card/wallet-profile-bootstrap";
+import {
+  beginForegroundChatPriority,
+  resetForegroundChatPriorityForTests,
+} from "@/lib/agent/foreground-chat-priority";
 
 describe("Wallet Profile automatic provisioning", () => {
   beforeEach(() => {
+    resetForegroundChatPriorityForTests();
     mocks.auth.loading = false;
     mocks.auth.user = { uid: "owner-a", displayName: "Ankit Kumar Singh", email: "ankit@example.com", phoneNumber: null, photoURL: null };
     mocks.vault.isVaultUnlocked = true;
     mocks.ensure.mockReset().mockResolvedValue({});
   });
-  afterEach(() => { cleanup(); vi.useRealTimers(); delete window.__HUSHH_NATIVE_TEST__; });
+  afterEach(() => { cleanup(); resetForegroundChatPriorityForTests(); vi.useRealTimers(); delete window.__HUSHH_NATIVE_TEST__; });
+
+  it("defers optional provisioning until the foreground chat settles", async () => {
+    const release = beginForegroundChatPriority();
+    render(<WalletProfileBootstrap />);
+    expect(mocks.ensure).not.toHaveBeenCalled();
+
+    act(() => release());
+    await waitFor(() => expect(mocks.ensure).toHaveBeenCalledTimes(1));
+  });
 
   it.each(["read_only", "preparation_only", "bounded_mutation"] as const)(
     "does not provision in a %s reviewer session, including recovery events",

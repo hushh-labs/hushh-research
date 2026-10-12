@@ -10,6 +10,7 @@ import {
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
+import { SoulMemoryPanel } from "@/components/profile/soul-memory-panel";
 import { LocationMemoryView } from "@/components/profile/location-memory-view";
 import { buildLocationMemoryPresentation, findLocationMemoryFieldForCard, resolveLocationMemoryField } from "@/lib/profile/location-memory-presentation";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -55,12 +56,6 @@ import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/age
 import { useReviewerPkmProof } from "@/lib/testing/use-reviewer-pkm-proof";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import {
-  DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
-  loadAgentPkmAutoSavePolicy,
-  saveAgentPkmAutoSavePolicy,
-  type AgentPkmAutoSavePolicy,
-} from "@/lib/agent/agent-pkm-auto-save-policy";
-import {
   buildPkmMemorySnapshot,
   deletePkmDomainValue,
   selectRelevantPkmMemoryCards,
@@ -99,8 +94,9 @@ type DomainDetailState = {
 
 type MemoryReadSession = symbol;
 
-type MemoryWorkspaceTab = "browse" | "add" | "sharing";
+type MemoryWorkspaceTab = "soul" | "browse" | "add" | "sharing";
 const MEMORY_WORKSPACE_TABS = [
+  { value: "soul", label: "Soul.md" },
   { value: "browse", label: "Saved" },
   { value: "add", label: "Add" },
   { value: "sharing", label: "Sharing" },
@@ -269,12 +265,6 @@ export function PkmNaturalPanel({
   }, [memoryReadSession]);
   const [sharingImpactError, setSharingImpactError] = useState<string | null>(null);
   const [sharingImpactRefreshNonce, setSharingImpactRefreshNonce] = useState(0);
-  const [autoSavePolicy, setAutoSavePolicy] = useState<AgentPkmAutoSavePolicy>(
-    DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY
-  );
-  const [autoSavePolicyLoading, setAutoSavePolicyLoading] = useState(false);
-  const [autoSavePolicySaving, setAutoSavePolicySaving] = useState(false);
-  const [autoSavePolicyError, setAutoSavePolicyError] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -320,10 +310,7 @@ export function PkmNaturalPanel({
       setExportBusy(false);
     }
   }, [trackMemoryOutcome, user?.uid, vaultKey, vaultOwnerToken]);
-  const [autoSavePolicyRetryValue, setAutoSavePolicyRetryValue] = useState<
-    boolean | null
-  >(null);
-  const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("browse");
+  const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>(view === "home" ? "soul" : "browse");
   const [captureText, setCaptureText] = useState("");
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
   const captureHasSharedRecipients = captureCards.some(
@@ -481,41 +468,6 @@ export function PkmNaturalPanel({
     user,
     vaultOwnerToken,
   ]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
-      setAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
-      setAutoSavePolicyError(null);
-      setAutoSavePolicyRetryValue(null);
-      setAutoSavePolicyLoading(false);
-      return undefined;
-    }
-    setAutoSavePolicyLoading(true);
-    setAutoSavePolicyError(null);
-    setAutoSavePolicyRetryValue(null);
-    void loadAgentPkmAutoSavePolicy({
-      userId: user.uid,
-      vaultKey,
-      vaultOwnerToken,
-    })
-      .then((policy) => {
-        if (!cancelled) {
-          setAutoSavePolicy(policy);
-          setAutoSavePolicyError(null);
-          setAutoSavePolicyRetryValue(null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setAutoSavePolicyError("Automatic memory saving couldn’t be loaded.");
-      })
-      .finally(() => {
-        if (!cancelled) setAutoSavePolicyLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isVaultUnlocked, user, vaultKey, vaultOwnerToken]);
 
   const visibleMetadataDomains = useMemo(
     () => (metadata?.domains || []).filter(isConsumerBrowsablePkmDomain),
@@ -988,46 +940,6 @@ export function PkmNaturalPanel({
       );
       setMemoryActionId(null);
       setSharingImpactRefreshNonce((value) => value + 1);
-    }
-  }
-
-  async function updateAutoSavePolicy(enabled: boolean) {
-    if (!user || !vaultKey || !vaultOwnerToken) return;
-    const operationOwnerId = user.uid;
-    setAutoSavePolicySaving(true);
-    setAutoSavePolicyError(null);
-    setAutoSavePolicyRetryValue(enabled);
-    const operation = saveAgentPkmAutoSavePolicy({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
-        enabled,
-        confirmation: {
-          confirmedByUser: true,
-          surface: "web",
-          source: "pkm_memory_auto_save_toggle",
-        },
-      });
-    try {
-      void morphyToast.promise(operation, {
-        loading: "Updating automatic memory saving…",
-        success: "Automatic memory saving updated.",
-        error: "Automatic memory saving couldn’t be updated. Try again.",
-      });
-      const nextPolicy = await operation;
-      trackMemoryOutcome(operationOwnerId, "auto_save_changed", "success");
-      setAutoSavePolicy(nextPolicy);
-      setAutoSavePolicyError(null);
-      setAutoSavePolicyRetryValue(null);
-    } catch {
-      trackMemoryOutcome(operationOwnerId, "auto_save_changed", "error");
-      // ApiService asks VaultLockGuard to re-open the existing vault unlock
-      // dialog when a VAULT_OWNER token is rejected. Other failures are not
-      // evidence that the vault is locked, so keep the recovery local and
-      // retryable instead of sending people to hunt for an unlock screen.
-      setAutoSavePolicyError("Automatic memory saving couldn’t be updated. Try again.");
-    } finally {
-      setAutoSavePolicySaving(false);
     }
   }
 
@@ -1627,7 +1539,8 @@ export function PkmNaturalPanel({
           value={workspaceTab}
           onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
           options={MEMORY_WORKSPACE_TABS}
-          mobileColumns={3}
+          tabSetId="memory"
+          mobileColumns={4}
           variant="agent-top"
         />
         <SwipeViews
@@ -1638,6 +1551,8 @@ export function PkmNaturalPanel({
           viewportMinHeight="fill"
           heightMode="active"
         >
+          <SoulMemoryPanel userId={user.uid} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
+            tokenExpiresAt={tokenExpiresAt} verified={!sessionVerificationRequired} active={workspaceTab === "soul"} />
           <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
           <div className="relative">
             <Input
@@ -1850,48 +1765,6 @@ export function PkmNaturalPanel({
             {captureCards.length > 0 ? <Button data-testid="memory-save-capture" className="w-full justify-center" type="button" effect="fade" disabled={captureSaving || captureSaveableCards.length === 0 || captureRetryingSectionKey !== null || (captureHasSharedRecipients && !captureSharingImpactAcknowledged)} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
           </SurfaceInset>
 
-          <SettingsGroup separatorInset testId="memory-auto-save-group">
-            <SettingsRow
-              testId="memory-auto-save-row"
-              title="Let One save useful details"
-              description={
-                autoSavePolicyError ||
-                "One can automatically save clear details you type. Secrets, sensitive details, corrections, and details with active recipient access still ask first."
-              }
-              tone={autoSavePolicyError ? "destructive" : "default"}
-              stackTrailingOnMobile
-              trailing={
-                <div className="flex min-h-11 w-full items-center justify-end gap-2 sm:w-auto">
-                  {autoSavePolicyError && autoSavePolicyRetryValue !== null ? (
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      onClick={() => void updateAutoSavePolicy(autoSavePolicyRetryValue)}
-                      disabled={autoSavePolicySaving || autoSavePolicyLoading}
-                    >
-                      Retry
-                    </Button>
-                  ) : null}
-                  <span aria-live="polite" className="text-xs font-medium text-muted-foreground">
-                    {autoSavePolicy.enabled ? "On" : "Off"}
-                  </span>
-                  <Switch
-                    checked={autoSavePolicy.enabled}
-                    onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
-                    disabled={autoSavePolicyLoading || autoSavePolicySaving}
-                    aria-label={
-                      autoSavePolicy.enabled
-                        ? "Turn automatic memory saving off"
-                        : "Turn automatic memory saving on"
-                    }
-                    className="shrink-0"
-                  />
-                </div>
-              }
-            />
-          </SettingsGroup>
           </div>
           <div className="space-y-4 pb-1 pr-px" data-pkm-memory-sharing="true">
             {sharingManifestsLoading ? (

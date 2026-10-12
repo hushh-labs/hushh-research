@@ -60,7 +60,7 @@
   "handoff_chain": [
     "repo-context",
     "backend-runtime-governance",
-    "vault-pkm-governance",
+    "security-audit",
     "iam-consent-governance",
     "quality-contracts",
     "docs-governance"

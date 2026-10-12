@@ -76,7 +76,7 @@ production.
 
 UAT and production deployments complete after release verification, artifact publication, quick
 zero-traffic tag retirement, and the final health assertion. Old revision deletion runs in **Capacity Maintenance**,
-triggered after a successful deployment and checked by the existing 15-minute timer. Maintenance
+triggered after a verified healthy deployment and checked by the existing 15-minute timer. Maintenance
 uses the matching environment without creating a deployment record. Its failure does
 not change the release result.
 
@@ -101,7 +101,17 @@ pass, or while every retained drain deadline is still in the future. A completio
 receipt binds the environment, project, healthy release and latest completed
 deployment observation. Missing or expired receipts and newer deployments cause
 a fresh pass; a failed deployment is an inspection signal, never cleanup
-authority. This reuses the existing workflow and timer, with no new cron runs.
+authority. Production alone permits a terminal run whose only failed step is
+post-release tag retirement: all required release steps and the canonical healthy
+artifact must pass before cloud authentication. Before cleanup, serving revisions
+must additionally prove that artifact's SHA, source run, immutable image and
+readiness. Failed maintenance artifacts still cannot restore drain authority.
+This reuses the existing workflow and timer, with no new cron runs.
+
+The default capacity phase reserves the next deployment's candidate revisions.
+Post-release reporting uses `--phase post-release`, which counts current retained
+revisions, jobs and the administrative reserve without adding another hypothetical
+deployment. Actual over-budget capacity remains blocking in both phases.
 Manual Cloud Run changes outside governed releases require an explicit maintenance
 dispatch; the settled-receipt optimization does not claim to detect those changes.
 

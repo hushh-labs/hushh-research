@@ -692,7 +692,7 @@ describe("ProfileReceiptsPage", () => {
     vi.mocked(GmailReceiptsService.startNativeConnect).mockResolvedValue({
       configured: true,
       server_client_id: "native-client-id",
-      purpose: "read",
+      purpose: "send",
     });
     vi.mocked(GmailReceiptsService.completeNativeConnect).mockResolvedValue(
       buildGmailView().status,
@@ -1013,7 +1013,7 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.queryByText(/one \/ mail/i)).toBeNull();
   });
 
-  it("keeps generic summary cards off the landing, preserves its preview pipeline and saves the finished sync once", async () => {
+  it("keeps legacy summary cards and previews off the landing and saves finished sync trends once", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Myntra")],
       page: 1,
@@ -1027,11 +1027,7 @@ describe("ProfileReceiptsPage", () => {
     expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/shopping summary/i)).toBeNull();
     expect(screen.queryByText(/receipt sync is moving/i)).toBeNull();
-    await waitFor(() => {
-      expect(
-        vi.mocked(GmailReceiptMemoryService.preview),
-      ).toHaveBeenCalledOnce();
-    });
+    expect(GmailReceiptMemoryService.preview).not.toHaveBeenCalled();
     // The owner started this sync, so its finished list is saved once to private
     // memory (default on) through the save routine, and the page writes nothing itself.
     await waitFor(() => {
@@ -1325,7 +1321,7 @@ describe("ProfileReceiptsPage", () => {
     ).toHaveBeenCalledTimes(1);
   });
 
-  it("renders a cached list without scanning and keeps its preview pipeline", async () => {
+  it("renders a cached list without scanning, legacy previews or another memory save", async () => {
     const cachedResponse = {
       items: [makeReceipt(1, "Myntra")],
       page: 1,
@@ -1345,9 +1341,8 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
-    await waitFor(() => {
-      expect(GmailReceiptMemoryService.preview).toHaveBeenCalledOnce();
-    });
+    expect(GmailReceiptMemoryService.preview).not.toHaveBeenCalled();
+    expect(mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory).not.toHaveBeenCalled();
     expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
   });
 
@@ -1807,7 +1802,7 @@ describe("ProfileReceiptsPage", () => {
         userId: "user-123",
         loginHint: "akshat@example.com",
         includeGrantedScopes: true,
-        purpose: "read",
+        purpose: "send",
       });
     });
     expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalledWith(
@@ -2073,7 +2068,7 @@ describe("ProfileReceiptsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /connect gmail to manage identity/i }));
     await waitFor(() =>
       expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: "user-123", purpose: "read" }),
+        expect.objectContaining({ userId: "user-123", purpose: "send" }),
       ),
     );
     expect(mocks.routerPush).not.toHaveBeenCalled();
@@ -2225,7 +2220,7 @@ describe("ProfileReceiptsPage", () => {
           userId: "user-123",
           loginHint: "akshat@example.com",
           includeGrantedScopes: true,
-          purpose: "read",
+          purpose: "send",
         });
         expect(assignWindowLocation).toHaveBeenCalledWith(
           "https://accounts.google.com/o/oauth2/v2/auth",
@@ -2277,22 +2272,22 @@ describe("ProfileReceiptsPage", () => {
       expect(GmailReceiptsService.startNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
-        purpose: "read",
+        purpose: "send",
       });
       expect(mocks.hushhAuth.connectGmail).toHaveBeenCalledWith({
         serverClientId: "native-client-id",
-        purpose: "read",
+        purpose: "send",
         preserveModify: false,
       });
       expect(GmailReceiptsService.completeNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
         serverAuthCode: "native-auth-code",
-        purpose: "read",
+        purpose: "send",
       });
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
-      "Mail connected. You can use Mail in One now.",
+      "Mail connected. You can read and send after reviewing each email.",
     );
     expect(mocks.toast.error).not.toHaveBeenCalled();
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();
@@ -2461,12 +2456,12 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
   });
 
-  it("reconnects through the existing read-consent flow", async () => {
+  it("reconnects through the combined reading/sending consent flow", async () => {
     render(<ProfileReceiptsPage />);
     fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: /^reconnect$/i }));
     await waitFor(() => expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
-      expect.objectContaining({ purpose: "read", userId: "user-123" }),
+      expect.objectContaining({ purpose: "send", userId: "user-123" }),
     ));
     expect(mocks.gmailOAuthPopup.open).toHaveBeenCalledOnce();
   });
