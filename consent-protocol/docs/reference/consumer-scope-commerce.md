@@ -35,7 +35,10 @@ are separately verified below; they do not prove a consumer purchase or payout.
   Drive's Viewer term remains unchanged. All 109 corrected focused UI cases
   pass. Raw contributor diagnostics are sanitized while retaining strict
   failure admission; 30 nearest cases pass and the actual incoming methods
-  fail the protected-diagnostic negative control. These source checks do not
+  fail the protected-diagnostic negative control. The combined source also
+  passes typecheck, all 447 Back cases, complete generated UI parity and the
+  architecture ratchet with zero regressions. Complete core and exact-source
+  hosted CI are still required before shared Dev promotion. These checks do not
   establish deployed scope purchases or payouts.
 - Final interface polish removes zero-value Account detail and the empty Memory
   earnings group; Saved retains a quiet Account link until earnings or costs
