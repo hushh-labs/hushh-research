@@ -75,22 +75,8 @@
 
 .welcomeContent[data-motion="static"] .popTile { animation: none; }
 
-/* Once the tiles settle, paint the untouched export over the clipped layers.
-   This removes raster-mask seams in WebKit without changing the source art. */
-.restingArtwork {
-  animation: welcome-settle 150ms linear 1155ms both;
-}
-
-@keyframes welcome-settle {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.welcomeContent[data-motion="static"] .restingArtwork { animation: none; }
-
 @media (prefers-reduced-motion: reduce) {
   .popTile { animation: none; }
-  .restingArtwork { animation: none; }
 }
 
 .shell .brand {

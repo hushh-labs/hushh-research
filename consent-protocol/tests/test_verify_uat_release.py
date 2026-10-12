@@ -72,8 +72,6 @@ def test_semantic_verifier_probes_location_command_recovery(monkeypatch, tmp_pat
                 return _Response({"configured": True, "connected": False})
             if path == "/api/one/action-proposals":
                 return _Response({"commands": []})
-            if path == "/api/ria/onboarding/verify-name":
-                return _Response({"status": "verified", "crd_number": "5838118"})
             raise AssertionError(f"Unexpected UAT verifier request: {method} {path}")
 
     monkeypatch.setattr(verifier, "UatKaiSmoke", _Smoke)
@@ -99,15 +97,26 @@ def test_semantic_verifier_probes_location_command_recovery(monkeypatch, tmp_pat
 
     assert verifier.main() == 0
     assert "GET /api/one/action-proposals" in request_paths
+    assert "POST /api/ria/onboarding/verify-name" not in request_paths
     assert all("/api/one/adk/" not in path for path in request_paths)
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert {check["name"] for check in report["checks"]} >= {"location_command_recovery"}
+    assert report["run_live_model_checks"] is False
+    ria_check = next(
+        check for check in report["checks"] if check["name"] == "ria_stage1_query_only"
+    )
+    assert ria_check == {
+        "name": "ria_stage1_query_only",
+        "ok": None,
+        "skipped": True,
+        "reason": "live_model_checks_not_requested",
+    }
 
 
 def _run_verifier_with_ria(
     monkeypatch,
     tmp_path,
-    ria_payload: dict[str, object],
+    ria_payload: dict[str, object] | requests.RequestException,
     *,
     proposal_status: int = 200,
     proposal_detail: str = "AGENT_PRIVATE_RUNTIME_REQUIRED",
@@ -152,6 +161,10 @@ def _run_verifier_with_ria(
                     return _Response({"detail": detail}, proposal_status)
                 return _Response({"commands": []})
             if path == "/api/ria/onboarding/verify-name":
+                assert method == "POST"
+                assert _kwargs["json_body"]["force_live_verification"] is True
+                if isinstance(ria_payload, requests.RequestException):
+                    raise ria_payload
                 return _Response(ria_payload)
             raise AssertionError(f"Unexpected request: {method} {path}")
 
@@ -171,6 +184,8 @@ def _run_verifier_with_ria(
             "https://frontend.example",
             "--report-path",
             str(report_path),
+            "--run-live-model-checks",
+            "true",
         ],
     )
     code = verifier.main()
@@ -218,6 +233,12 @@ def test_healthy_release_reports_no_degradation(monkeypatch, tmp_path) -> None:
     assert code == 0
     assert report["status"] == "healthy"
     assert report["degraded"] == []
+    assert report["run_live_model_checks"] is True
+    ria_check = next(
+        check for check in report["checks"] if check["name"] == "ria_stage1_query_only"
+    )
+    assert ria_check["ok"] is True
+    assert not ria_check.get("skipped")
 
 
 def test_shared_runtime_private_boundary_is_healthy_without_claiming_recovery(
@@ -293,3 +314,14 @@ def test_invalid_or_unavailable_proposal_refusal_still_blocks(
     )
     assert code == 1
     assert "location_command_recovery" in report["failures"]
+
+
+def test_requested_live_probe_transport_timeout_still_blocks(monkeypatch, tmp_path) -> None:
+    code, report = _run_verifier_with_ria(
+        monkeypatch, tmp_path, requests.exceptions.ReadTimeout("Provider response timed out")
+    )
+
+    assert code == 1
+    assert report["status"] == "blocked"
+    assert report["failures"] == ["ria_stage1_query_only"]
+    assert report["degraded"] == []

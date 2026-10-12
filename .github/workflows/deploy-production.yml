@@ -171,6 +171,12 @@ jobs:
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
           cp scripts/ci/cloudrun-retention.py \
             "${RUNNER_TEMP}/release-tools/cloudrun-retention.py"
+          # Capacity policy and phase support belong to current release tooling,
+          # including when promoting or rolling back an older approved app image.
+          cp scripts/ci/runtime-capacity-budget.py \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
+          cp config/runtime-capacity.json \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
           git log -1 --diff-filter=A --format=%H -- \
             consent-protocol/hushh_mcp/services/drive_prod_registry_provisioning.py \
             > "${RUNNER_TEMP}/release-tools/prod-drive-feature-commit"
@@ -196,6 +202,10 @@ jobs:
             scripts/ops/verify-env-secrets-parity.py
           cp "${RUNNER_TEMP}/release-tools/cloudrun-retention.py" \
             scripts/ci/cloudrun-retention.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
+            scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
+            config/runtime-capacity.json
 
       - name: Report production deploy lane
         run: |
@@ -2176,7 +2186,7 @@ jobs:
           bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
             "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
             --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
-          python3 scripts/ci/runtime-capacity-budget.py --environment production
+          python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release
 
       - name: Fail workflow when production release did not end healthy
         if: always()

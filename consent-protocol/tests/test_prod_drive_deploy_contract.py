@@ -399,6 +399,8 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         "scripts/ci/resolve-cloud-run-deploy-revision.py",
         "scripts/ci/resolve-uat-verified-image.py",
         "scripts/ci/assert_one_voice_live_probe.py",
+        "scripts/ci/runtime-capacity-budget.py",
+        "config/runtime-capacity.json",
         "deploy/backend.cloudbuild.yaml",
         "scripts/ops/sync_backend_runtime_secrets.py",
     )
