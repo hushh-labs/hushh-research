@@ -1319,9 +1319,12 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
             </div>
             <div className={styles.inboxHeaderActions}>
               {themeToggle}
-              <button type="button" className={styles.refreshButton} aria-label="New chat" onClick={() => {
+              <button type="button" className={styles.refreshButton} aria-label="Compose message" onClick={() => {
                 setNewChatQuery(""); setNewChatPage(1); setNewChatPeople([]); setNewChatHasMore(false); setNewChatOpen(true);
               }}><Pencil className="h-5 w-5" aria-hidden="true" /></button>
+              <button type="button" className={styles.refreshButton} aria-label="New chat" onClick={() => {
+                setNewChatQuery(""); setNewChatPage(1); setNewChatPeople([]); setNewChatHasMore(false); setNewChatOpen(true);
+              }}><Plus className="h-5 w-5" aria-hidden="true" /></button>
               <button type="button" className={styles.refreshButton}
                 aria-label="Refresh conversations" onClick={() => void loadInbox()} disabled={loadingInbox}>
                 <RefreshCw className={cn("h-4 w-4", loadingInbox && "animate-spin motion-reduce:animate-none")}

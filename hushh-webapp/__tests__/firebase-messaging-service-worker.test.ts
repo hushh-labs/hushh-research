@@ -34,6 +34,7 @@ function createHarness(options: {
   }>;
   deliveredTags?: string[];
   failFirstShow?: boolean;
+  database?: IDBFactory;
 }) {
   const handlers = new Map<string, ServiceWorkerHandler>();
   const shown: Array<{ title: string; options?: Record<string, unknown> }> = [];
@@ -154,7 +155,7 @@ function createHarness(options: {
     path.join(process.cwd(), "public", "firebase-messaging-sw.js"),
     "utf8",
   );
-  const database = new IDBFactory();
+  const database = options.database ?? new IDBFactory();
   const context = vm.createContext({
     self: serviceWorker,
     setTimeout,
@@ -177,6 +178,7 @@ function createHarness(options: {
   vm.runInContext(source, context);
 
   return {
+    database,
     hideClients() { clients.forEach(client => { client.visibilityState = "hidden"; client.focused = false; }); },
     async message(data: Record<string, unknown>) {
       let pending = Promise.resolve<unknown>(undefined);
@@ -436,6 +438,36 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     const harness = createHarness({ acknowledgeVisibleDelivery: true });
     await harness.malformedPush();
     expect(harness.shown).toEqual([]);
+  });
+
+  it.each(["2000-01-01T00:00:00Z", "invalid"])("silences an expired or invalid SMS deadline: %s", async (expires_at) => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("location_share_created", { type: "location_share_created", share_kind: "sos", grant_id: "expired-sms", expires_at });
+    expect(harness.shown).toEqual([]);
+  });
+
+  it("remembers SMS delivery and Stop across worker restarts without swallowing a new grant", async () => {
+    const first = createHarness({ clientState: "none" });
+    const sms = { type: "location_share_created", share_kind: "sos", grant_id: "sms-1", expires_at: new Date(Date.now() + 60_000).toISOString() };
+    await first.push(sms.type, sms);
+    expect(first.shown).toHaveLength(1);
+    const restarted = createHarness({ clientState: "none", database: first.database });
+    await restarted.push(sms.type, sms);
+    expect(restarted.shown).toHaveLength(0);
+    await restarted.push("location_share_revoked", { type: "location_share_revoked", grant_id: "sms-2", notification_presentation: "silent" });
+    const again = createHarness({ clientState: "none", database: first.database });
+    await again.push(sms.type, { ...sms, grant_id: "sms-2" });
+    expect(again.shown).toHaveLength(0);
+    await again.push(sms.type, { ...sms, grant_id: "sms-3" });
+    expect(again.shown).toHaveLength(1);
+  });
+
+  it("retries an SMS after system presentation fails", async () => {
+    const harness = createHarness({ clientState: "none", failFirstShow: true });
+    const sms = { type: "location_share_created", share_kind: "sos", grant_id: "retry-sms" };
+    await expect(harness.push(sms.type, sms)).rejects.toThrow("presentation unavailable");
+    await harness.push(sms.type, sms);
+    expect(harness.shown).toHaveLength(1);
   });
 
   it("uses a persistent vibrating system alert for background emergency SMS", async () => {

@@ -87,6 +87,29 @@ bounded. No database migration is required for this repair.
    receipt. Verify token re-registration after permission recovery/login.
 8. Stop the active alert, including after the roster becomes empty. Confirm the
    recipient loses live access and the sender can start a new alert.
+9. Test foreground sound before the first app gesture and after one ordinary
+   interaction. Blocked browser audio must leave the system fallback eligible;
+   a failed system display must be retryable without repeating the in-app card.
+   Backgrounding during a tone must stop it without replaying it on resume.
+   On rebuilt iOS/Android apps, unavailable Web Audio must use the existing
+   HushhNotifications foreground cue once, without a second system popup.
+   Stop, sign-out and backgrounding must cancel that cue. Older installed
+   wrappers need a new native build to gain this fallback; a hosted UAT deploy
+   alone does not update their native bridge.
+10. Deliver an expired creation push, then replay an already-presented or ended
+    SMS after restarting the web worker. None should sound. A different active
+    grant must still alert. Verify native sound on both channel-based Android and
+    Android 7, and the iOS custom sound with notifications and sound permitted.
+    Browser audio tests cannot establish physical speaker output or OS delivery.
+
+The sender's readiness disclosure distinguishes unconfirmed account verification,
+unfinished secure sharing setup and missing roster projections. Membership alone
+does not establish readiness. The recipient must establish their own sharing key;
+the sender cannot create it for them. Push lifetime is bounded by the share's
+expiry (legacy alerts without an expiry are immediate-only). Web workers retain
+opaque grant presentation and terminal receipts for the maximum push lifetime.
+Silent expired pushes retain the same transport deadline and cannot create a
+new active Feed card.
 
 The repaired regression involved a separate cached phone-readiness gate, a
 preset state disconnected from the composer, recipient fan-out stopping at the

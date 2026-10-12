@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode, type TouchEvent } from "react";
 import { WalletCardSwipe, type WalletCardControlSummary } from "./wallet-card-swipe";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -313,7 +313,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                       {renderCard ? renderCard(card) : preview ? <WalletDemoCardFace summary={card} profile={demoProfile} /> : <WalletCardFace summary={card} collection />}
                     </button>
                     </WalletCardSwipe>
-                    {showDetailsLink && isExpanded ? <div data-stack-details className="flex h-[52px] items-center justify-center"><ShellActionSurface variant="pill" className={styles.detailsButton} disabled={disabled || Boolean(busyCardId)} onClick={() => openCard(card.cardId)} aria-label={`View details for ${cardControlSummary?.(card).title ?? card.nickname ?? cardNetworkLabel(card.brand)}`}><span data-card-details-label className={styles.detailsLabel}>View details <span aria-hidden="true">›</span></span></ShellActionSurface></div> : null}
+                    {showDetailsLink && isExpanded ? <div data-stack-details className="flex h-[52px] items-center justify-center"><button type="button" className={styles.detailsButton} disabled={disabled || Boolean(busyCardId)} onClick={() => openCard(card.cardId)} aria-label={`View details for ${cardControlSummary?.(card).title ?? card.nickname ?? cardNetworkLabel(card.brand)}`}><span data-card-details-label className={styles.detailsLabel}>View details <span aria-hidden="true">›</span></span></button></div> : null}
                     </div>
                   </li>
                 );
@@ -325,7 +325,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
               onClick={() => setExpanded(!isExpanded)}>
               {isExpanded ? "Collapse cards" : `View all ${cards.length} cards`}
             </Button> : <span />}
-            {showDetailsLink && !isExpanded ? <ShellActionSurface variant="pill" className={styles.detailsButton} disabled={disabled || Boolean(busyCardId)} onClick={() => openCard(selected.cardId)}><span data-card-details-label className={styles.detailsLabel}>View details <span aria-hidden="true">›</span></span></ShellActionSurface> : null}
+            {showDetailsLink && !isExpanded ? <button type="button" className={styles.detailsButton} disabled={disabled || Boolean(busyCardId)} onClick={() => openCard(selected.cardId)}><span data-card-details-label className={styles.detailsLabel}>View details <span aria-hidden="true">›</span></span></button> : null}
             {!preview && showActions ? <Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)}
               onClick={() => { setExpanded(false); onRemove(selected); }}>
               Remove card

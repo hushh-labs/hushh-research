@@ -7,8 +7,12 @@ import android.content.Context
 import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.media.Ringtone
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -40,6 +44,74 @@ import java.util.concurrent.TimeUnit
 class HushhNotificationsPlugin : Plugin() {
 
     private val TAG = "HushhNotifications"
+    private val emergencyHandler = Handler(Looper.getMainLooper())
+    private var emergencyRingtone: Ringtone? = null
+    private var emergencyGrantId: String? = null
+    private var emergencyGeneration = 0
+
+    private fun stopEmergencyCue(grantId: String? = null) {
+        if (grantId != null && grantId != emergencyGrantId) return
+        emergencyGeneration += 1
+        emergencyRingtone?.stop()
+        emergencyRingtone = null
+        emergencyGrantId = null
+    }
+
+    override fun handleOnPause() {
+        stopEmergencyCue()
+        super.handleOnPause()
+    }
+
+    override fun handleOnDestroy() {
+        stopEmergencyCue()
+        super.handleOnDestroy()
+    }
+
+    @PluginMethod
+    fun stopEmergencySmsCue(call: PluginCall) {
+        emergencyHandler.post {
+            stopEmergencyCue(call.getString("grantId"))
+            call.resolve()
+        }
+    }
+
+    @PluginMethod
+    fun playEmergencySmsCue(call: PluginCall) {
+        emergencyHandler.post {
+            val now = System.currentTimeMillis().toDouble()
+            val userId = call.getString("userId")
+            val grantId = call.getString("grantId")
+            val deadline = call.getDouble("expiresAt")
+            if (!activityActive || userId.isNullOrBlank() || grantId.isNullOrBlank() ||
+                FirebaseAuth.getInstance().currentUser?.uid != userId ||
+                deadline == null || !deadline.isFinite() || deadline <= now || deadline > now + 2000) {
+                call.resolve(JSObject().put("played", false))
+                return@post
+            }
+            stopEmergencyCue()
+            try {
+                val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val ringtone = RingtoneManager.getRingtone(context, uri)
+                    ?: run { call.resolve(JSObject().put("played", false)); return@post }
+                ringtone.audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) ringtone.isLooping = false
+                emergencyRingtone = ringtone
+                emergencyGrantId = grantId
+                ringtone.play()
+                val generation = emergencyGeneration
+                emergencyHandler.postDelayed({
+                    if (emergencyGeneration == generation) stopEmergencyCue()
+                }, 1000)
+                call.resolve(JSObject().put("played", ringtone.isPlaying))
+            } catch (_: Exception) {
+                stopEmergencyCue()
+                call.resolve(JSObject().put("played", false))
+            }
+        }
+    }
 
     @PluginMethod
     fun deletePushToken(call: PluginCall) {

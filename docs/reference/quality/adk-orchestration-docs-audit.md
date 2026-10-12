@@ -131,6 +131,15 @@ Invalid ambient provider configuration cannot affect this fake-adapter test.
 Production configuration validation, immutable provider requests and all other
 finding slots remain unchanged.
 
+The latest main sync at `9c4e1cb045` adds nine notification size findings:
+eight spans are byte-identical incoming source, and the Capacitor index retains
+root registration/listener contracts while adding three emergency-cue lines.
+Backend and frontend review qualify only those spans, with hashes and provenance
+in `scope_commerce_latest_main_notifications_20261012`. Finite-lived SMS delivery
+does not change scope-commerce authority or strict hosted-return admission.
+This is source qualification; audible cues and physical delivery remain separate
+acceptance work. Every other finding and future-growth enforcement is preserved.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.

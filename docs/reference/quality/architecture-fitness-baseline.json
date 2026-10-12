@@ -3002,7 +3002,7 @@
       "limit": 80,
       "path": "consent-protocol/api/utils/fcm_messages.py",
       "symbol": "build_push_message",
-      "value": 166
+      "value": 190
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16961,7 +16961,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_fcm_messages.py",
       "symbol": null,
-      "value": 708
+      "value": 778
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18329,7 +18329,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/consent-notification-provider-location.test.tsx",
       "symbol": null,
-      "value": 887
+      "value": 979
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18338,7 +18338,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/firebase-messaging-service-worker.test.ts",
       "symbol": null,
-      "value": 728
+      "value": 760
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19247,7 +19247,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/notification-provider.tsx",
       "symbol": null,
-      "value": 2504
+      "value": 2569
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19769,7 +19769,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
       "symbol": null,
-      "value": 717
+      "value": 730
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19859,7 +19859,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/sos-panel.tsx",
       "symbol": null,
-      "value": 684
+      "value": 700
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20336,7 +20336,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/capacitor/index.ts",
       "symbol": null,
-      "value": 1074
+      "value": 1077
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21335,7 +21335,7 @@
       "limit": 500,
       "path": "hushh-webapp/public/firebase-messaging-sw.js",
       "symbol": null,
-      "value": 619
+      "value": 684
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30418,6 +30418,98 @@
       "reviewer": "adk_authority_review",
       "source_revision": "fb65eb76f37cb1e78fe09e3e5090ef4b0211bb24",
       "verification": "Source/file/span hashes and individual rationales verified; owning focused privacy/deploy checks passed. Final canonical core and hosted CI remain required."
+    },
+    "scope_commerce_latest_main_notifications_20261012": {
+      "parent_revision": "71c3b94682",
+      "incoming_main_revision": "9c4e1cb0458ed4b6da1c05fce68bf28222cd6efe",
+      "reviewers": [
+        "backend_context",
+        "client_context"
+      ],
+      "scope": "Exactly nine findings: eight byte-identical incoming-main spans and one three-line native contract composition. Budgets, scanner, exclusions and all other findings unchanged. Source qualification only; core, CI and device evidence remain separate.",
+      "slots": [
+        {
+          "key": "function_size|consent-protocol/api/utils/fcm_messages.py|build_push_message|function exceeds the advisory gene budget",
+          "path": "consent-protocol/api/utils/fcm_messages.py",
+          "before": 166,
+          "after": 190,
+          "source_sha256": "9933107d17840a7763763ed5c22cc0e03a3eeaa5e15f56bcf5da65d92a336c9b",
+          "classification": "exact_incoming_main",
+          "reason": "Incoming finite-lived emergency SMS notification behavior and nearest delivery regressions; no commerce authority change."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/consent/notification-provider.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/consent/notification-provider.tsx",
+          "before": 2504,
+          "after": 2569,
+          "source_sha256": "e3b2ee1b98047ba1001462de00f09c9ccb9d13743e54ac80737db0768f4ef460",
+          "classification": "exact_incoming_main",
+          "reason": "Incoming finite-lived emergency SMS notification behavior and nearest delivery regressions; no commerce authority change."
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/capacitor/index.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/capacitor/index.ts",
+          "before": 1074,
+          "after": 1077,
+          "source_sha256": "6e9fc65bb3a2af3b29b347580183c0eb74c42cab25ee55e9d2ab939b08ca1382",
+          "classification": "reviewed_composition",
+          "reason": "Retains root native registrations and typed background stop contract while adding three incoming emergency cue declarations; strict commerce return admission remains unchanged."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/consent-notification-provider-location.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/consent-notification-provider-location.test.tsx",
+          "before": 887,
+          "after": 979,
+          "source_sha256": "00a2437561ac1046accae9da9901b94aaa530c188dd23bf7cd13d0c0bc1716ef",
+          "classification": "exact_incoming_main",
+          "reason": "Incoming finite-lived emergency SMS notification behavior and nearest delivery regressions; no commerce authority change."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_fcm_messages.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_fcm_messages.py",
+          "before": 708,
+          "after": 778,
+          "source_sha256": "acac09fbcc3854d67466d6b7c23f2e0f95dca9826ee142a20248fd8ff3385507",
+          "classification": "exact_incoming_main",
+          "reason": "Incoming finite-lived emergency SMS notification behavior and nearest delivery regressions; no commerce authority change."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/firebase-messaging-service-worker.test.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/firebase-messaging-service-worker.test.ts",
+          "before": 728,
+          "after": 760,
+          "source_sha256": "248eb07519e5244ab05688fad5c1e4949e49aa0b2bd797802353470d657d6d48",
+          "classification": "exact_incoming_main",
+          "reason": "Incoming finite-lived emergency SMS notification behavior and nearest delivery regressions; no commerce authority change."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
+          "before": 717,
+          "after": 730,
+          "source_sha256": "78dd69323d9117761e1bae4620d5d7fdc0ee7c3bbf94e87cfc7521def11ae1a1",
+          "classification": "exact_incoming_main",
+          "reason": "Incoming finite-lived emergency SMS notification behavior and nearest delivery regressions; no commerce authority change."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/redesign/sos-panel.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/redesign/sos-panel.tsx",
+          "before": 684,
+          "after": 700,
+          "source_sha256": "0d79683e4dc4f2d467ed629a644ed7bc861d4469a71ffa611ccf1b238680fbbf",
+          "classification": "exact_incoming_main",
+          "reason": "Incoming finite-lived emergency SMS notification behavior and nearest delivery regressions; no commerce authority change."
+        },
+        {
+          "key": "module_size|hushh-webapp/public/firebase-messaging-sw.js||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/public/firebase-messaging-sw.js",
+          "before": 619,
+          "after": 684,
+          "source_sha256": "60e7374b746a6a33fc842404d667db3e14944ee8cbd013b3a8c6b9f45848a0fd",
+          "classification": "exact_incoming_main",
+          "reason": "Incoming finite-lived emergency SMS notification behavior and nearest delivery regressions; no commerce authority change."
+        }
+      ]
     }
   },
   "review": {

@@ -51,6 +51,17 @@ are separately verified below; they do not prove a consumer purchase or payout.
   receipts were stale on the exact clean candidate; earlier UI-validation claims
   did not prove that candidate. Final generation, complete core and hosted CI
   are still required.
+- The normal branch/main union preserves concurrent memory fixes and incoming
+  main `9c4e1cb045` without a new branch. The combined UI has 440 passing Back
+  cases and freshly generated, verified Back/Search, gateway and topology
+  projections. Independent source review qualifies exactly nine incoming
+  notification size findings; budgets and authority checks are unchanged.
+  Complete core, hosted CI, governed Dev promotion and browser acceptance
+  remain pending for this combined candidate.
+- Read-only Dev observation at `11:55:14Z` still finds two funding records,
+  zero purchases and zero withdrawals. Primary private Azure setup is failed
+  with no provisioned target; counterpart private Azure remains provisioned.
+  Additional CLI subscription access does not establish an owner OAuth callback.
 
 - Provider and application readback at `10:03:28Z` verify the counterpart's
   completed US Sandbox payout eligibility. Its existing encrypted vault and
