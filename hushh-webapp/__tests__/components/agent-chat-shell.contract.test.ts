@@ -173,7 +173,8 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('source: "agent_chat_auto_capture"');
     expect(workspace).toContain("captureEligiblePkmFactsInBackground({");
     expect(workspace).toContain("beforeEffect: guard.assertCurrent");
-    expect(workspace).toContain("const facts = markdownFactsFromCards(prepared.cards)");
+    expect(workspace).toContain("const facts = markdownFactsFromCards(prepared.cards, candidates)");
+    expect(workspace).toContain('memoryProfile: "soul_markdown_v1"');
     expect(workspace).not.toContain("Long paste detected — choose where it belongs.");
     expect(workspace).not.toContain("composerPurpose");
     expect(workspace).not.toContain("Review for Memory");

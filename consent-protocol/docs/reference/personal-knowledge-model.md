@@ -346,7 +346,7 @@ local saves fail solely because the cloud projection is temporarily unavailable.
 
 Automatic memory saving is the fixed One V1 behavior while the vault session is
 unlocked. The semantic preparation stage decides which typed facts are durable;
-the client then silently appends every usable fact to browser-resident
+the client then silently applies every usable flat fact to browser-resident
 `one_memory.markdown` immediately. Semantic assessment starts alongside answer
 generation. A separate owner/session-scoped queue encrypts and persists accepted
 facts through the existing conflict-aware writer; neither model streaming nor
@@ -389,10 +389,15 @@ When the owner asks One to save something ("save this to my memory"), One calls
 `saved: false`, and for a pasted document (`whole_message=true`) the browser reads the
 owner's own message instead of a copy in the tool argument. The browser accepts
 `pkm.add` as a local memory action even though it is not a route action in the
-generated Kai gateway. One already selected the durable passage, so the client
-appends it directly to the Markdown document instead of running a second review
-pipeline. Credential values are omitted; protected identifiers already captured
-by the device guard are present in the same Markdown document.
+generated Kai gateway. The existing semantic preparation pipeline receives the
+`soul_markdown_v1` profile and the already-decrypted document's offered bullets.
+It authors plain attributed facts and Facts/Preferences/Commitments sections,
+never legacy domain trees. Both explicit and automatic captures use this path;
+there is no raw-message append bypass or extra review UI. Corrections/extensions
+replace an exact offered bullet; forget requests remove it. Stale or ambiguous
+targets fail closed, preserving unrelated facts and fenced examples. Masked
+targets and multiline/nested owner bullets require the editor for replacement.
+Credential values are omitted; owner identifiers remain private.
 
 Every capture job has a deadline and settles internally to a terminal outcome.
 Capture never adds a line, status, Activity item, receipt, confirmation control,
@@ -401,7 +406,9 @@ failures remain observable through value-free debug and aggregate telemetry.
 
 Accepted facts receive vault-encrypted IndexedDB checkpoints while cloud saving
 runs. Freshly unlocked sessions can recover these bounded seven-day envelopes
-with current credentials, without another semantic assessment. Checkpoints never
+with current credentials, without another semantic assessment. Encrypted staging
+order preserves dependent corrections across out-of-order device writes.
+Unreadable envelopes defer recovery rather than reordering later mutations. Checkpoints never
 contain keys or tokens. Cloud failures retry at bounded intervals, then remain
 retryable in Soul.md; checkpoint cleanup failure also remains pending rather
 than falsely reporting synchronization. If device storage itself is unavailable,

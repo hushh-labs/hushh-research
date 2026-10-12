@@ -144,6 +144,8 @@ import {
 } from "@/lib/pkm/secret-span-guard";
 import {
   markdownFactsFromCards,
+  peekMarkdownMemory,
+  soulMemoryCandidates,
   stageMarkdownMemoryFacts,
 } from "@/lib/pkm/markdown-memory";
 import {
@@ -5155,42 +5157,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const job = (async (): Promise<AgentPkmCaptureStatus> => {
         try {
           await guard.assertCurrent();
-          if (explicitRequest) {
-            await guard.assertCurrent();
-            const result = await stageMarkdownMemoryFacts({
-              userId,
-              vaultKey,
-              vaultOwnerToken: token,
-              // One already selected the durable passage before calling
-              // pkm.add. Store that passage directly; the Markdown writer
-              // still removes credentials and exact duplicates.
-              facts: [params.sourceMessage],
-              confirmation: {
-                confirmedByUser: true,
-                surface: "chat",
-                source: "agent_chat_owner_request",
-                confirmedAt: new Date().toISOString(),
-              },
-              beforeEffect: guard.assertCurrent,
-            });
-            appendDebugEvent(params.turnId, "pkm_explicit_save_result", {
-              saved: result.saved,
-              failed: result.success ? 0 : 1,
-            });
-            trackEvent("agent_pkm_save_confirmation_completed", {
-              route_id: "agent", result: result.saved > 0 ? "success" : "expected_error",
-              saved_count_bucket: toPkmFactCountBucket(result.saved),
-              failed_count_bucket: toPkmFactCountBucket(result.success ? 0 : 1),
-              has_active_recipients: false,
-            });
-            return settle({
-              phase: result.success ? (result.saved > 0 ? "saved" : "skipped") : "failed",
-              saved: result.saved,
-            });
-          }
+          const candidates = soulMemoryCandidates(peekMarkdownMemory(userId)?.markdown ?? "");
           const prepared = await prepareNaturalLanguagePkm({
-            userId, message: params.sourceMessage, currentDomains: params.currentDomains,
+            userId, message: params.sourceMessage, currentDomains: ["one_memory"],
             currentManifests: [],
+            memoryProfile: "soul_markdown_v1",
+            findReconciliationCandidates: () => candidates.map(candidate => ({
+              domain: candidate.domain, entity_id: candidate.entity_id, entity_scope: candidate.entity_scope,
+              message: candidate.message, active: true,
+            })),
             vaultOwnerToken: token, source: "agent_chat_auto_capture", allowEmpty: true,
             beforeEffect: guard.assertCurrent,
             isEffectCurrent: guard.isCurrent,
@@ -5199,7 +5174,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // The V1 Markdown document has no review queue. The semantic agents
           // still decide what is durable; this projection accepts every usable
           // fact and leaves do_not_save/degraded output out.
-          const facts = markdownFactsFromCards(prepared.cards);
+          const facts = markdownFactsFromCards(prepared.cards, candidates);
           if (!facts.length) return settle({ phase: "skipped", saved: 0 });
           const result = await stageMarkdownMemoryFacts({
             userId,
@@ -5207,7 +5182,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             vaultOwnerToken: token,
             facts,
             beforeEffect: guard.assertCurrent,
-            confirmation: ownerConfirmedKycSave ? {
+            confirmation: explicitRequest ? {
+              confirmedByUser: true,
+              surface: "chat",
+              source: "agent_chat_owner_request",
+              confirmedAt: new Date().toISOString(),
+            } : ownerConfirmedKycSave ? {
               confirmedByUser: true,
               surface: "chat",
               source: "agent_chat_kyc_owner_confirmed",

@@ -568,6 +568,23 @@ describe("agent PKM memory helpers", () => {
     expect(body.simulated_state).toEqual({ memories: candidates });
   });
 
+  it("forwards the whole bounded Soul snapshot without expanding the general candidate limit", async () => {
+    apiFetchMock.mockResolvedValue({ ok: true, json: async () => ({ agent_id: "a", agent_name: "A", model: "m", used_fallback: false, preview_cards: [] }) });
+    const candidates = Array.from({ length: 24 }, (_, index) => ({ domain: "one_memory", entity_scope: "markdown",
+      entity_id: `soul_${index}`, message: `Synthetic fact ${index}.`, active: true }));
+    await previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "t", message: "My brother likes tea.", currentDomains: ["one_memory"],
+      memoryProfile: "soul_markdown_v1", reconciliationCandidates: candidates });
+    const body = JSON.parse(apiFetchMock.mock.calls.at(-1)![1].body as string);
+    expect(body.memory_profile).toBe("soul_markdown_v1");
+    expect(body.simulated_state.memories).toEqual(candidates);
+    await previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "t", message: "My brother likes tea.", currentDomains: [], reconciliationCandidates: candidates });
+    expect(JSON.parse(apiFetchMock.mock.calls.at(-1)![1].body as string).simulated_state.memories).toHaveLength(10);
+    apiFetchMock.mockClear();
+    await expect(previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "t", message: "Fact", currentDomains: ["one_memory"],
+      memoryProfile: "soul_markdown_v1", reconciliationCandidates: Array(257).fill(candidates[0]) })).rejects.toThrow("bound");
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
   it("sends a memory proposal holding placeholders only, and refuses a raw secret (negative control)", async () => {
     apiFetchMock.mockResolvedValue({ ok: true, json: async () => ({ agent_id: "a", agent_name: "A", model: "m", used_fallback: false, preview_cards: [] }) });
     const [guarded] = planSecretCaptures([SECRET_PASSAGE]).render();

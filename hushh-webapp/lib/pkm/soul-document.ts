@@ -1,6 +1,10 @@
 /** Plain Markdown formatting only; semantic decisions come from One's memory agents. */
 export type SoulSection = "Facts" | "Preferences" | "Commitments";
-export type SoulFact = string | { text: string; section: SoulSection };
+export type SoulFact = string | {
+  text: string; section: SoulSection;
+  /** Exact offered bullet, not a model-authored search or path. Encrypted in recovery only. */
+  mutation?: { kind: "correct" | "delete"; target: string };
+};
 
 export function emptySoulDocument(): string {
   return "# Soul.md\n\n## Facts\n\n## Preferences\n\n## Commitments\n";
@@ -14,6 +18,12 @@ export function isSoulFact(value: unknown): value is SoulFact {
   if (typeof value === "string") return true;
   if (!value || typeof value !== "object") return false;
   const fact = value as Record<string, unknown>;
+  if (fact.mutation !== undefined) {
+    if (!fact.mutation || typeof fact.mutation !== "object") return false;
+    const mutation = fact.mutation as Record<string, unknown>;
+    if ((mutation.kind !== "correct" && mutation.kind !== "delete") || typeof mutation.target !== "string" ||
+      !/^[-*] [^\n]+$/.test(mutation.target)) return false;
+  }
   return typeof fact.text === "string" && typeof fact.section === "string" && ["Facts", "Preferences", "Commitments"].includes(fact.section);
 }
 

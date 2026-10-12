@@ -27,6 +27,7 @@ import {
   clearMarkdownMemory,
   loadMarkdownMemory,
   markdownFactsFromCards,
+  soulMemoryCandidates,
   markdownMemoryToAgentContext,
   peekMarkdownMemory,
   replaceMarkdownMemoryDocument,
@@ -61,6 +62,104 @@ async function seedSession() {
 }
 
 describe("parallel local memory and encrypted sync", () => {
+  it("applies model-targeted corrections and deletions in RAM, checkpoints and cloud without touching unrelated facts", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    let cloud: Record<string, unknown> = { markdown: "# Soul.md\n\n## Facts\n- I live in Boston.\n- My brother Alex is an engineer.\n\n## Preferences\n- I like tea.\n\n```md\n- I live in Boston.\n- I live in Seattle.\n```\n" };
+    getStaleFirst.mockResolvedValue({ data: cloud });
+    await loadMarkdownMemory(syncParams);
+    savePreparedDomain.mockImplementation(async params => {
+      const plan = await params.build({ currentDomainData: cloud }); cloud = plan.domainData; return { success: true };
+    });
+    const candidates = soulMemoryCandidates(peekMarkdownMemory("user-1")!.markdown);
+    const target = candidates[0]!;
+    const facts = markdownFactsFromCards([{ card_id: "correction", source_text: "I now live in Seattle.",
+      intent_class: "correction", write_mode: "confirm_first", candidate_payload: { soul_text: "I live in Seattle.", soul_section: "Facts" },
+      merge_decision: { merge_mode: "correct_entity", target_domain: target.domain,
+        target_entity_id: target.entity_id, target_entity_path: `markdown.entities.${target.entity_id}` } }], candidates);
+    await stageMarkdownMemoryFacts({ ...syncParams, facts });
+    expect(peekMarkdownMemory("user-1")!.markdown.match(/I live in Boston/g)).toHaveLength(1);
+    expect(peekMarkdownMemory("user-1")!.markdown).toContain("```md\n- I live in Boston.\n- I live in Seattle.\n```");
+    expect(soulMemoryCandidates(peekMarkdownMemory("user-1")!.markdown).some(candidate => candidate.message === "I live in Seattle.")).toBe(true);
+    expect(peekMarkdownMemory("user-1")!.markdown).toContain("Seattle");
+    await vi.waitFor(() => expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("synced"));
+    expect(cloud.markdown).toContain("```md\n- I live in Boston.\n- I live in Seattle.\n```");
+    expect(cloud.markdown).toContain("My brother Alex is an engineer.");
+    expect(recoveryCache.writeRequired).toHaveBeenCalledWith(expect.objectContaining({ value: expect.objectContaining({ facts }) }));
+    const nextCandidates = soulMemoryCandidates(peekMarkdownMemory("user-1")!.markdown);
+    const remove = nextCandidates.find(candidate => candidate.message.includes("Seattle"))!;
+    await stageMarkdownMemoryFacts({ ...syncParams, facts: markdownFactsFromCards([{ card_id: "delete", source_text: "Forget my home city.",
+      write_mode: "confirm_first", candidate_payload: { soul_text: "", soul_section: "Facts" },
+      merge_decision: { merge_mode: "delete_entity", target_domain: remove.domain, target_entity_id: remove.entity_id,
+        target_entity_path: `markdown.entities.${remove.entity_id}` } }], nextCandidates) });
+    expect(soulMemoryCandidates(peekMarkdownMemory("user-1")!.markdown).some(candidate => candidate.message.includes("Seattle"))).toBe(false);
+    expect(peekMarkdownMemory("user-1")!.markdown).not.toContain("Forget");
+    await vi.waitFor(() => expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("synced"));
+    expect(cloud.markdown).toContain("I like tea.");
+    expect(soulMemoryCandidates(String(cloud.markdown)).some(candidate => candidate.message.includes("Seattle"))).toBe(false);
+  });
+
+  it("rejects unoffered, ambiguous, fenced and stale targets before a cloud write", async () => {
+    const markdown = "# Soul.md\n\n## Facts\n- I live in Boston.\n";
+    const candidates = soulMemoryCandidates(markdown);
+    expect(() => markdownFactsFromCards([{ card_id: "unknown", source_text: "Forget it.", write_mode: "can_save",
+      merge_decision: { merge_mode: "delete_entity", target_domain: "one_memory", target_entity_id: "invented",
+        target_entity_path: "markdown.entities.invented" } }], candidates)).toThrow("unoffered");
+    expect(soulMemoryCandidates("```md\n- Example only.\n```\n- A real fact.\n")).toHaveLength(1);
+    expect(isSoulFact({ text: "", section: "Facts", mutation: { kind: "delete", target: "# Soul.md\n- All facts" } })).toBe(false);
+    publishValidatedAuthSessionOwner("user-1");
+    getStaleFirst.mockResolvedValue({ data: { markdown } });
+    await loadMarkdownMemory(syncParams);
+    savePreparedDomain.mockImplementation(async params => {
+      await params.build({ currentDomainData: { markdown: markdown.replace("Boston", "Owner-corrected city") } });
+      throw new Error("A stale correction must not reach persistence");
+    });
+    await expect(appendMarkdownMemoryFacts({ ...syncParams, facts: [{ text: "Seattle", section: "Facts",
+      mutation: { kind: "correct", target: "- I live in Boston." } }] })).rejects.toThrow("Memory changed");
+    expect(peekMarkdownMemory("user-1")!.markdown).toContain("Boston");
+    await expect(stageMarkdownMemoryFacts({ ...syncParams, facts: [{ text: "Seattle", section: "Facts",
+      mutation: { kind: "correct", target: "- I live in Boston." } }, { text: "Other city", section: "Facts",
+      mutation: { kind: "correct", target: "- I live in Boston." } }] })).rejects.toThrow("Memory changed");
+  });
+
+  it("keeps all bounded Soul candidates and model-authored attribution and section", () => {
+    const candidates = soulMemoryCandidates("# Soul.md\n" + Array.from({ length: 24 }, (_, index) => `- Synthetic fact ${index}.`).join("\n"));
+    expect(candidates).toHaveLength(24);
+    expect(markdownFactsFromCards([{ card_id: "relative", source_text: "Likes tea.", context_quotes: ["My brother Alex"],
+      intent_class: "relationship", candidate_payload: { soul_text: "My brother Alex likes tea.", soul_section: "Preferences" },
+      write_mode: "can_save" }])).toEqual([{ text: "My brother Alex likes tea.", section: "Preferences" }]);
+    expect(markdownFactsFromCards([{ card_id: "legacy", source_text: "Works as an engineer.", context_quotes: ["My brother Alex"],
+      write_mode: "can_save" }])[0]).toEqual({ text: "My brother Alex: Works as an engineer.", section: "Facts" });
+  });
+  it("replays chained corrections by encrypted staging order, not UUID key order", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    let cloud: Record<string, unknown> = { markdown: "# Soul.md\n\n## Facts\n- I live in Boston.\n" };
+    getStaleFirst.mockResolvedValue({ data: cloud });
+    await loadMarkdownMemory(syncParams);
+    savePreparedDomain.mockImplementation(async params => {
+      const plan = await params.build({ currentDomainData: cloud }); cloud = plan.domainData; return { success: true };
+    });
+    recoveryCache.listResourceKeys.mockResolvedValueOnce(["one_memory_pending:v1:a-later", "one_memory_pending:v1:z-earlier"]);
+    recoveryCache.readRequired.mockImplementation(async ({ resourceKey }) => {
+      const later = resourceKey.includes("later");
+      return { version: 1, userId: "user-1", confirmation: syncParams.confirmation, stagingOrder: later ? 20 : 10,
+        facts: [{ text: later ? "I live in Portland." : "I live in Seattle.", section: "Facts",
+          mutation: { kind: "correct", target: later ? "- I live in Seattle." : "- I live in Boston." } }] };
+    });
+    await recoverMarkdownMemorySync(syncParams);
+    await vi.waitFor(() => expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("synced"));
+    expect(cloud.markdown).toContain("Portland");
+    expect(cloud.markdown).not.toMatch(/Boston|Seattle/);
+    expect(recoveryCache.writeRequired.mock.calls.map(([params]) => params.value.stagingOrder)).toEqual([10, 20]);
+  });
+  it("rejects masked-target replacement even when the model silently drops the protected clause", () => {
+    const syntheticKey = ["sk", "test", "123456789012345678901234"].join("_");
+    const candidates = soulMemoryCandidates(`- My API key is ${syntheticKey}; I like tea.\n`);
+    expect(candidates[0]!.message).not.toBe(candidates[0]!.target.slice(2));
+    expect(() => markdownFactsFromCards([{ card_id: "masked", source_text: "I like coffee.", write_mode: "can_save",
+      candidate_payload: { soul_text: "I like coffee.", soul_section: "Preferences" },
+      merge_decision: { merge_mode: "correct_entity", target_domain: "one_memory", target_entity_id: candidates[0]!.entity_id,
+        target_entity_path: `markdown.entities.${candidates[0]!.entity_id}` } }], candidates)).toThrow("masked");
+  });
   const radarKey = `gmail_receipt_radar:${"a".repeat(64)}`;
   it("replaces generated receipt bullets, preserves concurrent personal facts, and rejects late older summaries", async () => {
     await seedSession();
@@ -214,7 +313,7 @@ describe("parallel local memory and encrypted sync", () => {
     expect(savePreparedDomain).toHaveBeenCalledTimes(4);
     expect(peekMarkdownMemory("user-1")).toMatchObject({ persisted: false, syncStatus: "retryable" });
     expect(recoveryCache.writeRequired).toHaveBeenCalledWith(expect.objectContaining({ value: {
-      version: 1, userId: "user-1", facts: ["Likes brief answers."], confirmation: syncParams.confirmation,
+      version: 1, userId: "user-1", facts: ["Likes brief answers."], confirmation: syncParams.confirmation, stagingOrder: expect.any(Number),
     } }));
     expect(peekMarkdownMemory("user-1")?.markdown).toContain("Likes brief answers.");
     savePreparedDomain.mockImplementation(async params => { await params.beforeEffect(); await params.build({ currentDomainData: {} }); return { success: true }; });
@@ -359,7 +458,11 @@ describe("parallel local memory and encrypted sync", () => {
       return { success: true };
     });
     await recoverMarkdownMemorySync(syncParams);
+    expect(savePreparedDomain).not.toHaveBeenCalled();
+    recoveryCache.listResourceKeys.mockResolvedValue([recoveryKey]);
+    await recoverMarkdownMemorySync(syncParams);
     await vi.waitFor(() => expect(finish).toBeDefined());
+    recoveryCache.listResourceKeys.mockResolvedValue([recoveryKey, "one_memory_pending:v1:unreadable"]);
     await recoverMarkdownMemorySync(syncParams);
     expect(recoveryCache.invalidateResourceRequired).not.toHaveBeenCalledWith("user-1", recoveryKey);
     expect(savePreparedDomain).toHaveBeenCalledTimes(1);

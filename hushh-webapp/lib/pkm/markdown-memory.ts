@@ -1,12 +1,13 @@
 "use client";
 
 import type { AgentPkmContext, AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
+import type { PkmReconciliationCandidate } from "@/lib/agent/agent-pkm-context-store";
 import { pkmPlanIdForIdempotencyScope, type PkmWriteAuthorization } from "@/lib/personal-knowledge-model/mutation-plan";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { SECRET_PLACEHOLDER } from "@/lib/pkm/secret-patterns";
-import { omitCredentialsFromMemory } from "@/lib/pkm/secret-span-guard";
+import { maskSecretSpans, omitCredentialsFromMemory } from "@/lib/pkm/secret-span-guard";
 import { emptySoulDocument, insertSoulFacts, isSoulFact, normalizeSoulDocument, soulFactText, type SoulFact, type SoulSection } from "@/lib/pkm/soul-document";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
@@ -61,6 +62,7 @@ export type MarkdownMemoryAppendResult = {
 const cache = new Map<string, CachedMarkdownMemory>();
 const listeners = new Map<string, Set<() => void>>();
 let memoryGeneration = 0;
+let lastStagingOrder = 0;
 
 type AppendParams = Parameters<typeof appendMarkdownMemoryFacts>[0];
 type SyncJob = AppendParams & { recoveryKey?: string; checkpoint?: Promise<void>; committed?: boolean; needsReceiptLookup?: boolean };
@@ -170,25 +172,43 @@ function factKey(value: string): string {
 }
 
 function storedFactKeys(markdown: string): Set<string> {
-  return new Set(
-    markdown
-      .split("\n")
-      .filter((line) => /^\s*[-*]\s+/.test(line))
-      .map(normalizeFact)
-      .map(factKey)
-      .filter(Boolean),
-  );
+  const keys = new Set<string>();
+  let fence: { marker: string; size: number } | null = null;
+  for (const line of markdown.split("\n")) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const marker = delimiter[1]![0]!;
+      if (!fence) fence = { marker, size: delimiter[1]!.length };
+      else if (marker === fence.marker && delimiter[1]!.length >= fence.size && !delimiter[2]!.trim()) fence = null;
+    } else if (!fence && /^\s*[-*]\s+/.test(line)) {
+      const key = factKey(normalizeFact(line));
+      if (key) keys.add(key);
+    }
+  }
+  return keys;
 }
 
 function appendFactsToMarkdown(markdown: string, facts: readonly SoulFact[]): {
   markdown: string;
   saved: number;
 } {
-  const base = normalizeSoulDocument(markdown).trim() || emptySoulDocument().trim();
+  let base = normalizeSoulDocument(markdown).trim() || emptySoulDocument().trim();
+  let mutations = 0;
+  for (const fact of facts) {
+    if (typeof fact === "string" || !fact.mutation) continue;
+    if (!isSoulFact(fact)) throw new Error("Invalid memory mutation.");
+    const offered = soulMemoryCandidates(base).filter(candidate => candidate.target === fact.mutation!.target);
+    if (offered.length !== 1) throw new Error("Memory changed during preparation. Reassess before updating it.");
+    const lines = base.split("\n");
+    lines.splice(offered[0]!.lineIndex, 1);
+    base = lines.join("\n");
+    mutations += 1;
+  }
   const keys = storedFactKeys(base);
   const additions = new Map<SoulSection, string[]>();
-  let saved = 0;
+  let saved = mutations;
   for (const raw of facts) {
+    if (typeof raw !== "string" && raw.mutation?.kind === "delete") continue;
     const fact = normalizeFact(raw);
     const key = factKey(fact);
     if (!fact || !key || fact === "[credential omitted]" || keys.has(key)) continue;
@@ -328,15 +348,55 @@ async function readMarkdownMemory(params: {
   });
 }
 
-export function markdownFactsFromCards(cards: readonly AgentPkmPreviewCard[]): SoulFact[] {
+export type SoulMemoryCandidate = PkmReconciliationCandidate & { target: string; lineIndex: number };
+
+/** Offered references are session-local; neither IDs nor paths enter Soul.md. */
+export function soulMemoryCandidates(markdown: string): SoulMemoryCandidate[] {
+  const candidates: SoulMemoryCandidate[] = [];
+  const lines = markdown.split("\n");
+  let fence: { marker: string; size: number } | null = null;
+  lines.forEach((line, index) => {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const marker = delimiter[1]![0]!;
+      if (!fence) fence = { marker, size: delimiter[1]!.length };
+      else if (marker === fence.marker && delimiter[1]!.length >= fence.size && !delimiter[2]!.trim()) fence = null;
+      return;
+    }
+    // A multiline/nested owner-authored item needs the editor, not a partial deletion.
+    if (fence || !/^[-*] \S/.test(line) || /^\s+\S/.test(lines[index + 1] ?? "")) return;
+    candidates.push({ domain: MARKDOWN_MEMORY_DOMAIN, entity_id: `soul_${index}`,
+      entity_scope: "markdown", message: maskSecretSpans(line.slice(2)), active: true, target: line, lineIndex: index });
+  });
+  if (candidates.length > 256) throw new Error("Memory has too many items for automatic reconciliation.");
+  return candidates;
+}
+
+export function markdownFactsFromCards(cards: readonly AgentPkmPreviewCard[], candidates: readonly SoulMemoryCandidate[] = []): SoulFact[] {
   return cards
     .filter((card) => card.write_mode !== "do_not_save" && !card.preview_degraded && !card.preparation_requires_review && !card.drift_flags?.fallback_used)
-    .filter(card => Boolean(card.source_text?.trim()))
+    .filter(card => Boolean(card.source_text?.trim()) && (card.merge_mode || card.merge_decision?.merge_mode) !== "no_op")
     .map(card => {
       const intent = card.intent_class || card.intent_frame?.intent_class;
       // These are authored semantic enums, not keyword-based guesses.
-      const section: SoulSection = intent === "preference" ? "Preferences" : intent === "plan_or_goal" ? "Commitments" : "Facts";
-      return { text: card.source_text, section };
+      const mode = card.merge_mode || card.merge_decision?.merge_mode;
+      const payload = record(card.candidate_payload);
+      const section: SoulSection = ["Facts", "Preferences", "Commitments"].includes(String(payload.soul_section))
+        ? payload.soul_section as SoulSection
+        : intent === "preference" ? "Preferences" : intent === "plan_or_goal" ? "Commitments" : "Facts";
+      const text = typeof payload.soul_text === "string" ? payload.soul_text
+        : [...(card.context_quotes ?? []), card.source_text].join(": ");
+      if (mode !== "correct_entity" && mode !== "delete_entity" && mode !== "extend_entity") return { text, section };
+      const id = card.merge_decision?.target_entity_id ?? card.target_entity_id;
+      const path = card.merge_decision?.target_entity_path;
+      const target = candidates.find(candidate => candidate.entity_id === id &&
+        path === `${candidate.entity_scope}.entities.${candidate.entity_id}` &&
+        card.merge_decision?.target_domain === candidate.domain);
+      if (!target) throw new Error("Memory mutation names an unoffered target.");
+      if (mode !== "delete_entity" && (text.includes("[hidden secret]") || target.message !== target.target.slice(2)))
+        throw new Error("A masked value cannot replace private memory.");
+      return { text: mode === "delete_entity" ? "" : text, section,
+        mutation: { kind: mode === "delete_entity" ? "delete" as const : "correct" as const, target: target.target } };
     });
 }
 
@@ -353,7 +413,7 @@ export async function appendMarkdownMemoryFacts(params: {
   /** Update one generated receipt summary, never accumulate old scan versions. */
   replaceSource?: ReplaceSource;
 }): Promise<MarkdownMemoryAppendResult> {
-  const facts = params.facts.map(fact => typeof fact === "string" ? normalizeFact(fact) : { ...fact, text: normalizeFact(fact) }).filter(fact => Boolean(soulFactText(fact)));
+  const facts = params.facts.map(fact => typeof fact === "string" ? normalizeFact(fact) : { ...fact, text: normalizeFact(fact) }).filter(fact => Boolean(soulFactText(fact)) || (typeof fact !== "string" && fact.mutation?.kind === "delete"));
   if (facts.length === 0 && !params.completeKycIntake) {
     return { success: true, saved: 0, markdown: peekMarkdownMemory(params.userId)?.markdown ?? null };
   }
@@ -407,7 +467,8 @@ export async function appendMarkdownMemoryFacts(params: {
     return { success: false, saved: 0, markdown: null, message: result.message };
   }
   if (mayPublish() && !result.idempotentReplay) {
-    const pending = applyPendingMemory(writtenMarkdown, sourceSummaries, syncQueues.get(params.userId)?.jobs ?? []);
+    const pending = applyPendingMemory(writtenMarkdown, sourceSummaries,
+      (syncQueues.get(params.userId)?.jobs ?? []).filter(job => !params.idempotencyScope || job.idempotencyScope !== params.idempotencyScope));
     cacheDocument({
       userId: params.userId,
       markdown: pending.markdown,
@@ -479,7 +540,7 @@ async function flushMarkdownMemory(userId: string, queue: SyncQueue): Promise<vo
 }
 
 /** Publish accepted facts immediately; encryption and CAS commits run in parallel with chat. */
-export async function stageMarkdownMemoryFacts(params: AppendParams & { recoveryKey?: string }): Promise<MarkdownMemoryAppendResult> {
+export async function stageMarkdownMemoryFacts(params: AppendParams & { recoveryKey?: string; stagingOrder?: number }): Promise<MarkdownMemoryAppendResult> {
   await params.beforeEffect?.();
   const existing = peekMarkdownMemory(params.userId);
   if (!existing) return { success: false, saved: 0, markdown: null, message: "Open your memory before adding details." };
@@ -504,12 +565,14 @@ export async function stageMarkdownMemoryFacts(params: AppendParams & { recovery
   const queue = syncQueues.get(params.userId) ?? { epoch, jobs: [], running: false, retries: 0 };
   const previousKeys = storedFactKeys(existing.markdown);
   const newFacts = params.facts.map(fact => typeof fact === "string" ? normalizeFact(fact) : { ...fact, text: normalizeFact(fact) })
-    .filter(fact => params.replaceSource || !previousKeys.has(factKey(soulFactText(fact))));
+    .filter(fact => params.replaceSource || (typeof fact !== "string" && fact.mutation) || !previousKeys.has(factKey(soulFactText(fact))));
   // The queue owns its lifetime; a finished capture's AbortSignal must not cancel saving.
   const recoveryKey = params.recoveryKey ?? `${RECOVERY_PREFIX}${crypto.randomUUID()}`;
+  const stagingOrder = params.stagingOrder ?? Math.max(Date.now(), lastStagingOrder + 1);
+  lastStagingOrder = Math.max(lastStagingOrder, stagingOrder);
   const checkpoint = SecureResourceCacheService.writeRequired({ userId: params.userId,
     resourceKey: recoveryKey, vaultKey: params.vaultKey, ttlMs: 7 * 24 * 60 * 60 * 1000,
-    value: { version: 1, userId: params.userId, facts: newFacts, confirmation: params.confirmation,
+    value: { version: 1, userId: params.userId, facts: newFacts, confirmation: params.confirmation, stagingOrder,
       ...(params.completeKycIntake ? { completeKycIntake: true } : {}),
       ...(params.replaceSource ? { replaceSource: params.replaceSource } : {}) },
   }).catch(() => undefined); // Cloud saving still works when device storage is unavailable.
@@ -540,17 +603,26 @@ export function recoverMarkdownMemorySync(params: {
     let readFailed = false;
     try {
       await assertCurrent();
+      const recovered: { recoveryKey: string; pending: { version: number; userId: string; facts: SoulFact[]; confirmation: PkmWriteAuthorization; completeKycIntake?: boolean; replaceSource?: ReplaceSource; stagingOrder?: number } }[] = [];
       for (const recoveryKey of await SecureResourceCacheService.listResourceKeys(params.userId, RECOVERY_PREFIX)) {
         await assertCurrent();
         if (syncQueues.get(params.userId)?.jobs.some(job => job.recoveryKey === recoveryKey)) continue;
-        const pending = await SecureResourceCacheService.readRequired<{ version: number; userId: string; facts: SoulFact[]; confirmation: PkmWriteAuthorization; completeKycIntake?: boolean; replaceSource?: ReplaceSource }>({
+        const pending = await SecureResourceCacheService.readRequired<{ version: number; userId: string; facts: SoulFact[]; confirmation: PkmWriteAuthorization; completeKycIntake?: boolean; replaceSource?: ReplaceSource; stagingOrder?: number }>({
           ...params, resourceKey: recoveryKey,
         }).catch(() => { readFailed = true; return null; });
         await assertCurrent();
         if (!pending || pending.version !== 1 || pending.userId !== params.userId || !Array.isArray(pending.facts) ||
           pending.facts.some(fact => !isSoulFact(fact)) || !pending.confirmation ||
+          (pending.stagingOrder !== undefined && (!Number.isSafeInteger(pending.stagingOrder) || pending.stagingOrder < 0)) ||
           (pending.completeKycIntake !== undefined && typeof pending.completeKycIntake !== "boolean") ||
           (pending.replaceSource !== undefined && !isReplaceSource(pending.replaceSource))) continue;
+        recovered.push({ recoveryKey, pending });
+      }
+      // A missing earlier envelope could be a prerequisite for a later correction.
+      if (readFailed) { recoveryLoads.delete(key); return; }
+      recovered.sort((a, b) => (a.pending.stagingOrder ?? 0) - (b.pending.stagingOrder ?? 0));
+      for (const { recoveryKey, pending } of recovered) {
+        await assertCurrent();
         const committed = await checkpointCommitted(params, recoveryKey);
         await assertCurrent();
         if (committed) {
@@ -566,9 +638,9 @@ export function recoverMarkdownMemorySync(params: {
           continue;
         }
         await stageMarkdownMemoryFacts({ ...params, facts: pending.facts, confirmation: pending.confirmation,
-          completeKycIntake: pending.completeKycIntake, replaceSource: pending.replaceSource, recoveryKey, beforeEffect: assertCurrent });
+          completeKycIntake: pending.completeKycIntake, replaceSource: pending.replaceSource, stagingOrder: pending.stagingOrder, recoveryKey, beforeEffect: assertCurrent });
       }
-      if (readFailed) recoveryLoads.delete(key);
+      if (readFailed || syncQueues.get(params.userId)?.running) recoveryLoads.delete(key);
     } catch { recoveryLoads.delete(key); /* Retry discovery after a transient storage failure. */ }
   })();
   recoveryLoads.set(key, recovery);
