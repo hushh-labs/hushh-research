@@ -139,25 +139,7 @@ final class AppUITests: XCTestCase {
     /// Public fixture only. Installation/launch is preparation; this journey
     /// attaches without resetting, authenticating or navigating the WebView.
     func testLocalNativeHistoryCompositionQualification() throws {
-        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_HISTORY_QUALIFICATION"] == "true" else {
-            throw XCTSkip("Explicit public native composition qualification")
-        }
-        let app = XCUIApplication()
-        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
-            XCTFail("QUALIFICATION_REQUIRES_PREPARED_RUNNING_APP"); return
-        }
-        // XCTest preparation can background the already installed application.
-        // Activate that same process; never relaunch or reset its session here.
-        app.activate()
-        let fixture = app.otherElements["native-history-qualification"].firstMatch
-        let launcher = app.buttons["native-history-qualification-launcher"].firstMatch
-        // Runner preparation can interrupt the app and legitimately retire its
-        // owned presentation. Re-entry is an explicit authored action, not a
-        // privacy bypass, relaunch, or automatic resurrection.
-        if !fixture.exists, waitForAdmittedControl(launcher) { launcher.tap() }
-        guard fixture.waitForExistence(timeout: 10) else {
-            XCTFail("QUALIFICATION_FIXTURE_NOT_ADMITTED"); return
-        }
+        guard let (app, fixture) = try attachPublicNativeHistoryQualification() else { return }
         let open = app.buttons["qualification-history-open"].firstMatch
         let close = app.buttons["qualification-history-close"].firstMatch
         let dock = app.descendants(matching: .any).matching(identifier: "qualification-dock").firstMatch
@@ -257,20 +239,6 @@ final class AppUITests: XCTestCase {
             XCTFail("PUBLIC_EDITOR_MODE_NOT_RESTORED"); return
         }
         XCTAssertTrue((editor.value as? String) == sample, "Mode changes must not erase the retained draft")
-        let selector = app.segmentedControls["chat-agent-surface"].firstMatch
-        let cloud = selector.buttons["One, your cloud agent"].firstMatch
-        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
-        guard waitForAdmittedControl(cloud), waitForAdmittedControl(puppy) else {
-            XCTFail("PUBLIC_AGENT_SELECTOR_NOT_ADMITTED"); return
-        }
-        for _ in 0..<10 {
-            puppy.tap()
-            XCTAssertTrue(puppy.isSelected)
-            cloud.tap()
-            XCTAssertTrue(cloud.isSelected)
-            XCTAssertEqual(app.textViews.matching(identifier: "native-dock-editor").count, 1)
-            XCTAssertTrue((editor.value as? String) == sample, "Agent choice must not recreate the public editor")
-        }
         open.tap()
         guard waitForAdmittedControl(close) else { XCTFail("PUBLIC_EDITING_DRAWER_NOT_ADMITTED"); return }
         XCTAssertFalse(editor.isHittable)
@@ -287,7 +255,7 @@ final class AppUITests: XCTestCase {
             XCTFail("PUBLIC_MOTION_MEASUREMENT_MISSING"); return
         }
         print("NATIVE_HISTORY_PUBLIC_FRAMES samples=\(Int(frames)) over50=\(Int(over50)) max_ms=\(maxFrame) measured_ms=\(duration)")
-        XCTAssertEqual(over50, 0, "A physical motion window must have no frame over 50 ms")
+        XCTAssertEqual(over50, 0, "PUBLIC_MOTION_FRAME_OVER_50_MS")
         if ProcessInfo.processInfo.environment["HUSHH_CAPTURE_PUBLIC_QUALIFICATION"] == "true" {
             try auditPublicNativeHistoryAppearance(app, fixture: fixture)
         }
@@ -295,25 +263,72 @@ final class AppUITests: XCTestCase {
         // No automatic Exit can expose private Chat in a public recording.
     }
 
-    /// The actual contrast regression has its own bounded evidence path; a
-    /// visual correction need not repeat already verified gesture/editor work.
-    func testLocalNativeHistoryAppearanceAccessibilityQualification() throws {
+    /// A separate warm family journey keeps selector acceptance independent of
+    /// drawer measurement. Neither ten-cycle gate is reduced or skipped.
+    func testLocalNativeHistoryAgentSelectorQualification() throws {
+        guard let (app, fixture) = try attachPublicNativeHistoryQualification() else { return }
+        guard waitForAdmittedControl(fixture.buttons["qualification-reset"]) else {
+            XCTFail("PUBLIC_AGENT_SELECTOR_RESET_UNAVAILABLE"); return
+        }
+        fixture.buttons["qualification-reset"].tap()
+        let editor = fixture.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else { XCTFail("PUBLIC_AGENT_EDITOR_NOT_ADMITTED"); return }
+        let sample = "Public One/Puppy sample 😀"
+        editor.tap()
+        editor.typeText(sample)
+        XCTAssertEqual(editor.value as? String, sample, "PUBLIC_AGENT_EDITOR_INPUT_NOT_RETAINED")
+        let selector = fixture.segmentedControls["chat-agent-surface"].firstMatch
+        let cloud = selector.buttons["One, your cloud agent"].firstMatch
+        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
+        guard waitForAdmittedControl(cloud), waitForAdmittedControl(puppy) else {
+            XCTFail("PUBLIC_AGENT_SELECTOR_NOT_ADMITTED"); return
+        }
+        for cycle in 0..<10 {
+            puppy.tap()
+            XCTAssertTrue(puppy.isSelected, "PUBLIC_AGENT_PUPPY_SELECTION_NOT_COMMITTED")
+            cloud.tap()
+            XCTAssertTrue(cloud.isSelected, "PUBLIC_AGENT_ONE_SELECTION_NOT_COMMITTED")
+            XCTAssertEqual(app.textViews.matching(identifier: "native-dock-editor").count, 1,
+                "PUBLIC_AGENT_DUPLICATE_EDITOR")
+            XCTAssertEqual(editor.value as? String, sample, "PUBLIC_AGENT_SELECTOR_REPLACED_DRAFT")
+            print("NATIVE_HISTORY_PUBLIC_SELECTOR_CYCLE completed=\(cycle + 1)")
+        }
+        XCTAssertFalse(fixture.buttons["Send message"].firstMatch.isEnabled,
+            "PUBLIC_AGENT_STUDY_SUBMISSION_MUST_BE_DISABLED")
+    }
+
+    private func attachPublicNativeHistoryQualification() throws -> (XCUIApplication, XCUIElement)? {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_HISTORY_QUALIFICATION"] == "true" else {
-            throw XCTSkip("Explicit public native appearance qualification")
+            throw XCTSkip("Explicit public native composition qualification")
         }
         let app = XCUIApplication()
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
-            XCTFail("QUALIFICATION_REQUIRES_PREPARED_RUNNING_APP"); return
+            XCTFail("QUALIFICATION_REQUIRES_PREPARED_RUNNING_APP"); return nil
         }
+        // XCTest preparation can background the already installed application.
+        // Activate that same process; never relaunch or reset its session here.
         app.activate()
         let fixture = app.otherElements["native-history-qualification"].firstMatch
         let launcher = app.buttons["native-history-qualification-launcher"].firstMatch
+        // Runner preparation can interrupt the app and legitimately retire its
+        // owned presentation. Re-entry is an explicit authored action, not a
+        // privacy bypass, relaunch, or automatic resurrection.
         if !fixture.exists, waitForAdmittedControl(launcher) { launcher.tap() }
-        guard fixture.waitForExistence(timeout: 10), waitForAdmittedControl(app.buttons["qualification-reset"]) else {
+        guard fixture.waitForExistence(timeout: 10) else {
+            XCTFail("QUALIFICATION_FIXTURE_NOT_ADMITTED"); return nil
+        }
+        return (app, fixture)
+    }
+
+    /// The actual contrast regression has its own bounded evidence path; a
+    /// visual correction need not repeat already verified gesture/editor work.
+    func testLocalNativeHistoryAppearanceAccessibilityQualification() throws {
+        guard let (app, fixture) = try attachPublicNativeHistoryQualification() else { return }
+        guard waitForAdmittedControl(fixture.buttons["qualification-reset"]) else {
             XCTFail("QUALIFICATION_PUBLIC_APPEARANCE_NOT_ADMITTED"); return
         }
-        app.buttons["qualification-reset"].tap()
-        let value = app.textViews["native-dock-editor"].firstMatch.value as? String ?? ""
+        fixture.buttons["qualification-reset"].tap()
+        let value = fixture.textViews["native-dock-editor"].firstMatch.value as? String ?? ""
         guard value.isEmpty || value == "Message One" else {
             XCTFail("PUBLIC_APPEARANCE_REQUIRES_EMPTY_SAMPLE"); return
         }
@@ -327,10 +342,10 @@ final class AppUITests: XCTestCase {
         continueAfterFailure = true
         defer { continueAfterFailure = false }
         for (theme, accent) in [("Light", "Blue"), ("Light", "Molten Gold"), ("Dark", "Blue"), ("Dark", "Molten Gold")] {
-            app.buttons[theme].firstMatch.tap()
-            app.buttons[accent].firstMatch.tap()
-            guard fixture.exists, app.buttons["qualification-history-open"].isHittable,
-                  app.descendants(matching: .any).matching(identifier: "qualification-dock").firstMatch.isHittable else {
+            fixture.buttons[theme].firstMatch.tap()
+            fixture.buttons[accent].firstMatch.tap()
+            guard fixture.exists, fixture.buttons["qualification-history-open"].isHittable,
+                  fixture.descendants(matching: .any).matching(identifier: "qualification-dock").firstMatch.isHittable else {
                 XCTFail("PUBLIC_CAPTURE_NOT_ISOLATED"); return
             }
             let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -342,8 +357,8 @@ final class AppUITests: XCTestCase {
                     .sufficientElementDescription, .trait, .textClipped, .dynamicType])
             }
         }
-        app.buttons["Light"].firstMatch.tap()
-        app.buttons["Blue"].firstMatch.tap()
+        fixture.buttons["Light"].firstMatch.tap()
+        fixture.buttons["Blue"].firstMatch.tap()
     }
 
     func testLocalSessionAutomationAdmissionOnly() throws {
