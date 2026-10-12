@@ -512,7 +512,39 @@ class ConnectionsService:
         with connection.begin_nested():
             yield
 
-    def reserve_contact_sync_lookup_budget(self, user_id: str, lookup_count: int) -> None:
+    def _has_established_verified_contact_email(
+        self, user_id: str, verified_requester_email: str | None
+    ) -> bool:
+        """Recheck fresh server-issued email evidence against current account state."""
+        email = str(verified_requester_email or "").strip().lower()
+        if not email:
+            return False
+        return bool(
+            self._execute_one(
+                """
+                SELECT identity.user_id
+                FROM actor_identity_cache identity
+                JOIN vault_keys account_state ON account_state.user_id = identity.user_id
+                WHERE identity.user_id = :user_id
+                  AND identity.email_verified = TRUE
+                  AND LOWER(BTRIM(identity.email)) = :verified_requester_email
+                  AND (
+                    account_state.vault_status = 'active'
+                    OR account_state.setup_completed = TRUE
+                  )
+                LIMIT 1
+                """,
+                {"user_id": user_id, "verified_requester_email": email},
+            )
+        )
+
+    def reserve_contact_sync_lookup_budget(
+        self,
+        user_id: str,
+        lookup_count: int,
+        *,
+        verified_requester_email: str | None = None,
+    ) -> None:
         """Atomically consume the cross-instance contact-sync abuse budget.
 
         SlowAPI remains an inexpensive outer request-count guard. This budget
@@ -553,7 +585,9 @@ class ConnectionsService:
                 """,
                 {"user_id": requester_id},
             )
-            if not requester:
+            if not requester and not self._has_established_verified_contact_email(
+                requester_id, verified_requester_email
+            ):
                 raise ConnectionsError(
                     "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
                     "We couldn't confirm your account verification. Please try again or contact support.",
@@ -3720,6 +3754,7 @@ class ConnectionsService:
         phone_lookups: list[dict[str, Any]],
         matches: list[dict[str, Any]],
         sync_started_at: datetime | None = None,
+        verified_requester_email: str | None = None,
     ) -> dict[str, Any]:
         """Materialize eligible contact matches without broadening consent.
 
@@ -3880,9 +3915,11 @@ class ConnectionsService:
             )
             locked_identities = {str(row.get("user_id") or ""): row for row in locked_identity_rows}
             requester = locked_identities.get(requester_id) or {}
-            if (
-                not bool(requester.get("phone_verified"))
-                or not str(requester.get("phone_number") or "").strip()
+            requester_phone_verified = bool(requester.get("phone_verified")) and bool(
+                str(requester.get("phone_number") or "").strip()
+            )
+            if not requester_phone_verified and not self._has_established_verified_contact_email(
+                requester_id, verified_requester_email
             ):
                 raise ConnectionsError(
                     "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
