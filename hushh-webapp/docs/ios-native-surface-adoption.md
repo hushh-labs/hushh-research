@@ -13,6 +13,94 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### History leading slot and native selector study — 2026-10-11
+
+Chat and the portalled React History now share root-owned header row, safe-area
+and leading-gutter tokens. Open and Close use the same circular 44px shared
+surface and glyph family; Close stays inside the translating drawer. Ages flow
+beside chat titles instead of reserving a second trailing column. Full-height
+motion, scrim, focus return and operation owners are unchanged.
+
+The native History header also has a leading circular Close. The isolated
+public native study reuses the product One/Puppy selector and retained Dock;
+synthetic selections have no routing or submission authority. Its fixture is
+not product Chat acceptance. Custom native product controls remain disabled:
+the unchanged React Profile cannot paint above foreground native Chat controls
+inside the same WebView. Host retention alone does not solve this overlap.
+
+Focused behavior (161 tests), typecheck, lint, design/performance-source, plugin
+parity, generated gateway/Siri/route-index/surface-map checks and the signed
+Debug iPhone build pass. All 28 focused Chromium/WebKit checks cover the actual
+Open/Close controls, full-panel motion, compact ages and safe-area geometry. A negative
+control using `759ae0cfd8` fails leading-slot alignment by 266 CSS px. The
+abandoned stationary-header test assumptions were corrected to require the
+header to move with the entire panel; no gesture or isolation gate was removed.
+
+This branch lacks `ui:doctor`, `build:ui-contracts` and `verify:ui-contracts`.
+Their failed invocation is a release-governance gap, not a green check. The
+available authored action/route projections pass without changing operations.
+The installed iPhone product includes `a6aec50e7e`, `852e263929` and
+`c05437b746`, bundled UAT as `com.hushh.app` 1.4.0 (69). Executable SHA-256:
+`064bd0f38c5ccb7e754883c7672ebddc4986c47c0e1d4e0a796d50b888c2f921`.
+The runtime contract remains
+`aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69`.
+Authenticated Wi-Fi transport, installation and signature/assets verification
+pass on iPhone 16e / iOS 27.2. Four exported **public-only** appearance captures
+show readable circular chrome, the actual icon-only native selector and one
+content-backed glass Dock in Light/Blue, Light/Gold, Dark/Blue and Dark/Gold.
+These are settled-frame visual checks, not complete transition acceptance.
+
+The combined public composition case failed with a generic retained diagnostic;
+its exact assertion was not preserved. The appearance-only run was stopped after
+12 minutes without visible theme progression. Neither result qualifies a family.
+`3b3a3c00b5` separates ten selector cycles from ten drawer cycles, scopes public
+queries to the owned fixture and reuses the same attach-only admission helper.
+No timeout, cycle count, isolation assertion or performance gate is loosened.
+The separated selector run progressed through only one cycle before cancellation
+at 14 minutes; preserve that outcome as incomplete, not an authorization failure.
+
+The opaque public study now uses owned `.fullScreen` presentation rather than
+`.overFullScreen`. Its material backdrop is wholly native; it does not need the
+covered WK views. UIKit documents that fullscreen removes covered views after
+presentation, whereas over-fullscreen retains them ([Apple fullscreen contract](https://developer.apple.com/documentation/uikit/uimodalpresentationstyle/fullscreen),
+[over-fullscreen contract](https://developer.apple.com/documentation/uikit/uimodalpresentationstyle/overfullscreen)).
+The app controller/document remains retained. This is fixture isolation, not a
+solution to product Chat's foreground-native/React-Profile overlap.
+
+Physical, attach-only public qualification after that change:
+
+| Case | Evidence | Limit |
+| --- | --- | --- |
+| One/Puppy selector | Ten change/return pairs pass; one native editor and Unicode draft retained; Send remains read-only | Executable `3dc462…`, before the public Reset action additionally resigned the keyboard; no product routing/submission authority |
+| History composition | Ten cycles pass, including edge/held drags; leading Open/Close geometry within 1pt; retained dock/editor, multiline cap and keyboard return | Final executable above; public composition only |
+| Appearance | Four light/dark/accent states pass; four public-only PNGs reviewed | Final executable above; VoiceOver, Dynamic Type, rotation and reduced-transparency coverage were not run |
+
+The last two cases pass together on the final executable (2 passed, 0 failed,
+0 skipped); the selector case separately passes (1 passed, 0 failed, 0 skipped).
+The composition records 485 display-link callbacks over 7,771.7ms, maximum
+interval 19.82ms and zero intervals over 50ms. This measures callback cadence,
+**not rendered hitch ratio** or the required three physical Release runs.
+The fullscreen isolation improvement is verified; the earlier delay's complete
+RCA is not, because the original presentation was not rerun under identical
+preparation conditions as a negative control.
+
+The phone was returned to normal product configuration after the public study.
+Credential-free XCTest admission passed; a separate normal passphrase unlock
+passed with process-only reviewer credentials and no account reset/sign-out.
+The final executable then passed ten warm **shared React Chat** cycles through
+One/Puppy selection, Profile edge taps/open/close, software-keyboard layout,
+draft preservation and One/Chat mode return (1 passed, 0 failed, 0 skipped; no
+turn submitted). The existing WebView frame and single-composer contract hold.
+A local wrapper flag initially selected the broader recovery batch instead;
+that run was canceled, its temporary diagnostics removed, and its selection
+precedence corrected before the requested named case passed. It is not counted
+as a completed batch or native-glass proof. The phone remains on normal Chat.
+
+Product custom-glass policy and release promotion remain off. Native Profile's
+whole overlapping presentation, physical accessibility/performance acceptance,
+canonical core at the new head and exact-head CI are still required. The prior
+core receipt below belongs only to its recorded historical SHA.
+
 ### Shared Chat control recovery — 2026-10-11
 
 The shell now retains the composer seat independently of the selected command
