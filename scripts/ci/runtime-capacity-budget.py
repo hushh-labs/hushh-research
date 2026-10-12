@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fail-closed Cloud Run to Cloud SQL connection admission check.
 
-This command is read only. Run before a release with --environment uat or
---environment production. Its candidate allowance covers one new revision of
-each configured database-using service during deployment overlap.
+This command is read only. The default pre-deploy phase reserves one new
+revision of each configured database-using service during deployment overlap.
+Use --phase post-release to check retained capacity without another hypothetical
+candidate. Both phases include retained revisions, jobs and administrative reserve.
 """
 
 from __future__ import annotations
@@ -13,9 +14,11 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
+CAPACITY_PHASES = ("pre-deploy", "post-release")
+CapacityPhase = Literal["pre-deploy", "post-release"]
 POOL_KEYS = (
     "DB_POOL_MAX_SIZE",
     "DB_SQLALCHEMY_POOL_SIZE",
@@ -311,8 +314,14 @@ def sql_alert_thresholds(
 
 
 def evaluate(
-    profile: dict[str, Any], environment: str, inventory: dict[str, Any]
+    profile: dict[str, Any],
+    environment: str,
+    inventory: dict[str, Any],
+    *,
+    phase: CapacityPhase = "pre-deploy",
 ) -> dict[str, Any]:
+    if phase not in CAPACITY_PHASES:
+        raise BudgetError(f"unsupported capacity phase: {phase}")
     policy = connection_policy(profile, environment)
     config = profile["environments"][environment]
     maximum = policy["database_max_connections"]
@@ -350,7 +359,8 @@ def evaluate(
                     connection_name,
                 )
             )
-        service_rows.append(candidate_connections(name, settings))
+        if phase == "pre-deploy":
+            service_rows.append(candidate_connections(name, settings))
     if set(inventory["jobs"]) != set(config["jobs"]):
         extra = set(inventory["jobs"]) - set(config["jobs"])
         missing = set(config["jobs"]) - set(inventory["jobs"])
@@ -364,6 +374,7 @@ def evaluate(
     projected = reserve + sum(row["connections"] for row in service_rows + job_rows)
     return {
         "environment": environment,
+        "phase": phase,
         "project": config["project"],
         "database": connection_name,
         "verified_max_connections": live_maximum,
@@ -478,6 +489,12 @@ def collect(profile: dict[str, Any], environment: str) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", choices=("uat", "production"), required=True)
+    parser.add_argument(
+        "--phase",
+        choices=CAPACITY_PHASES,
+        default="pre-deploy",
+        help="Reserve the next deployment candidate, or check only retained capacity",
+    )
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
     parser.add_argument(
         "--report-only",
@@ -488,15 +505,18 @@ def main() -> int:
     args = parser.parse_args()
     try:
         profile = json.loads(args.profile.read_text())
-        report = evaluate(profile, args.environment, collect(profile, args.environment))
+        report = evaluate(
+            profile, args.environment, collect(profile, args.environment), phase=args.phase
+        )
     except (OSError, KeyError, TypeError, json.JSONDecodeError, BudgetError) as exc:
         print(f"capacity budget blocked: {exc}", file=sys.stderr)
         return 2
     if args.output == "json":
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
+        capacity_label = "projected" if args.phase == "pre-deploy" else "current"
         print(
-            f"{args.environment}: projected {report['projected_connections']} / {report['admission_limit']} "
+            f"{args.environment}: {capacity_label} {report['projected_connections']} / {report['admission_limit']} "
             f"(Cloud SQL max {report['verified_max_connections']}, admin reserve {report['administrative_reserve']})"
         )
         for row in report["services"] + report["jobs"]:

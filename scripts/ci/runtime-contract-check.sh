@@ -131,15 +131,14 @@ if grep -q '^  _PASSKEY_RP_ID:' "$frontend_cloudbuild"; then
   exit 1
 fi
 
-for hosted_rp_id in \
-  'dev.one.hushh.ai' \
-  'uat.one.hushh.ai' \
-  'one.hushh.ai'; do
-  if ! grep -q "expected_passkey_rp_id=\"${hosted_rp_id}\"" "$frontend_cloudbuild"; then
-    echo "frontend Cloud Build must validate the hosted passkey RP ID ${hosted_rp_id}."
-    exit 1
-  fi
-done
+if ! grep -q 'hushh-webapp/lib/vault/passkey-domain-aliases.json' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must validate the environment-scoped passkey domain catalog."
+  exit 1
+fi
+if ! grep -q 'hostname not in aliases.get(environment, \[\])' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must reject hosts outside the deployment environment."
+  exit 1
+fi
 
 if ! grep -q 'APP_FRONTEND_ORIGIN_VAL' "$frontend_cloudbuild"; then
   echo "frontend Cloud Build must source the frontend origin from Secret Manager."

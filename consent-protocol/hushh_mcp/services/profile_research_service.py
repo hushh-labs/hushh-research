@@ -11,6 +11,11 @@ from starlette.concurrency import run_in_threadpool
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.profile_research import ProfileReport, run_profile_research
 from hushh_mcp.runtime_settings import one_profile_research_enabled
+from hushh_mcp.services.magic_intelligence_admission import (
+    magic_intelligence_emails,
+    magic_intelligence_owner_admitted,
+)
+from hushh_mcp.services.magic_intelligence_completion import magic_intelligence_saved
 from hushh_mcp.services.one_owner_admission import (
     lookup_fresh_owner_identity,
     owner_setup_resolved,
@@ -27,19 +32,26 @@ async def offer_profile_research(
     owner_check=validate_first_party_owner_token,
     identity_lookup=lookup_fresh_owner_identity,
     setup_check=owner_setup_resolved,
+    saved_check=None,
 ) -> dict[str, Any]:
     async def require_access() -> None:
         if await owner_check(user_id, consent_token) is None:
             raise PermissionError("Owner session ended")
 
     await require_access()
-    if not one_profile_research_enabled():
+    if not one_profile_research_enabled() or not magic_intelligence_emails():
         return {"status": "disabled", "pkm_written": False}
     if not await asyncio.wait_for(setup_check(user_id), 5):
         return {"status": "not_ready", "pkm_written": False}
     record = await asyncio.wait_for(run_in_threadpool(identity_lookup, user_id), 5)
     if getattr(record, "uid", None) != user_id or getattr(record, "disabled", True):
         raise PermissionError("Account identity changed")
+    if not magic_intelligence_owner_admitted(user_id, record):
+        return {"status": "disabled", "pkm_written": False}
+    check_saved = saved_check or magic_intelligence_saved
+    if await asyncio.wait_for(check_saved(user_id), 5):
+        return {"status": "saved", "pkm_written": False}
+    admitted_email = record.email
     name = str(getattr(record, "display_name", None) or "").strip()
     email = getattr(record, "email", None) if getattr(record, "email_verified", False) else None
     phone = getattr(record, "phone_number", None)
@@ -70,7 +82,22 @@ async def offer_profile_research(
     # Re-check the rollout switch before releasing an in-flight result.
     if not one_profile_research_enabled():
         return {"status": "disabled", "pkm_written": False}
+    current_record = await asyncio.wait_for(run_in_threadpool(identity_lookup, user_id), 5)
+    await require_access()
+    if (
+        not one_profile_research_enabled()
+        or not magic_intelligence_owner_admitted(user_id, current_record)
+        or getattr(current_record, "email", None) != admitted_email
+    ):
+        return {"status": "disabled", "pkm_written": False}
     report = ProfileReport.model_validate(result["report"])
+    if await asyncio.wait_for(check_saved(user_id), 5):
+        return {"status": "saved", "pkm_written": False}
+    await require_access()
+    if not one_profile_research_enabled() or not magic_intelligence_owner_admitted(
+        user_id, current_record
+    ):
+        return {"status": "disabled", "pkm_written": False}
     logger.info(
         "one.profile_research_complete match=%s sections=%d",
         report.match_status,

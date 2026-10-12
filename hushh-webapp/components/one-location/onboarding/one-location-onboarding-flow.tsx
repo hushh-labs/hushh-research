@@ -247,7 +247,7 @@ function PrimaryButton({
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       className={cn(
-        "w-full disabled:cursor-not-allowed disabled:opacity-50",
+        "mx-auto flex w-[244px] disabled:cursor-not-allowed disabled:opacity-50",
         inverse
           ? "bg-white text-[color:var(--app-accent-deep)] hover:bg-white/90 hover:text-[color:var(--app-accent-deep)] dark:bg-white dark:hover:bg-white/90 dark:text-[#07111f] dark:hover:text-[#07111f]"
           : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
@@ -1450,7 +1450,6 @@ function ContactsScreen({
             nobody, or a plugin failure must never be a dead end. */}
           <div className="mx-auto w-full max-w-[520px]">
             <PrimaryButton
-              className={primed && state.kind === "idle" ? "max-w-none" : ""}
               onClick={onContinue}
               disabled={navigationDisabled}
               inverse={primed && state.kind === "idle"}

@@ -182,6 +182,7 @@ tests/test_llm_operon_stream_error_leak.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
+tests/test_one_wallet_card_deploy_parity.py
 tests/test_gmail_information_request_release_contract.py
 tests/test_uat_deploy_no_traffic_contract.py
 tests/test_verify_env_secrets_parity.py
@@ -679,6 +680,9 @@ tests/test_scheduled_mail_drain_routes.py
 tests/test_scheduled_mail_scheduler_contract.py
 tests/test_business_suggestions.py
 tests/test_one_profile_research.py
+tests/test_magic_intelligence_admission.py
+tests/test_magic_intelligence_completion.py
+tests/test_insurance_agents_runtime_config_wiring.py
 tests/test_hushh_adk_turn.py
 tests/test_business_runtime_reliability.py
 tests/test_consent_listener_asyncio.py

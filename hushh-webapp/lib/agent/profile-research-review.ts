@@ -16,6 +16,7 @@ import {
 } from "@/lib/agent/connector-memory-review";
 import {
   PROFILE_SECTION_LABELS,
+  ProfileResearchService,
   type ProfileReport,
 } from "@/lib/services/profile-research-service";
 import { pkmPlanIdForIdempotencyScope } from "@/lib/personal-knowledge-model/mutation-plan";
@@ -34,6 +35,7 @@ export type ReviewedProfile = {
   cards: AgentPkmPreviewCard[];
   origins: ReadonlyMap<string, BusinessMemoryOrigin>;
   scopes: ReadonlyMap<string, string>;
+  committed: Set<string>;
 };
 
 /** Only checked, edited statements enter preparation. Unselected facts and input identifiers do not. */
@@ -113,7 +115,7 @@ export async function prepareProfileReview(
     scopes.set(card.card_id, `profile-review:${crypto.randomUUID()}`);
     return card;
   });
-  return { message, cards, origins, scopes };
+  return { message, cards, origins, scopes, committed: new Set() };
 }
 
 /** Pinned cards and stable scopes survive partial/lost responses; no re-preparation during save. */
@@ -177,6 +179,23 @@ export async function saveProfileReview(
     clearAgentPkmContext(session.userId);
     saved += 1;
     committed.add(card.card_id);
+    review.committed.add(card.card_id);
+  }
+  if (selectedCardIds.size > 0 && committed.size === selectedCardIds.size) {
+    await session.assertCurrent();
+    await ProfileResearchService.complete({
+      vaultKey: session.vaultKey,
+      vaultOwnerToken: session.vaultOwnerToken,
+      commits: review.cards
+        .filter((card) => review.committed.has(card.card_id))
+        .map((card) => ({
+          domain: resolveCardTargetDomain(card),
+          planId: pkmPlanIdForIdempotencyScope(
+            review.scopes.get(card.card_id)!,
+          ),
+        })),
+    });
+    await session.assertCurrent();
   }
   return { saved, committed };
 }

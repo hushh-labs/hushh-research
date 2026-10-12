@@ -841,7 +841,7 @@ Local Android release signing:
 
 ### Passkeys across the domain transition
 
-`hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production pairs for `hushh.ai` and `hussh.ai`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Native unlock also retains the stored RP; existing OS associations remain required.
+`hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production alias groups for `hushh.ai`, `hussh.ai` and `hussh.si`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Native unlock also retains the stored RP; existing OS associations remain required.
 
 Related Origin Requests requires browser support. Keep passphrase/recovery available for unsupported browsers; do not replace or reset an existing vault. Firebase sign-in and HttpOnly cookies are origin-bound, and vault keys remain memory-only. A cross-domain navigation requires sign-in and unlock again; account-owned history is restored through the existing authenticated APIs. Never transfer tokens, keys or decrypted information in redirect URLs or browser storage.
 
@@ -885,3 +885,19 @@ A shutdown disables answer admission/composition while retaining financial drain
 Verification evidence for this follow-up is local and uses Stripe test mode only. The canonical two-account reviewer rehearsal completed the profile Request scope dialog, owner Feed review with exact scope/price/model consent, real hosted Stripe test Checkout, signed test webhook, unlocked owner composition from approved encrypted memory, and requester-only encrypted answer readback on the requesting device. A real full test refund also settled through the answer refund worker. The Refund object has no required `livemode` field: the worker first retrieves and verifies the source PaymentIntent under the mode-bound answer credential, then verifies the refund's payment intent, amount, currency and status. A previously held refund requires explicit reconciliation against verified provider evidence; never reset a manual-review row blindly.
 
 The rehearsal does not prove provider owner onboarding/transfer, live account readiness, deployed scheduler execution, or Google Drive's two-account provider journey. Drive regressions ran locally with answer flags off and on. Answer delivery currently uses the requesting device's existing private recipient key; successful readback in that session does not establish cross-device key recovery. No new key escrow or recovery authority is introduced. Provider retention, hosted workers and verified owner settlement remain external enablement blockers, and live/composer gates remain off in deployed environments. The locked/closed-app runtime proposal remains pending review.
+
+### Staging another public domain
+
+Register the environment-specific OAuth origins and exact callbacks with each
+existing provider application before directing browser navigation to the new
+domain. Preserve existing callback, authentication and `/.well-known` endpoints
+on their original hosts for in-flight requests and installed native clients.
+Firebase authorized domains, Contacts/Picker browser restrictions, provider
+registries, CORS and passkey RP allowlists are separate checks; a DNS alias does
+not grant any of them. The frontend build checks its host against the same
+environment-scoped passkey catalog used by runtime secret synchronization.
+
+Stage certificate validation, destination routing and application compatibility
+first. Verify the deployed destination and provider registrations before changing
+canonical application origins or enabling redirects. Domain preparation is not
+proof of a completed migration or an enabled connector.

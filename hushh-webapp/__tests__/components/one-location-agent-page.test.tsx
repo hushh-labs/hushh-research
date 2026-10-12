@@ -8203,9 +8203,13 @@ describe("OneLocationAgentPage", () => {
     // One button, one press. There used to be two, both labelled "Create
     // link": the tab's, which only navigated, and the flow screen's, which
     // created. The first is gone.
-    fireEvent.click(
-      await screen.findByRole("button", { name: /^Create link$/i }),
-    );
+    const createLink = await screen.findByRole("button", {
+      name: /^Create link$/i,
+    });
+    await waitFor(() => expect(createLink).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(createLink);
+    });
 
     await waitFor(() =>
       expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1),
