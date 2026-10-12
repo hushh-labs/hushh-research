@@ -387,3 +387,21 @@ it("does not publish decrypted plaintext from the previous question after select
   });
   expect(screen.queryByText("OLD_QUESTION_ANSWER")).toBeNull();
 });
+
+it.each(["https://example.test/avatar.png", "data:image/png;base64,aW1hZ2U="])("renders the sealed, explicitly approved profile photo (%s)", async photoUrl => {
+  m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent", answer: "Synthetic Ava's approved profile.", approvedScopes: ["attr.identity.identity_profile.profile_photo_url"], ownerIdentity: { displayName: "Synthetic Ava", photoUrl } });
+  const view = render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
+  expect(await screen.findByRole("figure", { name: "Approved profile photo" })).toHaveTextContent("Synthetic Ava");
+  expect(screen.getByText("Synthetic Ava's approved profile.")).toBeInTheDocument();
+  m.unlocked = false; m.epoch++;
+  view.rerender(<AnswerRequestCard requestId={REQUEST} />);
+  expect(screen.queryByRole("figure", { name: "Approved profile photo" })).not.toBeInTheDocument();
+});
+it.each([["attr.identity.other.profile_photo_url", "https://example.test/avatar.png"], ["attr.identity.identity_profile.profile_photo_url", "data:image/svg+xml;base64,PHN2Zz4="], ["attr.identity.identity_profile.profile_photo_url", "javascript:alert(1)"]])("does not render an unapproved or unsupported image", async (scope, photoUrl) => {
+  m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent", answer: "Readable answer", approvedScopes: [scope], ownerIdentity: { displayName: "Synthetic Ava", photoUrl } });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
+  await screen.findByText("Readable answer");
+  expect(screen.queryByRole("figure", { name: "Approved profile photo" })).not.toBeInTheDocument();
+});

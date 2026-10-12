@@ -7,7 +7,7 @@
   POST /api/one/answer-requests/{id}/cancel            requester: withdraw (refunds)
   GET  /api/one/answer-requests/{id}/payment           state + the wait, before checkout
   POST /api/one/answer-requests/{id}/payment/checkout  hosted Stripe Checkout
-  GET  /api/one/answer-requests/answerable             owner device: paid work to do
+  GET  /api/one/answer-requests/answerable             owner device: preparation and paid recovery
   POST /api/one/answer-requests/{id}/deliver           owner device: sealed answer
   GET  /api/one/answer-requests/{id}/answer            requester: sealed envelope
 
@@ -463,7 +463,7 @@ async def compose_answer(
 ) -> dict[str, Any]:
     """Write the answer from the projection the owner's device just built.
 
-    Owner-only, and bound to a request that is actually paid and answerable:
+    Owner-only, and bound to approved preparation or historical paid recovery:
     the gate runs first, so this cannot be used as a free model endpoint.
 
     Nothing is persisted. The projection exists for this request only and the

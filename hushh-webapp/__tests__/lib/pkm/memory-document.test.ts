@@ -192,3 +192,26 @@ describe("memory.md freshness honesty", () => {
     expect(second.markdown).toBe(first.markdown);
   });
 });
+
+
+it("shares revision-linked stated identity facts and derived age without copying Soul prose", () => {
+  const result = buildMemoryDocument({ snapshot: snapshotOf([]), domainData: { one_memory: { markdown: "- Legal name: Synthetic Ava\n- Date of birth: 1998-03-14\n- Sex: female\n- Private free prose never exported\n" } },
+    sources: [{ domain: "one_memory", contentRevision: 9 }], audience: "self", builtAt: "2026-03-13T00:00:00Z", account: { displayName: "Account Ava", photoUrl: "https://example.test/avatar.jpg" } });
+  expect(result.markdown).toContain("Synthetic Ava");
+  expect(result.markdown).toContain("declared age | 27");
+  expect(result.markdown).toContain("female");
+  expect(result.markdown).toContain("https://example.test/avatar.jpg");
+  expect(result.markdown).not.toContain("Private free prose");
+  expect(result.sourceLinks).toContainEqual(expect.objectContaining({ domain: "one_memory", path: "markdown.legal name", contentRevision: 9 }));
+});
+
+it("shows corrections once and removes deleted identity rows without changing the source", () => {
+  const identity = { identity_profile: { full_name: "Old name", sex: "old sex", date_of_birth: "1980-01-01", declared_age: 46, citizenship: "retained" } };
+  const document = buildMemoryDocument({ snapshot: snapshotOf([]), audience: "self", builtAt: "2026-10-13T00:00:00Z", sources: [{ domain: "identity", contentRevision: 3 }, { domain: "one_memory", contentRevision: 9 }], domainData: { identity, one_memory: { markdown: "- Legal name: Current name\n", _deleted_fact_labels: ["sex", "date of birth"] } } });
+  expect(document.markdown).toContain("Current name");
+  expect(document.markdown).toContain("retained");
+  for (const old of ["Old name", "old sex", "1980-01-01", "| 46 |"] ) expect(document.markdown).not.toContain(old);
+  expect(identity.identity_profile.sex).toBe("old sex");
+  expect(document.sourceLinks).toContainEqual({ domain: "one_memory", path: "markdown.legal name", contentRevision: 9, manifestRevision: null });
+  expect(document.sourceLinks.some(link => link.domain === "identity" && ["identity_profile.full_name", "identity_profile.sex", "identity_profile.date_of_birth", "identity_profile.declared_age"].includes(link.path))).toBe(false);
+});

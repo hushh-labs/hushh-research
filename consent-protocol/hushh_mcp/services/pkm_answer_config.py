@@ -25,10 +25,16 @@ def answer_composer_enabled() -> bool:
     return True
 
 
-def answer_payment_config() -> tuple[str, str, str]:
-    mode = answer_stripe_mode()
-    key = (os.getenv("PKM_ANSWER_STRIPE_SECRET_KEY") or "").strip()
-    secret = (os.getenv("PKM_ANSWER_STRIPE_WEBHOOK_SECRET") or "").strip()
+def answer_payment_config(mode: str | None = None) -> tuple[str, str, str]:
+    selected = answer_stripe_mode()
+    mode = selected if mode is None else mode
+    if mode not in {"test", "live"}:
+        raise ValueError("answer_payment_unavailable")
+    key = (os.getenv(f"PKM_ANSWER_STRIPE_{mode.upper()}_SECRET_KEY") or "").strip()
+    secret = (os.getenv(f"PKM_ANSWER_STRIPE_{mode.upper()}_WEBHOOK_SECRET") or "").strip()
+    if mode == selected:
+        key = key or (os.getenv("PKM_ANSWER_STRIPE_SECRET_KEY") or "").strip()
+        secret = secret or (os.getenv("PKM_ANSWER_STRIPE_WEBHOOK_SECRET") or "").strip()
     # Compatibility for existing sandbox deployments only. Live requires its
     # own bindings; changing this lane cannot change Drive's mode or key.
     if mode == "test" and configured_stripe_mode() == "test" and not key and not secret:
@@ -57,6 +63,18 @@ def answer_payment_config() -> tuple[str, str, str]:
     ):
         raise ValueError("answer_payment_unavailable")
     return key, secret, origin
+
+
+def available_answer_payment_modes() -> tuple[str, ...]:
+    """Only claim financial work whose stored mode has usable credentials."""
+    modes = []
+    for mode in ("test", "live"):
+        try:
+            answer_payment_config(mode)
+        except ValueError:
+            continue
+        modes.append(mode)
+    return tuple(modes)
 
 
 def answer_requests_enabled() -> bool:

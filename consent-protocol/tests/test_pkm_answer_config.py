@@ -19,6 +19,10 @@ def env(monkeypatch):
         "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
         "PKM_ANSWER_COMPOSER_ENABLED",
         "PKM_ANSWER_LIVE_PROVIDER_REVIEWED",
+        "PKM_ANSWER_STRIPE_TEST_SECRET_KEY",
+        "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
+        "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY",
+        "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(
@@ -97,3 +101,38 @@ def test_only_isolated_local_test_checkout_may_use_http(
     else:
         with pytest.raises(ValueError):
             config.answer_payment_config()
+
+
+def test_retained_modes_have_independent_credentials(monkeypatch):
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
+    for mode in ("test", "live"):
+        monkeypatch.setenv(f"PKM_ANSWER_STRIPE_{mode.upper()}_SECRET_KEY", f"sk_{mode}_retained_synthetic_key")
+        monkeypatch.setenv(f"PKM_ANSWER_STRIPE_{mode.upper()}_WEBHOOK_SECRET", f"whsec_{mode}_retained_synthetic")
+    assert config.available_answer_payment_modes() == ("test", "live")
+    assert config.answer_payment_config("test")[0].startswith("sk_test_")
+    assert config.answer_payment_config("live")[0].startswith("sk_live_")
+    assert config.configured_stripe_mode() == "test"
+
+
+def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
+    from pathlib import Path
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github/workflows/deploy-uat.yml").read_text()
+    cloudbuild_text = (root / "deploy/backend.cloudbuild.yaml").read_text()
+    cloudbuild = yaml.safe_load(cloudbuild_text)
+    for flag, repo_var in (("COMPOSER_ENABLED", "COMPOSER_UAT_ENABLED"), ("LIVE_PROVIDER_REVIEWED", "LIVE_PROVIDER_UAT_REVIEWED")):
+        assert f"_PKM_ANSWER_{flag}=${{{{ vars.PKM_ANSWER_{repo_var} || 'false' }}}}" in workflow
+        assert f"PKM_ANSWER_{flag}" in cloudbuild_text.split("for n in PKM_ANSWER_REQUESTS_ENABLED", 1)[1].split("; do", 1)[0]
+        assert 'v="_${n}"' in cloudbuild_text and 'add_env "${n}" "${!v}"' in cloudbuild_text
+        assert cloudbuild["substitutions"][f"_PKM_ANSWER_{flag}"] == "false"
+    for environment, suffix in (("uat", "UAT"), ("dev", "DEV"), ("production", "PROD")):
+        mapped = (root / f".github/workflows/deploy-{environment}.yml").read_text()
+        for mode in ("TEST", "LIVE"):
+            for kind in ("SECRET_KEY", "WEBHOOK_SECRET"):
+                name = f"PKM_ANSWER_STRIPE_{mode}_{kind}"
+                default = ("STRIPE_SECRET_KEY" if kind == "SECRET_KEY" else "STRIPE_WEBHOOK_SECRET") if environment == "uat" and mode == "TEST" else ""
+                assert f"_{name}_SECRET=${{{{ vars.{name}_{suffix}_SECRET || '{default}' }}}}" in mapped
+                assert f'add_secret "${{_{name}_SECRET}}" "{name}"' in cloudbuild_text
+                assert cloudbuild["substitutions"][f"_{name}_SECRET"] == ""

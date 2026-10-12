@@ -32,6 +32,10 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
 @pytest.fixture(autouse=True)
 def payments_enabled(monkeypatch):
     # The lane ships disabled; the workers short-circuit unless it is on.
+    for name in ("PKM_ANSWER_STRIPE_MODE", "PKM_ANSWER_STRIPE_SECRET_KEY", "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
+                 "PKM_ANSWER_STRIPE_TEST_SECRET_KEY", "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
+                 "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY", "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET", "PKM_ANSWER_LIVE_PROVIDER_REVIEWED"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "true")
     monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
     monkeypatch.setenv("ENVIRONMENT", "test")

@@ -37,7 +37,6 @@ from hushh_mcp.consent.requestable_scope_policy import is_scope_requestable_by_o
 from hushh_mcp.services.external_connector_lifecycle_store import (
     ExternalConnectorLifecycleStore,
 )
-from hushh_mcp.services.pkm_answer_config import answer_stripe_mode
 from hushh_mcp.services.pkm_answer_payment_service import (
     PkmAnswerPaymentService,
     valid_answer_price_cents,
@@ -90,9 +89,21 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 requester_user_id,
                 owner_user_id,
             )
-        return [
-            entry for entry in entries if is_scope_requestable_by_others(entry.get("scope", ""))
-        ]
+        safe = [entry for entry in entries if is_scope_requestable_by_others(entry.get("scope", ""))]
+        # Answer-owned selectors, not a new general Consent catalog. These
+        # public account fields and optional owner-stated facts need no KYC.
+        # Values remain private; preparation proves availability before Pay.
+        known = {entry["scope"] for entry in safe}
+        for path, label in (
+            ("full_name", "Name"), ("profile_photo_url", "Profile photo"),
+            ("declared_age", "Age (if recorded)"), ("sex", "Sex (if provided)"),
+            ("date_of_birth", "Date of birth (if recorded)"),
+            ("citizenship", "Citizenship (if recorded)"),
+        ):
+            scope = f"attr.identity.identity_profile.{path}"
+            if scope not in known:
+                safe.append({"scope": scope, "domain": "identity", "path": f"identity_profile.{path}", "label": label})
+        return safe
 
     # ------------------------------------------------------------------ gate
 
@@ -558,7 +569,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
     # --------------------------------------------------------------- answer
 
     async def claim_answerable(self, *, owner_user_id: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Paid, undelivered work for the owner's device sweep.
+        """Approved preparation and historical paid, undelivered owner work.
 
         Returns the question and the approved scopes only. The device reads its
         own decrypted PKM for the values; the server never sends any.
@@ -588,7 +599,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                            -- the owner's device could not prepare it.
                            OR (r.status = 'answering'
                                AND o.status = 'paid' AND NOT o.reconciliation_required
-                               AND o.stripe_mode = :stripe_mode
+                               AND o.stripe_mode IN ('test', 'live')
                                AND r.answer_deadline_at > clock_timestamp())
                          )
                        ORDER BY r.approved_at
@@ -597,7 +608,6 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                     {
                         "owner": owner_user_id,
                         "limit": max(1, min(int(limit), 25)),
-                        "stripe_mode": answer_stripe_mode(),
                     },
                 )
                 .mappings()

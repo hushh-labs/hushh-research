@@ -137,7 +137,7 @@ export interface PendingAnswerRequest {
   proposedScopes: { scope: string; label: string | null }[];
 }
 
-/** One paid, approved, undelivered question the owner's device owes an answer to. */
+/** One approved preparation or historical paid recovery for the owner's device. */
 export interface AnswerableWork {
   requestId: string;
   question: string;
@@ -356,7 +356,7 @@ export class AnswerRequestService {
     if (!response.ok) throw new Error("This request could not be cancelled");
   }
 
-  /** Paid work awaiting this owner's device. Scope handles only, never values. */
+  /** Preparation and paid recovery awaiting this owner's device. Scope handles only. */
   static async answerable(firebaseIdToken: string): Promise<AnswerableWork[]> {
     if (!firebaseIdToken) return [];
     const response = await ApiService.apiFetch(

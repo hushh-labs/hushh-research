@@ -829,3 +829,35 @@ describe("encrypted Markdown memory", () => {
     expect(result.markdown?.match(/Likes concise answers/g)).toHaveLength(1);
   });
 });
+
+
+it("persists owner deletion authority across cache-cleared encrypted-document readback", async () => {
+  let cloud: Record<string, unknown> = { markdown: "- Legal name: Synthetic Ava\n- Date of birth: 1998-03-14\n- Sex: female\n", private_sibling: "preserved" };
+  getStaleFirst.mockImplementation(async () => ({ data: cloud, key: { contentRevision: 7 } }));
+  savePreparedDomain.mockImplementation(async params => { cloud = (await params.build({ currentDomainData: cloud })).domainData; return { success: true, dataVersion: 8 }; });
+  await loadMarkdownMemory(syncParams);
+  const original = peekMarkdownMemory("user-1")!.markdown;
+  const result = await replaceMarkdownMemoryDocument({ ...syncParams, expectedMarkdown: original, expectedPersisted: true, markdown: "- Legal name: Synthetic Ava\n", beforeEffect: async () => {} });
+  expect(result.success).toBe(true);
+  expect(cloud._deleted_fact_labels).toEqual(["date of birth", "sex"]);
+  expect(cloud.private_sibling).toBe("preserved");
+  clearMarkdownMemory();
+  expect(await loadMarkdownMemory({ ...syncParams, forceRefresh: true })).toMatchObject({ markdown: "- Legal name: Synthetic Ava\n", deletedFactLabels: ["date of birth", "sex"], dataVersion: 7 });
+});
+
+it("persists chat deletions and clears their tombstones when explicitly supplied again", async () => {
+  let cloud: Record<string, unknown> = { schema_version: "soul_markdown.v1", markdown: "- Sex: female\n- Legal name: Synthetic Ava\n" };
+  getStaleFirst.mockImplementation(async () => ({ data: cloud, key: { contentRevision: 7 }, provenance: "network" }));
+  savePreparedDomain.mockImplementation(async ({ build }) => {
+    cloud = build({ currentDomainData: cloud }).domainData;
+    return { success: true, dataVersion: 8 };
+  });
+  await loadMarkdownMemory(syncParams);
+  await appendMarkdownMemoryFacts({ ...syncParams, facts: [{ text: "", section: "Facts", mutation: { kind: "delete", target: "- Sex: female" } }] });
+  expect(cloud._deleted_fact_labels).toEqual(["sex"]);
+  clearMarkdownMemory();
+  expect(await loadMarkdownMemory({ ...syncParams, forceRefresh: true })).toMatchObject({ deletedFactLabels: ["sex"] });
+  await appendMarkdownMemoryFacts({ ...syncParams, facts: ["Sex: male"] });
+  expect(cloud._deleted_fact_labels).toEqual([]);
+  expect(String(cloud.markdown)).toContain("Legal name: Synthetic Ava");
+});

@@ -2,12 +2,15 @@ import "fake-indexeddb/auto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const transport = vi.hoisted(() => ({ apiFetch: vi.fn() }));
+const transport = vi.hoisted(() => ({ apiFetch: vi.fn(), encrypt: vi.fn() }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
-vi.mock("@/lib/capacitor", () => ({ HushhPersonalKnowledgeModel: {} }));
+vi.mock("@/lib/capacitor", () => ({ HushhPersonalKnowledgeModel: {}, HushhVault: { encryptData: transport.encrypt } }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: transport }));
 vi.mock("@/lib/firebase/config", () => ({ auth: { currentUser: null } }));
 
+import { ensureMarketplaceRecipientKey, encryptSliceForRecipient, decryptMarketplaceEnvelope } from "@/lib/one-marketplace/encryption";
+import { loadMarkdownMemory, clearMarkdownMemory, replaceMarkdownMemoryDocument } from "@/lib/pkm/markdown-memory";
+import { buildMemoryDocument } from "@/lib/pkm/memory-document";
 import { createConsentExportReadSession } from "@/lib/consent/export-builder";
 import { buildAnswerPayload } from "@/lib/answers/answer-delivery-sweep";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
@@ -113,12 +116,15 @@ async function rawCache(): Promise<unknown[]> {
 
 beforeEach(async () => {
   transport.apiFetch.mockReset();
+  transport.encrypt.mockImplementation(({ plaintext, keyHex }) => encryptData(plaintext, keyHex));
+  clearMarkdownMemory();
   CacheService.getInstance().clear();
   advanceVaultSessionEpoch();
   await SecureResourceCacheService.invalidateUser(OWNER);
 });
 
 afterEach(async () => {
+  clearMarkdownMemory();
   vi.restoreAllMocks();
   await SecureResourceCacheService.invalidateUser(OWNER);
 });
@@ -365,4 +371,62 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
       `answer preparation ciphertext fixture ${JSON.stringify({ coldMs, warmMs, coldDecryptions, warmSourceDecryptions: decrypt.mock.calls.length - coldDecryptions })}\n`,
     );
   });
+});
+
+it("round-trips existing-owner edits through encrypted storage, cold readback and both projections", async () => {
+  const initial = { markdown: "- Legal name: Synthetic Ava\n- Date of birth: 1980-01-01\n- Sex: old value\n", private_sibling: "preserve this private source" };
+  let soul = await storedDomain({ domain: "one_memory", data: { root: initial }, approved: {}, revision: 1 });
+  const legacy = await storedDomain({ data: { identity_profile: { full_name: "Old name", sex: "legacy sex", declared_age: 46 } }, approved: { "identity_profile.full_name": "identity_profile", "identity_profile.sex": "identity_profile", "identity_profile.declared_age": "identity_profile" }, revision: 2 });
+  const writes: unknown[] = [];
+  transport.apiFetch.mockImplementation(async (url: string, options?: { body?: string }) => {
+    if (url.includes("/metadata/") || url.includes("/manifest/")) return new Response("", { status: 404 });
+    if (url.endsWith("/store-domain")) {
+      const body = JSON.parse(options!.body!); writes.push(body);
+      expect(body.domain).toBe("one_memory");
+      expect(body.expected_data_version).toBe(soul.revision);
+      soul = { domain: "one_memory", revision: soul.revision + 1, manifestRevision: soul.manifestRevision + 1, segments: body.encrypted_blob.segments, paths: body.manifest.paths };
+      return Response.json({ success: true, data_version: soul.revision, updated_at: "2026-10-13T00:00:00Z" });
+    }
+    if (url.includes("/domain-snapshot/")) return snapshotResponse(url.endsWith("/one_memory") ? soul : legacy, url);
+    if (url.includes("/domain-data/")) {
+      const first = Object.values(soul.segments)[0]!;
+      return Response.json({ encrypted_blob: { ...first, segments: soul.segments }, data_version: soul.revision, storage_mode: "domain", manifest_revision: soul.manifestRevision });
+    }
+    if (url.endsWith("/compose")) return Response.json({ answerMode: "agent", answer: "Synthetic Ava's approved identity facts.", covers: [], gaps: [] });
+    throw new Error(`Unexpected transport route ${url}`);
+  });
+  const memory = await loadMarkdownMemory({ ...PARAMS, forceRefresh: true });
+  expect(memory?.markdown).toContain("old value");
+  const edited = "- Legal name: Synthetic Ava\n- Date of birth: 1998-03-14\n- Sex: female\n";
+  expect(await replaceMarkdownMemoryDocument({ ...PARAMS, expectedMarkdown: memory!.markdown, expectedPersisted: true, markdown: edited, beforeEffect: async () => {} })).toMatchObject({ success: true });
+  clearMarkdownMemory(); CacheService.getInstance().clear();
+  const cold = await loadMarkdownMemory({ ...PARAMS, forceRefresh: true });
+  expect(cold?.markdown).toBe(edited);
+  const snapshot = await PersonalKnowledgeModelService.loadDomainSnapshot({ ...PARAMS, domain: "one_memory", force: true });
+  expect(snapshot.data).toMatchObject({ private_sibling: initial.private_sibling });
+  expect(JSON.stringify(writes)).not.toContain("female");
+  expect(JSON.stringify(writes)).not.toContain("1998-03-14");
+  const scopes = ["attr.identity.identity_profile.full_name", "attr.identity.identity_profile.declared_age", "attr.identity.identity_profile.sex"];
+  const work: AnswerableWork = { requestId: "11111111-2222-3333-4444-555555555555", question: "What identity facts did you approve?", periodStart: null, periodEnd: null, approvedScopes: scopes, scopeLabels: {}, answerDeadlineAt: null, requesterUserId: "synthetic-requester", recipientKey: { keyId: "fixture", publicKeyJwk: {} } };
+  const answer = await buildAnswerPayload(work, PARAMS, "synthetic-firebase-token");
+  expect(answer.hasContent).toBe(true);
+  expect(answer.payload.answerMode).toBe("agent");
+  const recipient = await ensureMarketplaceRecipientKey("synthetic-requester");
+  const envelope = await encryptSliceForRecipient({ payload: answer.payload, recipientPublicKeyJwk: recipient.publicKeyJwk, recipientKeyId: recipient.keyId });
+  expect(envelope.ciphertext).not.toContain("Synthetic Ava");
+  expect(await decryptMarketplaceEnvelope({ userId: "synthetic-requester", envelope })).toEqual(answer.payload);
+  await expect(decryptMarketplaceEnvelope({ userId: "unrelated-requester", envelope })).rejects.toThrow("Recipient key unavailable");
+  expect(JSON.stringify(answer.payload.approvedInformation)).toContain("female");
+  expect(JSON.stringify(answer.payload.approvedInformation)).not.toContain("1998-03-14");
+  const shared = buildMemoryDocument({ snapshot: { cards: [], domainInsights: [], totalCards: 0 }, sources: [{ domain: "one_memory", contentRevision: soul.revision }], domainData: { one_memory: snapshot.data }, audience: "self", builtAt: "2026-10-13T00:00:00Z" });
+  expect(shared.markdown).toContain("| declared age | 28 |");
+  expect(shared.markdown).not.toContain(initial.private_sibling);
+  expect(await replaceMarkdownMemoryDocument({ ...PARAMS, expectedMarkdown: cold!.markdown, expectedPersisted: true, markdown: edited.replace("- Sex: female\n", ""), beforeEffect: async () => {} })).toMatchObject({ success: true });
+  clearMarkdownMemory(); CacheService.getInstance().clear();
+  const deleted = await loadMarkdownMemory({ ...PARAMS, forceRefresh: true });
+  expect(deleted?.deletedFactLabels).toContain("sex");
+  const absent = await buildAnswerPayload(work, PARAMS, "synthetic-firebase-token");
+  expect(absent.hasContent).toBe(false);
+  expect(JSON.stringify(absent.payload.approvedInformation)).not.toContain("legacy sex");
+  expect(JSON.stringify(await rawCache())).not.toContain("Synthetic Ava");
 });

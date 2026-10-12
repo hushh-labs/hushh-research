@@ -1,22 +1,18 @@
 "use client";
 
+import { answerProfilePhotoUrl, answerPhotoReference, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
+
 /**
  * Owner-side answer delivery sweep.
  *
- * This is the fulfilment half of a paid answer, and it exists for the same
- * reason the marketplace sweep does (`lib/one-marketplace/delivery-sweep.ts`):
- * the backend settles the payment but has no vault key, so it can only move a
- * request to `answering`. Producing the answer needs the owner's decrypted PKM
- * and WebCrypto, both of which exist only in an unlocked session on their
- * device.
+ * The unlocked owner explicitly approves and prepares a readable answer,
+ * then seals it for the requester before checkout. Verified payment releases
+ * that staged ciphertext. Historical paid requests without a staged answer
+ * still need manual owner preparation within their original refund deadline.
  *
- * INTERIM, AND UNLOCK-DEPENDENT. This is not 24/7 operation. A paid, approved
- * question produces nothing until the owner chooses Write answer in the unlocked app.
- * The requester is told that before they pay, the deadline is quoted before
- * they pay, and a missed deadline refunds in full. The architectures that
- * could make this genuinely always-on, without escrowing a key to the backend,
- * are costed in docs/reference/architecture/living-memory-freshness-adr.md and
- * none of them is implemented. Do not describe this as the 24/7 feature.
+ * This is not always-on operation: private reads and WebCrypto require the
+ * owner's unlocked session. The reviewed runtime/key proposal remains in
+ * docs/reference/architecture/living-memory-freshness-adr.md.
  *
  * SCOPE ISOLATION. Each approved scope is resolved individually through
  * `buildConsentExportForScope`, which walks the domain manifest to the exact
@@ -49,7 +45,9 @@ import { buildAnswerMemorySlice } from "@/lib/answers/answer-memory-slice";
 import {
   approvedScopesBackedBySoul,
   projectApprovedSoulFacts,
+  SCOPE_PATH_TO_LABEL,
 } from "@/lib/answers/identity-soul-facts";
+import { readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
 import { loadMarkdownMemory } from "@/lib/pkm/markdown-memory";
 
 /**
@@ -67,6 +65,25 @@ function isOwnNameScope(scope: string): boolean {
   if (!scope.startsWith("attr.identity.")) return false;
   const leaf = scope.split(".").pop() ?? "";
   return NAME_LEAVES.includes(leaf as (typeof NAME_LEAVES)[number]);
+}
+const isOwnPhotoScope = isAnswerProfilePhotoScope;
+function scopeCoversPath(scope: string, path: string): boolean {
+  return scope === `attr.identity.${path}` || scope === `attr.identity.${path.split(".").slice(0, -1).join(".")}.*`;
+}
+function setPath(payload: Record<string, unknown>, path: string, value: unknown): void {
+  const segments = path.split(".");
+  let branch = payload;
+  for (const segment of segments.slice(0, -1)) {
+    const current = branch[segment];
+    branch = (branch[segment] = current && typeof current === "object" && !Array.isArray(current) ? current : {}) as Record<string, unknown>;
+  }
+  if (value === undefined) delete branch[segments.at(-1)!];
+  else branch[segments.at(-1)!] = value;
+}
+function readPath(payload: unknown, path: string): unknown {
+  let current = payload;
+  for (const part of path.split(".")) current = current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined;
+  return current;
 }
 import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
 
@@ -141,6 +158,8 @@ export interface AnswerPayload {
   /** Scopes that yielded nothing, so a partial answer cannot read as complete. */
   unavailableScopes: string[];
   builtAt: string;
+  /** Trusted account photo, shown only when its exact scope was approved. */
+  ownerIdentity?: { displayName?: string | null; photoUrl?: string | null };
 }
 
 /**
@@ -229,7 +248,9 @@ export async function buildAnswerPayload(
         userId: params.userId,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        forceRefresh: true,
       });
+      if (!memory || (memory.syncStatus && memory.syncStatus !== "synced")) throw new Error("Private memory readback pending");
       if (!isVaultSessionEpochCurrent(epoch))
         throw new Error("Vault session changed");
       const revision =
@@ -238,14 +259,28 @@ export async function buildAnswerPayload(
         approvedScopes: soulBackedScopes,
         markdown: memory?.markdown,
       });
-      for (const fact of facts) {
-        const payload: Record<string, unknown> = {};
-        let branch = payload;
-        const segments = fact.relativePath.split(".");
-        for (const segment of segments.slice(0, -1))
-          branch = (branch[segment] = {}) as Record<string, unknown>;
-        branch[segments[segments.length - 1]!] = fact.value;
-        projections.push({ scope: fact.scope, payload, contentRevision: revision });
+      for (const scope of soulBackedScopes) {
+        const prior = projections.filter(projection => projection.scope === scope);
+        const original = prior.at(-1)?.payload as Record<string, unknown> | undefined;
+        const domain = scope.split(".")[1]!;
+        const payload = structuredClone(original?.[domain] ?? original ?? {}) as Record<string, unknown>;
+        const overrides = facts.filter(fact => fact.scope === scope);
+        const deleted = new Set(memory.deletedFactLabels ?? []);
+        const removedPaths = SCOPE_PATH_TO_LABEL.filter(([, label]) => deleted.has(soulFactKey(label))).map(([path]) => path);
+        if (deleted.has("date of birth") || (readLabelledSoulFacts(memory.markdown).has("date of birth") && !facts.some(fact => fact.path === "declared_age"))) removedPaths.push("identity_profile.declared_age");
+        let changed = overrides.length > 0;
+        for (const path of removedPaths) {
+          const domain = path.startsWith("profile.") ? "professional" : "identity";
+          if ((scope === `attr.${domain}.${path}` || scope === `attr.${domain}.${path.split(".").slice(0, -1).join(".")}.*`) && readPath(payload, path) !== undefined) {
+            changed = true;
+            setPath(payload, path, undefined);
+          }
+        }
+        for (const fact of overrides) setPath(payload, fact.relativePath, fact.value);
+        for (let index = projections.length - 1; index >= 0; index -= 1)
+          if (projections[index]!.scope === scope) projections.splice(index, 1);
+        projections.push({ scope, payload, contentRevision: changed ? revision : prior.at(-1)?.contentRevision ?? revision });
+        if (changed || !prior.length) sourceManifestRevisions[scope] = null;
       }
       // These facts have no structured leaf at all, so the per-scope export
       // above always fails for them. That failure is the ABSENCE of a
@@ -312,6 +347,19 @@ export async function buildAnswerPayload(
     }
   }
 
+  const identity = work.ownerIdentity ?? params.ownerIdentity;
+  const photoUrl = answerProfilePhotoUrl(identity?.photoUrl);
+  for (const scope of work.approvedScopes.filter(isOwnPhotoScope)) {
+    // This account field has no PKM leaf. Its authoritative profile read came
+    // with the work item; no KYC or broad domain read is required.
+    if (!identity) continue;
+    for (let index = unavailableScopes.length - 1; index >= 0; index -= 1)
+      if (unavailableScopes[index] === scope) unavailableScopes.splice(index, 1);
+    const payload: Record<string, unknown> = {};
+    if (photoUrl) setPath(payload, scope.split(".").slice(2).join("."), photoUrl);
+    projections.push({ scope, payload, contentRevision: null });
+  }
+
   const period =
     work.periodStart && work.periodEnd
       ? { start: work.periodStart, end: work.periodEnd }
@@ -323,13 +371,18 @@ export async function buildAnswerPayload(
     period,
   });
 
+  const composerValues = structuredClone(projected.byScope);
+  for (const scope of work.approvedScopes.filter(isOwnPhotoScope)) {
+    if (photoUrl) setPath(composerValues[scope] as Record<string, unknown>, scope.split(".").slice(2).join("."), answerPhotoReference(photoUrl));
+  }
+
   // The approved slice of this person's living memory, in the same shape as
   // their own memory.md: who they are, then every approved value in full.
   const memorySlice = buildAnswerMemorySlice({
-    byScope: projected.byScope,
+    byScope: composerValues,
     sourceRevisions: projected.sourceRevisions,
     sourceManifestRevisions,
-    ownerIdentity: work.ownerIdentity ?? params.ownerIdentity ?? null,
+    ownerIdentity: identity ? { ...identity, photoUrl: answerPhotoReference(photoUrl) } : null,
     builtAt: new Date().toISOString(),
   });
 
@@ -359,7 +412,9 @@ export async function buildAnswerPayload(
   // Where the account genuinely does answer the question -- a name request
   // with no stated legal name -- it is projected into that scope above and
   // counts through `projected` like any other fact.
-  const hasContent = projected.hasContent;
+  const missingRequiredIdentityFact = ["identity_profile.declared_age", "identity_profile.sex", "profile.age", "profile.sex"].some(path =>
+    work.approvedScopes.some(scope => scopeCoversPath(scope, path) && !hasAnyValue(readPath((projected.byScope[scope] as Record<string, unknown> | undefined)?.identity ?? projected.byScope[scope], path))));
+  const hasContent = projected.hasContent && !missingRequiredIdentityFact;
   if (firebaseIdToken && hasContent && !unavailableScopes.length && memorySlice.complete) {
     written = await AnswerRequestService.compose(
       firebaseIdToken,
@@ -368,7 +423,7 @@ export async function buildAnswerPayload(
         // The memory document is the answer's source of truth; the per-scope
         // values travel beside it so the gene can cite exact figures.
         memory: memorySlice.markdown,
-        values: projected.byScope,
+        values: composerValues,
       },
     ).catch(() => ({ answerMode: "projection" as const, answer: null }));
   }
@@ -390,6 +445,7 @@ export async function buildAnswerPayload(
       excludedByPeriod: projected.excludedByPeriod,
       unavailableScopes,
       builtAt: new Date().toISOString(),
+      ...(work.approvedScopes.some(isOwnPhotoScope) && photoUrl ? { ownerIdentity: { displayName: identity?.displayName ?? null, photoUrl } } : {}),
     },
     hasContent,
   };

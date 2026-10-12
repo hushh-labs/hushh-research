@@ -53,7 +53,7 @@ ANSWER_COMPOSE_SCHEMA: dict[str, Any] = {
 
 
 class AnswerComposerError(RuntimeError):
-    """A model FAILURE. The caller records a projection, never a guess."""
+    """A model failure. Preparation stays retryable; no completed answer is staged."""
 
 
 def _prompt(
@@ -164,7 +164,7 @@ class AnswerComposer:
             )
         except AnswerComposerError:
             raise
-        except Exception as error:  # noqa: BLE001 - model FAILURE -> recorded projection
+        except Exception as error:  # noqa: BLE001 - model failure -> retryable preparation
             raise AnswerComposerError(str(type(error).__name__)) from error
 
 

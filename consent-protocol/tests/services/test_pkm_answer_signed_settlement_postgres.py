@@ -49,8 +49,14 @@ def status(engine, request):
             WHERE r.request_id=:r"""), {"r": request}).mappings().one()
 
 
+@pytest.mark.parametrize("stripe_mode,switch_live", [("test", False), ("test", True), ("live", False)])
 @pytest.mark.parametrize("event_type", ["checkout.session.completed", "checkout.session.async_payment_succeeded"])
-async def test_signed_dispatch_releases_exact_staged_answer_once(answer_engine, monkeypatch, event_type):  # noqa: F811
+async def test_signed_dispatch_releases_exact_staged_answer_once(answer_engine, monkeypatch, event_type, stripe_mode, switch_live):  # noqa: F811
+    if stripe_mode == "live":
+        monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
+        monkeypatch.setenv("PKM_ANSWER_STRIPE_SECRET_KEY", "sk_live_synthetic_only_key")
+        monkeypatch.setenv("PKM_ANSWER_STRIPE_WEBHOOK_SECRET", SECRET.decode())
+        monkeypatch.setenv("PKM_ANSWER_LIVE_PROVIDER_REVIEWED", "true")
     requests, request, _ = await _approved(answer_engine)
     api = Mock()
     api.Webhook = stripe.Webhook
@@ -69,13 +75,18 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(answer_engine, 
     }
     await payments.checkout(requester_user_id=REQUESTER, request_id=request)
     args = api.checkout.Session.create.call_args.kwargs
+    assert args["api_key"].startswith(f"sk_{stripe_mode}_")
+    if switch_live:
+        monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
+        monkeypatch.setenv("PKM_ANSWER_STRIPE_SECRET_KEY", "sk_live_synthetic_only_key")
+        monkeypatch.setenv("PKM_ANSWER_STRIPE_WEBHOOK_SECRET", "whsec_synthetic_only_live_secret")
     assert "answerPaymentRequestId=" in args["success_url"]
     assert args["success_url"].endswith("checkout=success")
     assert args["cancel_url"].endswith("checkout=cancel")
-    event = {"id": "evt_real_signature", "object": "event", "type": event_type, "livemode": False,
+    event = {"id": "evt_real_signature", "object": "event", "type": event_type, "livemode": stripe_mode == "live",
         "data": {"object": {"id": "cs_test_signed", "object": "checkout.session", "mode": "payment",
             "client_reference_id": request, "metadata": args["metadata"], "payment_status": "paid",
-            "amount_total": 1000, "currency": "usd", "livemode": False, "payment_intent": "pi_test_signed"}}}
+            "amount_total": 1000, "currency": "usd", "livemode": stripe_mode == "live", "payment_intent": "pi_test_signed"}}}
     monkeypatch.setattr(routes, "PkmAnswerPaymentService", lambda: payments)
     drive = Mock()
     monkeypatch.setattr(routes, "_service", lambda: drive)
@@ -101,6 +112,22 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(answer_engine, 
     api.checkout.Session.retrieve.return_value = event["data"]["object"]
     await payments.recover_checkout_event(request_id=request, stripe_event_id=event["id"])
     assert status(answer_engine, request) == row
+    assert api.Event.retrieve.call_args.kwargs["api_key"].startswith(f"sk_{stripe_mode}_")
+    # NULL historical mode can only be bound after checking the authenticated
+    # Session against all existing bindings, even on a duplicate event.
+    with answer_engine.begin() as c:
+        c.execute(text("UPDATE pkm_answer_payment_orders SET stripe_mode=NULL, stripe_payment_intent_id='pi_wrong' WHERE request_id=:r"), {"r": request})
+    with pytest.raises(AnswerPaymentError, match="payment_invalid_event"):
+        await payments.recover_checkout_event(request_id=request, stripe_event_id=event["id"], stripe_mode=stripe_mode)
+    with answer_engine.connect() as c:
+        assert c.execute(text("SELECT stripe_mode FROM pkm_answer_payment_orders WHERE request_id=:r"), {"r": request}).scalar_one() is None
+        assert c.execute(text("SELECT stripe_mode FROM pkm_answer_payment_obligations WHERE request_id=:r"), {"r": request}).scalar_one() is None
+    with answer_engine.begin() as c:
+        c.execute(text("UPDATE pkm_answer_payment_orders SET stripe_payment_intent_id=:pi WHERE request_id=:r"), {"r": request, "pi": event["data"]["object"]["payment_intent"]})
+    await payments.recover_checkout_event(request_id=request, stripe_event_id=event["id"], stripe_mode=stripe_mode)
+    assert status(answer_engine, request) == row
+    with answer_engine.connect() as c:
+        assert c.execute(text("SELECT stripe_mode FROM pkm_answer_payment_obligations WHERE request_id=:r"), {"r": request}).scalar_one() == stripe_mode
     api.Event.retrieve.return_value = {**event, "id": "evt_wrong"}
     with pytest.raises(AnswerPaymentError, match="payment_invalid_event"):
         await payments.recover_checkout_event(request_id=request, stripe_event_id=event["id"])

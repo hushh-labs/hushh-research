@@ -1,0 +1,103 @@
+{
+  "runtime": {
+    "observedAt": "2026-10-12T22:59:35.908816+00:00",
+    "project": "hushh-pda-uat",
+    "region": "us-central1",
+    "service": "consent-protocol",
+    "latestReadyRevision": "consent-protocol-02068-juz",
+    "traffic": [
+      {
+        "percent": 100,
+        "revisionName": "consent-protocol-02068-juz",
+        "tag": "account-deletion-38311696725",
+        "url": "https://account-deletion-38311696725---consent-protocol-f2gsa4kfsq-uc.a.run.app"
+      }
+    ],
+    "runtimeServiceAccount": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+    "deploymentLabels": {
+      "deploy-sha": "9f6232dea557243ad65b4c7b8599f98848a86477",
+      "deploy-source": "deploy-uat"
+    },
+    "nonsecretEnvironment": {
+      "ENVIRONMENT": "uat",
+      "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
+      "GOOGLE_GENAI_USE_VERTEXAI": "true",
+      "GOOGLE_CLOUD_PROJECT": "hushh-pda-uat",
+      "GENAI_GOOGLE_CLOUD_PROJECT": "hushh-vertex-personal54",
+      "GOOGLE_CLOUD_LOCATION": "global",
+      "HUSHH_VERTEX_LOCATIONS": "global,us,eu",
+      "DRIVE_REQUEST_PAYMENTS_ENABLED": "true",
+      "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED": "true",
+      "STRIPE_MODE": "live",
+      "HUSSH_GEMINI_TEXT_MODEL": "gemini-3.6-flash",
+      "PKM_ANSWER_PAYMENTS_ENABLED": "true",
+      "PKM_ANSWER_COMPOSER_ENABLED": "true",
+      "PKM_ANSWER_LIVE_PROVIDER_REVIEWED": "false",
+      "PKM_ANSWER_STRIPE_MODE": "test",
+      "ANSWER_WORK_DRAIN_ENABLED": "false",
+      "HUSHH_ONE_CHAT_VERTEX_PROJECT": "hussh-511311"
+    },
+    "answerRepositoryVariables": {
+      "PKM_ANSWER_COMPOSER_UAT_ENABLED": "true",
+      "PKM_ANSWER_PAYMENTS_UAT_ENABLED": "true",
+      "PKM_ANSWER_STRIPE_UAT_MODE": "live"
+    },
+    "stripeSecretBindingNames": {
+      "PKM_ANSWER_STRIPE_SECRET_KEY": "STRIPE_SECRET_KEY",
+      "PKM_ANSWER_STRIPE_WEBHOOK_SECRET": "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_SECRET_KEY": "STRIPE_LIVE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET": "STRIPE_LIVE_WEBHOOK_SECRET"
+    }
+  },
+  "vertex": {
+    "observedAt": "2026-10-12T22:41:59.160496+00:00",
+    "project": "hushh-vertex-personal54",
+    "model": "gemini-3.6-flash",
+    "checks": [
+      {
+        "url": "https://us-central1-aiplatform.googleapis.com/v1/projects/hushh-vertex-personal54/cacheConfig",
+        "status": 200,
+        "body": {
+          "name": "projects/748922917160/cacheConfig",
+          "retentionConfig": {
+            "retentionType": "DURABLE"
+          }
+        }
+      },
+      {
+        "url": "https://aiplatform.googleapis.com/v1beta1/projects/hushh-vertex-personal54/locations/global/publishers/google/models/gemini-3.6-flash:fetchPublisherModelConfig",
+        "status": 404,
+        "body": {
+          "error": {
+            "code": 404,
+            "message": "PublisherModelConfig not found for 'projects/hushh-vertex-personal54/locations/global/publishers/google/models/gemini-3.6-flash'. Ensure that the configuration is set using 'setPublisherModelConfig'. If it's already set up, verify that the project, location, and publisher model name in your request exactly match the existing configuration.",
+            "status": "NOT_FOUND"
+          }
+        }
+      },
+      {
+        "url": "https://aiplatform.us.rep.googleapis.com/v1beta1/projects/hushh-vertex-personal54/locations/us/publishers/google/models/gemini-3.6-flash:fetchPublisherModelConfig",
+        "status": 404,
+        "body": {
+          "error": {
+            "code": 404,
+            "message": "PublisherModelConfig not found for 'projects/hushh-vertex-personal54/locations/us/publishers/google/models/gemini-3.6-flash'. Ensure that the configuration is set using 'setPublisherModelConfig'. If it's already set up, verify that the project, location, and publisher model name in your request exactly match the existing configuration.",
+            "status": "NOT_FOUND"
+          }
+        }
+      },
+      {
+        "url": "https://aiplatform.eu.rep.googleapis.com/v1beta1/projects/hushh-vertex-personal54/locations/eu/publishers/google/models/gemini-3.6-flash:fetchPublisherModelConfig",
+        "status": 404,
+        "body": {
+          "error": {
+            "code": 404,
+            "message": "PublisherModelConfig not found for 'projects/hushh-vertex-personal54/locations/eu/publishers/google/models/gemini-3.6-flash'. Ensure that the configuration is set using 'setPublisherModelConfig'. If it's already set up, verify that the project, location, and publisher model name in your request exactly match the existing configuration.",
+            "status": "NOT_FOUND"
+          }
+        }
+      }
+    ]
+  },
+  "mutationsPerformed": []
+}

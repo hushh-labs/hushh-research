@@ -606,3 +606,64 @@ describe("which name answers a name request", () => {
     expect(result).toMatchObject({ delivered: 1, retry: 0, empty: 0 });
   });
 });
+
+
+describe("existing profile identity acceptance", () => {
+  const NAME = "attr.identity.identity_profile.full_name";
+  const PHOTO = "attr.identity.identity_profile.profile_photo_url";
+  it("prepares name and photo without an identity intake and seals the trusted photo", async () => {
+    buildConsentExportForScope.mockRejectedValue(new Error("source absent"));
+    loadMarkdownMemory.mockResolvedValue({ markdown: "", persisted: false });
+    compose.mockResolvedValue({ answerMode: "agent", answer: "Synthetic Ava's name and photo.", covers: [NAME, PHOTO], gaps: [] });
+    const result = await buildAnswerPayload(work({ approvedScopes: [NAME, PHOTO] }), { ...params, ownerIdentity: { displayName: "Synthetic Ava", photoUrl: "https://example.test/avatar.jpg" } }, "token");
+    expect(result.hasContent).toBe(true);
+    expect(result.payload.unavailableScopes).toEqual([]);
+    expect(result.payload.approvedInformation[PHOTO]).toEqual({ identity_profile: { profile_photo_url: "https://example.test/avatar.jpg" } });
+    expect(result.payload.ownerIdentity?.photoUrl).toBe("https://example.test/avatar.jpg");
+    expect(loadMarkdownMemory).toHaveBeenCalledWith(expect.objectContaining({ forceRefresh: true }));
+  });
+  it.each(["declared_age", "sex"])("does not sell a known name with missing %s", async field => {
+    buildConsentExportForScope.mockResolvedValue({ payload: {}, sourceContentRevision: 1 });
+    loadMarkdownMemory.mockResolvedValue({ markdown: "", persisted: false });
+    const result = await buildAnswerPayload(work({ approvedScopes: [NAME, `attr.identity.identity_profile.${field}`] }), { ...params, ownerIdentity: { displayName: "Synthetic Ava" } }, "token");
+    expect(result.hasContent).toBe(false);
+    expect(compose).not.toHaveBeenCalled();
+  });
+  it("merges every approved wildcard fact and overrides legacy values without siblings", async () => {
+    buildConsentExportForScope.mockResolvedValue({ payload: { identity: { identity_profile: { full_name: "Old name", sex: "old value" } } }, sourceContentRevision: 1 });
+    loadMarkdownMemory.mockResolvedValue({ markdown: "- Legal name: Current name\n- Sex: female\n- Date of birth: 1998-03-14\n", dataVersion: 9 });
+    const result = await buildAnswerPayload(work({ approvedScopes: ["attr.identity.identity_profile.*"] }), params);
+    expect(result.payload.approvedInformation["attr.identity.identity_profile.*"]).toMatchObject({ identity_profile: { full_name: "Current name", sex: "female", declared_age: expect.any(String) } });
+    expect(JSON.stringify(result.payload.approvedInformation)).not.toContain("Old name");
+  });
+  it("owner deletion suppresses a legacy sex value and never charges for it", async () => {
+    buildConsentExportForScope.mockResolvedValue({ payload: { identity: { identity_profile: { sex: "legacy" } } }, sourceContentRevision: 1 });
+    loadMarkdownMemory.mockResolvedValue({ markdown: "", dataVersion: 9, deletedFactLabels: ["sex"] });
+    const result = await buildAnswerPayload(work({ approvedScopes: ["attr.identity.identity_profile.sex"] }), params);
+    expect(result.hasContent).toBe(false);
+    expect(JSON.stringify(result.payload.approvedInformation)).not.toContain("legacy");
+  });
+});
+
+it("seals a custom avatar while passing only a bounded photo reference to the composer", async () => {
+  buildConsentExportForScope.mockRejectedValue(new Error("source absent"));
+  loadMarkdownMemory.mockResolvedValue({ markdown: "", persisted: false });
+  const photoUrl = `data:image/png;base64,${btoa("x".repeat(100_000))}`;
+  const photo = "attr.identity.identity_profile.profile_photo_url";
+  const result = await buildAnswerPayload(work({ approvedScopes: [photo] }), { ...params, ownerIdentity: { displayName: "Synthetic Ava", photoUrl } }, "token");
+  expect(result.hasContent).toBe(true);
+  expect(result.payload.ownerIdentity?.photoUrl).toBe(photoUrl);
+  expect(JSON.stringify(result.payload.approvedInformation)).toContain(photoUrl);
+  const composed = JSON.stringify(compose.mock.calls[0]![2]);
+  expect(composed.length).toBeLessThan(60_000);
+  expect(composed).not.toContain(photoUrl);
+  expect(composed).toContain("Profile photo included in the encrypted answer");
+});
+it("keeps unchanged source revisions when an unrelated Soul fact was deleted", async () => {
+  buildConsentExportForScope.mockResolvedValue({ payload: { identity: { identity_profile: { full_name: "Legacy name" } } }, sourceContentRevision: 3, sourceManifestRevision: 4 });
+  loadMarkdownMemory.mockResolvedValue({ markdown: "", dataVersion: 9, deletedFactLabels: ["sex"] });
+  const name = "attr.identity.identity_profile.full_name";
+  const result = await buildAnswerPayload(work({ approvedScopes: [name] }), params);
+  expect(result.payload.sourceRevisions[name]).toBe(3);
+  expect(result.payload.memory).toContain("Revision 3");
+});

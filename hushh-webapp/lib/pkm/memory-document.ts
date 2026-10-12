@@ -27,6 +27,8 @@
  * changed information.
  */
 
+import { projectApprovedSoulFacts, SCOPE_PATH_TO_LABEL } from "@/lib/pkm/identity-memory-facts";
+import { readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
 import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
 import { collectDomainRows, type DomainRows } from "@/lib/pkm/memory-complete-rows";
 import {
@@ -314,9 +316,48 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     if (typeof value === "string" && value.trim()) sourceLinks.push({ domain: "account_profile", path, contentRevision: null, manifestRevision: null });
   }
 
+  // Share the same narrow labelled-fact projection with paid answers. The
+  // complete owner-authored Soul source remains separate and is never copied.
+  const soulSource = sourceByDomain.get("one_memory");
+  const soul = domainData?.one_memory as { markdown?: string; updated_at?: string; _deleted_fact_labels?: string[] } | undefined;
+  const superseded = new Map<string, Set<string>>();
+  if (audience === "self" && soulSource && (soul || soulSource.unavailableReason)) {
+    const scopes = [...SCOPE_PATH_TO_LABEL.map(([path]) => `attr.${path.startsWith("profile.") ? "professional" : "identity"}.${path}`), "attr.identity.identity_profile.declared_age"];
+    const facts = projectApprovedSoulFacts({ approvedScopes: scopes, markdown: soul?.markdown, now: new Date(builtAt) });
+    if (!soulSource.unavailableReason) {
+      const deleted = new Set(soul?._deleted_fact_labels ?? []);
+      const paths = [...facts.map(fact => [fact.scope.split(".")[1]!, fact.relativePath] as const),
+        ...SCOPE_PATH_TO_LABEL.filter(([, label]) => deleted.has(soulFactKey(label)))
+          .map(([path]) => [path.startsWith("profile.") ? "professional" : "identity", path] as const)];
+      if (deleted.has("date of birth") || (readLabelledSoulFacts(soul?.markdown).has("date of birth") && !facts.some(fact => fact.path === "declared_age"))) paths.push(["identity", "identity_profile.declared_age"]);
+      for (const [domain, path] of paths) {
+        const covered = superseded.get(domain) ?? new Set<string>();
+        covered.add(path); superseded.set(domain, covered);
+      }
+    }
+    if (facts.length || soulSource.unavailableReason) {
+      excludedDomains.delete("one_memory");
+      freshness.push({ domain: "one_memory", title: "Identity facts", status: soulSource.unavailableReason ? "unavailable" : "current",
+        contentRevision: soulSource.contentRevision, updatedAt: soul?.updated_at ?? null, cardCount: facts.length,
+        ...(soulSource.unavailableReason ? { reason: soulSource.unavailableReason } : {}) });
+      body.push("## Identity facts", "", `_Soul.md revision ${soulSource.contentRevision ?? "unknown"}._`, "");
+      if (soulSource.unavailableReason) body.push(`_Unavailable: ${soulSource.unavailableReason}._`, "");
+      else {
+        body.push("| Fact | Value |", "| --- | --- |");
+        for (const fact of facts) {
+          body.push(`| ${escapeTableCell(fact.path.replaceAll("_", " "))} | ${escapeTableCell(fact.value)} |`);
+          sourceLinks.push({ domain: "one_memory", path: `markdown.${fact.sourceLabel.toLowerCase()}`, contentRevision: soulSource.contentRevision, manifestRevision: soulSource.manifestRevision ?? null });
+        }
+        body.push("");
+      }
+    }
+  }
+
   for (const domain of domains) {
     const source = sourceByDomain.get(domain);
-    const cards = cardsByDomain.get(domain) || [];
+    const overriddenPaths = superseded.get(domain);
+    const rowIsCurrent = (path: string) => !overriddenPaths?.has(path.startsWith(`${domain}.`) ? path.slice(domain.length + 1) : path);
+    const cards = (cardsByDomain.get(domain) || []).filter(card => rowIsCurrent(card.path));
     const insight = insightByDomain.get(domain);
     const title = titleByDomain.get(domain) || insight?.title || domain;
     const unavailableReason = String(source?.unavailableReason || "").trim();
@@ -348,6 +389,9 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
       domainData && domain in domainData
         ? collectDomainRows({ domain, domainData: domainData[domain], audience })
         : null;
+    // Corrected/deleted labelled identity facts come from Soul's revision.
+    // Preserve the source blob; omit only its superseded rows in this view.
+    if (completeForFreshness) completeForFreshness.rows = completeForFreshness.rows.filter(row => rowIsCurrent(row.path));
     freshness.push({
       domain,
       title,
@@ -380,7 +424,7 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     if (complete && complete.withheld.length > 0) {
       body.push(`> ${EXCLUDED_NOTE} Withheld here: ${complete.withheld.join(", ")}.`, "");
     }
-    body.push(...renderInsight(insight));
+    if (!overriddenPaths?.size) body.push(...renderInsight(insight));
     body.push(...(complete ? renderCompleteRows(complete) : renderSectionBody(cards)), "");
   }
 
