@@ -1,10 +1,9 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
+import { nativeCardScanner as nativeScanner } from "@/lib/capacitor/card-scanner";
 import type { ScannedCardFields } from "@/lib/wallet/card-scan-fields";
 import { parseCardScan } from "@/lib/wallet/card-scan-fields";
 
 export class CardScanError extends Error {}
-
-const nativeScanner = registerPlugin<{ recognize(options: { image: string; requestId: string }): Promise<{ text: string }>; cancel(options: { requestId: string }): Promise<void> }>("HushhCardScanner");
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 /** The owned supervisor bounds initialization, recognition and nested worker lifetime. */
