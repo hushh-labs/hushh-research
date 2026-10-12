@@ -457,6 +457,70 @@ describe("identity facts recorded in Soul.md answer the question they were appro
   });
 });
 
+describe("the three outcomes of preparing an answer, at staging level", () => {
+  const AGE = "attr.identity.identity_profile.declared_age";
+
+  const sweep = () =>
+    runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+      ownerIdentity: {
+        displayName: "Smirthika Dharmalingam",
+        photoUrl: "https://example.test/photo.png",
+      },
+    });
+
+  const askAge = () =>
+    answerable.mockResolvedValue([
+      work({ approvedScopes: [AGE], question: "What is your age?" }),
+    ]);
+
+  it("stages nothing and stays retryable when the document cannot be read", async () => {
+    // Locked, stale or denied: not an answer in either direction.
+    loadMarkdownMemory.mockRejectedValue(new Error("vault locked"));
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    askAge();
+
+    const result = await sweep();
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(compose).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ retry: 1, delivered: 0, empty: 0 });
+  });
+
+  it("settles a fact nobody recorded as absent, so it is answered not retried", async () => {
+    // The document read SUCCEEDED and the fact is simply not in it. That is a
+    // verified absence -- an answer -- and it used to sit unreadable for ever.
+    loadMarkdownMemory.mockResolvedValue({
+      markdown: "## Facts\n\n- Legal name: Smirthika Dharmalingam\n",
+      dataVersion: 12,
+    });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    askAge();
+
+    const result = await sweep();
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    // "Answer not found", and checkout refuses an empty staged answer.
+    expect(deliver.mock.calls[0]![2]).toMatchObject({ hasContent: false });
+    expect(result).toMatchObject({ empty: 1, retry: 0, delivered: 0 });
+  });
+
+  it("does not let the account name or photo make a missing age chargeable", async () => {
+    // Both are carried into the document's Account section for every answer.
+    // If they counted as content, an age nobody recorded would be sold.
+    loadMarkdownMemory.mockResolvedValue({ markdown: "## Facts\n", dataVersion: 12 });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    askAge();
+
+    await sweep();
+
+    expect(deliver.mock.calls[0]![2]).toMatchObject({ hasContent: false });
+  });
+});
+
 describe("a Soul-backed fact is finished work, not a failed read", () => {
   const SOUL = "## Facts\n\n- Legal name: Smirthika Dharmalingam\n- Date of birth: 1998-03-14\n";
 
@@ -491,6 +555,54 @@ describe("a Soul-backed fact is finished work, not a failed read", () => {
     expect(compose).toHaveBeenCalledTimes(1);
     expect(deliver).toHaveBeenCalledTimes(1);
     expect(deliver.mock.calls[0]![2]).toMatchObject({ hasContent: true });
+    expect(result).toMatchObject({ delivered: 1, retry: 0, empty: 0 });
+  });
+});
+
+describe("which name answers a name request", () => {
+  const NAME = "attr.identity.identity_profile.full_name";
+
+  const ask = () =>
+    answerable.mockResolvedValue([
+      work({ approvedScopes: [NAME], question: "What is your name?" }),
+    ]);
+
+  beforeEach(() => {
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    compose.mockResolvedValue({ answerMode: "agent", answer: "Smirthika.", covers: [], gaps: [] });
+    encrypt.mockResolvedValue({ ciphertext: "sealed" });
+  });
+
+  it("prefers the legal name the person stated over their account name", async () => {
+    loadMarkdownMemory.mockResolvedValue({
+      markdown: "## Facts\n\n- Legal name: Smirthika Dharmalingam\n",
+      dataVersion: 9,
+    });
+    ask();
+
+    await runAnswerDeliverySweep({
+      userId: "owner-A", vaultKey: "key", vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+      ownerIdentity: { displayName: "smiri" },
+    });
+
+    const values = JSON.stringify(compose.mock.calls[0]![2].values);
+    expect(values).toContain("Smirthika Dharmalingam");
+    expect(values).not.toContain("smiri");
+  });
+
+  it("falls back to the account name when no legal name was ever stated", async () => {
+    // An owner who never completed the identity intake can still answer this.
+    loadMarkdownMemory.mockResolvedValue({ markdown: "## Facts\n", dataVersion: 9 });
+    ask();
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A", vaultKey: "key", vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+      ownerIdentity: { displayName: "Smirthika D" },
+    });
+
+    expect(JSON.stringify(compose.mock.calls[0]![2].values)).toContain("Smirthika D");
     expect(result).toMatchObject({ delivered: 1, retry: 0, empty: 0 });
   });
 });

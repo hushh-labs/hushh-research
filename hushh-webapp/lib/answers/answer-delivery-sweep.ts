@@ -41,6 +41,7 @@ import {
 import { encryptSliceForRecipient } from "@/lib/one-marketplace/encryption";
 import { buildConsentExportForScope, createConsentExportReadSession } from "@/lib/consent/export-builder";
 import {
+  hasAnyValue,
   projectApprovedAnswer,
   type ScopeProjection,
 } from "@/lib/answers/answer-projection";
@@ -50,6 +51,23 @@ import {
   projectApprovedSoulFacts,
 } from "@/lib/answers/identity-soul-facts";
 import { loadMarkdownMemory } from "@/lib/pkm/markdown-memory";
+
+/**
+ * A name leaf inside the identity domain, which the account display name may
+ * stand in for when nothing else answered it.
+ *
+ * Bounded to `attr.identity.` deliberately: a name leaf elsewhere -- an
+ * employer's name, a school's name -- is not this person's name, and filling
+ * it in from their profile would answer a different question than the one the
+ * owner approved.
+ */
+const NAME_LEAVES = ["full_name", "legal_name", "name"] as const;
+
+function isOwnNameScope(scope: string): boolean {
+  if (!scope.startsWith("attr.identity.")) return false;
+  const leaf = scope.split(".").pop() ?? "";
+  return NAME_LEAVES.includes(leaf as (typeof NAME_LEAVES)[number]);
+}
 import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
 
 /**
@@ -216,11 +234,11 @@ export async function buildAnswerPayload(
         throw new Error("Vault session changed");
       const revision =
         typeof memory?.dataVersion === "number" ? memory.dataVersion : null;
-      const satisfied = projectApprovedSoulFacts({
+      const facts = projectApprovedSoulFacts({
         approvedScopes: soulBackedScopes,
         markdown: memory?.markdown,
       });
-      for (const fact of satisfied) {
+      for (const fact of facts) {
         const payload: Record<string, unknown> = {};
         let branch = payload;
         const segments = fact.relativePath.split(".");
@@ -231,22 +249,66 @@ export async function buildAnswerPayload(
       }
       // These facts have no structured leaf at all, so the per-scope export
       // above always fails for them. That failure is the ABSENCE of a
-      // counterpart, not an unreadable source, and the document read that
-      // replaced it succeeded. Leaving the scope marked unavailable retried
-      // the request for ever and never staged an answer that was ready.
+      // counterpart, not an unreadable source -- and this document is their
+      // authoritative source, so reading it successfully settles the question
+      // either way:
       //
-      // Only a scope an actual fact was found for is cleared. A locked or
-      // changed vault throws out of this block instead, and a fact that was
-      // never recorded is not here, so both still stay unavailable.
-      const answered = new Set(satisfied.map((fact) => fact.scope));
+      //   * the fact is here  -> it was projected above, and the answer stages;
+      //   * the fact is not   -> it is genuinely not recorded, which is an
+      //                          answer ("Answer not found") and must not be
+      //                          charged for.
+      //
+      // Clearing only the facts that were FOUND left a question nobody had
+      // recorded an answer to stuck as unreadable: prepared, discarded and
+      // prepared again for ever, never resolving either way. A failed read is
+      // different and throws to the catch below, where every one of these
+      // scopes stays unavailable and the request stays retryable.
+      const settled = new Set(soulBackedScopes);
       for (let index = unavailableScopes.length - 1; index >= 0; index -= 1)
-        if (answered.has(unavailableScopes[index]!)) unavailableScopes.splice(index, 1);
+        if (settled.has(unavailableScopes[index]!)) unavailableScopes.splice(index, 1);
     } catch {
       // A Soul document that could not be read is not an absent fact. Naming
       // the scopes keeps the caller's rule: this request stays queued rather
       // than being delivered as "Answer not found".
       for (const scope of soulBackedScopes)
         if (!unavailableScopes.includes(scope)) unavailableScopes.push(scope);
+    }
+  }
+
+  // Precedence for a name request: the legal name the person stated wins,
+  // because they stated it. The account display name is the fallback, so a
+  // name question is still answerable for an owner who never completed the
+  // identity intake -- and it is the same value the requester already sees on
+  // the profile. Only ever for an approved name scope.
+  const accountName = (work.ownerIdentity ?? params.ownerIdentity)?.displayName?.trim();
+  if (accountName) {
+    // A scope whose read returned nothing is not answered. A confirmed-absent
+    // source (an HTTP 404) still pushes an empty projection, and treating that
+    // as an answer left a name request with no name in it.
+    const answeredScopes = new Set(
+      projections
+        .filter((projection) => hasAnyValue(projection.payload))
+        .map((projection) => projection.scope),
+    );
+    for (const scope of work.approvedScopes) {
+      if (!isOwnNameScope(scope)) continue;
+      if (answeredScopes.has(scope) || unavailableScopes.includes(scope)) continue;
+      projections.push({
+        scope,
+        payload: (() => {
+          // Nest under the scope's own path so it merges where the domain
+          // expects it, rather than inventing a branch beside it.
+          const segments = scope.split(".").slice(2);
+          const payload: Record<string, unknown> = {};
+          let branch = payload;
+          for (const segment of segments.slice(0, -1))
+            branch = (branch[segment] = {}) as Record<string, unknown>;
+          branch[segments[segments.length - 1]!] = accountName;
+          return payload;
+        })(),
+        // The account profile carries no PKM revision of its own.
+        contentRevision: null,
+      });
     }
   }
 
@@ -284,9 +346,20 @@ export async function buildAnswerPayload(
   };
   if (!isVaultSessionEpochCurrent(epoch))
     throw new Error("Vault session changed");
-  const identity = work.ownerIdentity ?? params.ownerIdentity;
-  const hasContent = projected.hasContent || Boolean(identity &&
-    [identity.displayName, identity.email, identity.photoUrl].some(value => value?.trim()));
+  // Content is what the APPROVED scopes hold, and nothing else.
+  //
+  // Counting the account's own name, email or photo here made every owner who
+  // has a profile name produce a "complete" answer to any question at all --
+  // including one whose fact nobody ever recorded. "Answer not found" could
+  // not happen, and the requester was charged for an answer that did not
+  // exist. The account block is context ABOUT the person, carried in every
+  // answer because the requester already sees it on the profile they asked
+  // from; it is not an answer to what they asked.
+  //
+  // Where the account genuinely does answer the question -- a name request
+  // with no stated legal name -- it is projected into that scope above and
+  // counts through `projected` like any other fact.
+  const hasContent = projected.hasContent;
   if (firebaseIdToken && hasContent && !unavailableScopes.length && memorySlice.complete) {
     written = await AnswerRequestService.compose(
       firebaseIdToken,
