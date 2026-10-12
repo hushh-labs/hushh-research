@@ -833,6 +833,10 @@ export class AgentPkmContextStore {
 
       const domains = metadata.domains
         .map((domain) => domain.key)
+        // One chat reads this domain through markdown-memory.ts. Walking the
+        // document as ordinary JSON would duplicate it and could recursively
+        // seed a malformed compatibility view.
+        .filter((domain) => domain !== "one_memory")
         // A label-only domain (Secrets) is read here only to name its items;
         // its values never leave buildPkmInventory.
         .filter((domain) => !shouldSkipPkmAgentContextKey(domain) || isLabelOnly(domain));

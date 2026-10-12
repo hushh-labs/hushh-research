@@ -1409,6 +1409,45 @@ describe("AG-UI Agent One client", () => {
     });
   });
 
+  it("forwards the local pkm.add directive even though it is not a generated route action", async () => {
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onStateDeltaEvent?.({
+        event: {
+          type: "STATE_DELTA",
+          delta: [{
+            op: "add",
+            path: "/hussh:pending_directive:pkm.add",
+            value: {
+              kind: "action",
+              payload: {
+                actionId: "pkm.add",
+                slots: { source_scope: "turn" },
+                needsConfirmation: false,
+              },
+            },
+          }],
+        },
+      });
+    };
+
+    const waiting = vi.fn();
+    await streamAgentChat({
+      vaultKey: TEST_VAULT_KEY,
+      userId: "user-1",
+      message: "Remember that I study mechanical engineering.",
+      conversationId: "thread-memory",
+      vaultOwnerToken: "owner-token",
+      handlers: { onToolWaiting: waiting },
+    });
+
+    expect(waiting).toHaveBeenCalledWith(expect.objectContaining({
+      actionId: "pkm.add",
+      label: "Add to Memory",
+      requiresConfirmation: false,
+      slots: { source_scope: "turn" },
+    }));
+  });
+
   it("settles a synthetic confirmation turn when the card is staged", async () => {
     mockTransport.emitEvents = subscriber => {
       subscriber.onToolCallStartEvent?.({

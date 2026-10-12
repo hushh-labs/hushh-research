@@ -17,9 +17,9 @@ export const RECEIPT_MEMORY_AUTO_SAVE_RETRY_DELAYS_MS: readonly number[] = [2_00
 /**
  * Keeps the owner's private memory of their receipts current, with no control.
  *
- * After a sync the owner started finishes, the finished list is saved once
- * through the existing governed writer (`gmail_receipt_memory_save_button`), so
- * Chat with One can answer from it without sending the owner back to Mail. It
+ * After a sync the owner started finishes, aggregate observations are assessed
+ * by the memory agents and staged into Soul.md. Individual receipts stay in
+ * Receipt Radar; no new shopping-domain transaction index is written. It
  * renders nothing: the owner is never asked to save.
  *
  * It writes only when `syncCompletion` has moved past `savedCompletionRef`
@@ -34,12 +34,14 @@ export function GmailReceiptMemorySave({
   syncCompletion = 0,
   savedCompletionRef,
   autoSave = RECEIPT_MEMORY_AUTO_SAVE_DEFAULT,
+  partialScan = true,
 }: {
   receipts: readonly ReceiptListItem[];
   accountKey: string | null | undefined;
   syncCompletion?: number;
   savedCompletionRef?: MutableRefObject<number>;
   autoSave?: boolean;
+  partialScan?: boolean;
 }): null {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
@@ -60,25 +62,26 @@ export function GmailReceiptMemorySave({
 
   useEffect(() => {
     if (!savedCompletionRef || syncCompletion <= savedCompletionRef.current) return;
-    savedCompletionRef.current = syncCompletion;
-    if (!autoSave || receiptsRef.current.length === 0) return;
-
+    if (!autoSave || receiptsRef.current.length === 0) { savedCompletionRef.current = syncCompletion; return; }
+    const origin = { ...authorityRef.current, accountKey: accountKeyRef.current,
+      receipts: [...receiptsRef.current], now: new Date() };
+    if (!origin.userId || !origin.vaultKey || !origin.vaultOwnerToken || !origin.isVaultUnlocked) return;
     const run = (runRef.current += 1);
+    const isCurrent = () => runRef.current === run && authorityRef.current.userId === origin.userId &&
+      authorityRef.current.vaultKey === origin.vaultKey && authorityRef.current.vaultOwnerToken === origin.vaultOwnerToken &&
+      authorityRef.current.isVaultUnlocked && accountKeyRef.current === origin.accountKey;
     const saveOnce = async (): Promise<"saved" | "failed" | "locked"> => {
-      const { userId, vaultKey: key, vaultOwnerToken: token, isVaultUnlocked: unlocked } =
-        authorityRef.current;
-      if (!userId || !key || !token || !unlocked) return "locked";
+      if (!isCurrent()) return "locked";
       try {
         await saveReceiptCanonicalIndexToMemory({
-          userId,
-          vaultKey: key,
-          vaultOwnerToken: token,
-          receipts: receiptsRef.current,
-          accountKey: accountKeyRef.current,
+          userId: origin.userId!, vaultKey: origin.vaultKey!, vaultOwnerToken: origin.vaultOwnerToken!,
+          receipts: origin.receipts, accountKey: origin.accountKey, now: origin.now, partialScan, isCurrent,
         });
+        if (isCurrent()) savedCompletionRef.current = syncCompletion;
         return "saved";
-      } catch (error) {
-        console.error("[GmailReceiptMemorySave] Failed to save receipts:", error);
+      } catch {
+        if (!isCurrent()) return "locked";
+        console.error("[GmailReceiptMemorySave] Receipt trend assessment failed.");
         return "failed";
       }
     };
@@ -95,7 +98,8 @@ export function GmailReceiptMemorySave({
         if (runRef.current !== run) return;
       }
     })();
-  }, [autoSave, savedCompletionRef, syncCompletion]);
+    return () => { runRef.current += 1; };
+  }, [autoSave, savedCompletionRef, syncCompletion, user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked, accountKey, partialScan]);
 
   return null;
 }

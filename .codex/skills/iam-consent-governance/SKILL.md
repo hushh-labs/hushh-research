@@ -9,7 +9,7 @@ description: Use when changing IAM, consent scopes, actor model, verification po
 
 - Primary scope: `iam-consent-governance`
 - Trigger on IAM, consent scopes, actor model, verification policy, or marketplace access contract changes.
-- Avoid overlap with `vault-pkm-governance` and `quality-contracts`.
+- Avoid overlap with `security-audit` and `quality-contracts`.
 
 ## Coverage and Ownership
 
@@ -56,13 +56,13 @@ Non-owned surfaces:
 
 1. Confirm whether the change is about actor model, scope catalog, verification gate, or runtime surface.
 2. Keep IAM docs, code, and validation checklists aligned in the same change.
-3. Treat vault and PKM boundary questions as `vault-pkm-governance` work when they become primary.
+3. Treat vault and PKM boundary questions as `security-audit` work when they become primary.
 4. Reject every Source Library `attr.*` form; a local share row is mapping state, not access or revocation authority.
 
 ## Handoff Rules
 
 1. If the request is still broad or ambiguous, route it back to `security-audit`.
-2. If the task becomes vault or PKM storage-boundary work, use `vault-pkm-governance`.
+2. If the task becomes vault or PKM storage-boundary work, use `security-audit`.
 3. If the task becomes general backend runtime work, route it to `backend`.
 
 ## Required Checks

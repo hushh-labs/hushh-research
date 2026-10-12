@@ -9,15 +9,11 @@ import { KycProfileHero } from "@/components/gmail/kyc-profile-hero";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/lib/morphy-ux/button";
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
-import {
-  hasCompletedKycIdentityIntake,
-  KycIdentityProfilePkmService,
-} from "@/lib/services/kyc-identity-profile-pkm-service";
+import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
 const EXTERNAL_AGENT_PROMPT =
-  "Summarize my personal and KYC details by field concisely for KYC.";
+  "Summarize my personal and KYC details as simple Markdown bullet points under Facts, Preferences, and Commitments. Note anything uncertain or missing. Do not include passwords, PINs, security codes, or authentication keys.";
 
 export function GmailVerificationOnboarding({
   userId,
@@ -56,20 +52,13 @@ export function GmailVerificationOnboarding({
     }
 
     let cancelled = false;
-    void PkmDomainResourceService.getStaleFirst({
+    void KycIdentityProfilePkmService.hasCompletedIntake({
       userId,
-      domain: "identity",
       vaultKey,
       vaultOwnerToken,
-      // This is a one-time onboarding gate, not a list that can safely show
-      // stale information. Refresh before deciding whether to ask again so a
-      // completed background import never reopens this form on a later visit.
-      forceRefresh: true,
-      backgroundRefresh: false,
     })
-      .then((snapshot) => {
-        const profile = snapshot?.data?.identity_profile;
-        if (!cancelled && hasCompletedKycIdentityIntake(profile)) {
+      .then((completed) => {
+        if (!cancelled && completed) {
           setProfileReady(true);
         }
       })

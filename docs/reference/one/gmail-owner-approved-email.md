@@ -35,19 +35,19 @@ flowchart LR
 - `/one/email` is a compact handoff surface. A disconnected account is sent to
   `/one/gmail`; a connected account opens One with an empty composer, awaiting
   the owner's request.
-- The initial web Google OAuth request asks for `gmail.readonly`; an explicit
-  send path requests `gmail.send` incrementally before delivery. Gmail draft
-  saving and mailbox changes ask for `gmail.compose` and `gmail.modify` in
-  their own reviewed paths.
+- The initial Gmail OAuth request asks for `gmail.readonly` and `gmail.send`
+  together, so reading and owner-approved delivery are ready after one sign-in.
+  Gmail draft saving and mailbox changes still ask for `gmail.compose` and
+  `gmail.modify` in their own reviewed paths.
   The redirect is environment-derived and must exactly equal
   `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return` in the Google OAuth
   client for each environment.
-- A read-only connection remains usable for bounded reads. The legacy server
-  receipt sync is disabled during its storage cutover; existing receipt rows
-  remain readable. Sending requires the separate send grant.
+- A legacy read-only connection remains usable for bounded reads and can be
+  repaired by reconnecting once. The legacy server receipt sync is disabled
+  during its storage cutover; existing receipt rows remain readable.
 
 Provider `gmail.send` allows the delivery boundary to prepare an owner-reviewed
-message after the incremental grant. It never lets One or a chat message send
+message after the initial Gmail grant. It never lets One or a chat message send
 mail directly: every email still requires a visible editable draft, review,
 and the owner's final **Send email** click or the distinct reviewed One Voice
 confirmation. Disconnect clears the canonical connection and attempts Google

@@ -26,6 +26,17 @@ const source = readFileSync(
  * the actual Gmail settings page, untouched.
  */
 describe("Agent One chat workspace wiring contract", () => {
+  it("saves KYC-confirmed chat facts through the same Soul queue, not a structured identity writer", () => {
+    const capture = source.slice(source.indexOf("const captureEligiblePkmFactsInBackground ="), source.indexOf("const runAgentTurn = async ("));
+    expect(capture).toContain("prepareNaturalLanguagePkm({");
+    expect(capture).toContain("stageMarkdownMemoryFacts({");
+    expect(capture).not.toContain("ingestNaturalLanguagePkm(");
+    expect(capture).not.toContain("issuePkmReplyAuthorization(");
+    expect(capture).not.toContain('memoryProfile: "kyc_identity_v1"');
+    const afterCapture = source.slice(source.indexOf("if (options.kycInformationSaveConfirmed) {"), source.indexOf("if (!options.deferPkmContext) {"));
+    expect(afterCapture).toContain("loadAgentPkmContext({");
+    expect(afterCapture).not.toContain("forceRefresh: true");
+  });
   it("mounts independent background capabilities from ordinary chat readiness", () => {
     const readiness = source.slice(
       source.indexOf("const backgroundCardsEnabled ="),

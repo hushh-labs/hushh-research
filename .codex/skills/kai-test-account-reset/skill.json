@@ -9,7 +9,7 @@
   ],
   "non_owned_paths": [
     "security-audit",
-    "vault-pkm-governance",
+    "security-audit",
     "iam-consent-governance",
     "repo-operations",
     "backend"
@@ -43,14 +43,14 @@
   ],
   "handoff_targets": [
     "security-audit",
-    "vault-pkm-governance",
+    "security-audit",
     "iam-consent-governance",
     "repo-operations",
     "one-voice-governance"
   ],
   "adjacent_skills": [
     "security-audit",
-    "vault-pkm-governance",
+    "security-audit",
     "iam-consent-governance",
     "repo-operations",
     "one-voice-governance"

@@ -6,6 +6,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { buildSmartDefaultDraft, draftToPayload } from "./wallet-card-fields";
+import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
 
 const RETRY_DELAYS = [1_000, 5_000, 20_000] as const;
 
@@ -17,6 +18,7 @@ const RETRY_DELAYS = [1_000, 5_000, 20_000] as const;
 export function WalletProfileBootstrap() {
   const { user, loading, phoneNumber } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const foregroundChatActive = useForegroundChatActive();
   const completedOwner = useRef<string | null>(null);
   const userId = user?.uid ?? null;
   const displayName = user?.displayName ?? null;
@@ -26,7 +28,7 @@ export function WalletProfileBootstrap() {
 
   useEffect(() => {
     if (!userId) completedOwner.current = null;
-    if (shouldSkipReviewerBackgroundWritesForAutomation() || loading || !userId || !isVaultUnlocked || !vaultOwnerToken || completedOwner.current === userId) return;
+    if (shouldSkipReviewerBackgroundWritesForAutomation() || foregroundChatActive || loading || !userId || !isVaultUnlocked || !vaultOwnerToken || completedOwner.current === userId) return;
     let cancelled = false;
     let running = false;
     let attempt = 0;
@@ -63,7 +65,7 @@ export function WalletProfileBootstrap() {
       window.removeEventListener("focus", recover);
       document.removeEventListener("visibilitychange", recover);
     };
-  }, [loading, userId, isVaultUnlocked, vaultOwnerToken, displayName, email, phone, avatarUrl]);
+  }, [foregroundChatActive, loading, userId, isVaultUnlocked, vaultOwnerToken, displayName, email, phone, avatarUrl]);
 
   return null;
 }
