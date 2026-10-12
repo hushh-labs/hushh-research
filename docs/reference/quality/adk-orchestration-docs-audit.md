@@ -6,7 +6,7 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 Runtime boundaries: [private-agent north star](../architecture/private-agent-north-star.md)
 and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-## Decision — 2026-10-11 UTC
+## Decision — 2026-10-12 UTC
 
 **Production rollout is withheld.** The personal Azure pod completed its exact
 owner-approved Dev 15 update, with installed-digest verification and unchanged
@@ -14,7 +14,7 @@ identity, configuration and secret references. Files transfer and reversible
 explorer changes now also pass on Dev 15. Its oversized synthetic organization
 job reports unsupported and preserves the original; successful organization
 retains its dated Dev 12 evidence. Puppy responds on Dev 15. Native provider journeys,
-independent-network acceptance, active-work update drain
+independent-network qualification, active-work update drain
 and the cold-response target still require evidence. Dev 15 also passed live
 cancellation, machine-panel readback, scale-to-zero and on-demand Puppy wake.
 The deployed `f0517d5f981a` candidate passed complete hosted CI. Later branch
@@ -31,22 +31,24 @@ restored the personal Azure pod's exact-origin CORS admission. Cloud chat now
 completes in that browser; Puppy also completes a streamed local-model response
 on the new origin after correcting the standalone relay's certificate trust setup.
 
-## Main readiness — October 11
+## Main readiness — October 12
 
 **Hold the application merge and BYOC rollout.** The integrated candidate freezes
 main `3c47412f77f0`, retains the reviewed ADK presentation delta `5c86617f2c`
 and preserves active worktrees. [PR 7555](https://github.com/hushh-labs/hushh-research/pull/7555)
-requires review and exact combined-SHA validation. Prior
+has exact combined-SHA validation and remains draft pending live gates. Prior
 [23-check validation](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368)
-applies to `14876c2a3b8d`, not this candidate.
+applies to `14876c2a3b8d`, not this candidate. Main's subsequent nine-file onboarding
+UI merge is outside this dev freeze; integrate its reviewed delta before main
+promotion. The pipeline prerequisite is independently landed.
 
 | Gate | Current result / next evidence |
 | --- | --- |
-| CI/deploy convergence | GitHub Actions governs; Cloud Build builds. All environments use the same changed-SHA verification selector. Selected dev reviewer checks fail closed, and frontend-only preservation runs independently of migrations. Production supports automatic service selection and preserves deployment helpers when checking out an older rollback target. Full hosted browser/security gates remain required. Workflow edits need governed landing and a live rehearsal. |
+| CI/deploy convergence | Exact source `1516a90f4705` passed all 23 hosted checks. Pipeline-only [PR 7785](https://github.com/hushh-labs/hushh-research/pull/7785) landed through the authorized Admin queue bypass; exact main `a7a4439a8e2b` post-merge smoke passed. Dev/UAT reuse the canonical selector and independently selected preservation. [Dev rehearsal 38187423540](https://github.com/hushh-labs/hushh-research/actions/runs/38187423540) is running; serving verification remains required. Application source also retains production auto-selection and rollback helpers, which have not been landed or deployed in this pass. |
 | Existing users / Shared | Explicit owner choice plus the strictly evidenced legacy cohort. Assigned, pending or unresolved pods cannot become Shared by default. Canonical migration 320 (schema head 320) and parked dev 958 require environment adoption evidence. Existing-user changelog admission exists; UAT/production content remains unconfigured until a reviewed rollout. New users do not receive the update modal. |
 | Updates / erasure | Exact-release approval, isolated recovery and normal Dev 15 installation pass. Active-work drain, production release provenance, erasure and retained-resource disposition still require live receipts. No automatic owner upgrade. |
-| Puppy / phone | BYOC-only signed owner/device/pod authority; personal dev inference, cancellation and idle wake pass. New outbound expiry/revocation/incarnation and idle-race protections pass focused tests but are not deployed. Physical phone/Mac independent internet acceptance remains unverified. Native phone HTTP/SSE admission and Mac device WSS are distinct transports. |
-| Native security | The source pins Capacitor Android/iOS/core/CLI and Swift PM to exact 8.4.3 for [GHSA-rvm3-566m-v7fv](https://github.com/ionic-team/capacitor/security/advisories/GHSA-rvm3-566m-v7fv). Chat also refuses the reserved native HTTP proxy path, including normalized and encoded links; its old-code negative control fails. Rebuilt native binaries and exact-SHA hosted native validation remain required. Existing distributed binaries are not qualified by a web deployment. |
+| Puppy / phone | Physical S24 Ultra normal-owner unlock, direct bound stream, finite answer and same-turn Stop pass on Dev 15. First text 30.658s, completion 30.974s; one foreground sample, not cold p95. Machine panel and 384px composer fit. Independent internet remains unverified. New outbound authority/idle protections pass source checks but require a new owner-approved pod image. Phone browser HTTP/SSE and Mac device WSS are separate transports. |
+| Native security | Exact Capacitor 8.4.3 pins and reserved-proxy chat refusal address [GHSA-rvm3-566m-v7fv](https://github.com/ionic-team/capacitor/security/advisories/GHSA-rvm3-566m-v7fv); the old-code negative control fails. Exact-SHA Android and iOS build/test lanes pass. Distributed binaries need their own release; a phone-browser or web deployment does not qualify them. |
 | Both-cloud launch | Native Google/connector journeys, production IAM/retention/recovery, hub capacity and independent UAT acceptance remain release gates. Matched-resource cold p95 is about 71s on each cloud, above the 30s target. |
 
 Local verification is composite and revision-bound: the original `4c2575227c`
@@ -57,7 +59,8 @@ surfaces pass 176 backend and 189 frontend cases, 857 canonical PostgreSQL cases
 contracts, security/type checks, governance and the production web build. The
 stale helper-location assertion was corrected by the concurrent session and
 its canonical integration stage passed on replay. Original failed receipts are
-retained. Exact-SHA hosted validation remains the final source gate.
+retained. Exact-SHA hosted validation is the final source gate and now passes on
+the frozen candidate below.
 
 The later main `f690840323e3` delta passes 531 backend cases and all 438 Back
 cases across the original run and the isolated Location rerun. The frozen
@@ -75,7 +78,13 @@ The iOS job compiled and passed 98 native cases (three skipped), then passed col
 and resumed login assertions before failing simulator termination. This remains
 a failed gate. Three local Location cases pass with their original timeouts;
 the cancellation fixture now settles its deferred grant and revocation retry
-before teardown. The native security correction requires exact-SHA validation.
+before teardown. Corrected native validation is recorded below.
+
+Corrected candidate `1516a90f4705` now passes all 23
+[hosted checks](https://github.com/hushh-labs/hushh-research/actions/runs/38185713976),
+including both native lanes and the full browser/web suites. The original failures
+remain retained. Later local commits through `6b3da603c7` only consolidate tests
+and documentation; they are preserved and excluded from this frozen deployment.
 
 The final Wallet rollback delta from `3c47412f77f0` preserves the extracted
 deployment owner. Its initial union exceeded Cloud Build's 100-variable cap;
@@ -118,7 +127,7 @@ gates above.
 | Files organization | Bounded consent, exclusions, delivery and cancellation contracts. **GCP isolated:** authenticated Cloud Tasks organized one synthetic upload in 46.0 s; original bytes verified and analysis preferences restored | **Azure Dev 12:** explicit opt-in, managed-identity queue organization, cancellation and exclusion passed; initial preferences restored. Storage-usage retry returned 200 after a retained 503. **Dev 15 normal owner:** existing consent preserved, oversized synthetic job settled `completed` / `unsupported`; another SHA-256-verified download proves the original retained. This does not establish a new successful semantic organization. |
 | Software updates | Exact predecessor `ace34069` → `e213acf2` and then `e213acf2` → `cdcf8dc2` isolated recovery qualifies both clouds | **Dev 12 and Dev 15 normal owner installations passed.** The original failed old-domain browser return is retained; later cloud and normal-owner readback prove Dev 15 actually installed. Active-work drain remains unverified. Pipeline-only callback PR 7756 passed required CI and authorized Admin landing; its exact main post-merge smoke passed. Backend-only callback deployment passed terminal workflow, actual serving and immutable-offer readback. |
 | Private chat | Current image completes 20 cold + 20 warm turns per cloud; bounded one/two/four chat–Files–status overlap and ten-minute soak pass | **Dev 15 normal-owner browser passed:** a new synthetic cloud response completed in 6.876 s without an error. This is a warm completion observation, not a cold/first-token sample. Recorded voice and complete connector approval/resume remain separate. |
-| Puppy | Existing Hermes identity/grant; signed endpoint, inference-only sealed binding, bounded stream and idle grace. Cancellation-race repair retains an exact transport receipt for 60 seconds, without a new approval ledger; 65 focused cases pass and the broken-path negative control fails | **Dev 15 post-update response passed:** existing Hermes identity obtained fresh signed admission in 1.113 s and sealed WSS in 0.378 s. Normal background browser received a nonempty local answer, settled without an alert; first token 65.474 s, completion 65.752 s after sending. Device model first content was 48.214 s after dispatch. These are one startup sample, not p95 or a proven cold pod. Prior Dev 12 grant withdrawal/re-enable and idle-wake receipts remain dated evidence. Dev 15 cancellation returned HTTP 200 / `stopped`, with matching device cancellation. The machine panel reports model, capacity, jobs and observation time. Zero replicas were observed at 07:46 UTC; the next synthetic Puppy turn woke the same pod and completed. Independent internet paths remain unverified. |
+| Puppy | Existing Hermes identity/grant; signed endpoint, inference-only sealed binding, bounded stream and idle grace. Cancellation-race repair retains an exact transport receipt for 60 seconds; 65 focused cases and the broken-path negative control pass | **Dev 15 desktop and S24 Ultra pass.** Phone: normal Google owner sign-in, cold passphrase unlock and same-session navigation; one HTTP 200 direct stream matches the signed pod origin and existing Mac device. Synthetic answer and terminal app event prove completion without cloud fallback. Stop during observed model activity returns 200/stopped for the same request. Machine model/capacity/jobs and observation labels fit at 384px without overflow. The first harness timed out on an absent model-footer marker; original failure and separate terminal readback are retained, with no resend. Prior desktop grant withdrawal/re-enable, cancellation, zero replicas and wake remain dated receipts. Independent internet paths and current-turn model-footer reporting remain unverified. |
 | Setup / billing | Durable retries preserve assignments/pending state; missing billing has recovery links; explicit Shared/unplaced authority is retained | Fresh setup and billing/policy return without duplicate resources on both clouds; Azure subscription eligibility |
 | Google connectors | Sealed native authorization, refresh/restart fences, exact reviews, direct notification coalescing and bounded durable jobs | Native iOS/Android sign-in, provider scope upgrades, notifications and approved legacy hub custody removal |
 | Existing Shared users | Actual UAT/production cohort inspected; parked 958 captures only eligible legacy users once, excluding assignments, provisioning and prior choices | Additive schema/backfill graduation before production traffic; no production schema mutation occurred |
@@ -141,6 +150,7 @@ not wake compute; the direct relay idle grace is ten minutes.
 | Hermes post-zero admission | Challenge **45.532 s**, admission **46.366 s**, sealed WSS **0.532 s**; total owner preflight/control **57.125 s** | Finite challenge wait fixed the observed 30.212 s timeout; this is not first-token or full browser acceptance |
 | New-origin Puppy warm response | Signed admission **1.413 s**, sealed WSS **0.402 s**, local-model first text **7.292 s**, completion **7.294 s** | Normal unlocked owner browser displays the synthetic answer. Missing OS CA roots caused the retained WSS failure; explicit verified trust fixes both relay paths. Nearest Hermes suites pass 60 cases. After restarting the same relay, fresh admission took **1.639 s**, WSS **0.363 s**, first text **2.168 s** and completion **2.169 s**; the normal browser received another finite response. These are two warm samples, not the cold target or independent-network proof. |
 | Dev 15 post-zero Puppy wake | First token **65.836 s**, completion **66.150 s**; activation/dispatch **52.350 s**, device first content **5.982 s** | One confirmed post-zero sample; cold target fails. Warm follow-up first token **8.172 s**, completion **14.735 s**. Idle closure and zero replicas are observed separately from wake. |
+| Physical S24 Puppy | First text **30.658 s**, completion **30.974 s**; activation after admission **14.343 s**, dispatch-to-first-text **15.866 s** | One foreground Wi-Fi sample on Dev 15. Cold state and independent internet were not established. Same-session vault continuity and authoritative cancellation pass. |
 | Approved dev bridge | GCP disposable predecessor completes real cloud chat: first text **21.192 s**, completion **27.917 s** after narrowly scoped model grants and same-image authenticated maintenance | One sample, not p95 or clean cold evidence. Native custody remains in the qualification project; the separately approved dev model bridge is not a production model-custody claim. |
 | Bounded runtime | Ten-minute soak settles 20 synthetic operations/cloud; Azure sampled memory 0.500 GiB/CPU 0.092 cores; GCP one-minute p95 memory 20.95% of 2 GiB/CPU 31.95% | Different aggregations; not comparable peak capacity or real Puppy overlap |
 | Model qualification | Gemini 3.8 tools 2/3 (504); 3.5 Flash LOW 3/3 tools + 5/6 first-tool; Flash-Lite LOW 3/3 + 5/6 (Drive refusal); Azure Luna 3/3 + 6/6 | Small bounded sample. Governed defaults unchanged. Preserve observed 429/retry failures; qualification estimate $1.96791915 of $2 ceiling |
