@@ -8,7 +8,6 @@ export function ScopeCommerceBuyerReview({ quote, balance, expired, busy, enable
 }) {
   const shortfall = quote && balance !== undefined ? Math.max(0, quote.amount_cents - balance) : null;
   return <div className="space-y-3">
-    {!enabled ? <p role="status" className="text-sm">New paid purchases are unavailable. Review payment availability and existing funds in Account.</p> : null}
     {balance !== undefined ? <p className="text-sm">Available funded balance: {money(balance)}.</p> : <p role="status" className="text-sm">Refresh to check your balance before confirming.</p>}
     {!quote ? <Button disabled={busy || !enabled} variant="outline" onClick={() => void reviewPrice()}>Review exact price</Button> : null}
     {quote ? <div className="space-y-3">
@@ -19,6 +18,6 @@ export function ScopeCommerceBuyerReview({ quote, balance, expired, busy, enable
       <p className="text-xs text-muted-foreground">Confirming reserves this amount from your funded balance. An agent cannot spend it for you. Access starts only after the owner prepares the information. Earlier owner revocation refunds unused calendar time; nonuse does not.</p>
       <Button disabled={busy || !enabled || expired || shortfall === null || shortfall > 0} onClick={() => void purchase()}>Confirm {quote.amount_cents === 0 ? "free access" : `${money(quote.amount_cents)} from balance`}</Button>
     </div> : null}
-    <ProfileAccountLink className="inline-flex min-h-11 items-center text-sm underline">Add funds or manage payments in Account</ProfileAccountLink>
+    {enabled && (balance === undefined || (shortfall !== null && shortfall > 0)) ? <ProfileAccountLink className="inline-flex min-h-11 items-center text-sm underline">Add funds or manage payments in Account</ProfileAccountLink> : null}
   </div>;
 }

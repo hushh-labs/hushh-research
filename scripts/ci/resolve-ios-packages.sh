@@ -39,9 +39,13 @@ for attempt in 1 2; do
       else
         other_resolution_failure=true
       fi
-    elif [[ "$line" == *"checksum"* || "$line" == *"signature"* ||
-            ( "$line" == *"error:"* &&
-              "$line" != *"xcodebuild: error: Could not resolve package dependencies:"* ) ]]; then
+    fi
+    diagnostic="${line#*failed downloading }"
+    if [[ "$line" == *"checksum"* || "$line" == *"signature"* ||
+          ( "$line" == *"error:"* &&
+            "$line" != *"xcodebuild: error: Could not resolve package dependencies:"* &&
+            "$line" != "error: failed downloading '"* ) ||
+          ( "$line" == *"failed downloading '"* && "$diagnostic" == *"error:"* ) ]]; then
       other_resolution_failure=true
     fi
   done < "$log"

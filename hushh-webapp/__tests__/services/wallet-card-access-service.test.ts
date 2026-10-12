@@ -45,3 +45,11 @@ it("reports service unavailability without exposing backend diagnostics", async 
   mocks.fetch.mockResolvedValue(new Response("internal diagnostic", { status: 503 }));
   await expect(WalletCardAccessService.state(context, "card_1")).rejects.toThrow("Card sharing is temporarily unavailable.");
 });
+it("forwards the history cursor without losing cancellation or owner consent", async () => {
+  const controller = new AbortController();
+  await WalletCardAccessService.state(context, "card_1", controller.signal, "11111111-1111-4111-8111-111111111111");
+  const [url, options] = mocks.fetch.mock.calls[0];
+  expect(url).toContain("/cards/card_1?cursor=11111111-1111-4111-8111-111111111111");
+  expect(options.signal).toBe(controller.signal);
+  expect(options.headers["X-Hushh-Consent"]).toBe(context.vaultOwnerToken);
+});

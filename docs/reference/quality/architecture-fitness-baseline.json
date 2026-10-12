@@ -1445,7 +1445,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
       "symbol": "WalletCardAccessService",
-      "value": 395
+      "value": 431
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -16934,7 +16934,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_encrypted_adk_session_service.py",
       "symbol": null,
-      "value": 804
+      "value": 808
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31160,6 +31160,36 @@
           "after": 1765,
           "source_sha256": "8ed1d31ddb33329ce44f40e7fcdc176847dcc29ae7eff420a5b5e1e69ea4a38b",
           "reason": "Independent client_context review qualifies bounded answer-lane routing and labels, real cold-link negative coverage, and Feed wording. Canonical scope-commerce quote, negative-net acknowledgement and unavailable-provider free-flow controls remain; corrected focused union passes109 cases."
+        }
+      ]
+    },
+    "scope_commerce_wallet_history_main_20261012": {
+      "root_revision": "21172a0df7407488a15026c35b29eeedd3ad24c6",
+      "main_revision": "f7b76b5d4f936589b418192ebeda70ecd7bd9c30",
+      "reviewers": [
+        "backend_context",
+        "client_context",
+        "merge_security_review",
+        "parent"
+      ],
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "boundary": "Exactly two existing backend size slots. Legacy nonrevocable copy inspection remains conditional, collapsed and owner/card/session fenced alongside paginated grants. Retry denial is independently evaluated even on a recognized collision line. Budgets, scanner, exclusions and every unrelated slot remain unchanged.",
+      "slots": [
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/services/wallet_card_access_service.py|WalletCardAccessService|class exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
+          "before": 395,
+          "after": 431,
+          "source_sha256": "cf5fdff98126f702afc6ea1850fe97568e83a89a229b97a967bc69ca4aae9d37",
+          "reason": "Incoming owner/card-scoped cursor pagination retains grant admission, UUID validation, deterministic ties and bounded pages; independently reviewed by backend_context."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_encrypted_adk_session_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_encrypted_adk_session_service.py",
+          "before": 804,
+          "after": 808,
+          "source_sha256": "d8df7111d87f2bfdb0ec2f755a3d41073483d726aa761e1186a0b707bb328c9e",
+          "reason": "Nearest encrypted-session regression protects current-call-bound sole presentation completion while parallel and reaction-first calls continue; independently reviewed by backend_context."
         }
       ]
     }

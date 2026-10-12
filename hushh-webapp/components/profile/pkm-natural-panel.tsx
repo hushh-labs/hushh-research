@@ -1463,7 +1463,7 @@ export function PkmNaturalPanel({
           sharingError={memorySharingError}
           sharingPriceControl={priceSection?.scopeHandle ? <div className="space-y-2 border-t pt-4">
             <p className="text-xs text-muted-foreground">Price applies to requests for the entire {priceSection.label} section. You review the requested scope before approval.</p>
-            <ScopeTariffEditor key={`${user.uid}:${priceSection.scopeHandle}:${selectedCard.domain}:${priceSection.topLevelScopePath}`} scopeHandle={priceSection.scopeHandle} machineScope={consentScopeForPermission(selectedCard.domain, priceSection.topLevelScopePath)} label={priceSection.label} />
+            <ScopeTariffEditor key={`${user.uid}:${priceSection.scopeHandle}:${selectedCard.domain}:${priceSection.topLevelScopePath}`} scopeHandle={priceSection.scopeHandle} machineScope={consentScopeForPermission(selectedCard.domain, priceSection.topLevelScopePath)} label={priceSection.label} showSavedPrice />
           </div> : null}
           canMutate={selectedCard.editable && Boolean(sharingImpacts[cardImpactKey(selectedCard)])}
           saving={memoryActionId === `${selectedCard.id}:edited`}

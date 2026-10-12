@@ -175,6 +175,22 @@ diagnostic negative control. This correction reduces the backend below existing
 ceilings. `scope_commerce_request_lane_main_20261012` records the three exact
 hashes; no other allowance, budget, scanner or payment authority changes.
 
+The subsequent main `f7b76b5d4f` union qualifies two existing backend slots:
+the wallet access class, 395 to 431 lines, and the encrypted-session test module,
+804 to 808. Independent `backend_context` review verifies owner/exact-card cursor
+binding and current-call-bound presentation completion; the nearest combined
+backend suite passes 68 cases. `client_context` review catches lost inspection
+of historical sent copies: their encrypted receipts remain in a conditional,
+collapsed section, fenced to the current owner, card and vault session. These
+copies never establish revocable access. Independent `merge_security_review`
+finds same-line checksum/signature/error denial missing from the imported
+SwiftPM helper; denial now applies independently of collision recognition.
+The actual predecessor fails all three strengthened denial cases. Exactly two
+reviewed backend values change in `scope_commerce_wallet_history_main_20261012`;
+all other findings, scanner rules and 500/250/80 budgets remain unchanged.
+Actual PostgreSQL pagination and hosted native resolution remain separate
+runtime evidence, not claims established by this source review.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.

@@ -28,6 +28,24 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
+- The normal main `f7b76b5d4f` union retains owner/card-scoped sharing-history
+  pagination and current-call-bound presentation completion. Historical sent
+  copies remain separately inspectable in a collapsed section; they cannot
+  establish revocable access and clear on card or vault retirement. All 15
+  nearest wallet cases pass, including disclosure Back, and the actual incoming
+  component fails the receipt-only inspection regression. The imported iOS
+  package-resolution helper now denies checksum/signature/error diagnostics even
+  on a recognized collision line: all 22 nearest cases pass; its actual
+  predecessor fails the three strengthened denial cases. The combined source
+  passes all 447 Back cases, typecheck and architecture with zero regressions.
+  The earlier `d8f3db52b6` full core was cancelled before completion because
+  main advanced; it is not a passing receipt. Fresh complete core, exact-source
+  hosted CI and Dev promotion remain required.
+- Read-only Dev observation at `13:32:37Z` finds the backend advanced independently
+  to `61777c2ca102`, while both funding records remain intact with zero purchases
+  and withdrawals. Primary private Azure setup is still failed with no runtime
+  target; counterpart private Azure remains provisioned. This observation does
+  not establish the continuation interface release or financial acceptance.
 - Incoming main `ee67770aeb` preserves Request scope's own review, selection
   discriminator and readable answer terms, alongside the compact private-agent
   header. Missing-prefix answer rows remain in their own lane and fail the

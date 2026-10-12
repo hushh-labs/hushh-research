@@ -144,8 +144,10 @@ describe("commerce session and review authority", () => {
     const { rerender } = render(<ScopeCommerceBuyerReview quote={quote} balance={0} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
     expect(screen.getByText(/You need 1 Hussh coin \(\$0.01\) more/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Confirm 1 Hussh coin ($0.01) from balance" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Add funds or manage payments in Account" })).toBeVisible();
     expect(purchase).not.toHaveBeenCalled();
     rerender(<ScopeCommerceBuyerReview quote={quote} balance={1} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
+    expect(screen.queryByRole("link", { name: "Add funds or manage payments in Account" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) }));
     expect(purchase).toHaveBeenCalledOnce();
     rerender(<ScopeCommerceBuyerReview quote={quote} balance={1} expired busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
