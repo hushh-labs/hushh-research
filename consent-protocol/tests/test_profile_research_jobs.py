@@ -11,7 +11,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hushh_mcp.services import profile_research_jobs as jobs
-from hushh_mcp.services.chat_key import RequestChatKey, bind_request_chat_key
+from hushh_mcp.services.chat_key import (
+    CHAT_CIPHERTEXT_PREFIX,
+    RequestChatKey,
+    bind_request_chat_key,
+)
 
 RESULT = {
     "status": "offered",
@@ -335,10 +339,21 @@ async def test_research_policy_change_refreshes_draft_without_resetting_paid_bud
 
 @pytest.mark.asyncio
 async def test_new_owner_cannot_read_old_owner_job():
-    instance = manager()
+    async def offer(**kwargs):
+        return {**RESULT, "report": {**RESULT["report"], "name": kwargs["user_id"]}}
+
+    instance = manager(offer=AsyncMock(side_effect=offer))
     await instance.start("owner", "fixture-token")
     await settle(instance)
     assert await instance.status("other", "fixture-token") == jobs.pending(restart=True)
+    await instance.start("other", "other-fixture-token")
+    await settle(instance)
+    # Identical pipeline, independent durable drafts and per-owner budgets.
+    for owner in ("owner", "other"):
+        result = await instance.status(owner, "fresh-fixture-token")
+        assert result["report"]["name"] == owner
+        assert len(instance.store.rows[owner]["starts"]) == 1
+    assert instance.offer.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -451,13 +466,22 @@ class FakeConnection:
         key = params[:3]
         row = self.rows.get(key)
         if sql.strip().startswith("SELECT"):
-            return copy.deepcopy(row)
+            return (
+                copy.deepcopy(row)
+                if row and row["payload_ciphertext"].startswith(params[3].removesuffix("%"))
+                else None
+            )
         if sql.strip().startswith("INSERT"):
             if row:
                 return None
             revision = 1
         else:
-            if not row or row["revision"] != params[7] or row["payload_ciphertext"] != params[8]:
+            if (
+                not row
+                or row["revision"] != params[7]
+                or row["payload_ciphertext"] != params[8]
+                or not row["payload_ciphertext"].startswith(params[9].removesuffix("%"))
+            ):
                 return None
             revision = row["revision"] + 1
         self.rows[key] = dict(
@@ -490,6 +514,8 @@ class FakePool:
 
 @pytest.mark.asyncio
 async def test_real_store_ciphertext_cas_reload_wrong_key_and_namespace_retention():
+    from hushh_mcp.one_adk.encrypted_session_service import EncryptedSessionCheckpointStore
+
     pool = FakePool()
     store = jobs.ProfileResearchJobStore(pool_provider=AsyncMock(return_value=pool))
     holder = RequestChatKey(os.urandom(32))
@@ -499,10 +525,25 @@ async def test_real_store_ciphertext_cas_reload_wrong_key_and_namespace_retentio
         receipt = await store.write("owner", state, None)
         assert receipt
         stored = next(iter(pool.conn.rows.values()))
+        # Migration 249 keeps these marked person-key rows across deployment.
+        assert stored["payload_ciphertext"].startswith(CHAT_CIPHERTEXT_PREFIX)
         assert "Example Person" not in str(stored)
         assert "fixture-token" not in str(stored)
         assert (await store.get("owner"))["result"] == RESULT
         assert await store.get("other") is None
+        # A copied row cannot become another owner's checkpoint.
+        pool.conn.rows[(jobs.NAMESPACE, "other", jobs.SESSION)] = copy.deepcopy(stored)
+        with pytest.raises(PermissionError):
+            await store.get("other")
+        # The same owner's key cannot open a ciphertext copied to another app.
+        other_store = EncryptedSessionCheckpointStore(
+            app_name="one.other.checkpoint.v1",
+            session_id=jobs.SESSION,
+            pool_provider=AsyncMock(return_value=pool),
+        )
+        pool.conn.rows[(other_store.app_name, "owner", jobs.SESSION)] = copy.deepcopy(stored)
+        with pytest.raises(PermissionError):
+            await other_store.get("owner")
         # Deletion/recreation at revision1 cannot admit an old generation.
         pool.conn.rows.clear()
         replacement = await store.write("owner", state, None)
@@ -510,8 +551,23 @@ async def test_real_store_ciphertext_cas_reload_wrong_key_and_namespace_retentio
         assert await store.write("owner", state, receipt) is None
         await store.purge_expired()
         sql, params = pool.conn.queries[-1]
-        assert params == (jobs.NAMESPACE,)
+        assert params == (jobs.NAMESPACE, jobs.SESSION, CHAT_CIPHERTEXT_PREFIX + "%")
         assert "24 hours" in sql and "LIMIT 500" in sql
+        assert "app_name=$1 AND session_id=$2 AND payload_ciphertext LIKE $3" in sql
+        assert "AND payload_ciphertext LIKE $3\n" in sql
+        # Legacy rows remain invisible and cannot be resealed or overwritten.
+        legacy = {**stored, "payload_ciphertext": "legacy-platform-key-row", "revision": 1}
+        pool.conn.rows[(jobs.NAMESPACE, "owner", jobs.SESSION)] = legacy
+        assert await store.get("owner") is None
+        assert await store.write("owner", state, None) is None
+        assert (
+            await store.write(
+                "owner", state, {"revision": 1, "fence": legacy["payload_ciphertext"]}
+            )
+            is None
+        )
+        assert pool.conn.rows[(jobs.NAMESPACE, "owner", jobs.SESSION)] == legacy
+        pool.conn.rows[(jobs.NAMESPACE, "owner", jobs.SESSION)] = stored
     wrong = RequestChatKey(os.urandom(32))
     wrong.bind_owner("owner")
     with bind_request_chat_key(wrong), pytest.raises(PermissionError):

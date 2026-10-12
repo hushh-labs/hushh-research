@@ -21,14 +21,14 @@ from starlette.concurrency import run_in_threadpool
 
 from db.connection import get_pool
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
-from hushh_mcp.one_adk.encrypted_session_service import session_payload_aad
+from hushh_mcp.one_adk.encrypted_session_service import EncryptedSessionCheckpointStore
 from hushh_mcp.one_adk.profile_research import (
     MAX_DISCOVERY_ATTEMPTS,
     MAX_STORED_COMBINATIONS,
     profile_research_policy_fingerprint,
 )
 from hushh_mcp.runtime_settings import one_profile_research_enabled
-from hushh_mcp.services.chat_key import ChatCipher, get_chat_key_provider, retain_request_chat_key
+from hushh_mcp.services.chat_key import get_chat_key_provider, retain_request_chat_key
 from hushh_mcp.services.magic_intelligence_admission import magic_intelligence_owner_admitted
 from hushh_mcp.services.magic_intelligence_completion import magic_intelligence_saved
 from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
@@ -83,92 +83,13 @@ async def admission(user_id: str, consent_token: str) -> tuple[dict[str, Any] | 
     return None, binding
 
 
-class ProfileResearchJobStore:
-    """One ciphertext row per owner; revision CAS fences old workers."""
+class ProfileResearchJobStore(EncryptedSessionCheckpointStore):
+    """Bind discovery to its dedicated checkpoint; storage stays canonical."""
 
     def __init__(self, *, pool_provider=get_pool, cipher=None):
-        self.pool_provider = pool_provider
-        self.cipher = cipher or ChatCipher()
-
-    def encode(self, user_id: str, state: dict[str, Any]):
-        return self.cipher.seal(
-            json.dumps(state, separators=(",", ":")),
-            owner_id=user_id,
-            aad=session_payload_aad(NAMESPACE, SESSION),
+        super().__init__(
+            app_name=NAMESPACE, session_id=SESSION, pool_provider=pool_provider, cipher=cipher
         )
-
-    async def get(self, user_id: str) -> dict[str, Any] | None:
-        pool = await self.pool_provider()
-        async with pool.acquire(timeout=8) as conn:
-            row = await conn.fetchrow(
-                """SELECT payload_ciphertext,payload_iv,payload_tag,payload_algorithm,revision
-                   FROM one_adk_sessions WHERE app_name=$1 AND user_id=$2 AND session_id=$3""",
-                NAMESPACE,
-                user_id,
-                SESSION,
-                timeout=8,
-            )
-        if not row:
-            return None
-        state = json.loads(
-            self.cipher.open(
-                dict(row), "payload", owner_id=user_id, aad=session_payload_aad(NAMESPACE, SESSION)
-            )
-        )
-        return {**state, "revision": int(row["revision"]), "fence": row["payload_ciphertext"]}
-
-    async def write(
-        self, user_id: str, state: dict[str, Any], expected: dict | None
-    ) -> dict | None:
-        payload = self.encode(user_id, state)
-        pool = await self.pool_provider()
-        async with pool.acquire(timeout=8) as conn:
-            if expected is None:
-                row = await conn.fetchrow(
-                    """INSERT INTO one_adk_sessions
-                       (app_name,user_id,session_id,payload_ciphertext,payload_iv,payload_tag,payload_algorithm)
-                       VALUES ($1,$2,$3,$4,$5,$6,$7)
-                       ON CONFLICT (app_name,user_id,session_id) DO NOTHING RETURNING revision""",
-                    NAMESPACE,
-                    user_id,
-                    SESSION,
-                    payload.ciphertext,
-                    payload.iv,
-                    payload.tag,
-                    payload.algorithm,
-                    timeout=8,
-                )
-            else:
-                row = await conn.fetchrow(
-                    """UPDATE one_adk_sessions SET payload_ciphertext=$4,payload_iv=$5,
-                       payload_tag=$6,payload_algorithm=$7,revision=revision+1,updated_at=NOW()
-                       WHERE app_name=$1 AND user_id=$2 AND session_id=$3 AND revision=$8
-                       AND payload_ciphertext=$9
-                       RETURNING revision""",
-                    NAMESPACE,
-                    user_id,
-                    SESSION,
-                    payload.ciphertext,
-                    payload.iv,
-                    payload.tag,
-                    payload.algorithm,
-                    expected["revision"],
-                    expected["fence"],
-                    timeout=8,
-                )
-        return {"revision": int(row["revision"]), "fence": payload.ciphertext} if row else None
-
-    async def purge_expired(self) -> None:
-        pool = await self.pool_provider()
-        async with pool.acquire(timeout=8) as conn:
-            await conn.execute(
-                """DELETE FROM one_adk_sessions WHERE (app_name,user_id,session_id) IN (
-                   SELECT app_name,user_id,session_id FROM one_adk_sessions WHERE app_name=$1
-                   AND updated_at < NOW() - INTERVAL '24 hours' LIMIT 500 FOR UPDATE SKIP LOCKED)
-                   AND updated_at < NOW() - INTERVAL '24 hours'""",
-                NAMESPACE,
-                timeout=8,
-            )
 
 
 class ProfileResearchJobs:

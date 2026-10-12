@@ -1101,8 +1101,12 @@ resume wakes one status read, with no total browser discovery deadline.
 
 The existing `one_adk_sessions` table stores one person-key encrypted draft per
 owner under `one.magic.discovery.v1/profile`, not a profile authority or PKM
-write. Revision plus exact ciphertext CAS fences competing/old workers. Jobs
-have a 200-second execution budget, a 240-second lease and at most three actual
+write. Revision plus exact ciphertext CAS fences competing/old workers. Discovery
+uses the canonical encrypted-session checkpoint store; the discovery adapter
+binds only its namespace and issues no direct session SQL. Reads, updates and
+bounded expiry cleanup accept only marked person-key rows. Cleanup is restricted
+to this exact app/session namespace, never ordinary chat or legacy rows.
+Jobs have a 200-second execution budget, a 240-second lease and at most three actual
 research starts per owner/hour; process admission is bounded to eight jobs.
 The research root and its local Search child apply the task's authored LOW
 thinking policy and 4096-token output cap, rather than provider defaults.
