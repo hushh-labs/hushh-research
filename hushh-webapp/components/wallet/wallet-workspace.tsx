@@ -80,6 +80,7 @@ import {
   walletViewReducer,
 } from "@/lib/wallet/wallet-view-state";
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+import { ONE_AGENT_HEADER_SPACING } from "@/lib/design/one-agent-spacing";
 
 
 const WALLET_TABS = [
@@ -90,7 +91,7 @@ const WALLET_TABS = [
 type WalletTab = "cards" | "add" | "sharing";
 
 /** One column for header and content, so both share a start line. */
-const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-1.5 sm:space-y-3.5";
+const WALLET_COLUMN = `mx-auto w-full max-w-[820px] ${ONE_AGENT_HEADER_SPACING}`;
 
 const CARD_SLOT_RADIUS = { borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})` };
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { ONE_AGENT_CARD_PADDING, ONE_AGENT_HEADER_SPACING, ONE_AGENT_SECTION_SPACING, ONE_AGENT_SHELL_SPACING } from "@/lib/design/one-agent-spacing";
+
 import {
   createContext,
   useContext,
@@ -41,7 +43,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const RIA_AGENT_HEADER_CLASSNAME =
-  "[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center";
+  "[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center";
 
 const RiaPrimaryWorkspaceContext = createContext(false);
 
@@ -72,8 +74,8 @@ export function RiaPrimaryWorkspaceShell({
 
   return (
     <RiaPrimaryWorkspaceContext.Provider value>
-      <AppPageShell as="main" fitContent width="agent">
-        <AppPageHeaderRegion className="pt-2 sm:pt-3">
+      <AppPageShell as="main" fitContent width="agent" className={ONE_AGENT_SHELL_SPACING}>
+        <AppPageHeaderRegion className={cn(ONE_AGENT_HEADER_SPACING, "pt-2 sm:pt-3")}>
           <PageHeader
             title="Advisor"
             accent="ria"
@@ -81,7 +83,7 @@ export function RiaPrimaryWorkspaceShell({
             actionsInlineMobile
             className={RIA_AGENT_HEADER_CLASSNAME}
           />
-          <RiaRouteSelector className="mt-4 sm:mt-5" />
+          <RiaRouteSelector />
         </AppPageHeaderRegion>
         {children}
       </AppPageShell>
@@ -167,10 +169,10 @@ export function RiaPageShell({
       as="main"
       fitContent
       width={width}
-      className={className}
+      className={cn(ONE_AGENT_SHELL_SPACING, className)}
       nativeTest={nativeTest}
     >
-      <AppPageHeaderRegion className={cn("pt-2 sm:pt-3", headerClassName)}>
+      <AppPageHeaderRegion className={cn(ONE_AGENT_HEADER_SPACING, "pt-2 sm:pt-3", headerClassName)}>
         <PageHeader
           eyebrow={eyebrow}
           title={title}
@@ -187,7 +189,7 @@ export function RiaPageShell({
           }
         />
         {showRouteSelector ? (
-          <RiaRouteSelector className="mt-4 sm:mt-5" />
+          <RiaRouteSelector />
         ) : null}
       </AppPageHeaderRegion>
 
@@ -305,7 +307,7 @@ export function RiaStatusPanel({
   return (
     <RiaSurface
       accent="ria"
-      className={cn("space-y-5 p-5 sm:p-6", className)}
+      className={cn(ONE_AGENT_SECTION_SPACING, ONE_AGENT_CARD_PADDING, className)}
       data-testid={dataTestId}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">

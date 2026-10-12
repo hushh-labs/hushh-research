@@ -1,5 +1,7 @@
 "use client";
 
+import { ONE_AGENT_HEADER_SPACING, ONE_AGENT_SHELL_SPACING } from "@/lib/design/one-agent-spacing";
+
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -108,7 +110,7 @@ export function KaiMarketHubPage() {
       as="div"
       fitContent
       width="agent"
-      className="relative"
+      className={`relative ${ONE_AGENT_SHELL_SPACING}`}
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -118,13 +120,13 @@ export function KaiMarketHubPage() {
       }}
     >
       <AppPageHeaderRegion
-        className="space-y-3.5 sm:space-y-3.5"
+        className={ONE_AGENT_HEADER_SPACING}
         data-finance-workspace-header="true"
       >
         <PageHeader
           title="Finance"
           titleRole="agent"
-          className="ms-[var(--page-inline-gutter-standard)]"
+          className="[&>div:first-child]:!gap-2.5"
         />
         <TopShellTabs
           tabSet={{ ...FINANCE_TAB_DEFINITION, activeValue: visibleTab }}
@@ -140,7 +142,7 @@ export function KaiMarketHubPage() {
         holdHeightDuringTransition={false}
         panelInset="none"
         viewportMinHeight="fill"
-        className="mt-3.5 sm:mt-3.5"
+        className="mt-1.5 sm:mt-3.5"
       >
         <div className="w-full">
           <AppPageContentRegion>

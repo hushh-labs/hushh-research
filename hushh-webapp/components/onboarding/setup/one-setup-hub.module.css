@@ -17,7 +17,7 @@
 }
 
 .setupContent.setupContent {
-  margin-top: 24px;
+  margin-top: 0;
 }
 
 /* Focused checklist — one grouped white list with inset hairlines. */
@@ -67,6 +67,10 @@
 }
 
 @media (min-width: 640px) {
+  .setupContent.setupContent {
+    margin-top: 6px;
+  }
+
   .setupHeader :global(h1),
   .stepHeader :global(h1) {
     font-size: 1.95rem !important;

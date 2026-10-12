@@ -8131,3 +8131,31 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     opacity: 0;
   }
 }
+.app-page-shell.one-agent-shell-spacing,
+[data-one-product-spacing="true"] .app-page-shell {
+  /* Opt-in Location rhythm. Keep gutters, dimensions, typography and chrome
+     with their existing owners. This follows the compact-density rules so
+     they cannot silently replace the workspace's chosen spacing. */
+  --page-header-section-gap: 0px;
+  --surface-stack-gap-standard: 6px;
+  --surface-stack-gap-compact: 6px;
+  --surface-card-header-px: 12px;
+  --surface-card-header-pt: 12px;
+  --surface-card-content-px: 12px;
+  --surface-card-content-pb: 12px;
+  --surface-inset-p: 12px;
+}
+
+@media (min-width: 640px) {
+  .app-page-shell.one-agent-shell-spacing,
+[data-one-product-spacing="true"] .app-page-shell {
+    --page-header-section-gap: 6px;
+    --surface-stack-gap-standard: 14px;
+    --surface-stack-gap-compact: 14px;
+  }
+}
+
+.app-page-shell.one-agent-shell-spacing [data-slot="page-header"] > div:first-child,
+[data-one-product-spacing="true"] .app-page-shell [data-slot="page-header"] > div:first-child {
+  gap: 10px;
+}

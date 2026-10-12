@@ -1,5 +1,7 @@
 "use client";
 
+import { ONE_AGENT_HEADER_SPACING, ONE_AGENT_SHELL_SPACING } from "@/lib/design/one-agent-spacing";
+
 import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
@@ -3614,13 +3616,13 @@ export function ConsentCenterPage() {
     setPreviousLocalPage,
   );
   return (
-    <AppPageShell as="main" width="agent" fitContent>
-      <AppPageHeaderRegion className="space-y-3.5 sm:space-y-3.5">
+    <AppPageShell as="main" width="agent" fitContent className={ONE_AGENT_SHELL_SPACING}>
+      <AppPageHeaderRegion className={ONE_AGENT_HEADER_SPACING}>
         <PageHeader title="Consent Center" titleRole="agent" />
         <TopShellTabs tabSet={consentTabSet} />
       </AppPageHeaderRegion>
       <SettingsPresentationProvider density="compact">
-        <AppPageContentRegion className="!mt-3.5 sm:!mt-3.5">
+        <AppPageContentRegion className="!mt-0 sm:!mt-1.5">
           <section data-testid="consent-manager-primary" className="min-h-0">
             <section data-testid="consent-manager-list">
               <SettingsGroup

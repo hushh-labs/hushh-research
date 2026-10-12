@@ -86,6 +86,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { LocationPermissionRecoveryCard } from "@/components/one-location/location-permission-recovery-card";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { ONE_AGENT_HEADER_SPACING } from "@/lib/design/one-agent-spacing";
 import {
   ButtonLabel,
   CardTitle,
@@ -1851,7 +1852,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return renderLocationSurface(
     <div
       data-location-hub
-      className="mx-auto w-full max-w-[820px] space-y-1.5 sm:space-y-3.5"
+      className={`mx-auto w-full max-w-[820px] ${ONE_AGENT_HEADER_SPACING}`}
     >
       <PageHeader
         title="Location"

@@ -187,7 +187,7 @@ export function OnboardingCapabilityStep({
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion>
+      <AppPageContentRegion className="!mt-0 sm:!mt-1.5">
         <div className="space-y-4">
           <SettingsGroup
             testId="one-setup-capability-details"

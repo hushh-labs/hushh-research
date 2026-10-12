@@ -68,7 +68,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
             accent="neutral"
           />
         </AppPageHeaderRegion>
-        <AppPageContentRegion>
+        <AppPageContentRegion className="!mt-0 sm:!mt-1.5">
           <VaultStatusInline className="mb-3 px-1" />
           <ConnectedSystemsPanel
             cacheUserId={user?.uid}

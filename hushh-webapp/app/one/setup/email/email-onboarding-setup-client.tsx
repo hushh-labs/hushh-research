@@ -246,7 +246,7 @@ export function EmailOnboardingSetupClient() {
           accent="neutral"
         />
       </AppPageHeaderRegion>
-      <AppPageContentRegion>
+      <AppPageContentRegion className="!mt-0 sm:!mt-1.5">
         <SettingsGroup
           title="Response preparation"
           description="One finds requests. You approve every reply."
