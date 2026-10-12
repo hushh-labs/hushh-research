@@ -182,6 +182,24 @@ if [[ "${_PKM_ANSWER_STRIPE_MODE}" != "test" && "${_PKM_ANSWER_STRIPE_MODE}" != 
   echo "Answer Stripe mode must be test or live." >&2; exit 1
 fi
 source deploy/drive/verify_hashcoin_config.sh "$PROJECT_ID"
+# Pack the related application flags to stay below Cloud Build's env cap.
+# Validate shape and booleans before any cloud mutation; never evaluate values.
+IFS=',' read -r -a _app_surface_pairs <<< "${_APP_SURFACE_SETTINGS:?missing application surface settings}"
+[[ "${#_app_surface_pairs[@]}" == 3 ]] || { echo "Application surface settings require three keys." >&2; exit 1; }
+_app_surface_seen="|"
+for _pair in "${_app_surface_pairs[@]}"; do
+  [[ "${_pair}" == *=* ]] || { echo "Invalid application surface setting." >&2; exit 1; }
+  _key="${_pair%%=*}"; _value="${_pair#*=}"
+  [[ "${_app_surface_seen}" != *"|${_key}|"* ]] || { echo "Duplicate application surface key." >&2; exit 1; }
+  _app_surface_seen+="${_key}|"
+  case "${_value}" in ""|true|false) ;; *) echo "Invalid application surface boolean." >&2; exit 1 ;; esac
+  case "${_key}" in
+    review) _APP_REVIEW_MODE="${_value}" ;;
+    wallet) _ONE_WALLET_CARD_ENABLED="${_value}" ;;
+    card_access) _WALLET_CARD_ACCESS_ENABLED="${_value}" ;;
+    *) echo "Unknown application surface key." >&2; exit 1 ;;
+  esac
+done
 # The account-deletion cleanup scheduler identity travels as one packed Cloud
 # Build entry (the step is at Cloud Build's 100-entry env cap). Both keys must be
 # present, even when empty, so a typo cannot silently drop the OIDC audience.
@@ -455,6 +473,7 @@ append_optional_env "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_
 append_optional_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
 append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
 append_optional_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
+append_optional_env "WALLET_CARD_ACCESS_ENABLED" "${_WALLET_CARD_ACCESS_ENABLED}"
 append_optional_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
 append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
 # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the proven

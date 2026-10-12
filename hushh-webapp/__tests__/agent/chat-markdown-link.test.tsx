@@ -51,6 +51,34 @@ describe("ChatMarkdownLink", () => {
   });
 });
 describe("chat link policy", () => {
+  it("refuses native HTTP proxy navigation while retaining ordinary app and source links", () => {
+    for (const href of [
+      "/_capacitor_http_interceptor_?u=https://evil.example",
+      "/one/../_capacitor_http_interceptor_?u=https://evil.example",
+      "/%5fcapacitor_http_interceptor_?u=https://evil.example",
+      "/%5fcapacitor_http_interceptor_%FF",
+      "/%5fcapacitor_http_interceptor_%",
+      "https://localhost/_capacitor_http_interceptor_?u=https://evil.example",
+      "https://example.com/_capacitor_http_interceptor_/payload",
+    ]) {
+      expect(classifyChatHref(href), href).toBe("unsafe");
+      expect(chatUrlTransform(href), href).toBe("");
+    }
+    render(
+      <AgentMarkdown text="[blocked](/_capacitor_http_interceptor_?u=https://evil.example) [profile](/one/profile) [source](https://example.com)" />,
+    );
+    expect(screen.queryByRole("link", { name: "blocked" })).toBeNull();
+    expect(screen.getByText("blocked")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "profile" })).toHaveAttribute(
+      "href",
+      "/one/profile",
+    );
+    expect(screen.getByRole("link", { name: "source" })).toHaveAttribute(
+      "href",
+      "https://example.com",
+    );
+  });
+
   it("allows only http, https, mailto, tel, app paths and in-answer anchors", () => {
     expect(classifyChatHref("https://example.com")).toBe("external");
     expect(classifyChatHref("http://example.com")).toBe("external");

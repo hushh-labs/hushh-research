@@ -18158,7 +18158,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
       "symbol": null,
-      "value": 9922
+      "value": 9945
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21533,7 +21533,7 @@
       "limit": 500,
       "path": "scripts/deploy/backend-deploy.sh",
       "symbol": null,
-      "value": 1011
+      "value": 1030
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32465,6 +32465,33 @@
           "after": 703,
           "source_sha256": "c2c9a0663ad8cfddfb9bf437e405a12ff6a3de7087496ad292f02561801f461e",
           "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        }
+      ]
+    },
+    "final_native_and_wallet_repair_20261011": {
+      "date": "2026-10-11T23:46:19.857920+00:00",
+      "main_revision": "3c47412f77f02d5f569bd3056d6bda7f885054bf",
+      "source_parent": "e4b3dfc1ffb69466fc7fe6b5784bfa1f333e618c",
+      "reviewers": [
+        "main_ui_fitness_review",
+        "pipeline_convergence_review"
+      ],
+      "changes": [
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/one-location-agent-page.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "before": 9922,
+          "after": 9945,
+          "source_sha256": "9dbaca905a900ee4e43d912f4bbede06f91ab9af3053ff28063fea7f99014a7b",
+          "reason": "Independently reviewed fixture isolation: completed-onboarding setup, timer teardown, owned deferred grant and exact compensating revocation; no production or timeout changes."
+        },
+        {
+          "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
+          "path": "scripts/deploy/backend-deploy.sh",
+          "before": 1011,
+          "after": 1030,
+          "source_sha256": "e675cb2250778d87a5c660f47deee208fbce779aa782cc98cbbfcb2fafab3fe6",
+          "reason": "Independently reviewed final main Wallet flag composition: compact three application booleans into one validated Cloud Build entry; 99 env entries, unchanged cap and rollback joins; 33 focused cases pass."
         }
       ]
     }
