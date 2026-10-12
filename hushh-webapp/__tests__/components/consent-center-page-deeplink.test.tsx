@@ -204,6 +204,15 @@ vi.mock("@/lib/cache/request-audit-log", () => ({
   logRequestAudit: vi.fn(),
 }));
 
+// These cases exercise route entry and consent events. The independently
+// tested pending-request poll uses an aligned wall clock and can fire just
+// after mount, making a bookkeeping event look like it triggered a fetch.
+// Keep that timer out of these call-count assertions; leave event handling real.
+vi.mock("@/lib/feed/use-feed-live-refresh", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/feed/use-feed-live-refresh")>(),
+  useFeedPendingConsentRefresh: vi.fn(),
+}));
+
 vi.mock("@/lib/services/cache-service", () => ({
   CacheService: {
     getInstance: () => ({

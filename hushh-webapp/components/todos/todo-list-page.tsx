@@ -818,6 +818,7 @@ export function TodoListPage() {
     <AppPageShell
       as="main"
       width="reading"
+      headerContentSpacing="compact"
       className="min-h-full bg-transparent pb-16"
       nativeTest={{
         routeId: "/one/todos",
@@ -833,7 +834,7 @@ export function TodoListPage() {
       }}
     >
       <AppPageHeaderRegion>
-        <div className="flex items-end justify-between gap-4 px-1 pb-4 pt-2 sm:px-0">
+        <div className="flex items-end justify-between gap-4 px-1 sm:px-0">
           <div>
             <p className="text-[13px] font-medium text-muted-foreground">
               {new Intl.DateTimeFormat(undefined, {

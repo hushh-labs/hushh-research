@@ -112,7 +112,7 @@ export function PkmSettingsShell({
   }, [pathname]);
 
   return (
-    <AppPageShell as="div" width={shellWidth}>
+    <AppPageShell as="div" width={shellWidth} headerContentSpacing={titleRole === "agent" ? "compact" : "standard"}>
       <AppPageHeaderRegion>
         <div className={cn("w-full", innerClassName)}>
           <PageHeader
