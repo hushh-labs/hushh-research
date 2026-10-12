@@ -5,6 +5,7 @@ import {
   transitionConnectionsDrawer,
   type ConnectionsDrawerMode,
 } from "../../components/agent/agent-connections-drawer";
+import { OneAgentProfileSheet } from "../../components/agent/one-agent-profile-sheet";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
@@ -193,10 +194,14 @@ function Fixture() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const transcriptRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
+  const [gestureEnabled, setGestureEnabled] = useState(true);
+  Object.assign(window, { __setHistoryGestureEnabled: setGestureEnabled });
   const [mode, setMode] = useState<ConnectionsDrawerMode>("chats");
   const [external, setExternal] = useState(false);
   const [draft, setDraft] = useState("");
   const [turns, setTurns] = useState(1);
+  const [oneProfileOpen, setOneProfileOpen] = useState(false);
+  const oneProfileTrigger = useRef<HTMLButtonElement>(null);
   const changeOpen = (nextOpen: boolean) => {
     const next = transitionConnectionsDrawer(
       { open, mode }, { type: "set-open", open: nextOpen },
@@ -223,9 +228,11 @@ function Fixture() {
       >
         Open drawer
       </button>
+      {new URLSearchParams(window.location.search).has("one-profile") ? <button ref={oneProfileTrigger} onClick={() => setOneProfileOpen(true)}>Open One profile</button> : null}
+      <OneAgentProfileSheet open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
       <AgentConnectionsDrawer
         gestureSurfaceRef={transcriptRef}
-        gestureEnabled
+        gestureEnabled={gestureEnabled}
         triggerRef={triggerRef}
         open={open}
         onOpenChange={changeOpen}

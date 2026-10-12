@@ -75,6 +75,7 @@ async def test_stalled_live_preserves_slower_command_verdicts(
 ) -> None:
     monkeypatch.delenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", raising=False)
     monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", raising=False)
     spec = importlib.util.spec_from_file_location("readiness_timeout_test", SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -147,7 +148,9 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     monkeypatch.setattr(
         OneVoiceLiveConfig,
         "from_environment",
-        lambda: SimpleNamespace(enabled=True, model_id="synthetic", location="us-central1"),
+        lambda: SimpleNamespace(
+            enabled=True, model_id="synthetic", location="us-central1", vertex_project=None
+        ),
     )
     monkeypatch.setattr(
         factory,
@@ -184,7 +187,8 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     spec.loader.exec_module(module)
 
     monkeypatch.setenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", "hussh-511311")
-    monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "one_chat")
+    monkeypatch.delenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", raising=False)
+    monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "scoped")
     monkeypatch.setattr(
         module,
         "_managed_manifest_models",
@@ -242,3 +246,41 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
         assert chat_probe["classification"] == expected_classification
         assert report["classification"] == expected_classification
         assert report["candidate_models_exercised"] is (scenario != "billing_denied")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("connects", [True, False])
+async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
+    monkeypatch: pytest.MonkeyPatch, connects: bool
+) -> None:
+    spec = importlib.util.spec_from_file_location("voice_vertex_readiness_test", SCRIPT_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
+    monkeypatch.setenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", "hussh-511311")
+    monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "scoped")
+    monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
+    monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", "gemini-live-2.5-flash-native-audio")
+    monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")
+    seen = []
+
+    @asynccontextmanager
+    async def connect(**kwargs):
+        seen.append(kwargs)
+        if not connects:
+            raise RuntimeError("Billing is not enabled")
+        yield None
+
+    def build_client(**kwargs):
+        assert kwargs["vertex_project"] == "hussh-511311"
+        return SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
+
+    from hushh_mcp.runtime_providers import factory
+
+    monkeypatch.setattr(factory, "build_managed_live_client", build_client)
+    report = await module.main()
+    assert report["one_voice_project"] == "hussh-511311"
+    assert report["one_voice_probe_ok"] is connects
+    assert report["ok"] is connects
+    assert seen and seen[0]["model"] == "gemini-live-2.5-flash-native-audio"

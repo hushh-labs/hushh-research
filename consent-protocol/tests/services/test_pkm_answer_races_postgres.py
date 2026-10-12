@@ -46,7 +46,7 @@ def payments_enabled(monkeypatch):
     clear_runtime_settings_caches()
 
 
-async def _approved(engine, amount=1000):
+async def _approved(engine, amount=1000, *, prepared=False):
     service, request_id = await _ask(engine, StubResolver(["attr.travel.trips"]))
     approved = await service.approve(
         owner_user_id=OWNER,
@@ -55,6 +55,8 @@ async def _approved(engine, amount=1000):
         amount_cents=amount,
         model_processing_consent=True,
     )
+    if prepared:
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
     return service, request_id, approved["termsDigest"]
 
 
@@ -204,8 +206,36 @@ class TestRepeatedCheckoutThroughTheService:
                 {"r": request_id, "d": "c" * 64},
             )
 
+    async def test_the_payment_intent_carries_the_routing_kind_too(self, answer_engine):  # noqa: F811
+        """One Stripe endpoint routes on `data.object.metadata.payment_kind`.
+
+        A payment_intent or charge event carries the INTENT's metadata, not the
+        session's. Tagging only the session left those events routed to no lane
+        at all: the endpoint answered Stripe `{"received": true}` and settled
+        nothing -- the requester's money taken and no answer owed, which is the
+        exact failure the dispatcher's own comment warns about. Observed in UAT
+        as webhooks returning 200 with zero SQL.
+        """
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
+        from hushh_mcp.services.pkm_answer_payment_service import (
+            PAYMENT_KIND,
+            PkmAnswerPaymentService,
+        )
+
+        api = self._stripe()
+        payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
+        await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+
+        kwargs = api.checkout.Session.create.call_args.kwargs
+        assert kwargs["metadata"]["payment_kind"] == PAYMENT_KIND
+        intent = kwargs["payment_intent_data"]
+        assert intent["metadata"]["payment_kind"] == PAYMENT_KIND
+        assert intent["metadata"]["request_id"] == str(request_id)
+        # The transfer group the payout lane reads must survive beside it.
+        assert intent["transfer_group"] == f"pkm-answer:{request_id}"
+
     async def test_an_unchanged_live_session_is_reused_not_reminted(self, answer_engine):  # noqa: F811
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
 
         api = self._stripe()
@@ -223,7 +253,7 @@ class TestRepeatedCheckoutThroughTheService:
         self,
         answer_engine,  # noqa: F811
     ):
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
 
         api = self._stripe()
@@ -257,7 +287,7 @@ class TestRepeatedCheckoutThroughTheService:
         that payment -- it carries a superseded attempt id -- so the money is
         taken with no order to settle, no answer owed and no refund filed.
         """
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import (
             AnswerPaymentError,
             PkmAnswerPaymentService,
@@ -297,7 +327,7 @@ class TestRepeatedCheckoutThroughTheService:
         answer_engine,  # noqa: F811
     ):
         """A failed expire is not a verdict: the session's own state is."""
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
 
         api = self._stripe()
@@ -324,7 +354,7 @@ class TestRepeatedCheckoutThroughTheService:
         payment they already made. Neither: refuse, and let the webhook settle
         the order that is still bound to that session.
         """
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import (
             AnswerPaymentError,
             PkmAnswerPaymentService,
@@ -358,7 +388,7 @@ class TestRepeatedCheckoutThroughTheService:
     async def test_an_already_paid_order_refuses_another_checkout(self, answer_engine):  # noqa: F811
         # Two guards stand in front of a second charge. This one is the inner
         # order check: the request is still 'approved' but the order is paid.
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         _mark_paid(answer_engine, request_id, digest)
         with answer_engine.begin() as connection:
             connection.execute(
@@ -380,7 +410,7 @@ class TestRepeatedCheckoutThroughTheService:
     async def test_a_request_already_being_answered_refuses_a_checkout(self, answer_engine):  # noqa: F811
         # And the outer guard: once paid, the request leaves 'approved', so a
         # late checkout attempt is refused before the order is even read.
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         _mark_paid(answer_engine, request_id, digest)
         from hushh_mcp.services.pkm_answer_payment_service import (
             AnswerPaymentError,
@@ -1096,3 +1126,57 @@ class TestDisabledLane:
         assert await worker.run_timeouts() == {"disabled": 1}
         assert await worker.run_refunds() == {"disabled": 1}
         assert await worker.run_payouts() == {"disabled": 1}
+
+
+class TestStagedAnswerIsWithheldUntilPaid:
+    """Preparing the answer at approval, and releasing it only for money.
+
+    The owner's device prepares the answer while it is unlocked and present,
+    so nobody is asked to pay for an answer that turns out not to exist. That
+    moves the envelope into the database BEFORE the money, and the envelope is
+    sealed to the requester's own key -- so the read gate is the only thing
+    between them and a free answer. These hold that line.
+    """
+
+    async def test_a_staged_answer_cannot_be_read_before_payment(self, answer_engine):  # noqa: F811
+        service, request_id, _ = await _approved(answer_engine)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+
+        # Staged, not delivered: the request has not moved and nothing is owed.
+        with answer_engine.begin() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT status FROM pkm_answer_requests WHERE request_id=:r"),
+                    {"r": request_id},
+                ).scalar()
+                == "approved"
+            )
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM pkm_answer_deliveries WHERE request_id=:r"),
+                    {"r": request_id},
+                ).scalar()
+                == 1
+            )
+
+        with pytest.raises(AnswerRequestError, match="answer_unavailable"):
+            await service.fetch_answer(requester_user_id=REQUESTER, request_id=request_id)
+
+    async def test_an_empty_staged_answer_is_never_offered_for_sale(self, answer_engine):  # noqa: F811
+        from hushh_mcp.services.pkm_answer_payment_service import (
+            AnswerPaymentError,
+            PkmAnswerPaymentService,
+        )
+
+        service, request_id, _ = await _approved(answer_engine)
+        # The approved information yielded nothing. One payment buys one
+        # answer, so there is nothing here to sell and no refund to owe later.
+        await service.deliver(
+            owner_user_id=OWNER,
+            request_id=request_id,
+            envelope=ENVELOPE,
+            has_content=False,
+        )
+        payments = PkmAnswerPaymentService(db=_db(answer_engine))
+        with pytest.raises(AnswerPaymentError, match="answer_not_found"):
+            await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)

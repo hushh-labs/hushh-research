@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 import threading
@@ -137,6 +138,112 @@ class LegacyAdkSessionError(EncryptedAdkSessionUnavailableError):
 def session_payload_aad(app_name: str, session_id: str) -> str:
     binding: str = chat_aad("one_adk_sessions", "payload", f"{app_name}/{session_id}")
     return binding
+
+
+class EncryptedSessionCheckpointStore:
+    """Opaque owner checkpoints behind the canonical person-key storage boundary.
+
+    Trusted feature adapters bind a dedicated app/session namespace; they never
+    issue session SQL themselves. Documents retain their existing sealed shape,
+    and revision plus ciphertext CAS also fences deletion/recreation at revision 1.
+    This port can gain a different adapter without moving checkpoint authority.
+    """
+
+    def __init__(self, *, app_name: str, session_id: str, pool_provider=get_pool, cipher=None):
+        self.app_name = app_name
+        self.session_id = session_id
+        self.pool_provider = pool_provider
+        self.cipher = cipher or ChatCipher()
+
+    def encode(self, user_id: str, state: dict[str, Any]):
+        return self.cipher.seal(
+            json.dumps(state, separators=(",", ":")),
+            owner_id=user_id,
+            aad=session_payload_aad(self.app_name, self.session_id),
+        )
+
+    async def get(self, user_id: str) -> dict[str, Any] | None:
+        pool = await self.pool_provider()
+        async with pool.acquire(timeout=8) as conn:
+            row = await conn.fetchrow(
+                """SELECT payload_ciphertext,payload_iv,payload_tag,payload_algorithm,revision
+                   FROM one_adk_sessions WHERE app_name=$1 AND user_id=$2 AND session_id=$3
+                   AND payload_ciphertext LIKE $4""",
+                self.app_name,
+                user_id,
+                self.session_id,
+                CHAT_CIPHERTEXT_LIKE,
+                timeout=8,
+            )
+        if not row:
+            return None
+        state = json.loads(
+            self.cipher.open(
+                dict(row),
+                "payload",
+                owner_id=user_id,
+                aad=session_payload_aad(self.app_name, self.session_id),
+            )
+        )
+        return {**state, "revision": int(row["revision"]), "fence": row["payload_ciphertext"]}
+
+    async def write(
+        self, user_id: str, state: dict[str, Any], expected: dict | None
+    ) -> dict | None:
+        payload = self.encode(user_id, state)
+        pool = await self.pool_provider()
+        async with pool.acquire(timeout=8) as conn:
+            if expected is None:
+                row = await conn.fetchrow(
+                    """INSERT INTO one_adk_sessions
+                       (app_name,user_id,session_id,payload_ciphertext,payload_iv,payload_tag,payload_algorithm)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7)
+                       ON CONFLICT (app_name,user_id,session_id) DO NOTHING RETURNING revision""",
+                    self.app_name,
+                    user_id,
+                    self.session_id,
+                    payload.ciphertext,
+                    payload.iv,
+                    payload.tag,
+                    payload.algorithm,
+                    timeout=8,
+                )
+            else:
+                row = await conn.fetchrow(
+                    """UPDATE one_adk_sessions SET payload_ciphertext=$4,payload_iv=$5,
+                       payload_tag=$6,payload_algorithm=$7,revision=revision+1,updated_at=NOW()
+                       WHERE app_name=$1 AND user_id=$2 AND session_id=$3 AND revision=$8
+                       AND payload_ciphertext=$9 AND payload_ciphertext LIKE $10
+                       RETURNING revision""",
+                    self.app_name,
+                    user_id,
+                    self.session_id,
+                    payload.ciphertext,
+                    payload.iv,
+                    payload.tag,
+                    payload.algorithm,
+                    expected["revision"],
+                    expected["fence"],
+                    CHAT_CIPHERTEXT_LIKE,
+                    timeout=8,
+                )
+        return {"revision": int(row["revision"]), "fence": payload.ciphertext} if row else None
+
+    async def purge_expired(self) -> None:
+        pool = await self.pool_provider()
+        async with pool.acquire(timeout=8) as conn:
+            await conn.execute(
+                """DELETE FROM one_adk_sessions WHERE (app_name,user_id,session_id) IN (
+                   SELECT app_name,user_id,session_id FROM one_adk_sessions
+                   WHERE app_name=$1 AND session_id=$2 AND payload_ciphertext LIKE $3
+                   AND updated_at < NOW() - INTERVAL '24 hours' LIMIT 500 FOR UPDATE SKIP LOCKED)
+                   AND payload_ciphertext LIKE $3
+                   AND updated_at < NOW() - INTERVAL '24 hours'""",
+                self.app_name,
+                self.session_id,
+                CHAT_CIPHERTEXT_LIKE,
+                timeout=8,
+            )
 
 
 class EncryptedAdkSessionService(BaseSessionService):
@@ -639,6 +746,7 @@ class EncryptedAdkSessionService(BaseSessionService):
 __all__ = [
     "EncryptedAdkSessionService",
     "EncryptedAdkSessionUnavailableError",
+    "EncryptedSessionCheckpointStore",
     "LegacyAdkSessionError",
     "session_payload_aad",
 ]

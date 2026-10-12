@@ -12,6 +12,15 @@ export const KYC_IDENTITY_PKM_DOMAIN = "identity" as const;
 export type KycIdentityProfile = {
   legalName?: string;
   dateOfBirth?: string;
+  /**
+   * Sex, only as the person typed or chose it.
+   *
+   * Optional on purpose, and never derived: not from a name, not from a
+   * pronoun, not from a photo, and never substituted by gender, which is a
+   * different thing about a person. Absent means absent, and a question about
+   * it is answered "not recorded" rather than guessed.
+   */
+  sex?: string;
   citizenshipCountryCode?: string;
   citizenshipCountryName?: string;
   employmentStatus?: KycEmploymentStatus;
@@ -63,6 +72,7 @@ function suppliedIdentityFacts(profile: KycIdentityProfile): string[] {
   return [
     profile.legalName ? `Legal name: ${profile.legalName}` : "",
     profile.dateOfBirth ? `Date of birth: ${profile.dateOfBirth}` : "",
+    profile.sex?.trim() ? `Sex: ${profile.sex.trim()}` : "",
     profile.citizenshipCountryName || profile.citizenshipCountryCode
       ? `Citizenship: ${[profile.citizenshipCountryName, profile.citizenshipCountryCode].filter(Boolean).join(" / ")}` : "",
     profile.employmentStatus ? `Employment status: ${profile.employmentStatus.replaceAll("_", " ")}` : "",

@@ -17,6 +17,8 @@ import type { WalletDemoProfile } from "./wallet-demo-cards";
 import { CONSENT_ACTION_COMPLETE_EVENT, CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { loadWalletSharing, walletSharingKind } from "@/lib/services/wallet-sharing-service";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
+import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
+import { WalletSharingHistory } from "./wallet-sharing-history";
 
 function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
   if (value == null) return "Check access duration in Manage";
@@ -27,7 +29,7 @@ function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
 
 type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: ConsentCenterEntry[]; incompleteRequests?: boolean; error: boolean };
 
-export function WalletSharing({ cardDetails = false, profile, active = true }: { cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean } = {}) {
+export function WalletSharing({ cardDetails = false, profile, active = true, getHistoryContext }: { cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null } = {}) {
   const { user } = useAuth();
   const { vaultKey } = useVault();
   const actions = useConsentActions({ userId: user?.uid });
@@ -153,6 +155,7 @@ export function WalletSharing({ cardDetails = false, profile, active = true }: {
       </figure>
     </section>}
     {!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup(cardDetails ? "Wallet access" : "Shared with", current.grants, true)}
+    {!cardDetails && owner && getHistoryContext ? <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} /> : null}
     <Dialog modal open={Boolean(selection && current && !current.error)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-[420px]" onCloseAutoFocus={event => { event.preventDefault(); reviewTrigger.current?.focus({ preventScroll: true }); }}>
         <DialogHeader><DialogTitle>{selection?.active ? "Manage access" : "Review request"}</DialogTitle><DialogDescription>{selection?.active ? "See what is shared and stay in control." : "Check every detail before sharing."}</DialogDescription></DialogHeader>

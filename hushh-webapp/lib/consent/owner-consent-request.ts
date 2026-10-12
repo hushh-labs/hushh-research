@@ -388,9 +388,9 @@ export function groupActiveConsentEntries(
   >();
   const windows: Array<{ key: string; counterpart: string; anchorMs: number }> =
     [];
-  entries.forEach((entry, index) => {
+  entries.forEach((entry) => {
     if (!isPersonGrant(entry)) {
-      const key = `single:${index}`;
+      const key = `single:${JSON.stringify([entry.kind, entry.id])}`;
       order.push(key);
       groups.set(key, { bundleId: null, members: [entry] });
       return;
@@ -412,7 +412,8 @@ export function groupActiveConsentEntries(
                   ACTIVE_REQUEST_WINDOW_MS,
             );
       if (window) key = window.key;
-      else if (grantedMs === null) key = `single:${index}`;
+      else if (grantedMs === null)
+        key = `single:${JSON.stringify([entry.kind, entry.id])}`;
       else {
         key = `window:${counterpart}:${grantedMs}`;
         windows.push({ key, counterpart, anchorMs: grantedMs });

@@ -72,29 +72,11 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
   const stackId = useId();
   const stackRef = useRef<HTMLDivElement>(null);
   const collectionRef = useRef<HTMLElement>(null);
-  // Identity text can grow with accessibility settings; the payment cards keep
-  // their ISO geometry. Reserve only the profile's additional height in the deck.
-  useEffect(() => {
-    const stack = stackRef.current;
-    const profile = stack?.querySelector<HTMLElement>('[data-agent-card="profile"]');
-    if (!stack || !profile) return;
-    const measure = () => {
-      const extra = Math.max(0, profile.offsetHeight - profile.offsetWidth * 53.98 / 85.6);
-      const value = `${extra}px`;
-      if (stack.style.getPropertyValue("--wallet-profile-extra-height") !== value) stack.style.setProperty("--wallet-profile-extra-height", value);
-    };
-    measure();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(profile);
-    return () => { observer?.disconnect(); stack.style.removeProperty("--wallet-profile-extra-height"); };
-  }, [cards.length]);
-
   const start = useRef<{ x: number; y: number; time: number; cardId?: string } | null>(null);
   const suppressClickUntil = useRef(0);
   const selected = cards.find((card) => card.cardId === selectedCardId) ?? cards[0];
   // The scrolling deck keeps the same order when a card opens or its information updates.
   const displayCards = scrollReveal ? cards : selected ? [selected, ...cards.filter((card) => card !== selected)] : [];
-  const profileRank = displayCards.findIndex(card => card.cardId === "agent-one-profile");
   const depth = Math.min(3, Math.max(0, cards.length - 1));
   const canExpand = cards.length > 1;
   const isExpanded = canExpand && (expanded || scrollReveal);
@@ -289,16 +271,15 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
           >
             {/* In-flow geometry reserves the whole stack; only the cards' transforms animate. */}
             <div aria-hidden="true" style={{ height: isExpanded
-              ? `calc(${cards.length} * 100cqw * 53.98 / 85.6 + var(--wallet-profile-extra-height, 0px) + ${(cards.length - 1) * (scrollReveal ? 36 : 16) + (showDetailsLink ? cards.length * 52 : 0) + (scrollReveal ? 32 : 0)}px)`
-              : `calc(100cqw * 53.98 / 85.6 + ${profileRank === 0 ? "var(--wallet-profile-extra-height, 0px)" : "0px"} + ${depth * 20}px)` }} />
+              ? `calc(${cards.length} * 100cqw * 53.98 / 85.6 + ${(cards.length - 1) * (scrollReveal ? 36 : 16) + (showDetailsLink ? cards.length * 52 : 0) + (scrollReveal ? 32 : 0)}px)`
+              : `calc(100cqw * 53.98 / 85.6 + ${depth * 20}px)` }} />
             <ul className="absolute inset-x-0 top-0 m-0 list-none p-0" aria-label={preview && !renderCard ? "Example cards" : "Your cards"}>
               {cards.map((card) => {
                 const rank = displayCards.indexOf(card);
                 const active = rank === 0;
                 const hidden = !isExpanded && rank > 3;
                 const scale = scrollReveal && !expanded ? (rank ? 1 - Math.min(2, cards.length - 1 - rank) * .035 : 1) : isExpanded ? 1 : 1 - Math.min(rank, 3) * .045;
-                const profileOffset = profileRank >= 0 && rank > profileRank ? "var(--wallet-profile-extra-height, 0px)" : "0px";
-                const y = scrollReveal && !expanded ? (rank ? `calc(100cqw * 53.98 / 85.6 + ${profileOffset} + ${(showDetailsLink ? 52 : 0) + 36 + (rank - 1) * 28}px)` : "0px") : isExpanded ? `calc(${rank} * (100cqw * 53.98 / 85.6 + ${(showDetailsLink ? 52 : 0) + (scrollReveal ? 36 : 16)}px) + ${profileOffset})` : `${(depth - Math.min(rank, depth)) * 20}px`;
+                const y = scrollReveal && !expanded ? (rank ? `calc(100cqw * 53.98 / 85.6 + ${(showDetailsLink ? 52 : 0) + 36 + (rank - 1) * 28}px)` : "0px") : isExpanded ? `calc(${rank} * (100% + ${scrollReveal ? 36 : 16}px))` : `${(depth - Math.min(rank, depth)) * 20}px`;
                 return (
                   <li key={card.cardId} data-gesture-card={card.cardId} data-reveal-rank={rank}
                     className={`absolute inset-x-0 top-0 origin-top ${scrollReveal ? "" : "[transition:transform_300ms_var(--motion-ease-decelerate),opacity_220ms_ease-out]"} motion-reduce:[transition:none] ${!isExpanded && !active ? "[&_[data-testid=wallet-card-face]>span]:invisible" : ""}`}

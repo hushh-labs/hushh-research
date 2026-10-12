@@ -2889,6 +2889,37 @@ class PKMAgentLabService:
         return False
 
     @classmethod
+    def _constrain_profile_review_entity(cls, value: Any) -> Any:
+        """Collapse each entity record to the owner-confirmed profile_fact shape.
+
+        The structure agent may attach extra fields (role, company, institution...)
+        beside summary. Magic Intelligence's client-side save gate
+        (assertExactProfileSelection in profile-research-review.ts) rejects any
+        key outside {summary, observations, kind, status, sources} and fails the
+        whole save. Pin the response to that exact contract here so a faithful
+        echo of the owner's selected statement always survives the round trip,
+        regardless of what the model added. Only the innermost entity value is
+        replaced; the enclosing scope/entities/entity_id keys are untouched so
+        downstream path resolution (businessMemoryEntity) is unaffected.
+        """
+        if isinstance(value, dict):
+            summary = value.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                return {
+                    "summary": summary,
+                    "observations": [summary],
+                    "kind": "profile_fact",
+                    "status": "active",
+                }
+            return {
+                key: cls._constrain_profile_review_entity(child)
+                for key, child in value.items()
+            }
+        if isinstance(value, list):
+            return [cls._constrain_profile_review_entity(item) for item in value]
+        return value
+
+    @classmethod
     def _strip_internal_metadata(
         cls, value: Any, *, business_profile: bool = False, path: tuple[str, ...] = ()
     ) -> tuple[Any, bool]:
@@ -4555,6 +4586,9 @@ class PKMAgentLabService:
         ):
             validation_hints.append("primary_path_defaulted_to_root_scope")
         validation_hints = cls._unique_list(validation_hints)
+
+        if memory_profile == "profile_review_v1" and write_mode != "do_not_save":
+            candidate_payload = cls._constrain_profile_review_entity(candidate_payload)
 
         return {
             "candidate_payload": candidate_payload,

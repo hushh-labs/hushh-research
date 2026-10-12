@@ -43,6 +43,11 @@ test.beforeAll(async () => {
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
+  // The Location reference is selected at runtime rather than imported by
+  // Vite, so include its shipping class in the generated fixture stylesheet.
+  const locationSource = fs.readFileSync(path.join(root, "components/one-location/redesign/location-redesign-hub.tsx"), "utf8");
+  const locationHubClass = locationSource.match(/data-location-hub\s+className="([^"]+)"/)?.[1] ?? "";
+  for (const candidate of scanner.scanFiles([{ content: `<div className="${locationHubClass}" />`, extension: "tsx" }])) candidates.add(candidate);
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "wallet-workspace-"));
   try {
     await build({
@@ -111,7 +116,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; profileDeck?: boolean; profileGallery?: boolean; artworkGallery?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -235,6 +240,9 @@ for (const width of [320, 393, 1440]) {
     const source = fs.readFileSync(path.join(process.cwd(), "components/one-location/redesign/location-redesign-hub.tsx"), "utf8");
     const hubClass = source.match(/data-location-hub\s+className="([^"]+)"/)?.[1];
     const headerClass = source.slice(source.indexOf('title="Location"')).match(/className="([^"]+)"/)?.[1];
+    const route = fs.readFileSync(path.join(process.cwd(), "app/one/location/page.tsx"), "utf8");
+    const activeShell = route.slice(route.indexOf("if (USE_LOCATION_REDESIGN)")).match(/<AppPageShell\s+([^>]+)>/)?.[1] ?? "";
+    const headerContentSpacing = activeShell.match(/headerContentSpacing="(compact|standard)"/)?.[1] ?? "standard";
     expect(hubClass).toBeTruthy();
     expect(headerClass).toBeTruthy();
     const geometry = () => page.evaluate(() => {
@@ -256,10 +264,18 @@ for (const width of [320, 393, 1440]) {
     await expect(page.getByTestId("wallet-card-browser")).toHaveCSS("padding-top", width < 640 ? "20px" : "32px");
     await page.screenshot({ path: testInfo.outputPath(`wallet-${width}.png`) });
     await open(page, width, "light", {}, { shell: true });
-    await page.addScriptTag({ content: `window.__locationReference=${JSON.stringify({ hubClass, headerClass })}` });
+    await page.addScriptTag({ content: `window.__locationReference=${JSON.stringify({ hubClass, headerClass, headerContentSpacing })}` });
     await mount(page, false);
     await expect(page.getByRole("heading", { name: "Location", exact: true })).toBeVisible();
     const location = await geometry();
+    const locationHeaderGap = location.tabs.y - location.header.y - location.header.height;
+    // Location's active hub now consumes the shared compact spacing token.
+    // The 56px tab rail contributes 10px above its visible 36px pill.
+    expect(locationHeaderGap).toBeCloseTo(width < 640 ? 10 : 16, 1);
+    if (width >= 640) {
+      const walletHeaderGap = wallet.tabs.y - wallet.header.y - wallet.header.height;
+      expect(walletHeaderGap).toBeCloseTo(16, 1);
+    }
     if (width < 640) {
       expect(wallet.header.height).toBe(44);
       expect(wallet.header.y).toBe(location.header.y);
@@ -275,6 +291,23 @@ for (const width of [320, 393, 1440]) {
     expect(wallet.titleSize).toBe(location.titleSize);
     if (width >= 640) expect(Math.abs(wallet.titleY - location.titleY)).toBeLessThanOrEqual(0.5);
     expect(wallet.tabWidths).toEqual(location.tabWidths);
+  });
+}
+
+for (const width of [393, 1440]) {
+  test(`Calendar workspace consumes the shared heading gap at ${width}px`, async ({ page }) => {
+    await open(page, width, "light", {}, { shell: true });
+    await page.addScriptTag({ content: "window.__calendarHeading=true;" });
+    await mount(page, false);
+    const action = page.getByRole("button", { name: "Connect your calendar", exact: true });
+    await expect(action).toBeVisible();
+    const measured = await action.evaluate((button) => {
+      const copy = button.closest("section")!.querySelector(":scope > p")!;
+      const rect = button.getBoundingClientRect();
+      return { gap: rect.top - copy.getBoundingClientRect().bottom, height: rect.height };
+    });
+    expect(measured.gap).toBeCloseTo(width < 640 ? 0 : 6, 1);
+    expect(measured.height).toBeGreaterThanOrEqual(44);
   });
 }
 
@@ -888,31 +921,4 @@ test("Wallet sharp onboarding and stacked detail links", async ({ page }) => {
   await page.getByRole("tab", { name: "Sharing", exact: true }).click();
   await expect(page.getByTestId("wallet-sharing-content").locator('figure [data-agent-card="profile"]')).toBeVisible();
   await expect(page.getByTestId("wallet-sharing-content").locator("figure")).toBeInViewport();
-});
-
-for (const width of [320, 375, 390, 430, 768, 1024, 1440]) {
-  test(`premium profile card and preview fit at ${width}px`, async ({ page }, testInfo) => {
-    const errors = await open(page, width, "light", { profileGallery: true });
-    await page.addScriptTag({ content: script });
-    await expect(page.getByTestId("wallet-profile-card")).toHaveCount(3);
-    expect(await page.getByTestId("wallet-profile-card").evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth + 1))).toBe(true);
-    await expect(page.getByRole("img", { name: "Profile QR code: Scan to connect" })).toHaveCount(2);
-    expect(errors).toEqual([]);
-    await page.screenshot({ path: testInfo.outputPath(`profile-${width}.png`), fullPage: true });
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.evaluate(() => { document.documentElement.style.fontSize = "32px"; });
-    expect(await page.getByTestId("wallet-profile-card").evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth + 1))).toBe(true);
-  });
-}
-
-test("premium profile deck reserves enlarged identity text without overlapping the next card", async ({ page }) => {
-  await open(page, 320, "light", { profileDeck: true });
-  await page.addScriptTag({ content: script });
-  await expect(page.getByTestId("wallet-card-face")).toHaveCount(3);
-  await page.evaluate(() => { document.documentElement.style.fontSize = "32px"; });
-  await expect.poll(() => page.getByTestId("wallet-card-face").evaluateAll(cards => {
-    const profile = cards[0].getBoundingClientRect();
-    const next = cards[1].getBoundingClientRect();
-    return next.top - profile.bottom;
-  })).toBeGreaterThanOrEqual(15);
 });

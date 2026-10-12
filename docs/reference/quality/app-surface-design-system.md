@@ -190,6 +190,16 @@ primitives, and surfaces that use it are conformant.
 
 ## Shell Contract
 
+Agent workspace headings opt into `AppPageShell headerContentSpacing="compact"`.
+Their next content or tab slot consumes `--page-header-section-gap` once: 0px
+on phones and 6px from 640px upward. Nested hub stacks, body tab rails and
+custom heading/action layouts use this same token instead of adding local
+margins or padding. The 56px segmented rail retains its 10px inset above the
+visible pill, giving a 10px/16px heading-to-pill gap. Calendar's workspace
+connection action follows the compact token; its focused onboarding
+illustration keeps the existing setup layout. General page headers retain
+their standard spacing.
+
 1. The top shell is the single authority for header clearance.
 2. The top shell is one public visual component with three route-declared
    modes: `hidden`, `bar`, and `bar-with-tabs`. A fixed-shell tab row cannot
@@ -650,7 +660,7 @@ Rules:
    action below it on phone and desktop: Confirm pin, then Skip for now; Save
    location, then Skip for now. The surface or pinned footer owns the bottom
    safe-area padding once; action groups do not add another inset.
-   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation.
+   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation. Chats and Profile share the bounded side-pane geometry: a safe-area-aware 12–18px outer inset, 430px maximum width, 820px maximum height, and 25px corners. Chats mirrors Profile at the left edge; its close control uses the same 44px target, 16px glyph, and 20px content inset. Screen gaps remain covered by the modal scrim. The Chats frame stays opaque in light and dark themes because WebKit cannot reliably blur content behind a transformed drawer; the shared scrim supplies backdrop blur outside the card.
    `AppChatHistoryEdgeGesture` owns both directions: pull right on the Chat
    body to open, or left on the drawer/list or backdrop to close. The panel
    transform and scrim opacity follow the finger; release settles through the

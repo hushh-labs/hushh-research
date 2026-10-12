@@ -155,6 +155,77 @@ describe("payout receipts", () => {
     expect(row(cashOut, "Next step")).toHaveTextContent(holdNextStepCopy("wait_for_bank"));
   });
 
+  it("offers a review's next step as its one control, and closes the receipt before Payouts acts", async () => {
+    const held = (nextStep: string) => ({ ...redemption, review: { reason: "transfer_check", nextStep } });
+    for (const [nextStep, action] of [["update_bank", "manage_bank"], ["verify_details", "verify"]] as const) {
+      state.receipts.set(`redemption:${redemptionId}`, held(nextStep));
+      const calls: string[] = [];
+      const onOpenChange = vi.fn((open: boolean) => { calls.push(`open:${open}`); });
+      const onAction = vi.fn((taken: string) => { calls.push(taken); });
+      const view = render(<PayoutReceiptSheet itemId={`redemption:${redemptionId}`} onOpenChange={onOpenChange} onAction={onAction} />);
+      const sheet = await screen.findByRole("dialog", { name: "$9.11" });
+      const step = await within(sheet).findByRole("button", { name: holdNextStepCopy(nextStep) });
+      expect(step).toHaveTextContent(`Next step${holdNextStepCopy(nextStep)}`);
+      // The 44 px row is the step's one control.
+      expect(step).toHaveClass("min-h-[48px]");
+      fireEvent.click(step);
+      expect(calls).toEqual(["open:false", action]);
+      view.unmount();
+    }
+
+    // A step nothing on Payouts can take only reads, and so does every step without onAction.
+    for (const nextStep of ["none", "wait_for_bank", "contact_support"]) {
+      state.receipts.set(`redemption:${redemptionId}`, held(nextStep));
+      const view = render(<PayoutReceiptSheet itemId={`redemption:${redemptionId}`} onOpenChange={vi.fn()} onAction={vi.fn()} />);
+      const sheet = await screen.findByRole("dialog", { name: "$9.11" });
+      expect(await within(sheet).findByText(holdNextStepCopy(nextStep))).toBeVisible();
+      expect(within(sheet).queryByRole("button", { name: /Next step|Contact support|Wait for the bank|No action needed/ })).toBeNull();
+      view.unmount();
+    }
+    state.receipts.set(`redemption:${redemptionId}`, held("update_bank"));
+    const plain = render(<PayoutReceiptSheet itemId={`redemption:${redemptionId}`} onOpenChange={vi.fn()} />);
+    const sheet = await screen.findByRole("dialog", { name: "$9.11" });
+    expect(row(sheet, "Next step")).toHaveTextContent("Update your bank");
+    expect(within(sheet).queryByRole("button", { name: /Update your bank|Next step/ })).toBeNull();
+    plain.unmount();
+  });
+
+  it("offers Update your bank on a failed deposit, and only reads it without onAction", async () => {
+    const failed = { ...deposit, status: "failed", failedAt: at, actionRequired: "update_bank" };
+    state.receipts.set(deposit.id, failed);
+    const calls: string[] = [];
+    const onOpenChange = vi.fn((open: boolean) => { calls.push(`open:${open}`); });
+    const onAction = vi.fn((taken: string) => { calls.push(taken); });
+    const view = render(<PayoutReceiptSheet itemId={deposit.id} onOpenChange={onOpenChange} onAction={onAction} />);
+    const sheet = await screen.findByRole("dialog");
+    fireEvent.click(await within(sheet).findByRole("button", { name: /Update your bank/ }));
+    expect(calls).toEqual(["open:false", "manage_bank"]);
+    view.unmount();
+
+    const plain = render(<PayoutReceiptSheet itemId={deposit.id} onOpenChange={vi.fn()} />);
+    const quiet = await screen.findByRole("dialog");
+    expect(await within(quiet).findByText("Use Manage bank on Payouts.")).toBeVisible();
+    expect(within(quiet).queryByRole("button", { name: /Update your bank/ })).toBeNull();
+    plain.unmount();
+  });
+
+  it("closes a linked receipt and the one beneath it before taking its next step", async () => {
+    state.receipts.set(`redemption:${redemptionId}`, { ...redemption, review: { reason: "transfer_check", nextStep: "verify_details" } });
+    const onOpenChange = vi.fn();
+    const onAction = vi.fn();
+    render(<PayoutReceiptSheet itemId={`earning:${requestId}`} onOpenChange={onOpenChange} onAction={onAction} />);
+    const sheet = await screen.findByRole("dialog", { name: "$9.11" });
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Sent to Stripe/ }));
+    expect(await within(topDialog()).findByText("Requested")).toBeVisible();
+    fireEvent.click(within(topDialog()).getByRole("button", { name: "Verify details" }));
+    expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false);
+    expect(onAction).toHaveBeenCalledExactlyOnceWith("verify");
+    expect(onOpenChange.mock.invocationCallOrder[0]).toBeLessThan(onAction.mock.invocationCallOrder[0]);
+    // The linked receipt closed itself; the caller closes the first.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(screen.getAllByRole("dialog", { hidden: true })).toHaveLength(1);
+  });
+
   it("offers a full-size Retry, and a fallback read skips one that just started", async () => {
     state.stream = "polling";
     const load = state.apiJson.getMockImplementation()!;

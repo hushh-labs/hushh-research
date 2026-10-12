@@ -152,7 +152,11 @@ class PKMAgentLabStructureRequest(BaseModel):
     current_manifests: list[dict] = Field(default_factory=list, max_length=256)
     simulated_state: dict | None = None
     memory_profile: Literal[
-        "general", "kyc_identity_v1", "business_directory_v1", "soul_markdown_v1"
+        "general",
+        "kyc_identity_v1",
+        "business_directory_v1",
+        "soul_markdown_v1",
+        "profile_review_v1",
     ] = "general"
 
 

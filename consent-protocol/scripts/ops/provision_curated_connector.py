@@ -73,7 +73,7 @@ from hushh_mcp.services.mcp_public_http import (  # noqa: E402
 )
 
 CLIENT_NAME = "Hushh One"
-DEFAULT_PROJECT = {"uat": "hushh-pda-uat"}
+DEFAULT_PROJECT = {"uat": "hushh-pda-uat", "production": "hushh-pda"}
 _RESPONSE_LIMIT = 64 * 1024
 _LOCAL_WEB_RETURN_PATH = "/one/profile/connectors/oauth/return"
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -247,6 +247,10 @@ def build_registration_request(
     reviewed_redirects = manifest.redirect_uris.get(environment)
     if not reviewed_redirects:
         raise ProvisionError(f"No redirect addresses for environment {environment!r}.")
+    if environment == "production" and extra_redirects:
+        raise ProvisionError(
+            "Production registration permits only its reviewed web return address."
+        )
     redirects = [
         *reviewed_redirects,
         *(_local_development_redirect(uri) for uri in extra_redirects),
@@ -401,6 +405,10 @@ def env_file_has(path: Path, name: str) -> bool:
 async def cmd_register(args: argparse.Namespace) -> dict[str, Any]:
     manifest = require_registration_contract(args.connector_id)
     project = args.project or DEFAULT_PROJECT.get(args.env)
+    if args.store and args.env in DEFAULT_PROJECT and project != DEFAULT_PROJECT[args.env]:
+        raise ProvisionError(
+            f"{args.env} client registration must store in {DEFAULT_PROJECT[args.env]}."
+        )
     request = build_registration_request(manifest, args.env, args.extra_redirect or [])
     endpoint = await discover_registration_endpoint(manifest)
     summary: dict[str, Any] = {
@@ -476,6 +484,27 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+def assert_production_registry_target(project: str | None = None) -> None:
+    """Attest the configured production instance and its connected database."""
+    if project not in (None, DEFAULT_PROJECT["production"]):
+        raise ProvisionError("Production registry commands require hushh-pda.")
+    try:
+        from db.db_client import get_db
+        from hushh_mcp.services.drive_prod_registry_provisioning import (
+            assert_connected_google_drive_prod_database,
+            assert_google_drive_prod_registry_target,
+        )
+
+        assert_google_drive_prod_registry_target()
+        with get_db().engine.connect() as connection:
+            assert_connected_google_drive_prod_database(connection)
+    except Exception:
+        # Database and proxy errors can contain credentials or instance details.
+        raise ProvisionError(
+            "Production connector registry target could not be verified."
+        ) from None
+
+
 async def cmd_verify(args: argparse.Namespace) -> dict[str, Any]:
     """Compare every live registry row with its reviewed manifest. Reads only.
 
@@ -483,6 +512,9 @@ async def cmd_verify(args: argparse.Namespace) -> dict[str, Any]:
     how Notion and Attio disappeared on UAT. Exit status is the caller's choice
     (`--strict`); the report always lists exactly which fields differ.
     """
+    if args.env == "production":
+        assert_production_registry_target(args.project)
+
     from hushh_mcp.services.curated_connector_manifest import all_manifests, registry_row_drift
     from hushh_mcp.services.external_connector_registry_service import (
         get_external_connector_registry_service,
@@ -518,6 +550,8 @@ async def cmd_verify(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def cmd_apply(args: argparse.Namespace) -> dict[str, Any]:
+    if args.env == "production":
+        assert_production_registry_target(args.project)
     manifest = require_manifest(args.connector_id)
     from scripts.ops import configure_external_mcp_connector as cli
 

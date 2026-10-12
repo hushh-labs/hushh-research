@@ -10,15 +10,17 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
+import { CardRecipientKeyUnavailableError, prepareTemporaryCardShares } from "@/lib/services/wallet-card-share-service";
 import { CardAccessUnavailableError, WalletCardAccessService, type CardAccessRecipient, type CardAccessState } from "@/lib/services/wallet-card-access-service";
 import { WalletService, type WalletCardSummary } from "@/lib/services/wallet-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import styles from "./wallet-saved-card-sharing.module.css";
 
-export function WalletSavedCardSharing({ card, getContext, disabled }: {
-  card: WalletCardSummary; getContext: (cardId: string) => CardShareContext | null; disabled: boolean;
+export function WalletSavedCardSharing({ card, getContext, disabled, showHistory = true }: {
+  card: Pick<WalletCardSummary, "cardId">; getContext: (cardId: string) => CardShareContext | null; disabled: boolean; showHistory?: boolean;
 }) {
+  const isProfile = card.cardId.startsWith("profile_");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [recipients, setRecipients] = useState<CardAccessRecipient[]>([]);
@@ -120,15 +122,20 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
     if (attempt.current?.fingerprint !== fingerprint) attempt.current = { fingerprint, id: crypto.randomUUID() };
     sending.current = true; setBusy(true);
     try {
-      if (!state?.eligible) await WalletService.prepareCardSharing({ ...context, cardId: card.cardId });
+      if (!state.eligible && isProfile) throw new Error("Profile sharing is unavailable.");
+      if (!state.eligible) await WalletService.prepareCardSharing({ ...context, cardId: card.cardId });
       if (!context.isCurrent()) return;
-      await WalletCardAccessService.share(context, card.cardId, refs, duration, attempt.current.id);
+      const encryptedCards = isProfile ? undefined : await prepareTemporaryCardShares(context, card.cardId, refs);
+      if (!context.isCurrent()) return;
+      await WalletCardAccessService.share(context, card.cardId, refs, duration, attempt.current.id, encryptedCards);
       if (!context.isCurrent()) return;
       attempt.current = null; close(); setRevision(value => value + 1);
       morphyToast.success("Card shared.");
     } catch (error) {
       if (context.isCurrent()) {
-        if (error instanceof CardAccessUnavailableError) {
+        if (error instanceof CardRecipientKeyUnavailableError) {
+          morphyToast.error(error.message);
+        } else if (error instanceof CardAccessUnavailableError) {
           close(); setState(null); setStateFailed(true); setUnavailable(true);
           morphyToast.error("Card sharing is temporarily unavailable. Try again later.");
         } else {
@@ -159,7 +166,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
           chevron onClick={() => setOpen(true)} disabled={disabled || busy || stateFailed || !state} />
         {stateFailed ? <SettingsRow title="Retry" description={unavailable ? "Card sharing is temporarily unavailable." : "Could not load sharing. Check your connection."} onClick={() => setRevision(value => value + 1)} /> : null}
       </SettingsGroup>
-      <SettingsGroup title="Shared with">
+      {showHistory ? <SettingsGroup title="Shared with">
         {state?.grants.length ? state.grants.map(grant => <SettingsRow key={grant.id} icon={ProfilePaneAccountIcon} iconTone="transparent"
           title={grant.recipientName} description={<span>
             <span className="block">{grant.status === "active" ? `Until ${new Date(grant.expiresAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : grant.status === "revoked" ? "Access revoked" : "Access expired"}</span>
@@ -167,13 +174,13 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
           </span>}
           trailing={grant.status === "active" ? <Button variant="secondary" size="compact" disabled={busy} onClick={() => void revoke(grant.id)}>Revoke</Button> : undefined} />)
           : <SettingsRow icon={ProfilePaneAccountIcon} iconTone="transparent" title={stateFailed ? "Could not load shared access." : state ? "No active shares" : "Loading shares…"} />}
-      </SettingsGroup>
-      {state?.nextCursor ? <div ref={historyEnd} className="px-2 py-2" aria-live="polite">
+      </SettingsGroup> : null}
+      {showHistory && state?.nextCursor ? <div ref={historyEnd} className="px-2 py-2" aria-live="polite">
         <Button variant="ghost" size="compact" disabled={loadingMore} onClick={() => void loadMore()}>
           {loadingMore ? "Loading more shares…" : moreFailed ? "Retry loading shares" : "Load more shares"}
         </Button>
       </div> : null}
-      <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Share card" description="Share masked card details with your connections."
+      <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title={isProfile ? "Share Profile Card" : "Share card"} description={isProfile ? "Share your selected profile details with your connections." : "Share your full card number and details with selected connections."}
         mobilePresentation="sheet" desktopMaxWidth="580px" desktopMaxWidthClassName="sm:!max-w-[580px]" surfaceClassName={styles.accessSurface} bodyClassName={styles.accessBody}
         footer={<Button className="w-full" disabled={busy || stateFailed || !state || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button>}>
         <div className="space-y-4">

@@ -19,14 +19,16 @@
 
 import { useMemo } from "react";
 import {
+  Briefcase,
   ExternalLink,
   Globe,
   Mail,
+  MapPin,
   Phone,
   type LucideIcon,
 } from "@/components/icons";
 
-import { WalletProfileCard } from "./wallet-profile-card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -442,6 +444,14 @@ function buildActions(card: PublicWalletCard): CardAction[] {
   return preferredAction ? [preferredAction, ...actions] : actions;
 }
 
+function initialsFor(fullName: string | null): string {
+  if (!fullName) return "";
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  const first = parts[0]?.charAt(0) ?? "";
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.charAt(0) ?? "") : "";
+  return `${first}${last}`.toUpperCase();
+}
+
 function formatUpdatedLabel(value: string | null): string | null {
   if (!value) return null;
   const parsed = new Date(value);
@@ -474,31 +484,77 @@ function ActionLink({ action }: { action: CardAction }) {
 
 /* ------------------------------------------------------------------- view */
 
-export function PublicWalletCardView({ card, embedded = false, authorizedProfileUrl = null }: {
-  authorizedProfileUrl?: string | null;
+export function PublicWalletCardView({ card, embedded = false }: {
   card: PublicWalletCard;
   embedded?: boolean;
 }) {
   const actions = useMemo(() => buildActions(card), [card]);
+  const initials = useMemo(() => initialsFor(card.fullName), [card.fullName]);
   const updatedLabel = useMemo(
     () => formatUpdatedLabel(card.updatedAt),
     [card.updatedAt],
   );
   const hasDetails = Boolean(card.summary) || card.skills.length > 0;
+  const hasMeta = Boolean(card.organisation) || Boolean(card.locationLabel);
 
   return (
     <article className={embedded ? "space-y-6" : "space-y-6 rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--shadow-xs)] sm:p-7"}>
-      <h1 className="sr-only">{card.fullName || "Shared profile"}</h1>
-      <WalletProfileCard profile={{ name: card.fullName || "Shared profile", avatarUrl: card.avatarUrl,
-        professionalTitle: card.headline, organization: card.organisation, email: card.email,
-        phone: card.phone, location: card.locationLabel, verification: "unknown", authorizedProfileUrl }} interactiveContacts />
+      <header className="flex flex-col items-center gap-3 text-center">
+        <Avatar className="size-20 border border-border/60 sm:size-24">
+          {card.avatarUrl ? (
+            <AvatarImage src={card.avatarUrl} alt="" />
+          ) : null}
+          <AvatarFallback className="text-xl font-medium">
+            {initials || <Briefcase className="size-7" aria-hidden="true" />}
+          </AvatarFallback>
+        </Avatar>
+
+        {card.fullName ? (
+          <h1 className="break-words text-[26px] font-medium leading-[1.15] tracking-tight sm:text-[30px]">
+            {card.fullName}{" "}
+            <span
+              role="img"
+              aria-label="Hussh profile"
+              title="Hussh profile"
+              className="inline-flex size-5 align-middle items-center justify-center rounded-md bg-[color:var(--app-accent)] text-xs font-semibold leading-none tracking-normal text-white"
+            >
+              <span aria-hidden="true">H</span>
+            </span>
+          </h1>
+        ) : (
+          <h1 className="sr-only">Shared profile</h1>
+        )}
+
+        {card.headline ? (
+          <p className="break-words text-base leading-6 text-muted-foreground">
+            {card.headline}
+          </p>
+        ) : null}
+
+        {hasMeta ? (
+          <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm leading-6 text-muted-foreground">
+            {card.organisation ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Briefcase className="size-3.5 shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
+                {card.organisation}
+              </span>
+            ) : null}
+            {card.locationLabel ? (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="size-3.5 shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
+                {card.locationLabel}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+      </header>
 
       <section aria-labelledby="wallet-card-actions-heading" className="space-y-2">
         <h2 id="wallet-card-actions-heading" className="sr-only">
           Ways to get in touch
         </h2>
 
-        {actions.filter(action => action.id !== "email" && action.id !== "phone").map((action) => (
+        {actions.map((action) => (
           <ActionLink key={action.id} action={action} />
         ))}
       </section>
@@ -546,12 +602,10 @@ export function PublicWalletCardSkeleton() {
       aria-busy="true"
     >
       <span className="sr-only">Loading profile.</span>
-      <div className="flex items-center gap-3">
-        <Skeleton className="size-11 shrink-0 rounded-full" />
-        <div className="min-w-0 flex-1 space-y-2">
-          <Skeleton className="h-6 w-3/4 rounded-lg" />
-          <Skeleton className="h-4 w-1/2 rounded-lg" />
-        </div>
+      <div className="flex flex-col items-center gap-3">
+        <Skeleton className="size-20 rounded-full sm:size-24" />
+        <Skeleton className="h-7 w-48 rounded-lg" />
+        <Skeleton className="h-4 w-36 rounded-lg" />
       </div>
       <div className="space-y-2">
         <Skeleton className="h-12 w-full rounded-full" />

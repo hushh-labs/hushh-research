@@ -492,9 +492,12 @@ async def test_real_nested_agent_progress_prevents_false_idle_timeout(monkeypatc
     )
     pending = run(
         built,
-        first_event_timeout_s=1.0,
+        # ADK can import and initialize tool schemas before its first event.
+        # Keep startup outside the tight idle-progress regression boundary:
+        # each child operation is 0.25s, but their combined hidden work > 0.4s.
+        first_event_timeout_s=20.0,
         between_event_timeout_s=0.4,
-        total_timeout_s=3.0,
+        total_timeout_s=30.0,
     )
     if not track_progress:
         with pytest.raises(SpecialistAdkTurnError) as failure:

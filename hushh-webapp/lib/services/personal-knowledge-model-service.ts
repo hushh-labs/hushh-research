@@ -4757,23 +4757,28 @@ export class PersonalKnowledgeModelService {
   }): Promise<{ snapshot: DomainSnapshotV1 | null; data: Record<string, unknown> | null }> {
     const snapshot = await this.getDomainSnapshot(params);
     if (!snapshot) return { snapshot: null, data: null };
+    return { snapshot, data: await this.decryptDomainSnapshot({ snapshot, vaultKey: params.vaultKey, segmentIds: params.segmentIds }) };
+  }
+
+  /** Decrypt the already revision-coherent read, without a second domain fetch. */
+  static async decryptDomainSnapshot(params: {
+    snapshot: DomainSnapshotV1;
+    vaultKey: string;
+    segmentIds?: string[];
+  }): Promise<Record<string, unknown>> {
+    const { snapshot } = params;
     const decrypted = await this.decryptDomainBlob({
       vaultKey: params.vaultKey,
-      domain: params.domain,
+      domain: snapshot.domain,
       blob: snapshot.encryptedBlob,
       segmentIds: params.segmentIds,
     });
     if (snapshot.encryptedBlob.storageMode === "legacy_full_blob") {
-      const domainData = decrypted[params.domain];
-      return {
-        snapshot,
-        data:
-          domainData && typeof domainData === "object" && !Array.isArray(domainData)
-            ? (domainData as Record<string, unknown>)
-            : {},
-      };
+      const domainData = decrypted[snapshot.domain];
+      return domainData && typeof domainData === "object" && !Array.isArray(domainData)
+        ? domainData as Record<string, unknown> : {};
     }
-    return { snapshot, data: decrypted };
+    return decrypted;
   }
 
   static async loadDomainDataWithBlob(params: {

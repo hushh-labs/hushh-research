@@ -1,0 +1,28 @@
+{
+  "name": "obs_one_voice_latency_ms",
+  "description": "One Voice server latency by bounded phase and resolved Vertex provider binding",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND textPayload=~\"one_voice[.]latency .* phase=(provider_connect|provider_activity_end_to_transcript|first_audio|reply_audio|first_tool|tool|draft_step)( [^ ]+)* ms=[0-9]+ provider=vertex_ai vertex_project=[a-z0-9-]+ live_model=[A-Za-z0-9._:/-]+ live_location=[a-z0-9-]+\"",
+  "valueExtractor": "REGEXP_EXTRACT(textPayload, \" ms=([0-9]+)\")",
+  "labelExtractors": {
+    "phase": "REGEXP_EXTRACT(textPayload, \" phase=([a-z_]+)\")",
+    "vertex_project": "REGEXP_EXTRACT(textPayload, \" vertex_project=([a-z0-9-]+)\")",
+    "live_model": "REGEXP_EXTRACT(textPayload, \" live_model=([A-Za-z0-9._:/-]+)\")",
+    "live_location": "REGEXP_EXTRACT(textPayload, \" live_location=([a-z0-9-]+)\")"
+  },
+  "bucketOptions": {
+    "explicitBuckets": {
+      "bounds": [0, 50, 100, 200, 300, 500, 700, 900, 1200, 1600, 2000, 2500, 3000, 4000, 5000, 6500, 8000, 10000, 15000, 20000, 30000, 45000, 60000, 90000, 120000]
+    }
+  },
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "ms",
+    "labels": [
+      {"key": "phase", "valueType": "STRING", "description": "Bounded server timing phase"},
+      {"key": "vertex_project", "valueType": "STRING", "description": "Resolved Vertex inference project"},
+      {"key": "live_model", "valueType": "STRING", "description": "Configured Gemini Live model ID"},
+      {"key": "live_location", "valueType": "STRING", "description": "Configured Gemini Live region"}
+    ]
+  }
+}

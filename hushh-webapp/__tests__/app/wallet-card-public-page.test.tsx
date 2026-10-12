@@ -109,7 +109,7 @@ describe("PublicWalletCardPageClient terminal states", () => {
     render(<PublicWalletCardPageClient />);
 
     await waitFor(() =>
-      expect(screen.getByRole("heading", { level: 1, name: "Ada Lovelace" })).toBeInTheDocument(),
+      expect(screen.getByText("Ada Lovelace")).toBeInTheDocument(),
     );
     expect(
       screen.queryByText("This profile isn't available."),

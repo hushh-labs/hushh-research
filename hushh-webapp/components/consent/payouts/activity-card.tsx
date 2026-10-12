@@ -12,7 +12,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { PayoutActivityFilterMenu } from "./activity-filter";
 import { PayoutActivityRefreshFailedRow, PayoutActivityRows, PayoutActivitySheet } from "./activity-sheet";
 import { PayoutReceiptSheet } from "./receipts/payout-receipt-sheet";
-import { useOpenerFocus } from "./receipts/receipt-ui";
+import { useOpenerFocus, type PayoutReceiptAction } from "./receipts/receipt-ui";
 import { usePayoutActivity } from "./use-payout-activity";
 
 /** "coins" = everything that moves the coin balance: earnings, cash-outs and adjustments. */
@@ -23,6 +23,12 @@ export type PayoutActivityCardProps = {
   freshness?: ReactNode;
   /** Newest rows shown before "View all". */
   limit?: number;
+  /**
+   * Takes a receipt's next step ("Update your bank", "Verify details") with
+   * the Payouts bank actions. The receipt, and View all over it, close first.
+   * Without it, receipts offer no action.
+   */
+  onAction?: (action: PayoutReceiptAction) => void;
 };
 
 /**
@@ -35,7 +41,7 @@ export type PayoutActivityCardProps = {
  * topmost sheet, and closing returns focus to the row that opened it. Both
  * close when the vault owner changes.
  */
-export function PayoutActivityCard({ freshness, limit: requested = 5 }: PayoutActivityCardProps) {
+export function PayoutActivityCard({ freshness, limit: requested = 5, onAction }: PayoutActivityCardProps) {
   const { vaultOwnerToken } = useVault();
   const [filter, setFilter] = useState<PayoutActivityFilter>("all");
   const [testActivity, setTestActivity] = useState(false);
@@ -50,6 +56,9 @@ export function PayoutActivityCard({ freshness, limit: requested = 5 }: PayoutAc
   });
   const opener = useOpenerFocus();
   if (!vaultOwnerToken) return null;
+  const closeViewAll = () => { setViewAllScope(null); opener.restore(); };
+  // The step happens on Payouts, so View all closes too, showing the bank row it uses.
+  const viewAllAction = onAction ? (action: PayoutReceiptAction) => { closeViewAll(); onAction(action); } : undefined;
   const openReceipt = receipt && receipt.scope === vaultOwnerToken ? receipt : null;
   const rows = activity.items.slice(0, limit);
   // This build can't read the activity contract; a newer one can.
@@ -81,8 +90,8 @@ export function PayoutActivityCard({ freshness, limit: requested = 5 }: PayoutAc
         ) : null}
       </SettingsGroup>
       <PayoutActivitySheet open={viewAllOpen} initialFilter={filter} initialTestActivity={testActivity}
-        onOpenChange={(open) => { if (!open) { setViewAllScope(null); opener.restore(); } }} />
-      <PayoutReceiptSheet itemId={openReceipt?.id ?? null} test={openReceipt?.test}
+        onAction={viewAllAction} onOpenChange={(open) => { if (!open) closeViewAll(); }} />
+      <PayoutReceiptSheet itemId={openReceipt?.id ?? null} test={openReceipt?.test} onAction={onAction}
         onOpenChange={(open) => { if (!open) { setReceipt(null); opener.restore(); } }} />
     </section>
   );

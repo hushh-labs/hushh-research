@@ -1,0 +1,190 @@
+.sheet {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  gap: 0;
+  padding: 0;
+  font-family: var(--font-app-body);
+}
+.scroll {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 12px var(--page-inline-gutter-standard)
+    max(24px, var(--app-safe-area-bottom-effective, 0px));
+}
+.hero {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px var(--page-inline-gutter-standard) 16px;
+  text-align: center;
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 50%;
+  background: var(--app-card-surface-default);
+  box-shadow: var(--app-card-shadow-standard);
+}
+.title {
+  margin: 0;
+  font-family: var(--font-app-display);
+}
+.tabs {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  gap: 0;
+  overflow: hidden;
+}
+.tabList {
+  flex: none;
+  width: auto;
+  margin-inline: var(--page-inline-gutter-standard);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.tabList button {
+  min-height: 44px;
+}
+.feed,
+.profile {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sectionHeading h3 {
+  font-size: var(--app-side-pane-section-size);
+  font-weight: 600;
+}
+.sectionHeading button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 44px;
+  font-size: var(--app-side-pane-row-description-size);
+  color: var(--app-accent-deep);
+}
+.notice {
+  color: var(--muted-foreground);
+  font-size: var(--app-side-pane-row-title-size);
+  padding: 16px 0;
+}
+.notice button {
+  min-height: 44px;
+  color: var(--app-accent-deep);
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 12px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.empty p {
+  font-weight: 500;
+  color: var(--foreground);
+}
+.empty span {
+  font-size: 13px;
+}
+.identityNote {
+  padding: 12px;
+  border-radius: var(--app-card-radius-feature);
+  background: var(--app-card-surface-compact);
+}
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+}
+.identityNote h3 {
+  margin: 8px 0;
+  font-size: var(--app-side-pane-row-title-size);
+  font-weight: 600;
+}
+.identityNote p {
+  color: var(--muted-foreground);
+  font-size: var(--app-side-pane-row-title-size);
+  line-height: var(--app-side-pane-row-description-line);
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.fileCard {
+  min-width: 0;
+  min-height: 172px;
+  padding: 12px;
+  border-radius: 15px;
+  color: white;
+  --app-side-pane-row-color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 28px;
+}
+.soul {
+  background: linear-gradient(
+    145deg,
+    color-mix(in oklab, var(--app-destructive) 80%, black),
+    color-mix(in oklab, var(--app-destructive) 60%, black)
+  );
+}
+.memory {
+  background: linear-gradient(
+    145deg,
+    color-mix(in oklab, var(--app-accent) 70%, black),
+    color-mix(in oklab, var(--app-accent) 50%, black)
+  );
+}
+.fileCard h4 {
+  margin: 12px 0 8px;
+  font-size: var(--app-side-pane-row-title-size);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.fileCard p {
+  font-size: var(--app-side-pane-row-description-size);
+  line-height: var(--app-side-pane-row-description-line);
+  opacity: 0.85;
+}
+.cardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--app-side-pane-row-description-size);
+}
+.memory:hover {
+  filter: brightness(1.05);
+}
+.memory:focus-visible {
+  outline: 2px solid var(--app-accent-deep);
+  outline-offset: 4px;
+}
+@container one-profile-content (max-width: 270px) {
+  .cards { grid-template-columns: 1fr; }
+}
+.scroll { container: one-profile-content / inline-size; }

@@ -28,7 +28,7 @@ import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
 import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
 import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import { classifyMergeOutcome, type PkmMergeOutcome } from "@/lib/pkm/pkm-supersede-merge";
-import { assertBusinessMemoryTarget, assertProfileReviewTargetPath, touchesBusinessRecord, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
+import { assertBusinessMemoryTarget, assertProfileReviewTargetPath, assertProfileSelectionCreateTarget, touchesBusinessRecord, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
 import {
   clearMarkdownMemory,
   loadMarkdownMemory,
@@ -338,7 +338,7 @@ export async function previewAgentPkmMemory(params: {
   vaultOwnerToken: string;
   ingestionId?: string;
   chunkIndex?: number;
-  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1" | "soul_markdown_v1";
+  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1" | "soul_markdown_v1" | "profile_review_v1";
   /** Existing details the merge agent may extend or correct (explicit saves). */
   reconciliationCandidates?: readonly PkmReconciliationCandidate[];
   signal?: AbortSignal;
@@ -687,14 +687,19 @@ export async function addToPKM(params: {
                 : undefined,
             },
         build: async (context) => {
-          if (params.source === "profile_research_review") assertProfileReviewTargetPath(card);
+          if (params.source === "profile_research_review") {
+            assertProfileReviewTargetPath(card);
+            assertProfileSelectionCreateTarget(card, context.currentDomainData);
+          }
           if (params.source === "profile_research_review" &&
             touchesBusinessRecord(card, context.currentDomainData) && !params.businessOrigin)
             throw new Error("The saved business needs a fresh identity review. Nothing was changed.");
           if (params.businessOrigin) {
             if (automatic || !["business_profile_review", "profile_research_review"].includes(params.source || ""))
               throw new Error("Business information requires its explicit review writer.");
-            assertBusinessMemoryTarget(context.currentDomainData, card, params.businessOrigin);
+            assertBusinessMemoryTarget(context.currentDomainData, card, params.businessOrigin, {
+              requireExistingTarget: params.source === "profile_research_review",
+            });
           }
           // Re-run on a conflict retry, so the outcome follows the state that
           // was finally merged into.

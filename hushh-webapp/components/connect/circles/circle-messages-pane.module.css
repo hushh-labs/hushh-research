@@ -18,10 +18,8 @@
 .listHeader a:hover, .back:hover { background: var(--chat-row-active); }
 .row { width: 100%; min-height: 70px; display: flex; align-items: center; gap: 12px; padding: 10px 11px; margin-inline: 8px; width: calc(100% - 16px); border-radius: 16px; text-align: left; }
 .row:hover, .row[data-selected] { background: var(--chat-row-active); }
-.groupAvatar { position: relative; width: 46px; height: 44px; flex: none; display: block; }
-.groupAvatarBack, .groupAvatarFront { position: absolute; width: 33px; height: 33px; display: grid; place-items: center; overflow: hidden; border: 2px solid var(--chat-surface); border-radius: 50%; color: var(--chat-accent); background: color-mix(in srgb, var(--chat-accent) 15%, var(--chat-surface)); }
-.groupAvatarBack { left: 1px; top: 1px; opacity: .75; font-size: 13px; font-weight: 700; }
-.groupAvatarFront { right: 0; bottom: 0; background: color-mix(in srgb, var(--chat-accent) 8%, var(--chat-surface)); }
+.groupAvatar { position: relative; width: 46px; height: 44px; flex: none; display: grid; place-items: center; }
+.groupAvatarFront { width: 33px; height: 33px; display: grid; place-items: center; overflow: hidden; border: 2px solid var(--chat-surface); border-radius: 50%; color: var(--chat-accent); background: color-mix(in srgb, var(--chat-accent) 8%, var(--chat-surface)); }
 .groupAvatarFront img { width: 100%; height: 100%; object-fit: cover; }
 .rowText { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
 .rowText strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }

@@ -212,9 +212,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("<ChatTimeSeparatorRow separator=");
     expect(workspace).not.toContain("<span>{message.timestamp}</span>");
     expect(workspace).not.toContain('return "Ready";');
-    // Status belongs below One, not beside the profile avatar. The subtitle
-    // crossfades without moving the right-hand controls.
-    expect(workspace).toContain('IDLE_AGENT_SUBTITLE = "Your private agent"');
+    // Live status belongs below One, not beside the profile avatar. Idle One
+    // has no tagline; active status crossfades without moving the controls.
+    expect(workspace).toContain('IDLE_AGENT_SUBTITLE = ""');
     expect(workspace).toContain("return input.statusText || IDLE_AGENT_SUBTITLE;");
     expect(workspace).toContain("<ChatAgentSubtitle text={chatHeaderSubtitle({");
     expect(workspace).not.toContain('title={statusText || undefined}');
@@ -223,13 +223,13 @@ describe("private-agent chat shell contract", () => {
   it("keeps the active-agent mark visible in the compact chat header", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const brandTileStart = workspace.indexOf('data-agent-chat-brand-tile');
-    const brandTile = workspace.slice(brandTileStart, brandTileStart + 700);
+    const brandTile = workspace.slice(brandTileStart, workspace.indexOf("The name in the header", brandTileStart));
 
     expect(brandTileStart).toBeGreaterThan(0);
     expect(brandTile).toContain("<HushhMark");
     expect(brandTile).toContain('className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"');
-    expect(brandTile).toContain('className="h-7 w-7 items-center justify-center overflow-visible"');
-    expect(brandTile).toContain('imageClassName="!h-[23px] !w-[23px]"');
+    expect(brandTile).toContain('className="size-[72px] items-center justify-center overflow-visible"');
+    expect(brandTile).toContain('imageClassName="!size-16"');
     expect(brandTile).not.toContain("max-sm:hidden");
   });
 
