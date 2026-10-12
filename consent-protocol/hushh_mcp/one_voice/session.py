@@ -1003,7 +1003,12 @@ class VoiceSession:
             "tool_declarations": declarations,
             "resumption_handle": self.conversation.live_resumption_handle,
         }
+        connect_started_at = self.clock()
         async with self.live_factory(self.config.model_id, live_config) as live:
+            # The client receives session.ready before provider setup. Record
+            # that separate wait so connection time does not disappear into a
+            # long websocket request or get mistaken for response generation.
+            self._log_latency("provider_connect", connect_started_at)
             self.live = live
             await self._send(protocol.voice_state("listening"))
             try:
