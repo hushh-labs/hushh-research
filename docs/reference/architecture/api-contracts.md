@@ -175,8 +175,14 @@ The `/api/one/wallet/card-access` endpoints are:
 | POST | `/grants/{grant_id}/verify` | Fresh same-user Firebase provider authentication after the server challenge for non-trusted recipients. |
 
 Responses are private and non-cacheable. The encrypted server projection contains
-only network, last four digits, expiry and normalized issuing region; no PAN,
-name, CVV, PIN or vault key enters grants or notification metadata. Removing the
+network, last four digits, expiry and normalized issuing region. New grant requests
+may also provide `encryptedCards`, an exact map of selected person references to
+bounded `hushh-wallet-card:v1:` recipient envelopes (maximum 4096 characters each,
+20 recipients, 96 KiB request limit). Plaintext PAN, CVV, PIN and vault keys remain
+forbidden. Each recipient's envelope is stored only in that grant's encrypted
+contents, never notifications or Feed metadata. Authorized active views return
+`encryptedCard` and the authenticated owner's `senderUserId` for client decryption;
+denied, expired and revoked views return neither. Old grants remain masked. Removing the
 card revokes access. Explicit owner-added Trusted Circle members skip additional
 verification; ordinary connection mirror records do not grant this exemption.
 
