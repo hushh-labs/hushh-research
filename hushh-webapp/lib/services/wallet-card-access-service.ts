@@ -2,8 +2,8 @@ import { ApiService } from "@/lib/services/api-service";
 import type { CardShareContext } from "./wallet-card-share-service";
 
 export type CardAccessRecipient = { personRef: string; displayName: string; photoUrl: string | null; trusted: boolean };
-export type CardAccessGrant = { id: string; recipientName: string; expiresAt: string; status: "active" | "expired" | "revoked" };
-export type CardAccessState = { eligible: boolean; reason?: string; grants: CardAccessGrant[] };
+export type CardAccessGrant = { id: string; recipientName: string; createdAt?: string; expiresAt: string; status: "active" | "expired" | "revoked" };
+export type CardAccessState = { eligible: boolean; reason?: string; grants: CardAccessGrant[]; hasMore?: boolean; nextCursor?: string | null };
 export type CardAccessView = {
   status: "active" | "verification_required" | "expired" | "revoked";
   expiresAt: string; serverNow: string; senderName: string;
@@ -36,7 +36,7 @@ async function ownerRequest<T>(context: CardShareContext, path: string, method =
 }
 export const WalletCardAccessService = {
   reserve: (idToken: string, vaultOwnerToken: string, requestId: string) => request<{ cardId: string | null; enabled: boolean }>(idToken, "/registrations", "POST", { requestId }, vaultOwnerToken),
-  state: (context: CardShareContext, cardId: string, signal?: AbortSignal) => ownerRequest<CardAccessState>(context, `/cards/${encodeURIComponent(cardId)}`, "GET", undefined, signal),
+  state: (context: CardShareContext, cardId: string, signal?: AbortSignal, cursor?: string) => ownerRequest<CardAccessState>(context, `/cards/${encodeURIComponent(cardId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, "GET", undefined, signal),
   recipients: (context: CardShareContext, query: string, signal?: AbortSignal) => ownerRequest<{ items: CardAccessRecipient[]; hasMore: boolean }>(context, `/connections?query=${encodeURIComponent(query)}`, "GET", undefined, signal),
   share: (context: CardShareContext, cardId: string, recipientPersonRefs: string[], durationMinutes: 5 | 10 | 15, requestId: string) =>
     ownerRequest<{ grants: CardAccessGrant[] }>(context, `/cards/${encodeURIComponent(cardId)}/grants`, "POST", { requestId, recipientPersonRefs, durationMinutes }),

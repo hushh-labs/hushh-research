@@ -175,3 +175,70 @@ def test_disabled_registration_does_not_open_database(monkeypatch):
         "cardId": None,
     }
     db.engine.begin.assert_not_called()
+
+
+def test_owner_history_page_is_bounded_and_includes_created_at(grant_service, monkeypatch):
+    service, state, conn = grant_service
+    rows = [
+        dict(
+            id=f"00000000-0000-4000-8000-{i:012d}",
+            created_at=state["now"],
+            expires_at=state["now"] + timedelta(minutes=5),
+            revoked_at=None,
+            display_name=f"Person {i}",
+            server_now=state["now"],
+        )
+        for i in range(21)
+    ]
+
+    def query(c, sql, params):
+        assert c is conn
+        assert "g.owner_user_id=:owner AND g.card_id=:card" in sql
+        assert "ORDER BY g.created_at DESC,g.id ASC LIMIT :limit" in sql
+        assert params == {"owner": "owner", "card": "card", "limit": 21}
+        return rows
+
+    monkeypatch.setattr(module, "many", query)
+    page = service.card_access("owner", "card")
+    assert len(page["grants"]) == 20 and page["hasMore"] is True
+    assert page["nextCursor"] == rows[19]["id"]
+    assert page["grants"][0]["createdAt"] == state["now"].isoformat()
+
+
+def test_history_cursor_uses_owner_card_and_id_tie_breaker(grant_service, monkeypatch):
+    service, state, conn = grant_service
+    cursor = "00000000-0000-4000-8000-000000000019"
+
+    def anchor(c, sql, params):
+        assert "owner_user_id=:owner AND card_id=:card AND id=CAST(:grant_id AS uuid)" in sql
+        assert params == {"owner": "owner", "card": "card", "grant_id": cursor}
+        return {"created_at": state["now"]}
+
+    def query(c, sql, params):
+        assert "g.created_at < :created" in sql
+        assert "g.created_at=:created AND g.id>CAST(:grant_id AS uuid)" in sql
+        assert params["created"] == state["now"] and params["grant_id"] == cursor
+        return []
+
+    monkeypatch.setattr(module, "one", anchor)
+    monkeypatch.setattr(module, "many", query)
+    assert service.card_access("owner", "card", cursor) == {
+        "eligible": True,
+        "grants": [],
+        "hasMore": False,
+        "nextCursor": None,
+    }
+
+
+@pytest.mark.parametrize("cursor", ["bad", "00000000-0000-4000-8000-000000000099"])
+def test_invalid_or_foreign_history_cursor_fails_without_loading_rows(
+    grant_service, monkeypatch, cursor
+):
+    service, _, _ = grant_service
+    monkeypatch.setattr(module, "one", lambda *args: None)
+    rows = MagicMock()
+    monkeypatch.setattr(module, "many", rows)
+    with pytest.raises(WalletCardAccessError) as error:
+        service.card_access("owner", "card", cursor)
+    assert error.value.status_code == 422
+    rows.assert_not_called()
