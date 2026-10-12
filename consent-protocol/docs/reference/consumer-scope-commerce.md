@@ -2498,3 +2498,23 @@ timeouts and production behavior are unchanged. All twelve affected cases pass
 in the focused run; the complete owning gate and final core remain required.
 Physical iOS testing is deferred to the independently active device session;
 physical Android remains the agreed follow-up. Keep issue #7587 In Progress.
+
+The final-core attempt at `ab3f637a34` stopped at the architecture ratchet because
+that fixture change grew an already over-budget test module. The corrected
+fixtures use the existing shared teardown, retaining the four onboarding seeds,
+all assertions and timeouts; shared teardown removes 22 duplicated lines. The
+previous candidate passed all 438 Back cases, and the corrected twelve affected
+Location cases pass. Final generation and the canonical core must be rerun on the
+integrated candidate; the failed attempt is retained as failure evidence. The
+concurrent native session's additional deferred-grant compensation is preserved.
+
+Latest main `3c47412f77` is integrated without restoring its large inline backend
+deployment step. Wallet availability handling and historical UAT guards are
+preserved. The concurrent root merge `1516a90f47` supplies a validated three-flag
+application settings pack, keeping the extracted deploy step at 99 environment
+entries under Cloud Build's 100-entry limit; both Wallet literal
+substitution tokens and the default-disabled sharing flag remain. All 72 nearest
+deployment contracts and all nine mounted Wallet cases passed the earlier
+composition; revalidation now targets the stronger retained pack. Schema head remains
+320; no additional provider transaction or reviewer payment is implied by these
+source checks.

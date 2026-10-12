@@ -257,22 +257,15 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
     step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
     assert step.get("args") == ["scripts/deploy/backend-deploy.sh"]
     provided = {entry.split("=", 1)[0] for entry in step.get("env") or []}
-    packed = " ".join(
-        entry
-        for entry in step.get("env") or []
-        if "," in entry or entry.startswith("_IMAGE_SETTINGS=")
-    )
+    for entry in step.get("env") or []:
+        provided.update(re.findall(r"\$\{(_[A-Z0-9_]+)\}", entry.split("=", 1)[1]))
     # Comments explain the mechanism using placeholder names (`${_FOO}`), so read only
     # the executable lines -- a doc example is not a substitution the deploy consumes.
     executable = "\n".join(
         line for line in script.splitlines() if not line.lstrip().startswith("#")
     )
     read_by_script = set(re.findall(r"\$\{(_[A-Z0-9_]+)(?::-[^}]*)?\}", executable))
-    missing = sorted(
-        name
-        for name in read_by_script
-        if name not in provided and name not in packed and name != "_PACKED"
-    )
+    missing = sorted(name for name in read_by_script if name not in provided and name != "_PACKED")
     assert not missing, (
         "backend-deploy.sh reads these substitutions, but the deploy-backend step does "
         f"not pass them, so Cloud Build leaves them empty: {missing}"
