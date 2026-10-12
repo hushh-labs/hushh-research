@@ -15,11 +15,11 @@ parity = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(parity)
 
 
-def test_domain_runtime_requires_only_the_matching_alias_pair(monkeypatch):
+def test_domain_runtime_requires_only_the_matching_alias_group(monkeypatch):
     origin = "https://uat.one.hushh.ai"
     config = {
-        "cors_allowed_origins": origin + ",https://uat.one.hussh.ai",
-        "passkey_allowed_rp_ids": "localhost,127.0.0.1,uat.one.hushh.ai,uat.one.hussh.ai",
+        "cors_allowed_origins": origin + ",https://uat.one.hussh.ai,https://uat.one.hussh.si",
+        "passkey_allowed_rp_ids": "localhost,127.0.0.1,uat.one.hushh.ai,uat.one.hussh.ai,uat.one.hussh.si",
         "plaid_webhook_url": origin + "/api/kai/plaid/webhook",
     }
     values = {"APP_FRONTEND_ORIGIN": origin}
