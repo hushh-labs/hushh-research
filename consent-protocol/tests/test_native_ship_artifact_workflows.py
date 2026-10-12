@@ -229,6 +229,8 @@ def test_android_uat_contract_refuses_every_non_uat_backend(tmp_path: Path) -> N
     assert "APP_RUNTIME_PROFILE=uat\n" in exported
     assert "NEXT_PUBLIC_APP_ENV=uat\n" in exported
     assert f"NEXT_PUBLIC_BACKEND_URL={UAT_BACKEND}\n" in exported
+    assert "NEXT_PUBLIC_PASSKEY_RP_ID=uat.one.hushh.ai\n" in exported
+    assert "NEXT_PUBLIC_PASSKEY_RP_ID=one.hushh.ai\n" not in exported
 
     for refused in (
         PRODUCTION_BACKEND,
