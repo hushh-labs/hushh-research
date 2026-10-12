@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-11.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-12.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -13,9 +13,10 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
-### Integrated native shell candidate — 2026-10-11
+### Integrated native shell candidate — 2026-10-12
 
-This candidate extends `5a07a2310e` on `feat/adk-orchestration-runtime`.
+Source candidate `57b9e39ecb` extends `5a07a2310e` on
+`feat/adk-orchestration-runtime`.
 Normal product admission remains **off**. The document-start coherent-shell
 bootstrap is available only through the explicit qualification launch switch;
 old experiment flags do not enable it. Web, Android, older wrappers and iPad
@@ -24,7 +25,7 @@ their named builds, not this candidate.
 
 | Shared family | Renderer and operation owner | Candidate status / rollback |
 | --- | --- | --- |
-| Bottom navigation | Existing native `UITabBar`; existing React tab intent | Retained beneath the keyboard and native drawers; new device acceptance pending |
+| Bottom navigation | Existing native `UITabBar`; existing React tab intent | Retained beneath the keyboard and native drawers; integrated functional receipt below, visual/performance acceptance pending |
 | Chat History opener and One/Puppy | Retained NativeChrome v2; authored Chat callbacks | Foreground content-backed composition, coverage disables interaction rather than hiding hosts; qualification only |
 | Agent Dock | NativeDock v1; existing One and Puppy draft/submission ports | One editor/glass container; private final-draft reconciliation on native coverage; qualification only |
 | History | NativeDrawers v1 owns the complete panel/scrim/gesture; existing search/rename/delete callbacks | Shared owner/privacy admission; Connectors footer connected; Drive review handoff incomplete |
@@ -80,8 +81,37 @@ exists. Qualification now takes that process-only entry once, submits no turn,
 and waits for both the selected agent and the applied editor's authored public
 label. NativeDock v1 accepts optional `Message One` / `Message Puppy` accessibility
 metadata without deriving meaning from a private context or replacing the editor.
-The retained-editor regression and all 62 native support cases pass on Simulator;
-the new installed product journey must be rerun separately.
+The retained-editor regression and all 62 native support cases pass on Simulator.
+On the committed source candidate, the actual integrated product journey now
+passes all ten warm cycles through History (including cancelled closing drags),
+Profile, Preferences, native Back and One/Puppy. A separate keyboard check passes:
+History remains usable while editing; opening it resigns editing without losing
+the draft, and closing it does not summon the keyboard. One WebView and one
+interactive native composer are asserted; no turn is submitted or account reset.
+
+That attach-only receipt is 1 passed, 0 failed, 0 skipped on iPhone 16e. The signed
+Debug/UAT product is `com.hushh.app` 1.4.0 (69), executable SHA-256
+`5d5cb0b499bfd339989696878d6d7dd92c12705f165952124f3d9844dd015080`;
+test executable SHA-256
+`f4deda64c963062fd5571165315e5814d2f72fd822231222ceafe793472ff7da`.
+Packaged product assets and production-optimized native CSS pass verification.
+Credential-free automation admission and the separate normal reviewer unlock
+each pass; private credential-run and warm-run diagnostics are removed. These
+are functional receipts, not transition-frame, accessibility or Release hitch
+acceptance, and they do not qualify first-reveal or aggregate failure fallback.
+
+Canonical core at `57b9e39ecb` stops in protocol: 9,804 passed, 98 skipped, one
+mocked Drive worker rollback subprocess exceeds its existing 20-second deadline.
+The same focused 15-case release/rollback suite passes separately; the missing-log
+case takes 13.21 seconds. Preserve the failed core result while investigating
+fixture startup cost; do not raise the deadline or count the focused pass as core.
+The test-only timestamp parser now avoids `strptime`'s repeated import path while
+retaining quoting and exact timestamp round-trip checks. All 18 focused cases
+pass, including malformed timestamp negatives and an explicit 55-read count for
+each missing/wrong-URL case. Production retry and deadline logic are unchanged.
+Timing under the concurrent host load does not yet prove sufficient core margin.
+The redundant exhaustive RCA run was cancelled after discovering concurrent
+core work in other worktrees. Those runs and unrelated applications are untouched.
 
 React edge-opening gestures are disabled only for the coherent native family,
 not for every iOS wrapper. The established recovery/older-wrapper gestures remain
