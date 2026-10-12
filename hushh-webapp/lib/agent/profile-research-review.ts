@@ -9,7 +9,6 @@ import {
   touchesBusinessRecord,
   type BusinessMemoryOrigin,
 } from "@/lib/pkm/business-memory-origin";
-import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import {
   prepareConnectorMemoryReview,
   saveConnectorMemoryReview,
@@ -216,13 +215,16 @@ export async function prepareProfileReview(
     );
   const origins = new Map<string, BusinessMemoryOrigin>();
   const scopes = new Map<string, string>();
+  if (!prepared.profileInventory)
+    throw new Error("Existing details could not be checked. Try again.");
+  const inventory = prepared.profileInventory;
   const cards = prepared.cards.map((original) => {
     const card = structuredClone(original);
     assertProfileReviewTargetPath(card);
     // The model may select a current business, but cannot mint or relabel a
-    // directory identity. Origin comes only from the freshly decrypted inventory.
-    const bound = AgentPkmContextStore.profileBusinessTarget(
-      session.userId,
+    // directory identity. Bind to the same inventory used during preparation,
+    // never a later cache refresh with another business at the reviewed path.
+    const bound = inventory.businessTarget(
       card,
       resolveCardTargetDomain(card),
     );
