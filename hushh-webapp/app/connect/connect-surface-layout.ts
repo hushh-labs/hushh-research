@@ -70,11 +70,11 @@ export const CONNECT_WRAPPING_TITLE_ROW_CLASSNAME =
  * measuring a phone as though its browser chrome were not there, which keeps
  * the bottom of the list clear of the fixed bottom bars.
  *
- * The `min(42dvh, 18rem)` shape matches the RIA option lists, so the two read
- * as the same control.
+ * The grouped roster allows room for its source headings and several rows.
+ * It stays bounded on short screens and large connection lists.
  */
 export const CONNECT_CONNECTION_LIST_CLASSNAME =
-  "max-h-[min(42dvh,18rem)] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
+  "max-h-[min(60dvh,28rem)] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
 
 /**
  * Connect's section headings stand on the page's content column.

@@ -493,7 +493,7 @@ describe("SosPanel", () => {
     expect(screen.queryByRole("button", {
       name: /press and hold for two seconds/i,
     })).toBeNull();
-    expect(screen.getByText("No emergency contacts")).toBeInTheDocument();
+    expect(screen.queryByText("No emergency contacts")).toBeNull();
     expect(
       screen.getByRole("button", { name: "Add emergency contacts" }),
     ).toBeInTheDocument();
@@ -516,7 +516,8 @@ describe("SosPanel", () => {
     ).toBeNull();
 
     rerender(<SosPanel {...baseProps} recipients={[]} recipientsLoading={false} />);
-    expect(screen.getByText("No emergency contacts")).toBeInTheDocument();
+    expect(screen.queryByText("No emergency contacts")).toBeNull();
+    expect(screen.getByRole("button", { name: "Add emergency contacts" })).toBeInTheDocument();
   });
 
   it("does not prompt to add a contact when at least one is ready", () => {

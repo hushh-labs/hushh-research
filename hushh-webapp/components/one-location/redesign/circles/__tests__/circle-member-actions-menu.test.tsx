@@ -193,8 +193,8 @@ describe("CircleMemberActionsMenu on a phone", () => {
     const cancel = within(sheet).getByRole("button", { name: "Cancel" });
     expect(remove).toHaveClass(
       "h-[50px]",
-      "bg-destructive",
-      "text-[color:var(--destructive-foreground)]",
+      "bg-[color:var(--app-destructive)]",
+      "text-white",
     );
     expect(cancel).toHaveClass("h-[50px]");
     expect(remove.parentElement).toHaveClass("max-w-[244px]");

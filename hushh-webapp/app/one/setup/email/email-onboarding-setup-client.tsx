@@ -216,6 +216,7 @@ export function EmailOnboardingSetupClient() {
     <AppPageShell
       as="main"
       width="reading"
+      headerContentSpacing="compact"
       className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
       nativeTest={{
         routeId: "/one/setup/email",

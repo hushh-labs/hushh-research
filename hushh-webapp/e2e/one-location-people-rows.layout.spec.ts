@@ -47,7 +47,8 @@ async function buildFixture(
   );
   const used = new Set<string>(extraCandidates);
   for (const match of markup.matchAll(/class="([^"]*)"/g)) {
-    for (const token of match[1].split(/\s+/)) if (token) used.add(token);
+    const className = match[1].replace(/&amp;/g, "&").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
+    for (const token of className.split(/\s+/)) if (token) used.add(token);
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "location-people-layout-"));
   fs.writeFileSync(
@@ -189,6 +190,47 @@ test.describe("Contact scroll with the page-enter observer", () => {
 
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
+    test(`Invite and live-link actions at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+      const markup = fs.readFileSync(path.join(process.cwd(), "e2e/fixtures/one-location-invite-actions.html"), "utf8");
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(await buildFixture(dark, [], markup));
+      await awaitProductFont(page);
+      const draft = page.locator("[data-invite-draft]");
+      await expect(draft.getByRole("heading", { name: "Invite before sharing", exact: true })).toBeVisible();
+      await expect(draft.getByText("No location shared")).toHaveCount(0);
+      await expect(draft.getByText("They approve first.")).toHaveCount(0);
+      await expect(page.locator("[data-invite-created]").getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
+      const geometry = await page.evaluate(() => {
+        const draft = document.querySelector("[data-invite-draft]")!;
+        const trailing = draft.querySelector("[data-slot=settings-row-trailing]")!.getBoundingClientRect();
+        const choices = [...draft.querySelectorAll('[role="radio"]')].map((el) => el.getBoundingClientRect());
+        const groups = ["circle-invite-actions", "public-link-actions"].map((id) => {
+          const group = document.querySelector(`[data-testid="${id}"]`)!;
+          const buttons = [...group.querySelectorAll("button")].map((el) => {
+            const box = el.getBoundingClientRect();
+            return { left: box.left, right: box.right, top: box.top, height: box.height, width: box.width, fits: el.scrollWidth <= el.clientWidth + 1 };
+          });
+          return { buttons, width: group.getBoundingClientRect().width };
+        });
+        return { trailingRight: trailing.right, choicesRight: choices.at(-1)!.right, choiceTops: choices.map((box) => box.top), groups, overflow: document.documentElement.scrollWidth > innerWidth + 1 };
+      });
+      expect(geometry.overflow).toBe(false);
+      expect(Math.abs(geometry.choicesRight - geometry.trailingRight)).toBeLessThanOrEqual(4);
+      expect(Math.abs(geometry.choiceTops[0] - geometry.choiceTops[1])).toBeLessThanOrEqual(1);
+      for (const group of geometry.groups) {
+        expect(group.buttons).toHaveLength(2);
+        expect(Math.abs(group.buttons[0].top - group.buttons[1].top)).toBeLessThanOrEqual(1);
+        expect(group.buttons[0].right).toBeLessThan(group.buttons[1].left);
+        for (const button of group.buttons) {
+          expect(button.height).toBeGreaterThanOrEqual(44);
+          expect(button.fits).toBe(true);
+        }
+      }
+      expect(geometry.groups[1].buttons[0].width).toBeLessThanOrEqual(110);
+      expect(geometry.groups[1].buttons[1].width).toBeLessThanOrEqual(145);
+      if (width === 320 || width === 1280) await page.screenshot({ path: testInfo.outputPath("invite-link-actions.png"), fullPage: true });
+    });
+
     test(`People actions and icon-free Circles summary at ${width}px ${dark ? "dark" : "light"}`, async ({
       page,
     }, testInfo) => {
@@ -209,8 +251,14 @@ for (const dark of [false, true]) {
           ];
           const rowBox = row.getBoundingClientRect();
           const personBox = person.getBoundingClientRect();
+          const name = person.querySelector('p[title]') as HTMLElement;
           return {
+            nameHeight: name.getBoundingClientRect().height,
+            nameWhiteSpace: getComputedStyle(name).whiteSpace,
+            nameOverflow: getComputedStyle(name).textOverflow,
             height: rowBox.height,
+            rowRight: rowBox.right,
+            paddingRight: parseFloat(getComputedStyle(row).paddingRight),
             personRight: personBox.right,
             personTop: personBox.top,
             personBottom: personBox.bottom,
@@ -225,6 +273,9 @@ for (const dark of [false, true]) {
                 top: box.top,
                 bottom: box.bottom,
                 height: box.height,
+                width: box.width,
+                background: getComputedStyle(action).backgroundColor,
+                borderRadius: getComputedStyle(action).borderRadius,
                 center: (box.top + box.bottom) / 2,
                 inside:
                   box.left >= rowBox.left - 1 && box.right <= rowBox.right + 1,
@@ -261,20 +312,21 @@ for (const dark of [false, true]) {
       expect(measurements.overflowCount).toBe(0);
       expect(measurements.summaryIconCount).toBe(1);
       for (const row of measurements.rows) {
+        expect(row.nameHeight).toBeLessThanOrEqual(22);
+        expect(row.nameWhiteSpace).toBe("nowrap");
+        expect(row.nameOverflow).toBe("ellipsis");
         expect(row.actions).toHaveLength(2);
-        expect(row.height).toBeLessThanOrEqual(width < 400 ? 140 : 90);
+        expect(row.height).toBeLessThanOrEqual(90);
+        expect(Math.abs(row.actions.at(-1)!.right - (row.rowRight - row.paddingRight))).toBeLessThanOrEqual(1);
         for (const action of row.actions) {
           expect(action.height).toBeGreaterThanOrEqual(44);
+          expect(action.width).toBeGreaterThanOrEqual(44);
+          expect(action.background).toBe("rgba(0, 0, 0, 0)");
+          expect(action.borderRadius).toBe("0px");
           expect(action.inside).toBe(true);
           expect(action.iconVisible).toBe(true);
-          if (width >= 400) {
-            expect(action.left).toBeGreaterThanOrEqual(row.personRight);
-            expect(
-              Math.abs(action.center - row.personCenter),
-            ).toBeLessThanOrEqual(6);
-          } else {
-            expect(action.top).toBeGreaterThanOrEqual(row.personBottom);
-          }
+          expect(action.left).toBeGreaterThanOrEqual(row.personRight);
+          expect(Math.abs(action.center - row.personCenter)).toBeLessThanOrEqual(6);
         }
       }
       await expect(

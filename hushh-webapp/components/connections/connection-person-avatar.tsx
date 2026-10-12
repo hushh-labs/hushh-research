@@ -76,6 +76,7 @@ export function ConnectionPersonAvatar({
   verified = false,
   size = "comfortable",
   className,
+  fallbackClassName,
   testId,
 }: {
   photoUrl?: string | null;
@@ -87,6 +88,7 @@ export function ConnectionPersonAvatar({
    */
   size?: ConnectionPersonAvatarSize;
   className?: string;
+  fallbackClassName?: string;
   testId?: string;
 }) {
   return (
@@ -111,7 +113,7 @@ export function ConnectionPersonAvatar({
       ) : null}
       <AvatarFallback
         aria-hidden="true"
-        className={AVATAR_FALLBACK_CLASSNAME[size]}
+        className={cn(AVATAR_FALLBACK_CLASSNAME[size], fallbackClassName)}
       >
         {connectionAvatarInitials(label)}
       </AvatarFallback>
