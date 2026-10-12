@@ -19,7 +19,7 @@ export function MagicIntelligenceOffer(props: {
     <Card
       preset="compact"
       data-testid="magic-intelligence-card"
-      className="min-w-0 gap-1 p-3 sm:p-4"
+      className="min-w-0 w-full gap-1 p-3 sm:p-4"
     >
       <div className="flex items-center justify-between gap-3">
         <h3 className="ui-text-row-label">Magic Intelligence</h3>

@@ -136,6 +136,56 @@ def test_contact_routes_reuse_signup_verification_and_repair_incomplete_shadow(
         assert shadow["phone_verified"] is True
 
 
+@pytest.mark.parametrize("canonical", [True, False])
+@pytest.mark.parametrize("failure", ["provider", "persistence", "read", "pool", "disabled"])
+def test_contact_identity_outage_is_retryable_without_requesting_another_otp(
+    contact_routes,
+    monkeypatch,
+    canonical,
+    failure,
+):
+    uid = "firebase_requester_1234567890"
+    identity = ActorIdentityService()
+    shadow = {
+        "user_id": uid,
+        "phone_verified": False,
+        "phone_number": None,
+        "last_synced_at": datetime.now(timezone.utc),
+    }
+    monkeypatch.setattr(identity, "get_many", AsyncMock(return_value={uid: shadow}))
+    monkeypatch.setattr(identity, "upsert_identity", AsyncMock(return_value=None))
+    if failure == "read":
+        identity.get_many.side_effect = RuntimeError("database read unavailable")
+    elif failure == "pool":
+        identity.upsert_identity.side_effect = RuntimeError("database pool unavailable")
+    monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
+    from firebase_admin import auth as firebase_auth
+
+    provider = Mock(
+        return_value=SimpleNamespace(phone_number=PHONE, disabled=failure == "disabled")
+    )
+    if failure == "provider":
+        provider.side_effect = RuntimeError("provider unavailable")
+    monkeypatch.setattr(firebase_auth, "get_user", provider)
+    monkeypatch.setattr(connections, "ActorIdentityService", lambda: identity)
+    monkeypatch.setattr(marketplace, "ActorIdentityService", lambda: identity)
+    contact_routes.client.app.dependency_overrides[require_firebase_auth] = lambda: uid
+    route = "/api/one/connections/contact-sync" if canonical else "/api/marketplace/contacts/match"
+    payload = {"lookups": [LOOKUP]} if canonical else _legacy_payload()
+
+    response = contact_routes.client.post(route, json=payload)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "CONTACT_SYNC_IDENTITY_UNAVAILABLE"
+    assert "verify your phone" not in response.text.lower()
+    contact_routes.graph.reserve_contact_sync_lookup_budget.assert_not_called()
+    contact_routes.matcher.match_one_network_contact_lookups_exact.assert_not_awaited()
+    contact_routes.matcher.match_marketplace_contacts.assert_not_awaited()
+    contact_routes.graph.sync_contact_matches.assert_not_called()
+    if failure == "disabled":
+        identity.upsert_identity.assert_not_awaited()
+
+
 def test_one_network_read_charges_verified_requester_budget_before_matching(contact_routes):
     calls = []
 

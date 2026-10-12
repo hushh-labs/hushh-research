@@ -28,7 +28,7 @@ import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
 import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
 import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import { classifyMergeOutcome, type PkmMergeOutcome } from "@/lib/pkm/pkm-supersede-merge";
-import { assertBusinessMemoryTarget, assertProfileReviewTargetPath, touchesBusinessRecord, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
+import { assertBusinessMemoryTarget, assertProfileReviewTargetPath, assertProfileSelectionCreateTarget, touchesBusinessRecord, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
 import {
   clearMarkdownMemory,
   loadMarkdownMemory,
@@ -687,7 +687,10 @@ export async function addToPKM(params: {
                 : undefined,
             },
         build: async (context) => {
-          if (params.source === "profile_research_review") assertProfileReviewTargetPath(card);
+          if (params.source === "profile_research_review") {
+            assertProfileReviewTargetPath(card);
+            assertProfileSelectionCreateTarget(card, context.currentDomainData);
+          }
           if (params.source === "profile_research_review" &&
             touchesBusinessRecord(card, context.currentDomainData) && !params.businessOrigin)
             throw new Error("The saved business needs a fresh identity review. Nothing was changed.");

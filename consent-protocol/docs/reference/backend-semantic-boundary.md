@@ -224,26 +224,72 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Structured output: `ProfileReport` in `hushh_mcp/one_adk/profile_research.py`;
   match status, name, concise summary, up to four sections and eight facts per
   section, each with confidence and HTTPS source links.
-- Search strategy: the authored task starts with the public name, using an
+- Single-shot discovery: `run_profile_discovery` calls the existing grounded
+  research task once with all available full owner identifiers. The separate
+  `one_profile_verify` agent, score computation and numerical release gate are
+  removed. The researcher owns match status, statements, summary and categorical
+  source uncertainty; the host validates source/schema/authority without
+  upgrading meaning or forcing a match.
+- Execution is bounded to one 160-second discovery deadline and one Search child
+  call (up to three logical model calls). There are no query permutations or
+  automatic research retries. Existing 200-second jobs, key/lease limits and the
+  three-start/hour admission limit remain unchanged.
+- The child request preserves the owner's name, full verified email and full
+  verified phone together, unchanged and JSON-quoted. Missing fields stay missing.
+  Native Google grounding may reformulate its internal queries, as authorized;
+  received grounding/source references remain required, but literal query
+  receipt matching is not an acceptance condition. No private-account tools,
+  caller-selected identities, PKM authority or sharing grants are added.
+- Profile retrieval intent is authored in the existing Search child's manifest,
+  so an exact identifier-only child request still asks for roles, education,
+  projects and public activities. Identifiers are anchors, not a mandatory
+  conjunction or a requirement for contacts to be published. A coherent cited
+  candidate without a secure owner link remains uncertain; missing public
+  contacts alone must not turn findings into no-match. This is agent guidance,
+  not a host-side override of the report or a second confidence stage.
+- The sole research slot is charged before provider dispatch under revision and
+  ciphertext CAS. Interrupted or failed charged tasks cannot replay it for the
+  same identity/policy/window. Failures return terminal unavailable without
+  invented confidence or no-match evidence. Old seven-mask and scored checkpoint
+  states are recognized only during migration: a changed policy binding prevents
+  their release, preserves paid-start history, and admits one new-policy slot.
+  Frontend decoders retain old metadata compatibility, never a current score gate.
+- Raw compatibility Search strategy: the authored task starts with the public name, using an
   organizational email domain only as a hint. It keeps full email/phone as
   private matching context, without requiring a public contact match. At most
-  one broader name-only follow-up fits the existing five-call/30-second budget.
+  one follow-up fits the existing five-call/160-second task budget: broader
+  targeted public-name recovery for an unmatched first pass, or focused missing education,
+  projects, competitions, leadership and achievements after a credible match.
+  The model chooses queries and facts; host code does not fabricate coverage.
+  Attendance, organization and winning are distinct, historical sources do not
+  establish current roles, and duplicate facts belong in one section only.
+  Namesake candidates remain separate; a report contains one coherent person,
+  not unrelated candidates relabelled as uncertain. Occurrence lists and
+  answer-site assertions alone cannot establish biographical claims.
   Search calls run sequentially so each attempt carries only its own receipts;
   the host rejects parallel tool calls and more than two Search attempts.
   The tool result exposes whether Search execution was observed; a refusal
   cannot be treated as proof that a profile does not exist.
+- The internal model contract selects short source refs exposed by the Search
+  child. Host transport resolves only those exact invocation-local refs to
+  received URLs; facts, confidence, titles and order stay model-authored. The
+  public report retains `sources:{title,url}`, with no ref field or URL guessing.
 - Validator rejects unknown fields, duplicate sections, unsupported URLs and
   incoherent no-match results. Every cited URL must have a Search grounding
-  receipt. A no-match report also needs Search execution evidence; an offline
+  receipt exposed to the model. Unknown refs, parent-only metadata and raw-URL
+  fallbacks cannot authorize a citation. A no-match report also needs Search execution evidence; an offline
   answer or refusal is unavailable, not proof of absence. Empty results show
   an explanation and Skip, without preparing memory. Failed research can retry.
   Host policy does not rewrite facts or choose their meaning.
 - Admission: current first-party owner/chat key, completed account setup,
   fresh Firebase identity plus the canonical onboarding name when Firebase's
   name is absent, verified contact identifiers, bounded owner checks and
-  `ONE_PROFILE_RESEARCH_ENABLED` (default off). Drafts use turn-local storage,
-  private no-store responses and a session-only chat card; they bypass transcript
-  persistence and automatic memory capture.
+  `ONE_PROFILE_RESEARCH_ENABLED` (default off). Background drafts use bounded
+  person-key encrypted checkpoints in the existing session store, private
+  no-store responses and a session-only chat card; they bypass transcript
+  persistence, PKM writes and automatic memory capture. Cached release binds
+  current identity and authored research policy; policy changes preserve the
+  three-starts/hour research budget rather than resetting it.
 - Independence: personal research has its own flag and generic owner/setup
   admission and private-response utilities. It never requires Business
   Intelligence, a company record, or company ownership. Career, education and
@@ -252,7 +298,9 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   owner identity is selected at ingress. It returns `status`, `pkm_written:false`
   and, when offered, `report` plus bounded Google Search suggestions. The
   platform-aware One API transport supports both web and native callers.
-  Three requests/hour and a 40-second deadline bound background work. No
+  The compatible synchronous POST retains three requests/hour and a 40-second
+  deadline. The authenticated POST/GET jobs path detaches a 200-second execution
+  from browser polling, with at most three actual research starts/hour. No
   provider error text is returned.
 - Saving: checked/edited statements go through the existing semantic PKM
   preview. Only final confirmation writes ciphertext. Reconciliation includes

@@ -255,6 +255,8 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
 
 
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "one_magic_intelligence_phase", "0") == "5" and args.environment != "uat":
+        raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
     config: dict[str, Any] = {
         "environment": args.environment,
         "hushh_genai_auth_mode": "vertex_adc",
@@ -530,7 +532,7 @@ def main() -> int:
     parser.add_argument(
         "--one-profile-research-enabled", default="false", choices=["true", "false"]
     )
-    parser.add_argument("--one-magic-intelligence-phase", default="0", choices=list("01234"))
+    parser.add_argument("--one-magic-intelligence-phase", default="0", choices=list("012345"))
     parser.add_argument("--one-magic-intelligence-inner-team-emails", default="")
     parser.add_argument("--one-magic-intelligence-senior-team-emails", default="")
     parser.add_argument("--one-magic-intelligence-qa-emails", default="")
