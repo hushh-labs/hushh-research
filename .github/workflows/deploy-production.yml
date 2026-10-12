@@ -80,6 +80,7 @@ env:
   PROD_DB_NAME: hushh_vault
   ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID: account-deletion-cleanup
   ACCOUNT_DELETION_SCHEDULER_JOB: account-deletion-cleanup-production
+  GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID: gmail-personal-monitor-sched
   BACKUP_MAX_AGE_HOURS: "30"
   # Read-only source for backend_image_source=promote-from-uat. Production never
   # deploys from this registry; it copies the verified digest into its own.
@@ -308,6 +309,15 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Verify production personal Gmail monitor identity
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud iam service-accounts describe \
+            "${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --project="${{ env.GCP_PROJECT_ID }}" --format='value(email)' >/dev/null
 
       - name: Resolve production curated connector secrets
         id: prod-curated-secrets
@@ -939,6 +949,7 @@ jobs:
           DRIVE_SUBSTITUTIONS+=",_CURATED_CONNECTOR_SECRETS=${{ steps.prod-curated-secrets.outputs.names }}"
           DRIVE_SUBSTITUTIONS+=",_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET"
           DRIVE_SUBSTITUTIONS+=",_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_PROD_ENABLED || 'true' }},_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_PROD_ENABLED || 'false' }},_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_PROD_ENABLED || 'false' }},_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_PROD_REVIEWED || 'false' }},_PKM_ANSWER_STRIPE_MODE=live,_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET,_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_PROD_ENABLED || 'false' }},_ANSWER_WORK_DRAIN_AUDIENCE=https://api.hushh.ai"
+          DRIVE_SUBSTITUTIONS+=",_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true,_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           if [ "${{ steps.drive-mode.outputs.active }}" = "true" ]; then
             DRIVE_SUBSTITUTIONS+=",_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID,_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY,_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY,_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1,_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1,_DRIVE_WORK_DRAIN_ENABLED=true,_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda,_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai"
           elif [ "${{ steps.prod-curated-secrets.outputs.enabled }}" = "true" ]; then
@@ -1070,6 +1081,15 @@ jobs:
               "env_run": env.get("HUSHH_DEPLOY_RUN_ID") == os.environ["GITHUB_RUN_ID"],
               "isolated_runtime_config": secret_refs.get("BACKEND_RUNTIME_CONFIG_JSON")
               == expected_runtime_secret,
+              "gmail_monitor_oidc_required": env.get(
+                  "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED"
+              ) == "true",
+              "gmail_monitor_audience": env.get(
+                  "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE"
+              ) == "https://api.hushh.ai",
+              "gmail_monitor_service_account": env.get(
+                  "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL"
+              ) == "gmail-personal-monitor-sched@hushh-pda.iam.gserviceaccount.com",
           }
           report = {
               "status": "ready" if all(checks.values()) else "blocked",
