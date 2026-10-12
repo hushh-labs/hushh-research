@@ -8587,7 +8587,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)]"
+                    className="!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
                     <HushhMark
                       aria-hidden="true"
