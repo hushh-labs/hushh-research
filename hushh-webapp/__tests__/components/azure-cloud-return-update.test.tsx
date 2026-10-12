@@ -8,15 +8,20 @@
  * update whose release the agent reports installed (live incident 2026-10-05).
  */
 import { act, render, screen, waitFor } from "@testing-library/react";
+import { Suspense } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   assign: vi.fn(),
+  refresh: vi.fn(),
+  pathname: "/one/setup/cloud/azure/return",
+  auth: { user: { uid: "owner" } as { uid: string } | null, loading: false, sessionVerificationRequired: false },
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace, push: vi.fn() }),
+  useRouter: () => ({ replace: mocks.replace, push: vi.fn(), refresh: mocks.refresh }),
+  usePathname: () => mocks.pathname,
   useSearchParams: () => new URLSearchParams("code=c0de&state=st4te"),
 }));
 vi.mock("next/link", () => ({
@@ -25,7 +30,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: "owner" }, loading: false }),
+  useAuth: () => mocks.auth,
 }));
 vi.mock("@/lib/utils/browser-navigation", () => ({ assignWindowLocation: mocks.assign }));
 vi.mock("@/lib/services/api-service", () => ({
@@ -47,6 +52,8 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 }));
 
 import { AzureCloudReturnPage } from "@/components/connections/azure-cloud-return-page";
+import { AzureReturnBootRecovery } from "@/components/connections/azure-return-boot-recovery";
+import { BOOT_TIMING, markBootRouteCommitted, resetBootSurfaceForTests } from "@/lib/boot/boot-surface-store";
 import { AZURE_SIGN_IN_CHANNEL } from "@/lib/one/azure-sign-in";
 import { ApiService } from "@/lib/services/api-service";
 
@@ -206,5 +213,73 @@ describe("the Microsoft sign-in return for an approved update", () => {
     expect(await screen.findByTestId("azure-upgrade-failed")).toHaveTextContent(
       "The new version did not start. Your agent keeps running the version it had.",
     );
+  });
+});
+
+describe("cold Azure return before shell hydration", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    resetBootSurfaceForTests();
+    mocks.pathname = "/one/setup/cloud/azure/return";
+    mocks.auth = { user: { uid: "owner" }, loading: false, sessionVerificationRequired: false };
+    complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2", operationId: "op", releaseId: "rel_exact" });
+    setupStatus.mockResolvedValue(job({ status: "running" }));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    resetBootSurfaceForTests();
+    mocks.refresh.mockReset();
+  });
+
+  it("recovers a withheld shell once and leaves the exchange to the normal return page", async () => {
+    let withheld = true;
+    let reveal!: () => void;
+    const pending = new Promise<void>((resolve) => { reveal = resolve; });
+    function WithheldShell() {
+      if (withheld) throw pending;
+      return <AzureCloudReturnPage />;
+    }
+    mocks.refresh.mockImplementation(() => { withheld = false; reveal(); });
+    render(<><AzureReturnBootRecovery /><Suspense fallback={null}><WithheldShell /></Suspense></>);
+    expect(complete).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs - 1); });
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(mocks.refresh).toHaveBeenCalledOnce();
+    expect(complete).toHaveBeenCalledOnce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs * 2); });
+    expect(mocks.refresh).toHaveBeenCalledOnce();
+    expect(complete).toHaveBeenCalledOnce();
+  });
+
+  it("does not refresh a return whose route committed before the deadline", async () => {
+    render(<AzureReturnBootRecovery />);
+    markBootRouteCommitted(mocks.pathname);
+    await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs); });
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it.each(["different route", "signed out", "verification pending", "loading"])(
+    "does not recover with %s", async (condition) => {
+      if (condition === "different route") mocks.pathname = "/one";
+      if (condition === "signed out") mocks.auth.user = null;
+      if (condition === "verification pending") mocks.auth.sessionVerificationRequired = true;
+      if (condition === "loading") mocks.auth.loading = true;
+      render(<AzureReturnBootRecovery />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs * 2); });
+      expect(mocks.refresh).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+    },
+  );
+
+  it("cancels the pending recovery if the owner signs out", async () => {
+    const view = render(<AzureReturnBootRecovery />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs - 1); });
+    mocks.auth = { ...mocks.auth, user: null };
+    view.rerender(<AzureReturnBootRecovery />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs); });
+    expect(mocks.refresh).not.toHaveBeenCalled();
   });
 });

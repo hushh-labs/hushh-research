@@ -1,14 +1,15 @@
 # Private Files library
 
-**Dev status — 2026-10-11:** the personal Azure owner completed the exact approved
-Dev 15 installation on the same pod. Post-update encrypted transfer resume,
-byte-exact integrity, move/undo and trash/restore passed. An unsupported
-organization request preserved the original; successful opted-in organization
-and cancellation remain dated Dev 12 evidence. Google Cloud's isolated
-qualification includes encrypted Files recovery and authenticated Cloud Tasks
-organization; a complete normal-owner Google journey is not established by
-those fixtures. Production and broad rollout remain gated. Read the
-[readiness audit](../quality/adk-orchestration-docs-audit.md#acceptance-matrix)
+**Dev status — 2026-10-12:** the personal Azure owner completed the exact Settings-approved
+Dev 17 update during active chat, with authenticated drain, encrypted recovery and
+installed-digest verification. Post-update transfer resume retained one file identity;
+byte-exact downloads, folders, inline rename/undo, move/undo and trash/restore passed.
+The download rehearsal used a memory-backed save adapter, not an OS-disk proof.
+Both disposable cloud fixtures completed current-image automatic organization and
+preserved original bytes. Personal semantic organization has dated Dev 15 evidence;
+its current-image repeat remains separate. Normal-owner Google provisioning and
+production acceptance are not established by isolated fixtures. Read the
+[readiness memo](../quality/adk-orchestration-docs-audit.md#acceptance-matrix)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
 
 ## Visual Map
