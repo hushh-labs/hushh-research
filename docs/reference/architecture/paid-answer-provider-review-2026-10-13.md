@@ -1,6 +1,6 @@
 # Paid-answer UAT provider review, 13 October 2026
 
-Authenticated, read-only GCP and GitHub reads were performed using the authorised local account. The sanitized [machine record](paid-answer-provider-review-2026-10-13.json) contains exact responses and observations; no token, secret value, private prompt or customer log was read or recorded. No runtime, shared webhook, Drive, Gemini project/model, cache setting or contract was changed.
+Authenticated, read-only GCP and GitHub reads were performed using the authorised local account. The sanitized [machine record](./paid-answer-provider-review-2026-10-13.json) contains exact responses and observations; no token, secret value, private prompt or customer log was read or recorded. No runtime, shared webhook, Drive, Gemini project/model, cache setting or contract was changed.
 
 ## Visual Map
 
