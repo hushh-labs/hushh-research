@@ -68,14 +68,14 @@ describe("payout freshness line", () => {
   });
 
   it("offers Retry after two failed reads and announces only failure and going offline", async () => {
-    show({ lastSuccessAt: NOW - 20_000, failures: 1 });
+    show({ lastSuccessAt: NOW - 3 * 60_000, failures: 1 });
     const view = render(<PayoutFreshness />);
-    expect(line()).toHaveTextContent(/^Updated just now$/);
+    expect(line()).toHaveTextContent(/^Updated 3m ago$/);
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 
     show({ failures: 2 });
     view.rerender(<PayoutFreshness />);
-    expect(line()).toHaveTextContent(/^Couldn't update · Updated just now\s*Retry$/);
+    expect(line()).toHaveTextContent(/^Couldn't update · Updated 3m ago\s*Retry$/);
     expect(announced()).toHaveTextContent(/^Couldn't update$/);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(state.invalidate).toHaveBeenCalledExactlyOnceWith(PAYOUT_KINDS, "manual");
@@ -88,5 +88,29 @@ describe("payout freshness line", () => {
     show({ online: true, failures: 0, lastSuccessAt: NOW });
     view.rerender(<PayoutFreshness />);
     expect(line()).toHaveTextContent(/^$/);
+  });
+
+  it("never says Updated just now after a failed read, and names the age from 1m on", async () => {
+    show({ lastSuccessAt: NOW - 45_000, failures: 1 });
+    const view = render(<PayoutFreshness />);
+    // One quiet failure on data under a minute old: nothing to say yet.
+    expect(line()).toHaveTextContent(/^$/);
+
+    show({ failures: 2 });
+    view.rerender(<PayoutFreshness />);
+    expect(line()).toHaveTextContent(/^Couldn't update\s*Retry$/);
+    expect(line()).not.toHaveTextContent("just now");
+    expect(announced()).toHaveTextContent(/^Couldn't update$/);
+
+    // The 30 s clock moves the last good read past a minute.
+    await advance(30_100);
+    expect(line()).toHaveTextContent(/^Couldn't update · Updated 1m ago\s*Retry$/);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(state.invalidate).toHaveBeenCalledExactlyOnceWith(PAYOUT_KINDS, "manual");
+
+    // Offline is not a failed read: its age may still be "just now".
+    show({ online: false, failures: 0, lastSuccessAt: Date.now() - 20_000 });
+    view.rerender(<PayoutFreshness />);
+    expect(line()).toHaveTextContent(/^Offline · Updated just now$/);
   });
 });
