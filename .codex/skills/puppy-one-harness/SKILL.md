@@ -43,7 +43,7 @@ Non-owned surfaces:
 
 ## Do Not Use
 
-1. Changing the PKM write path or the vault (`vault-pkm-governance`).
+1. Changing the PKM write path or the vault (`security-audit`).
 2. Provider routing or the on-device gate itself (`backend-runtime-governance`).
 3. Frontend surfaces for Puppy One (`frontend-surface-placement`).
 
@@ -75,7 +75,7 @@ Non-owned surfaces:
 1. If the request is still broad or ambiguous, route it back to `backend`.
 2. If the finding is a provider-routing or gate issue, use
    `backend-runtime-governance`.
-3. If it touches the vault or the PKM write path, use `vault-pkm-governance`.
+3. If it touches the vault or the PKM write path, use `security-audit`.
 
 ## Required Checks
 

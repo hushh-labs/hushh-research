@@ -15,24 +15,8 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
-import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
-import {
-  applyOwnerConfirmedSave,
-  formatPkmSaveReceiptForAgent,
-  pkmSaveReceiptWrote,
-  saveOwnerConfirmedCards,
-  type PkmSaveReceipt,
-} from "@/lib/agent/agent-pkm-explicit-save";
-import { explicitSaveReceiptPhase } from "@/lib/agent/pkm-save-receipt";
-import {
-  listResumablePkmSaveJobs,
-  resumeExplicitPkmSaveJob,
-  startExplicitPkmSaveJob,
-  type ExplicitPkmSaveJobResult,
-} from "@/lib/pkm/pkm-save-job";
-import { isCommittedPkmSave, type AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
+import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
   AgentConsentContinuationContext,
@@ -148,16 +132,20 @@ import {
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
-import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
-import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { SecretCaptureCard, type KeptSecretRef } from "@/components/secrets/secret-capture-card";
 import { SecretPlaceholderText } from "@/components/secrets/secret-placeholder-text";
 import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 import { SECRET_OFFER_ROUTES, stageSecretOffer } from "@/lib/pkm/secret-offer-handoff";
-import { planSecretCaptures } from "@/lib/pkm/secret-span-guard";
-import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
+import {
+  isNonPersistableCredentialKind,
+  planSecretCaptures,
+} from "@/lib/pkm/secret-span-guard";
+import {
+  markdownFactsFromCards,
+  stageMarkdownMemoryFacts,
+} from "@/lib/pkm/markdown-memory";
 import {
   WalletService,
   type WalletCardSecrets,
@@ -253,26 +241,18 @@ import {
   type AgentActionRuntimeResult,
 } from "@/lib/agent/agent-action-runtime";
 import {
-  addToPKM,
   clearAgentPkmContext,
-  getPkmConfirmationCards,
-  getPkmAutoSaveCards,
   loadAgentPkmContext,
   peekAgentPkmContext,
-  peekReceiptMemoryIndex,
   warmAgentPkmContext,
   type AgentPkmContext,
 } from "@/lib/agent/agent-pkm-memory";
 import {
-  ingestNaturalLanguagePkm,
   prepareNaturalLanguagePkm,
 } from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
   AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
-  loadAgentPkmAutoSavePolicy,
-  subscribeAgentPkmAutoSavePolicyInvalidation,
-  type AgentPkmAutoSavePolicy,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
 import { isChatKeyRefusal } from "@/lib/vault/one-chat-key";
 import {
@@ -375,6 +355,7 @@ import { clearGeneratedDriveSearchDraft } from "@/lib/agent/drive-search-draft";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 import { loadCustomConnectorSnapshot } from "@/lib/connections/custom-connector-configuration";
+import { beginForegroundChatPriority } from "@/lib/agent/foreground-chat-priority";
 import {
   appInteractionCoordinator,
   useActiveActionRun,
@@ -465,14 +446,10 @@ import {
   type GmailInformationRequestSourcePreview,
 } from "@/lib/services/gmail-information-requests-service";
 
-// Every memory capture job ends: auto-capture prepares within 120 s, an
-// explicit save of a long document within 300 s, and each leaves time to write.
+// Every memory capture job ends. Automatic capture includes semantic
+// preparation; an explicit owner save writes the selected passage directly.
 const AGENT_PKM_CAPTURE_DEADLINE_MS = 4 * 60_000;
 const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
-// An explicit save runs as a resumable job (lib/pkm/pkm-save-job.ts): it
-// pauses this long before the deadline and continues later, so the deadline
-// ends the progress line without dropping any section.
-const AGENT_PKM_EXPLICIT_SAVE_PAUSE_MARGIN_MS = 20_000;
 
 type AgentMessage = {
   id: string;
@@ -494,7 +471,6 @@ type AgentMessage = {
   sentAtMs?: number;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
-  memoryCapture?: AgentPkmCaptureStatus;
   kind?: "selection";
   /** Sent while One was working and taken into that reply at its next step. */
   queuedPlacement?: "joined";
@@ -835,6 +811,11 @@ function toPkmFactCountBucket(
   if (count < 250) return "50_249";
   return "250_plus";
 }
+
+function isSilentMemoryToolEvent(event: AgentChatToolEvent): boolean {
+  return event.actionId === "pkm.add" || event.raw?.toolName === "add_to_pkm";
+}
+
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
 
 function getConsentRequiredPayload(
@@ -1848,10 +1829,6 @@ export function AgentBubble({
   gmailInformationRequestAttachment,
   driveMemoryReview,
   onResendAttachment,
-  onConfirmMemoryNeedsOwner,
-  onRetryMemorySave,
-  pendingMemoryCards,
-  onUnlockVault,
   ephemeralCard,
   businessProfileCard,
 }: {
@@ -1881,11 +1858,6 @@ export function AgentBubble({
   driveMemoryReview?: ReactNode;
   /** "Edit and send again" on a sent paste: a new turn, never an edit of this one. */
   onResendAttachment?: (index: number, editedText: string) => boolean | void;
-  onConfirmMemoryNeedsOwner?: () => Promise<void>;
-  /** Continue a paused or gapped memory save job for this message. */
-  onRetryMemorySave?: () => Promise<void>;
-  pendingMemoryCards?: readonly AgentPkmPreviewCard[];
-  onUnlockVault?: () => void;
   /** App-owned background card, never model HTML or persisted chat content. */
   ephemeralCard?: ReactNode;
   /** Compatibility for the existing Business Intelligence card. */
@@ -1902,7 +1874,7 @@ export function AgentBubble({
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const streamEvents = (message.streamEvents ?? []).filter(
-    (event) => !message.memoryCapture || event.label !== "Memory",
+    (event) => event.label !== "Memory" && event.label !== "Add to Memory",
   );
   const structuredExperiences =
     message.structuredExperiences ??
@@ -2151,7 +2123,6 @@ export function AgentBubble({
           {!isUser && backgroundCard ? <div className="mt-3">{backgroundCard}</div> : null}
         </OneChatBubble>
         {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}
-        {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} onConfirmNeedsOwner={onConfirmMemoryNeedsOwner} onRetry={onRetryMemorySave} pendingCards={pendingMemoryCards} onUnlock={onUnlockVault} /> : null}
         {!isUser && !isStreaming && !isError ? driveMemoryReview : null}
         {showResponseActions ? (
         <div
@@ -2776,17 +2747,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [user?.uid]);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
-  const [visiblePkmToolCount, setVisiblePkmToolCount] = useState(0);
   const [walletWidgets, setWalletWidgets] = useState<AgentWalletWidget[]>([]);
-  const [pkmAutoSavePolicy, setPkmAutoSavePolicy] =
-    useState<AgentPkmAutoSavePolicy>(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
-  const [pkmPolicyReady, setPkmPolicyReady] = useState(false);
-  const [pkmPolicyRevision, setPkmPolicyRevision] = useState(0);
-  const [pkmPolicyOwnerId, setPkmPolicyOwnerId] = useState<string | null>(null);
-  const pkmCapturePolicyRef = useRef(pkmAutoSavePolicy);
-  pkmCapturePolicyRef.current = pkmAutoSavePolicy;
   const pkmCaptureEnabledRef = useRef(false);
-  pkmCaptureEnabledRef.current = pkmPolicyReady && pkmPolicyOwnerId === user?.uid && pkmAutoSavePolicy.enabled && isVaultUnlocked;
+  pkmCaptureEnabledRef.current = Boolean(user?.uid && isVaultUnlocked && vaultKey && vaultOwnerToken);
   const pkmCaptureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
   pkmCaptureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
   // A specialist (e.g. agent_location) can return a directive that must be
@@ -2915,13 +2878,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   >(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const pkmCaptureJobsRef = useRef(new Map<string, Promise<AgentPkmCaptureStatus>>());
-  const pkmCaptureReceiptsRef = useRef(new Map<string, Map<string, AgentPkmCaptureStatus>>());
-  // The newest explicit-save receipt in this conversation. One is told it on
-  // the next turn, so it never has to guess whether a save finished.
-  const latestPkmSaveReceiptRef = useRef<PkmSaveReceipt | null>(null);
-  // Details that need the owner's direct tap, per assistant message. Session
-  // memory only: they hold the owner's words and are dropped with the turn.
-  const pkmNeedsOwnerCardsRef = useRef(new Map<string, { cards: AgentPkmPreviewCard[]; sourceMessage: string }>());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
   // Set by the FCM effect below; lets a server tool result (pending requests
@@ -2972,7 +2928,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     : Boolean(commandPresentation?.active) || commandPresentation?.view.phase === "result");
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
-  const isVisiblePkmMemoryWorking = visiblePkmToolCount > 0;
   const rootChatReady = useRootChatDeferredReady();
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentCommandEnabled();
@@ -2985,11 +2940,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     pkmAbortControllersRef.current.clear();
     pkmCaptureJobsRef.current.clear();
-    pkmCaptureReceiptsRef.current.clear();
-    latestPkmSaveReceiptRef.current = null;
-    pkmNeedsOwnerCardsRef.current.clear();
     setActivePkmToolCount(0);
-    setVisiblePkmToolCount(0);
   }, []);
 
   useEffect(() => {
@@ -2998,15 +2949,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     for (const controller of pkmAbortControllersRef.current) controller.abort();
     pkmAbortControllersRef.current.clear();
     pkmCaptureJobsRef.current.clear();
-    pkmCaptureReceiptsRef.current.clear();
     setActivePkmToolCount(0);
-    setVisiblePkmToolCount(0);
-    setMessages((current) => current.map((message) =>
-      message.memoryCapture?.phase === "preparing" || message.memoryCapture?.phase === "saving"
-        ? { ...message, memoryCapture: { phase: message.memoryCapture.saved ? "partial" : "canceled", saved: message.memoryCapture.saved } }
-        : message,
-    ));
-  }, [vaultOwnerToken, pkmAutoSavePolicy, isVaultUnlocked, pkmPolicyReady, authLoading, sessionVerificationRequired]);
+  }, [vaultOwnerToken, isVaultUnlocked, authLoading, sessionVerificationRequired]);
 
   useEffect(() => {
     if (user?.uid && isVaultUnlocked && vaultKey) {
@@ -3018,44 +2962,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEmailDraftAnchorMessageId(null);
     setEmailDeliveryHistory([]);
   }, [isVaultUnlocked, user?.uid, vaultKey]);
-
-  useEffect(() => {
-    if (!user?.uid) return;
-    return subscribeAgentPkmAutoSavePolicyInvalidation(user.uid, () => {
-      pkmCaptureEnabledRef.current = false;
-      setPkmPolicyReady(false);
-      setPkmPolicyRevision((revision) => revision + 1);
-    });
-  }, [user?.uid]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setPkmPolicyReady(false);
-    setPkmPolicyOwnerId(null);
-    if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
-      setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
-      return undefined;
-    }
-    void loadAgentPkmAutoSavePolicy({
-      userId: user.uid,
-      vaultKey,
-      vaultOwnerToken,
-    })
-      .then((policy) => {
-        if (!cancelled) {
-          setPkmAutoSavePolicy(policy);
-          setPkmPolicyOwnerId(user.uid);
-          setPkmPolicyReady(true);
-        }
-      })
-      .catch(() => {
-        if (!cancelled)
-          setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken, pkmPolicyRevision]);
 
   useEffect(() => {
     if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -3308,7 +3214,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         isStreaming ||
         isChatLoading ||
         isToolWorking ||
-        isVisiblePkmMemoryWorking ||
         queuedPrompts.length > 0
       ) {
         return "One is still working";
@@ -3330,7 +3235,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (voiceState === "error") return "Voice error";
     if (isVoiceConnecting) return "Voice connecting";
     if (isToolWorking) return "Working";
-    if (isVisiblePkmMemoryWorking) return "Saving to Memory";
     if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
     if (isChatLoading) return "Thinking";
     if (isStreaming) return "Streaming";
@@ -3340,7 +3244,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     activeActionRun,
     agentVoiceEnabled,
     isChatLoading,
-    isVisiblePkmMemoryWorking,
     emailDraftOpen,
     isPuppySurface,
     isToolWorking,
@@ -3731,7 +3634,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setIsStreaming(false);
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
-    setVisiblePkmToolCount(0);
     setWalletWidgets([]);
     updateConversationId(null, false);
     setConversations([]);
@@ -5211,7 +5113,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       sourceMessage: string;
       currentDomains: string[];
       kycInformationSaveConfirmed?: boolean;
-      /** The open information request the KYC reply answers; binds the KYC writer. */
+      /** The owner-selected information request; saving grants no sending authority. */
       kycInformationRequestWorkflowId?: string;
       /** The owner asked One to save this; see lib/agent/agent-pkm-explicit-save.ts. */
       explicitRequest?: boolean;
@@ -5221,40 +5123,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const existing = pkmCaptureJobsRef.current.get(jobKey);
       if (existing) return existing;
       const token = getVaultOwnerToken();
-      // Only a typed reply to an owner-selected information request runs the
-      // KYC writer. The keyword route that also sent "save my passport ..." here
-      // is retired: it once took a whole 17,120 character paste away from the
-      // semantic agents (production, 2026-09-29). An explicit save goes to them.
+      // Only the owner's typed reply is memory input; the request/email is
+      // never a source of personal facts. KYC and ordinary chat share Soul.md.
       const ownerConfirmedKycSave =
         params.kycInformationSaveConfirmed === true && Boolean(params.kycInformationRequestWorkflowId);
       const explicitRequest = params.explicitRequest === true;
       const userRequestedSave = explicitRequest || ownerConfirmedKycSave;
       if (explicitRequest && (!user?.uid || !vaultKey || !token)) {
-        const locked: AgentPkmCaptureStatus = { phase: "needs_unlock", saved: 0 };
-        setMessages((current) => current.map((message) =>
-          message.id === params.assistantMessageId ? { ...message, memoryCapture: locked } : message,
-        ));
-        return Promise.resolve(locked);
+        return Promise.resolve({ phase: "needs_unlock", saved: 0 });
       }
       if (!user?.uid || !vaultKey || !token || (!pkmCaptureEnabledRef.current && !ownerConfirmedKycSave && !explicitRequest)) {
-        return Promise.resolve({ phase: "review", saved: 0 });
+        return Promise.resolve({ phase: "skipped", saved: 0 });
       }
       const userId = user.uid;
-      const policy = pkmCapturePolicyRef.current;
       const controller = new AbortController();
       const guard = createAgentPkmCaptureGuard({
         userId, signal: controller.signal,
-        // An explicit request does not depend on the background auto-save
-        // policy; it still needs the same unlocked, unexpired vault session.
-        isEnabled: () => ownerConfirmedKycSave ||
-          (explicitRequest && isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token)) || (
-            pkmCaptureEnabledRef.current && pkmCapturePolicyRef.current === policy &&
-            isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token)
-          ),
+        isEnabled: () => isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
       });
       pkmAbortControllersRef.current.add(controller);
       setActivePkmToolCount((count) => count + 1);
-      if (userRequestedSave) setVisiblePkmToolCount((count) => count + 1);
       let timedOut = false;
       // Every job ends. Before this deadline a vault token that expired by the
       // clock (no React change) made the guard false, the final status was
@@ -5263,155 +5151,90 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         timedOut = true;
         controller.abort();
       }, explicitRequest ? AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS : AGENT_PKM_CAPTURE_DEADLINE_MS);
-      const settle = (status: AgentPkmCaptureStatus) => {
-        // An explicit Save retains a terminal status after session expiry;
-        // automatic preparation stays off an ordinary answer unless it saved.
-        if (!shouldPublishAgentPkmCapture(status, guard.isCurrent())) return status;
-        if (!shouldPresentAgentPkmCapture(status, userRequestedSave)) return status;
-        const receipts = pkmCaptureReceiptsRef.current.get(params.assistantMessageId) || new Map<string, AgentPkmCaptureStatus>();
-        receipts.set(jobKey, status);
-        pkmCaptureReceiptsRef.current.set(params.assistantMessageId, receipts);
-        const aggregate = aggregateAgentPkmCaptures([...receipts.values()]);
-        setMessages((current) => current.map((message) =>
-          message.id === params.assistantMessageId ? { ...message, memoryCapture: aggregate } : message,
-        ));
-        if (!isAgentPkmCaptureRunning(status) && status.receipt) {
-          latestPkmSaveReceiptRef.current = status.receipt;
-        }
-        return status;
-      };
+      const settle = (status: AgentPkmCaptureStatus) => status;
       const job = (async (): Promise<AgentPkmCaptureStatus> => {
         try {
-          // Yield presentation without creating an untracked detached timer.
           await guard.assertCurrent();
-          settle({ phase: "preparing", saved: 0 });
-          if (ownerConfirmedKycSave && params.kycInformationRequestWorkflowId) {
-            // A typed reply to an owner-selected KYC request is an explicit
-            // confirmation for the fixed, restricted KYC schema. The Gmail
-            // email never enters this writer; only the owner's message does.
-            // The server binds the writer to this open request: without the
-            // capability it refuses identity writes (reserved-branches.v1.json).
-            const kycReplyAuthorization = await GmailInformationRequestsService.issuePkmReplyAuthorization({
-              firebaseIdToken: await user.getIdToken(),
-              vaultOwnerToken: token,
-              workflowId: params.kycInformationRequestWorkflowId,
-            });
+          if (explicitRequest) {
             await guard.assertCurrent();
-            const ingestion = await ingestNaturalLanguagePkm({
+            const result = await stageMarkdownMemoryFacts({
               userId,
-              message: params.sourceMessage,
-              currentDomains: params.currentDomains,
               vaultKey,
               vaultOwnerToken: token,
-              source: "agent_chat_kyc_owner_confirmed",
-              memoryProfile: "kyc_identity_v1",
+              // One already selected the durable passage before calling
+              // pkm.add. Store that passage directly; the Markdown writer
+              // still removes credentials and exact duplicates.
+              facts: [params.sourceMessage],
               confirmation: {
                 confirmedByUser: true,
                 surface: "chat",
-                source: "agent_chat_kyc_owner_confirmed",
-                kycReplyAuthorization,
+                source: "agent_chat_owner_request",
+                confirmedAt: new Date().toISOString(),
               },
-              writePolicy: "reviewable",
-              batchSimpleDomainExtensions: true,
-            });
-            await guard.assertCurrent();
-            appendDebugEvent(params.turnId, "pkm_kyc_save_result", {
-              saved: ingestion.save.saved,
-              failed: ingestion.save.failed,
-            });
-            return settle({
-              phase: ingestion.save.saved > 0
-                ? (ingestion.save.failed ? "partial" : "saved")
-                : "failed",
-              saved: ingestion.save.saved,
-            });
-          }
-          if (explicitRequest) {
-            const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
-            await guard.assertCurrent();
-            // A resumable job: a relock, reconnect or the deadline pauses it,
-            // and it continues on unlock or Retry without losing a section.
-            const { receipt, needsOwnerCards } = await startExplicitPkmSaveJob({
-              userId,
-              message: params.sourceMessage,
-              currentDomains: params.currentDomains,
-              currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
-              vaultKey,
-              vaultOwnerToken: token,
-              assistantMessageId: params.assistantMessageId,
-              findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
-              findReconciliationCandidates: (passage) =>
-                AgentPkmContextStore.findReconciliationCandidates({ userId, text: passage }),
               beforeEffect: guard.assertCurrent,
-              isEffectCurrent: guard.isCurrent,
-              mayPublish: guard.isCurrent,
-              signal: controller.signal,
-              pauseAt: Date.now() + AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS - AGENT_PKM_EXPLICIT_SAVE_PAUSE_MARGIN_MS,
-              onProgress: (progress) => {
-                settle({ phase: progress.stage === "saving" ? "saving" : "preparing", saved: 0, progress });
-              },
             });
-            if (needsOwnerCards.length) {
-              pkmNeedsOwnerCardsRef.current.set(params.assistantMessageId, {
-                cards: needsOwnerCards, sourceMessage: params.sourceMessage,
-              });
-            }
-            const wrote = pkmSaveReceiptWrote(receipt);
             appendDebugEvent(params.turnId, "pkm_explicit_save_result", {
-              saved: receipt.saved, updated: receipt.updated, merged: receipt.merged,
-              unchanged: receipt.unchanged, skipped: receipt.skipped, excluded: receipt.excluded,
-              unreadable: receipt.unreadable, needs_owner: receipt.needsOwner,
-              failed: receipt.failed, unprepared: receipt.unprepared,
+              saved: result.saved,
+              failed: result.success ? 0 : 1,
             });
             trackEvent("agent_pkm_save_confirmation_completed", {
-              route_id: "agent", result: wrote > 0 ? "success" : "expected_error",
-              saved_count_bucket: toPkmFactCountBucket(wrote), failed_count_bucket: toPkmFactCountBucket(receipt.failed),
+              route_id: "agent", result: result.saved > 0 ? "success" : "expected_error",
+              saved_count_bucket: toPkmFactCountBucket(result.saved),
+              failed_count_bucket: toPkmFactCountBucket(result.success ? 0 : 1),
               has_active_recipients: false,
             });
-            return settle({ phase: explicitSaveReceiptPhase(receipt), saved: wrote, receipt });
+            return settle({
+              phase: result.success ? (result.saved > 0 ? "saved" : "skipped") : "failed",
+              saved: result.saved,
+            });
           }
-          const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
-          await guard.assertCurrent();
           const prepared = await prepareNaturalLanguagePkm({
             userId, message: params.sourceMessage, currentDomains: params.currentDomains,
-            currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
-            findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
+            currentManifests: [],
             vaultOwnerToken: token, source: "agent_chat_auto_capture", allowEmpty: true,
             beforeEffect: guard.assertCurrent,
             isEffectCurrent: guard.isCurrent,
           });
           await guard.assertCurrent();
-          const needsAttention = prepared.sourceCoverage.some((block) =>
-            block.disposition === "failed" || block.disposition === "review_required",
-          );
-          // A malformed/degraded proposal cannot authorize automatic effects.
-          const degraded = prepared.previews.some((preview) => preview.error || preview.used_fallback);
-          const reviewRequired =
-            needsAttention ||
-            degraded ||
-            getPkmConfirmationCards(prepared.cards).length > 0;
-          const cards = degraded ? [] : getPkmAutoSaveCards(prepared.cards);
-          if (!cards.length) return settle({ phase: reviewRequired ? "review" : "skipped", saved: 0 });
-          settle({ phase: "saving", saved: 0 });
-          const result = await addToPKM({
-            userId, cards, sourceMessage: params.sourceMessage, vaultKey, vaultOwnerToken: token,
-            source: "agent_chat_auto_save", beforeEffect: guard.assertCurrent,
-            mayPublish: guard.isCurrent,
-            confirmation: policy.source === "owner_choice" && policy.enabledAt
-              ? { authorizationMode: "owner_auto_save_policy", surface: "chat", source: "agent_chat_auto_save_policy",
-                  autoSavePolicyVersion: policy.version, autoSavePolicyEnabledAt: policy.enabledAt }
-              : { authorizationMode: "product_default_auto_save_policy", surface: "chat", source: "agent_chat_product_default_auto_save",
-                  autoSavePolicyVersion: policy.version, productDefaultEffectiveAt: AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT },
+          // The V1 Markdown document has no review queue. The semantic agents
+          // still decide what is durable; this projection accepts every usable
+          // fact and leaves do_not_save/degraded output out.
+          const facts = markdownFactsFromCards(prepared.cards);
+          if (!facts.length) return settle({ phase: "skipped", saved: 0 });
+          const result = await stageMarkdownMemoryFacts({
+            userId,
+            vaultKey,
+            vaultOwnerToken: token,
+            facts,
+            beforeEffect: guard.assertCurrent,
+            confirmation: ownerConfirmedKycSave ? {
+              confirmedByUser: true,
+              surface: "chat",
+              source: "agent_chat_kyc_owner_confirmed",
+              confirmedAt: new Date().toISOString(),
+            } : {
+              authorizationMode: "product_default_auto_save_policy",
+              surface: "chat",
+              source: "agent_chat_product_default_auto_save",
+              autoSavePolicyVersion: DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY.version,
+              productDefaultEffectiveAt: AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
+            },
           });
-          // Preserve confirmed receipts even if publication is no longer allowed.
-          // Never log the result's decrypted fullBlob or item-level summaries.
-          appendDebugEvent(params.turnId, "pkm_auto_save_result", { saved: result.saved, failed: result.failed });
+          appendDebugEvent(params.turnId, "pkm_auto_save_result", { saved: result.saved, failed: result.success ? 0 : 1 });
           trackEvent("agent_pkm_save_confirmation_completed", {
             route_id: "agent", result: result.saved > 0 ? "success" : "expected_error",
-            saved_count_bucket: toPkmFactCountBucket(result.saved), failed_count_bucket: toPkmFactCountBucket(result.failed),
+            saved_count_bucket: toPkmFactCountBucket(result.saved),
+            failed_count_bucket: toPkmFactCountBucket(result.success ? 0 : 1),
             has_active_recipients: false,
           });
-          return settle({ phase: result.saved > 0 ? (result.failed || reviewRequired ? "partial" : "saved") : "failed", saved: result.saved });
+          return settle({
+            phase: result.saved > 0
+              ? (result.success ? "saved" : "partial")
+              : result.success
+                ? "skipped"
+                : "failed",
+            saved: result.saved,
+          });
         } catch {
           appendDebugEvent(params.turnId, "pkm_capture_failed", {
             kind: timedOut ? "timeout" : guard.isCurrent() ? "capture_failed" : "session_changed",
@@ -5424,7 +5247,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // A canceled old job must not decrement a new conversation's count.
           if (pkmAbortControllersRef.current.delete(controller)) {
             setActivePkmToolCount((count) => Math.max(0, count - 1));
-            if (userRequestedSave) setVisiblePkmToolCount((count) => Math.max(0, count - 1));
           }
         }
       })();
@@ -5433,95 +5255,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     [appendDebugEvent, getVaultOwnerToken, user, vaultKey],
   );
-
-  // The owner tapped "Save these too" on a memory receipt card: their direct
-  // confirmation for the details an explicit save held back.
-  const confirmMemoryNeedsOwner = useCallback(async (messageId: string) => {
-    const pending = pkmNeedsOwnerCardsRef.current.get(messageId);
-    const token = getVaultOwnerToken();
-    if (!pending || !user?.uid || !vaultKey || !token) {
-      throw new Error("Unlock your vault to save these details.");
-    }
-    const result = await saveOwnerConfirmedCards({
-      userId: user.uid, cards: pending.cards, sourceMessage: pending.sourceMessage,
-      vaultKey, vaultOwnerToken: token,
-    });
-    const remaining = pending.cards.filter((_, index) => !isCommittedPkmSave(result.results[index]));
-    if (remaining.length === pending.cards.length) throw new Error("Nothing was saved.");
-    if (remaining.length) pkmNeedsOwnerCardsRef.current.set(messageId, { ...pending, cards: remaining });
-    else pkmNeedsOwnerCardsRef.current.delete(messageId);
-    setMessages((current) => current.map((message) => {
-      const receipt = message.id === messageId ? message.memoryCapture?.receipt : undefined;
-      if (!receipt || !message.memoryCapture) return message;
-      const next = applyOwnerConfirmedSave(receipt, pending.cards, result);
-      latestPkmSaveReceiptRef.current = next;
-      return { ...message, memoryCapture: { ...message.memoryCapture, receipt: next, saved: pkmSaveReceiptWrote(next) } };
-    }));
-  }, [getVaultOwnerToken, user?.uid, vaultKey]);
-
-  // Continue a persisted memory save job: on unlock, on reconnect, after a
-  // reload, or when the owner taps Retry. The job's Web Lock keeps a second
-  // runner (another tab, or the original run) from starting it twice.
-  const resumeMemorySaveJob = useCallback(async (
-    jobId: string,
-    options: { retry?: boolean; messageId?: string } = {},
-  ) => {
-    const token = getVaultOwnerToken();
-    if (!user?.uid || !vaultKey || !token) throw new Error("Unlock your vault to continue saving.");
-    const userId = user.uid;
-    const guard = createAgentPkmCaptureGuard({
-      userId, signal: new AbortController().signal,
-      isEnabled: () => isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
-    });
-    const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
-    const outcome: ExplicitPkmSaveJobResult | null = await resumeExplicitPkmSaveJob({
-      userId, jobId, retry: options.retry, vaultKey, vaultOwnerToken: token,
-      currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
-      findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
-      findReconciliationCandidates: (passage) =>
-        AgentPkmContextStore.findReconciliationCandidates({ userId, text: passage }),
-      beforeEffect: guard.assertCurrent, isEffectCurrent: guard.isCurrent, mayPublish: guard.isCurrent,
-    });
-    const messageId = options.messageId ?? outcome?.assistantMessageId;
-    if (!outcome || !messageId) return;
-    if (outcome.needsOwnerCards.length) {
-      pkmNeedsOwnerCardsRef.current.set(messageId, { cards: outcome.needsOwnerCards, sourceMessage: outcome.sourceMessage });
-    }
-    latestPkmSaveReceiptRef.current = outcome.receipt;
-    setMessages((current) => current.map((message) => message.id === messageId
-      ? {
-          ...message,
-          memoryCapture: {
-            phase: explicitSaveReceiptPhase(outcome.receipt),
-            saved: pkmSaveReceiptWrote(outcome.receipt),
-            receipt: outcome.receipt,
-          },
-        }
-      : message));
-  }, [getVaultOwnerToken, user?.uid, vaultKey]);
-
-  // The vault key changes exactly when the vault unlocks (vault-context
-  // dispatches "vault-unlocked" alongside it): resume paused jobs then, and
-  // again whenever the device comes back online.
-  useEffect(() => {
-    const userId = user?.uid;
-    if (!userId || !vaultKey) return;
-    let active = true;
-    const resumeAll = () => {
-      void listResumablePkmSaveJobs({ userId, vaultKey }).then((jobs) => {
-        for (const job of jobs) {
-          if (!active) return;
-          void resumeMemorySaveJob(job.id, { messageId: job.assistantMessageId }).catch(() => undefined);
-        }
-      });
-    };
-    resumeAll();
-    window.addEventListener("online", resumeAll);
-    return () => {
-      active = false;
-      window.removeEventListener("online", resumeAll);
-    };
-  }, [resumeMemorySaveJob, user?.uid, vaultKey]);
 
   /**
    * A bare "yes"/"no" typed while a review card is still actionable. Typed text
@@ -5581,16 +5314,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // lookup and memory capture -- use this. The wire and the transcript keep
     // the attachment separate from the typed text.
     const turnSourceText = composeTurnSourceText(text, attachments);
-    // Last line before the model: a composer turn arrives here with every
-    // secret already kept in Secrets and replaced by its placeholder
-    // (keepSecretsFromTurn). Any other path that still carries a raw secret
+    // Last line before the model: a composer turn arrives here with protected
+    // values already handled locally and replaced by placeholders
+    // (keepSecretsFromTurn). Any other path that still carries a raw value
     // (a handed-off prompt, a voice transcript) is stopped here, before ANY
     // network call, history or telemetry.
     if (containsSecretSpan(turnSourceText)) {
       appendMessage({
         id: `msg-${Date.now()}-secret-blocked`,
         role: "assistant",
-        text: "That message holds a secret, so it stayed on this device and was not sent. Type or paste it into the chat box to keep it in Secrets.",
+        text: "That message contains protected information, so it was not sent. Type or paste it into the chat box so the device can process it safely.",
         ...stampNow(),
         status: "done",
         renderAsPlainAssistantMessage: true,
@@ -5619,7 +5352,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const debugTurnId = `agent_turn_${turnId}`;
     const assistantMessageId = `msg-${turnId}-assistant`;
     const executedToolCalls = new Set<string>();
-    let pkmToolHandledFullTurn = false;
     let toolStatusMessageId: string | null = null;
     let turnPkmContext = EMPTY_PKM_CONTEXT;
     let pendingAssistantDelta = "";
@@ -5712,10 +5444,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         toolEvent.slots.source_text.trim()
           ? toolEvent.slots.source_text.trim()
           : turnSourceText;
-      // One already chose capture passages. Do not run a second full-turn
-      // extraction over those passages after its explicit capture invocations.
-      pkmToolHandledFullTurn = true;
-
       return captureEligiblePkmFactsInBackground({
         turnId: `${debugTurnId}:${toolEvent.callId || "pkm.add"}`,
         assistantMessageId,
@@ -5741,7 +5469,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           actionId: toolEvent.actionId,
           label: toolEvent.label,
           routeBefore: pathname,
-          resultSummary: describeAgentPkmCapture(capture),
+          resultSummary: "",
         };
       }
 
@@ -6066,6 +5794,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return;
     }
 
+    const releaseForegroundChatPriority = beginForegroundChatPriority();
+
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current = streamAbortController;
     const pkmContextStartedAt = performance.now();
@@ -6082,37 +5812,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         userId,
         message: turnSourceText,
       });
-      if (cachedContext?.text) {
-        void loadAgentPkmContext({
-          userId,
-          vaultOwnerToken: token,
-          vaultKey,
-          message: turnSourceText,
-        }).catch(() => undefined);
+      if (cachedContext) {
         return cachedContext;
       }
 
-      // Large pasted context is already in the user turn and is handled by the
-      // guarded background capture lane after the answer starts. Do not make a
-      // foreground paste wait for a full decrypted inventory to hydrate. A
-      // warm session cache is still useful, but it is not required for this
-      // explicitly deferred lane.
-      if (options.deferPkmContext) {
-        if (cachedContext?.text) {
-          void loadAgentPkmContext({
-            userId,
-            vaultOwnerToken: token,
-            vaultKey,
-            message: turnSourceText,
-          }).catch(() => undefined);
-          return cachedContext;
-        }
-        return EMPTY_PKM_CONTEXT;
-      }
-
       // A warm cache returns immediately. A cold unlocked turn waits for the
-      // local decrypted inventory instead of substituting metadata or sending
-      // an empty prompt to One.
+      // single encrypted Markdown document instead of sending an empty prompt
+      // to One. Large pasted turns follow the same rule: every prompt receives
+      // memory.md.
       const context = await loadAgentPkmContext({
         userId,
         vaultOwnerToken: token,
@@ -6120,11 +5827,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         message: turnSourceText,
         requireDecrypted: true,
       });
-      if (!context.text) {
-        throw new Error(
-          "One could not prepare your private memory for this turn. Please try again.",
-        );
-      }
       return context;
     };
 
@@ -6190,11 +5892,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
 
+      // Assess only the owner's typed information alongside answer generation.
+      // Capture publishes to RAM; encrypted saving has its own session queue.
+      if (options.source === "typed" && !options.kycInformationSaveConfirmed) {
+        void captureEligiblePkmFactsInBackground({
+          turnId: debugTurnId, assistantMessageId, sourceMessage: turnSourceText,
+          currentDomains: agentPkmContext.domains,
+        });
+      }
       if (options.kycInformationSaveConfirmed) {
-        // Persist the owner's supplied KYC details before One reasons about
-        // the reply. Refreshing the decrypted context lets the same turn
-        // draft only after the encrypted write has actually completed.
-        pkmToolHandledFullTurn = true;
+        // Make supplied KYC facts available in Soul's RAM document before
+        // drafting. Encryption/cloud sync runs on the independent queue.
         const capture = await captureEligiblePkmFactsInBackground({
           turnId: debugTurnId,
           assistantMessageId,
@@ -6209,7 +5917,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             vaultOwnerToken: token,
             vaultKey,
             message: turnSourceText,
-            forceRefresh: true,
             requireDecrypted: true,
           });
           turnPkmContext = agentPkmContext;
@@ -6266,21 +5973,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultKey: vaultKeyRef.current ?? "",
         loadConnectorConfigurations: async () => {
           if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
-          return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token }, true)).configurations;
+          return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token })).configurations;
         },
-        // The latest save receipt leads the packet so the server's length clip
-        // can never drop it. Counts and category names only.
-        pkmContext: [
-          latestPkmSaveReceiptRef.current
-            ? formatPkmSaveReceiptForAgent(latestPkmSaveReceiptRef.current)
-            : "",
-          agentPkmContext.text || "",
-        ].filter(Boolean).join("\n\n") || undefined,
+        pkmContext: agentPkmContext.text || undefined,
         // Settings style choices ride beside the packet, never inside it.
         communicationPreferences: agentPkmContext.communicationPreferences,
-        // The saved receipt index rides beside the packet too: typed data the
-        // Email receipts read consumes for this turn, never text One reads.
-        receiptMemory: peekReceiptMemoryIndex({ userId }),
+        // Soul.md is the only saved memory supplied by chat. Connector tools
+        // may read their live sources when requested, never a legacy PKM index.
         personSelectionHandle: options.personSelectionHandle,
         gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
         driveSearchSelection: options.driveSearchSelection,
@@ -6348,31 +6047,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
+            appendDebugEvent(debugTurnId, "tool_start", toolEvent);
+            if (isSilentMemoryToolEvent(toolEvent)) return;
             setActiveToolCalls(current => [...current.filter(item => item.id !== toolEvent.callId),
               { id: toolEvent.callId, label: toolEvent.label, activity: toolEvent.activity,
                 brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) }]);
-            appendDebugEvent(debugTurnId, "tool_start", toolEvent);
             upsertTurnStreamEvent(
               agentToolEventToVisibleStreamEvent("start", toolEvent),
             );
           },
           onToolWaiting: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
-            if (toolEvent.requiresConfirmation || toolEvent.trustedActivationRequired || toolEvent.raw.parked === true) {
-              setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
-            } else {
-              // The call's arguments are complete now, so a connector call can
-              // name its product ("Checking Google Drive access…").
-              setActiveToolCalls(current => current.map(item => item.id === toolEvent.callId
-                ? { ...item, label: toolEvent.label, activity: toolEvent.activity,
-                    brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) } : item));
-            }
             appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
-            const visibleEvent = agentToolEventToVisibleStreamEvent(
-              "waiting",
-              toolEvent,
-            );
-            upsertTurnStreamEvent(visibleEvent);
+            const silentMemoryTool = isSilentMemoryToolEvent(toolEvent);
+            if (!silentMemoryTool) {
+              if (toolEvent.requiresConfirmation || toolEvent.trustedActivationRequired || toolEvent.raw.parked === true) {
+                setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
+              } else {
+                // The call's arguments are complete now, so a connector call can
+                // name its product ("Checking Google Drive access…").
+                setActiveToolCalls(current => current.map(item => item.id === toolEvent.callId
+                  ? { ...item, label: toolEvent.label, activity: toolEvent.activity,
+                      brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) } : item));
+              }
+              upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("waiting", toolEvent));
+            }
             // A parked run_app_action directive that owes no confirmation
             // runs through the governed client executor; one
             // that does owe a confirmation (or a trusted tap) is staged.
@@ -6388,6 +6087,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               void executeFrontendTool(toolEvent);
               return;
             }
+            if (silentMemoryTool) return;
             stageToolForConfirmation(toolEvent);
           },
           onPendingConsentRequests: (requestIds) => {
@@ -6400,6 +6100,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
+            if (isSilentMemoryToolEvent(toolEvent)) return;
             openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);
             const calendarDirective = getCalendarDirectiveFromToolEvent(toolEvent);
             if (calendarDirective) {
@@ -6557,17 +6258,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           status: "done",
         };
       });
-      // Only facts deliberately typed into the normal composer are eligible
-      // for automatic capture. Assistant output, tool events, and Gmail
-      // content never enter this client-side proposal path.
-      if (options.source === "typed" && !pkmToolHandledFullTurn) {
-        void captureEligiblePkmFactsInBackground({
-          turnId: debugTurnId,
-          assistantMessageId,
-          sourceMessage: turnSourceText,
-          currentDomains: turnPkmContext.domains,
-        });
-      }
       void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -6605,6 +6295,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
+      releaseForegroundChatPriority();
       // Detached, cancelled or settled above: never leave this turn timing.
       slowNotice.finish("stopped");
       cancelAssistantFlush();
@@ -6746,6 +6437,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current = streamAbortController;
+    const releaseForegroundChatPriority = beginForegroundChatPriority();
 
     try {
       slowNotice.begin();
@@ -6761,7 +6453,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultKey: vaultKeyRef.current ?? "",
         loadConnectorConfigurations: async () => {
           if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
-          return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token }, true)).configurations;
+          return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token })).configurations;
         },
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
@@ -6891,6 +6583,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsStreaming(false);
       return result;
     } finally {
+      releaseForegroundChatPriority();
       slowNotice.finish("stopped");
       cancelAssistantFlush();
       if (streamAbortControllerRef.current === streamAbortController) {
@@ -7214,8 +6907,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       deferPkmContext: options.deferPkmContext,
       driveSearchSelection: options.driveSearchSelection,
       gmailInformationRequestWorkflowId: gmailKycReplyRequest?.workflow_id,
-      // A reply that supplies details One asked for confirms the restricted
-      // save. Once a draft is on screen, a follow-up revises that draft
+      // A reply supplies owner facts for Soul, not structured identity writes.
+      // Once a draft is on screen, a follow-up revises that draft
       // instead ("remove the account number"), so it confirms no save.
       kycInformationSaveConfirmed:
         Boolean(gmailKycReplyRequest?.workflow_id) && !emailDraftOpen,
@@ -7874,51 +7567,93 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   /**
    * The device guard for an outgoing turn (lib/pkm/secret-span-guard.ts).
-   * Every secret in the typed text and pasted attachments is saved to the
-   * reserved Secrets area and replaced with its placeholder BEFORE the turn is
-   * queued, so chat, memory capture, history and telemetry only ever see its
-   * label. Returns the texts to send, or null when nothing may be sent.
+   * Owner identifiers are written to encrypted Markdown Memory; credentials,
+   * PINs and card security codes are never persisted. Every protected value is
+   * replaced with a placeholder before the turn is queued, so the transcript,
+   * history and telemetry never receive the raw current-turn value. The full
+   * encrypted memory.md is supplied separately as private prompt context.
    */
   const keepSecretsFromTurn = async (texts: string[]): Promise<string[] | null> => {
     const plan = planSecretCaptures(texts);
     if (plan.captures.length === 0) return texts;
-    const saved = await SecretsVaultService.saveCaptures({
-      userId: user?.uid ?? "",
-      vaultKey,
-      vaultOwnerToken: getVaultOwnerToken(),
-      captures: plan.captures,
-      surface: "chat",
-    });
-    if (!saved.ok) {
+    const memoryCaptures = plan.captures.filter(
+      (capture) => !isNonPersistableCredentialKind(capture.kind),
+    );
+    if (memoryCaptures.length > 0) {
+      const token = getVaultOwnerToken();
+      if (!user?.uid || !vaultKey || !token) {
+        appendMessage({
+          id: `msg-${Date.now()}-memory-held`,
+          role: "assistant",
+          text: "That message contains protected information, so it was not sent. Unlock your vault, then send it again to save it in Memory.",
+          ...stampNow(),
+          status: "done",
+          renderAsPlainAssistantMessage: true,
+        });
+        setVaultDialogOpen(true);
+        return null;
+      }
+      // Load Soul once so identifiers join that same canonical RAM document.
+      try {
+        await loadAgentPkmContext({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken: token,
+          requireDecrypted: true,
+        });
+      } catch {
+        appendMessage({
+          id: `msg-${Date.now()}-memory-load-failed`,
+          role: "assistant",
+          text: "Your existing Memory could not be loaded, so nothing new was saved or sent. Keep the vault unlocked and try again.",
+          ...stampNow(),
+          status: "done",
+          renderAsPlainAssistantMessage: true,
+        });
+        return null;
+      }
+      const saved = await stageMarkdownMemoryFacts({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken: token,
+        facts: memoryCaptures.map((capture) => `${capture.label}: ${capture.value}`),
+        confirmation: {
+          confirmedByUser: true,
+          surface: "chat",
+          source: "agent_chat_owner_request",
+          confirmedAt: new Date().toISOString(),
+        },
+      });
+      if (!saved.success) {
+        appendMessage({
+          id: `msg-${Date.now()}-memory-failed`,
+          role: "assistant",
+          text: saved.message || "That protected information could not be saved to Memory, so the message was not sent.",
+          ...stampNow(),
+          status: "done",
+          renderAsPlainAssistantMessage: true,
+        });
+        return null;
+      }
+    }
+    const rendered = plan.render((capture) => ({
+      id: capture.id,
+      label: isNonPersistableCredentialKind(capture.kind)
+        ? "Credential omitted"
+        : capture.label,
+    }));
+    if (rendered.length !== texts.length) {
       appendMessage({
         id: `msg-${Date.now()}-secret-held`,
         role: "assistant",
-        text: saved.reason === "locked"
-          ? "That message holds a secret, so it stayed on this device and was not sent. Unlock your vault, then send it again to keep it in Secrets."
-          : saved.message,
+        text: "That protected information could not be prepared safely, so the message was not sent.",
         ...stampNow(),
         status: "done",
         renderAsPlainAssistantMessage: true,
       });
-      if (saved.reason === "locked") setVaultDialogOpen(true);
       return null;
     }
-    const resolve = (capture: (typeof plan.captures)[number]) =>
-      saved.resolved.get(capture.id) ?? { id: capture.id, label: capture.label };
-    setWalletWidgets((current) => [
-      ...current,
-      {
-        id: `secrets-${Date.now()}`,
-        kind: "secrets",
-        items: plan.captures.map((capture) => ({
-          ...resolve(capture),
-          kind: capture.kind,
-          fileTo: capture.fileTo,
-          offerNoun: capture.offerNoun,
-        })),
-      },
-    ]);
-    return plan.render(resolve);
+    return rendered;
   };
 
   /**
@@ -7926,7 +7661,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    * send again" on a sent paste, so an edited copy is screened exactly like a
    * fresh one. Typed text and every pasted attachment go through
    * keepSecretsFromTurn, so the queued turn, its transcript bubble and the
-   * memory capture it starts hold placeholders, never a value.
+   * memory capture it starts hold placeholders; memory.md is supplied through
+   * the separate encrypted context channel.
    */
   const enqueueGuardedTurn = async ({
     typedText,
@@ -8883,7 +8619,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   isPuppySurface,
                   activeToolCalls,
                   statusText,
-                })} working={activeToolCalls.length > 0 || isVisiblePkmMemoryWorking} brand={activeToolCalls.at(-1)?.brand} />
+                })} working={activeToolCalls.length > 0} brand={activeToolCalls.at(-1)?.brand} />
               </div>
             </div>
 
@@ -9223,12 +8959,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           ? (index, editedText) => resendTextAttachment(message, index, editedText)
                           : undefined
                       }
-                      onConfirmMemoryNeedsOwner={() => confirmMemoryNeedsOwner(message.id)}
-                      onRetryMemorySave={message.memoryCapture?.receipt?.coverage
-                        ? () => resumeMemorySaveJob(message.memoryCapture!.receipt!.coverage!.jobId, { retry: true, messageId: message.id })
-                        : undefined}
-                      pendingMemoryCards={pkmNeedsOwnerCardsRef.current.get(message.id)?.cards}
-                      onUnlockVault={() => setVaultDialogOpen(true)}
                       onInformationRequestSubmitted={async (activityId, receipt) => {
                         const ownerUid = user?.uid;
                         const threadId = conversationIdRef.current;

@@ -8,7 +8,9 @@ it is not listed, not opened, and not overwritten at runtime.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
 import threading
 import time
 import uuid
@@ -22,7 +24,9 @@ from google.adk.sessions.state import State
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
-from db.db_client import DatabaseExecutionError, get_db
+from db.connection import _is_connection_unavailable_error, get_pool
+from db.db_client import get_db
+from db.query_telemetry import record_query
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
 from hushh_mcp.one_adk.message_reactions import without_message_reactions
@@ -35,6 +39,8 @@ from hushh_mcp.services.chat_key import (
 
 logger = logging.getLogger(__name__)
 _SERIALIZER_BUILD_LOCK = threading.Lock()
+_NAMED_PARAMETER = re.compile(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)")
+_DEFAULT_GET_DB = get_db
 
 # Sessions already reported for stale sealed ``temp:`` values, by (app, user,
 # session). Reads never reseal a row, so a legacy row is decoded again by every
@@ -156,19 +162,96 @@ class EncryptedAdkSessionService(BaseSessionService):
 
     async def _execute(self, sql: str, params: dict[str, Any]):
         try:
-            return await asyncio.to_thread(get_db().execute_raw, sql, params)
-        except DatabaseExecutionError as exc:
-            # DatabaseExecutionError.details can contain the SQL statement and
-            # every bound value. AG-UI serializes exception messages into run
-            # errors, so only stable metadata may cross this boundary.
+            # A few focused unit tests replace the legacy executor with a
+            # deterministic in-memory table. Production always stays on the
+            # asyncpg branch; retaining this seam avoids a second fake SQL
+            # implementation in those security tests.
+            if get_db is not _DEFAULT_GET_DB:
+                return await asyncio.to_thread(get_db().execute_raw, sql, params)
+            names: list[str] = []
+
+            def positional(match: re.Match[str]) -> str:
+                names.append(match.group(1))
+                return f"${len(names)}"
+
+            query = _NAMED_PARAMETER.sub(positional, sql)
+            values = [params[name] for name in names]
+            pool = await get_pool()
+            signature = (
+                "one_adk_session."
+                + hashlib.sha256(" ".join(query.split()).encode()).hexdigest()[:12]
+            )
+            rows = None
+            for attempt in range(2):
+                wait_started = time.perf_counter()
+                pool_wait_ms = 0.0
+                sql_started: float | None = None
+                try:
+                    async with pool.acquire() as connection:
+                        pool_wait_ms = (time.perf_counter() - wait_started) * 1000
+                        sql_started = time.perf_counter()
+                        rows = await connection.fetch(query, *values)
+                    break
+                except Exception as exc:
+                    if attempt == 1 or not _is_connection_unavailable_error(exc):
+                        raise
+                    logger.warning(
+                        "Transient encrypted-session database connection error; retrying once "
+                        "error_type=%s",
+                        type(exc).__name__,
+                    )
+                finally:
+                    now = time.perf_counter()
+                    if sql_started is None:
+                        pool_wait_ms = (now - wait_started) * 1000
+                        sql_duration_ms = 0.0
+                    else:
+                        sql_duration_ms = (now - sql_started) * 1000
+                    record_query(
+                        signature,
+                        sql_duration_ms=sql_duration_ms,
+                        pool_wait_ms=pool_wait_ms,
+                    )
+            if rows is None:  # pragma: no cover - both attempts always return or raise
+                raise RuntimeError("Encrypted session query did not complete")
+            return type(
+                "EncryptedSessionQueryResult",
+                (),
+                {"data": [dict(row) for row in rows]},
+            )()
+        except Exception as exc:
+            # Database diagnostics can contain the SQL statement and every
+            # bound value. AG-UI serializes exception messages into run errors,
+            # so only stable metadata may cross this boundary.
             logger.error(
-                "one_adk_session.storage_failed code=%s operation=%s",
-                str(getattr(exc, "code", "DATABASE_EXECUTION_ERROR")).lower().replace("_", "."),
-                getattr(exc, "operation", "unknown"),
+                "one_adk_session.storage_failed code=database.execution.error operation=asyncpg type=%s",
+                type(exc).__name__,
             )
             raise EncryptedAdkSessionUnavailableError(
                 "Conversation storage is temporarily unavailable."
             ) from None
+
+    @staticmethod
+    def _record_phase(phase: str, started_at: float) -> None:
+        from hushh_mcp.one_adk.agui_turn_timing import record_session_phase
+
+        record_session_phase(phase, (time.perf_counter() - started_at) * 1000)
+
+    async def _read(self, sql: str, params: dict[str, Any]):
+        started_at = time.perf_counter()
+        try:
+            return await self._execute(sql, params)
+        finally:
+            self._record_phase("read", started_at)
+
+    def _decode_timed(
+        self, row: dict[str, Any], *, app_name: str, user_id: str, session_id: str
+    ) -> Session:
+        started_at = time.perf_counter()
+        try:
+            return self._decode(row, app_name=app_name, user_id=user_id, session_id=session_id)
+        finally:
+            self._record_phase("decrypt", started_at)
 
     def _encode(self, session: Session) -> dict[str, str]:
         session = _without_invocation_state(
@@ -238,16 +321,20 @@ class EncryptedAdkSessionService(BaseSessionService):
             events=[],
             last_update_time=time.time(),
         )
-        encoded = self._encode(session)
-        result = await self._execute(
-            """INSERT INTO one_adk_sessions
+        persistence_started_at = time.perf_counter()
+        try:
+            encoded = self._encode(session)
+            result = await self._execute(
+                """INSERT INTO one_adk_sessions
                (app_name, user_id, session_id, payload_ciphertext, payload_iv,
                 payload_tag, payload_algorithm)
                VALUES (:app, :user, :session, :ciphertext, :iv, :tag, :algorithm)
                ON CONFLICT (app_name, user_id, session_id) DO NOTHING
                RETURNING revision""",
-            {"app": app_name, "user": user_id, "session": session.id, **encoded},
-        )
+                {"app": app_name, "user": user_id, "session": session.id, **encoded},
+            )
+        finally:
+            self._record_phase("persistence", persistence_started_at)
         if not result.data:
             existing = await self.get_session(
                 app_name=app_name, user_id=user_id, session_id=session.id
@@ -270,7 +357,7 @@ class EncryptedAdkSessionService(BaseSessionService):
         session_id: str,
         config: GetSessionConfig | None = None,
     ) -> Session | None:
-        result = await self._execute(
+        result = await self._read(
             """SELECT payload_ciphertext, payload_iv, payload_tag, payload_algorithm, revision
                FROM one_adk_sessions
                WHERE app_name = :app AND user_id = :user AND session_id = :session
@@ -285,7 +372,7 @@ class EncryptedAdkSessionService(BaseSessionService):
         if not result.data:
             return None
         row = dict(result.data[0])
-        session = self._decode(row, app_name=app_name, user_id=user_id, session_id=session_id)
+        session = self._decode_timed(row, app_name=app_name, user_id=user_id, session_id=session_id)
         from hushh_mcp.one_adk.mcp_pending_call import restore_current_pending_call
 
         session = await restore_current_pending_call(session)
@@ -314,7 +401,7 @@ class EncryptedAdkSessionService(BaseSessionService):
     ) -> ListSessionsResponse:
         if not user_id:
             return ListSessionsResponse(sessions=[])
-        result = await self._execute(
+        result = await self._read(
             """SELECT session_id, payload_ciphertext, payload_iv, payload_tag,
                       payload_algorithm, revision
                FROM one_adk_sessions WHERE app_name = :app AND user_id = :user
@@ -327,7 +414,7 @@ class EncryptedAdkSessionService(BaseSessionService):
         for result_row in result.data or []:
             row = dict(result_row)
             try:
-                session = self._decode(
+                session = self._decode_timed(
                     row,
                     app_name=app_name,
                     user_id=user_id,
@@ -441,7 +528,11 @@ class EncryptedAdkSessionService(BaseSessionService):
             if latest is None:
                 raise RuntimeError("Encrypted ADK session disappeared.")
             running = _invocation_state(session.state)
-            persisted_event = await super().append_event(latest, event)
+            append_started_at = time.perf_counter()
+            try:
+                persisted_event = await super().append_event(latest, event)
+            finally:
+                self._record_phase("append", append_started_at)
             # The stored snapshot has no ``temp:`` values; keep this invocation's.
             for key, value in running.items():
                 latest.state.setdefault(key, value)
@@ -450,28 +541,36 @@ class EncryptedAdkSessionService(BaseSessionService):
             self._set_revision(session, self._revision(latest))
             object.__setattr__(session, "_hushh_partial_history", False)
         else:
-            persisted_event = await super().append_event(session, event)
+            append_started_at = time.perf_counter()
+            try:
+                persisted_event = await super().append_event(session, event)
+            finally:
+                self._record_phase("append", append_started_at)
         session.last_update_time = time.time()
         for _attempt in range(3):
             revision = self._revision(session)
-            encoded = self._encode(session)
-            result = await self._execute(
-                """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
+            persistence_started_at = time.perf_counter()
+            try:
+                encoded = self._encode(session)
+                result = await self._execute(
+                    """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
                           payload_iv = :iv, payload_tag = :tag,
                           payload_algorithm = :algorithm, revision = revision + 1,
                           updated_at = NOW()
                    WHERE app_name = :app AND user_id = :user AND session_id = :session
                      AND revision = :revision AND payload_ciphertext LIKE :chat_marker
                RETURNING revision""",
-                {
-                    "app": session.app_name,
-                    "user": session.user_id,
-                    "session": session.id,
-                    "revision": revision,
-                    "chat_marker": CHAT_CIPHERTEXT_LIKE,
-                    **encoded,
-                },
-            )
+                    {
+                        "app": session.app_name,
+                        "user": session.user_id,
+                        "session": session.id,
+                        "revision": revision,
+                        "chat_marker": CHAT_CIPHERTEXT_LIKE,
+                        **encoded,
+                    },
+                )
+            finally:
+                self._record_phase("persistence", persistence_started_at)
             if result.data:
                 self._set_revision(session, int(result.data[0]["revision"]))
                 return persisted_event
@@ -484,7 +583,11 @@ class EncryptedAdkSessionService(BaseSessionService):
             # stored snapshot lacks them. A CAS retry must not drop them: that
             # would reopen tools after an external read, among other guards.
             running = _invocation_state(session.state)
-            await super().append_event(latest, event)
+            append_started_at = time.perf_counter()
+            try:
+                await super().append_event(latest, event)
+            finally:
+                self._record_phase("append", append_started_at)
             latest.state.update(running)
             session.state = latest.state
             session.events = latest.events

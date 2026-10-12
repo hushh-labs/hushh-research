@@ -790,7 +790,7 @@ export function EmailDraftCard({
                   </Link>
                 ) : null}
                 {error.needsGmailSendingEnabled ? (
-                  <Link className="font-medium underline" href="/one/gmail">Enable sending</Link>
+                  <Link className="font-medium underline" href="/one/gmail">Reconnect Mail</Link>
                 ) : null}
                 {error.needsGmailConnect ? (
                   onOpenConnections ? (

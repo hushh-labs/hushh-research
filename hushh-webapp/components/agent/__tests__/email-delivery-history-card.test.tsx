@@ -50,7 +50,7 @@ describe("EmailDeliveryHistoryCard", () => {
     );
   });
 
-  it("requires an explicit click before requesting Gmail send permission", () => {
+  it("requires an explicit click before repairing a legacy Gmail connection", () => {
     const onEnableGmailSend = vi.fn();
     render(
       <EmailDeliveryHistoryCard
@@ -66,7 +66,7 @@ describe("EmailDeliveryHistoryCard", () => {
 
     fireEvent.click(screen.getByText("Mail activity"));
     expect(onEnableGmailSend).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Enable sending" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect Mail" }));
     expect(onEnableGmailSend).toHaveBeenCalledTimes(1);
     // The failed item travels with the request so its draft can reopen.
     expect(onEnableGmailSend).toHaveBeenCalledWith(

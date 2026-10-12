@@ -46,7 +46,7 @@
   "handoff_chain": [
     "security-audit",
     "reviewer-app-testing",
-    "vault-pkm-governance",
+    "security-audit",
     "pkm-upgrade-rehearsal"
   ],
   "common_failures": [

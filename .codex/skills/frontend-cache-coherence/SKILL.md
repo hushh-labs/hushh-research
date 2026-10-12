@@ -9,7 +9,7 @@ description: Use when auditing or changing Hussh frontend cache-first screen beh
 
 - Primary scope: `frontend-cache-coherence`
 - Trigger on cache-first screen UX, route TTL policy, stale-while-revalidate resources, warm-cache audits, and reviewer-backed cache checks.
-- Avoid overlap with `frontend-architecture`, `frontend-native-surface-mapper`, and `vault-pkm-governance`.
+- Avoid overlap with `frontend-architecture`, `frontend-native-surface-mapper`, and `security-audit`.
 
 ## Coverage and Ownership
 
@@ -31,7 +31,7 @@ Non-owned surfaces:
 1. `frontend`
 2. `frontend-architecture`
 3. `frontend-native-surface-mapper`
-4. `vault-pkm-governance`
+4. `security-audit`
 
 ## Do Use
 
@@ -43,7 +43,7 @@ Non-owned surfaces:
 
 1. Broad route inventory or package-script ownership; use `frontend-architecture`.
 2. Route/API/native/plugin mapping; use `frontend-native-surface-mapper`.
-3. PKM protocol, vault key, or encrypted storage boundary changes; use `vault-pkm-governance`.
+3. PKM protocol, vault key, or encrypted storage boundary changes; use `security-audit`.
 
 ## Read First
 
@@ -70,7 +70,7 @@ Non-owned surfaces:
 
 1. If route inventory, package scripts, or generated surface-map shape changes, hand off to `frontend-architecture`.
 2. If native parity or API dependency mapping changes, hand off to `frontend-native-surface-mapper`.
-3. If PKM/vault persistence semantics change, hand off to `vault-pkm-governance`.
+3. If PKM/vault persistence semantics change, hand off to `security-audit`.
 4. If browser proof policy changes, hand off to `quality-contracts`.
 
 ## Required Checks

@@ -107,6 +107,17 @@ describe("memory.md audience exclusion", () => {
     expect(forAgent.markdown).not.toContain("X1234567");
     expect(forAgent.excludedDomains).toContain("passport_number");
   });
+
+  it("never recursively renders One's canonical Markdown domain", () => {
+    const cards = [card("one_memory", "Markdown", "- Aadhaar number: protected")];
+    const sources = [{ domain: "one_memory", contentRevision: 1 }];
+
+    for (const audience of ["self", "agent"] as const) {
+      const result = build(cards, audience, sources);
+      expect(result.excludedDomains).toEqual(["one_memory"]);
+      expect(result.markdown).not.toContain("Aadhaar number: protected");
+    }
+  });
 });
 
 describe("memory.md account identity", () => {
