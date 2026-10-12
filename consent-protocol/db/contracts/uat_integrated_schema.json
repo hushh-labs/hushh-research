@@ -2953,13 +2953,6 @@
       "request_id",
       "expires_at"
     ],
-    "wallet_profile_share_requests": [
-      "owner_user_id",
-      "request_id",
-      "card_id",
-      "expires_at",
-      "duration_minutes"
-    ],
     "wallet_profile_access_grants": [
       "id",
       "owner_user_id",
@@ -2970,6 +2963,13 @@
       "last_accessed_at",
       "verification_attempts",
       "revoked_at"
+    ],
+    "wallet_profile_share_requests": [
+      "owner_user_id",
+      "request_id",
+      "card_id",
+      "expires_at",
+      "duration_minutes"
     ]
   }
 }
