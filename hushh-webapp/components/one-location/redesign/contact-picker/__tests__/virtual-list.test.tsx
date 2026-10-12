@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
 import { CONTACT_LIST_CONTROLS_THRESHOLD } from "@/lib/one-location/contact-picker-controls";
@@ -51,7 +51,25 @@ function withMeasuredViewport(heightPx: number) {
   };
 }
 
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => vi.useFakeTimers());
+
+afterEach(async () => {
+  // The virtualizer's scroll-end debounce survives listener removal. Finish
+  // that callback while jsdom still exists, before returning to real timers.
+  try {
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    cleanup();
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  }
+});
 
 const rows = (count: number) =>
   Array.from({ length: count }, (_, index) => ({ id: String(index) }));

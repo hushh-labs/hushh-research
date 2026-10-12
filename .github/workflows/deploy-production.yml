@@ -158,6 +158,8 @@ jobs:
             work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
             cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
           done
+          cp hushh-webapp/lib/vault/passkey-domain-aliases.json \
+            "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"
           cp scripts/ops/sync_backend_runtime_secrets.py \
             "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py"
           cp scripts/ops/verify-env-secrets-parity.py \
@@ -345,7 +347,8 @@ jobs:
             exit 1
           fi
           python3 deploy/drive/verify_prod_prerequisites.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --oauth-attested
+            --project "${{ env.GCP_PROJECT_ID }}" --oauth-attested \
+            --domain-catalog "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"
           PROJECT_ID="${{ env.GCP_PROJECT_ID }}" \
             bash deploy/drive/setup_native_callback_log_exclusion.sh --verify-only
 

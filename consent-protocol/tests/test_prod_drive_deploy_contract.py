@@ -38,6 +38,11 @@ def test_production_dispatch_is_opt_in_and_worker_precedes_app_traffic():
     assert names.index("Verify production Drive prerequisites before mutation") < names.index(
         "Sync canonical hosted runtime secrets"
     )
+    preflight = steps[names.index("Verify production Drive prerequisites before mutation")]
+    assert (
+        '--domain-catalog "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"'
+        in (preflight["run"])
+    )
     assert names.index("Deploy and attest private production Drive worker") < names.index(
         "Promote deployed revisions to production traffic"
     )
@@ -299,7 +304,12 @@ def test_production_preflight_rejects_unattested_oauth_and_wrong_picker(monkeypa
     values["DRIVE_SHARING_KEY_V1"] = base64.b64encode(b"\x01" * 32).decode()
     values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = base64.b64encode(b"\x02" * 32).decode()
     monkeypatch.setattr(module, "_secret", values.__getitem__)
-    referrers = list(module.PICKER_REFERRERS)
+    expected_referrers = {
+        "https://one.hushh.ai/*",
+        "https://one.hussh.ai/*",
+        "https://one.hussh.si/*",
+    }
+    referrers = list(expected_referrers)
 
     def fake_gcloud(*args):
         if args[:3] == ("services", "api-keys", "list"):
@@ -334,15 +344,17 @@ def test_production_preflight_rejects_unattested_oauth_and_wrong_picker(monkeypa
     module.verify(oauth_attested=True)
     for invalid in (
         ["https://uat.one.hushh.ai/*"],
-        [*module.PICKER_REFERRERS, "https://uat.one.hussh.ai/*"],
-        [*module.PICKER_REFERRERS, "http://one.hushh.ai/*"],
-        [*module.PICKER_REFERRERS, "https://*.hussh.ai/*"],
+        [*expected_referrers, "https://uat.one.hussh.ai/*"],
+        [*expected_referrers, "https://uat.one.hussh.si/*"],
+        [*expected_referrers, "http://one.hushh.ai/*"],
+        [*expected_referrers, "https://*.hussh.ai/*"],
+        ["https://one.hushh.ai/*", "https://one.hussh.ai/*"],
         ["https://one.hushh.ai/*"],
     ):
         referrers[:] = invalid
         with pytest.raises(module.PrerequisiteError, match="restrictions are incomplete"):
             module.verify(oauth_attested=True)
-    referrers[:] = module.PICKER_REFERRERS
+    referrers[:] = expected_referrers
     for reused in (values["DRIVE_DOCUMENT_KEY_V1"], values["DRIVE_SHARING_KEY_V1"], "\x00" * 32):
         values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = reused
         with pytest.raises(module.PrerequisiteError, match="must be distinct"):
@@ -403,9 +415,12 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         "config/runtime-capacity.json",
         "deploy/backend.cloudbuild.yaml",
         "scripts/ops/sync_backend_runtime_secrets.py",
+        "hushh-webapp/lib/vault/passkey-domain-aliases.json",
     )
+    catalog_path = old_paths[-1]
+    old_catalog = json.dumps({"production": ["one.hushh.ai", "one.hussh.ai"]})
     for path in old_paths:
-        write(path, "old release tooling\n")
+        write(path, old_catalog if path == catalog_path else "old release tooling\n")
     git("add", ".")
     git("commit", "-qm", "Old application target")
     old_sha = git("rev-parse", "HEAD")
@@ -454,6 +469,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
                 "resolve-cloud-run-deploy-revision.py",
                 "resolve-uat-verified-image.py",
                 "verify-prod-places-readiness.py",
+                "passkey-domain-aliases.json",
             )
         ):
             continue
@@ -461,6 +477,12 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     assert (runner / "release-tools/verify-prod-places-readiness.py").read_text() == (
         ROOT / "scripts/ci/verify-prod-places-readiness.py"
     ).read_text()
+    retained_catalog = runner / "release-tools/drive-domain-aliases.json"
+    assert retained_catalog.read_text() == (ROOT / catalog_path).read_text()
+    assert (repo / catalog_path).read_text() == old_catalog
+    preflight_module = _module("verify_prod_prerequisites.py")
+    assert "https://one.hussh.si/*" in preflight_module._picker_referrers(retained_catalog)
+    assert "https://one.hussh.si/*" not in preflight_module._picker_referrers(repo / catalog_path)
     assert not (repo / registry).exists(), (
         "Release tooling must not replace target application code"
     )
