@@ -304,7 +304,34 @@ for (const width of [320, 393, 1440]) {
     expect(geometry.titleRight).toBeLessThanOrEqual(geometry.actionLeft);
     expect(geometry.actionRight).toBeLessThanOrEqual(width);
     expect(geometry.pageWidth).toBeLessThanOrEqual(width + 1);
+    const search = page.getByRole("searchbox", { name: "Search circles" });
+    await expect(search).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh circles" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Switch theme" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Edit circles" })).toHaveAttribute("href", "/one/connect?tab=circles");
+    await expect(page.getByRole("link", { name: "Create circle" })).toHaveAttribute("href", "/one/connect?tab=circles&action=create-circle");
+    await expect(search).toHaveAttribute("placeholder", "Search circles");
+    const band = await search.evaluate(el => {
+      const field = el.closest("label")!.getBoundingClientRect();
+      const list = el.closest("aside")!.getBoundingClientRect();
+      const header = el.closest("aside")!.querySelector("header")!.getBoundingClientRect();
+      return { left: field.left - list.left, right: list.right - field.right,
+        height: field.height, gap: field.top - header.bottom, fontWeight: getComputedStyle(el).fontWeight };
+    });
+    expect(band.left).toBe(16);
+    expect(band.right).toBeGreaterThanOrEqual(16);
+    expect(band.right).toBeLessThanOrEqual(17);
+    expect(band.height).toBe(42);
+    expect(band.gap).toBe(4);
+    expect(band.fontWeight).toBe("400");
     await expect(page.getByRole("button", { name: "Weekend friends 2 members" })).toBeVisible();
+    await search.fill("unmatched");
+    await expect(page.getByText("No matching circles")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Weekend friends 2 members" })).toHaveCount(0);
+    await search.fill("weekend");
+    await expect(page.getByRole("button", { name: "Weekend friends 2 members" })).toBeVisible();
+    await search.fill("");
+    await search.blur();
     await page.screenshot({ path: test.info().outputPath(`circle-list-heading-${width}.png`) });
   });
 }
