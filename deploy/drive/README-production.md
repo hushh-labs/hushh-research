@@ -13,13 +13,15 @@ deliberately; an ordinary deploy uses `preserve`:
    encryption keys independently and retain them across deployments. Never
    copy UAT keys. The Picker secret must match the reviewed, browser-restricted
    production API key named `Hussh Drive Picker (Production)`, restricted to
-   `picker.googleapis.com` and exactly `https://one.hushh.ai/*` and
-   `https://one.hussh.ai/*`. UAT, localhost, HTTP and wildcard hosts are not
-   production referrers.
+   `picker.googleapis.com` and the exact HTTPS production hosts in
+   `hushh-webapp/lib/vault/passkey-domain-aliases.json`: `one.hushh.ai`,
+   `one.hussh.ai` and `one.hussh.si`, each with `/*`. UAT, localhost, HTTP and
+   wildcard hosts are not production referrers. The workflow retains the
+   current catalog with release tooling before checking out an older app SHA.
 2. Verify the production Google OAuth app's approved Drive scopes and exact
    web/native callbacks, including the connector return at
-   `/one/profile/connectors/oauth/return` on both production One domains and
-   the two native callback paths on both production API domains. UAT and local
+   `/one/profile/connectors/oauth/return` on all three production One domains and
+   the two native callback paths on all three production API domains. UAT and local
    origins do not belong in this production client. Set the
    production environment variable `GOOGLE_DRIVE_OAUTH_PROD_VERIFIED=true`
    only after provider verification. Existing generic Google OAuth secrets do
