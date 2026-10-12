@@ -186,7 +186,8 @@ async def test_explicit_model_requires_current_catalog_and_is_forwarded_with_ver
     assert socket.sent[0]["catalogVersion"] == version
 
 
-async def test_offline_fenced_and_refused_surface_as_the_typed_refusal_never_a_fallback():
+@pytest.mark.parametrize("code", ["PUPPY_TIMEOUT", "UNSUPPORTED"])
+async def test_offline_fenced_and_refused_surface_as_the_typed_refusal_never_a_fallback(code):
     broker = pb.PuppyBroker()
     transport = local.PuppyLocalBrokerTransport(hushh_id=KEY[0], device_id=KEY[1], broker=broker)
     with pytest.raises(PuppyRelayUnavailable):
@@ -214,14 +215,25 @@ async def test_offline_fenced_and_refused_surface_as_the_typed_refusal_never_a_f
             {
                 "type": "inference.error",
                 "requestId": socket.sent[0]["requestId"],
-                "code": "UNSUPPORTED",
+                "code": code,
             },
         )
 
     feeder = asyncio.create_task(device_refuses())
-    with pytest.raises(PuppyRelayUnavailable):
+    with pytest.raises(PuppyRelayUnavailable) as refused:
         await transport._generate(_request(), model="local")
     await feeder
+    from fastapi import HTTPException
+
+    from api.routes.one import pod_turn
+
+    wrapped = RuntimeError("private provider details")
+    wrapped.__cause__ = refused.value
+    public_code = pod_turn._puppy_model_refusal(wrapped)
+    assert public_code == ("PUPPY_TIMEOUT" if code == "PUPPY_TIMEOUT" else "")
+    response = pod_turn._stream_error(HTTPException(409, {"code": public_code}))
+    assert response["code"] == ("PUPPY_TIMEOUT" if public_code else "PUPPY_BUSY")
+    assert "private provider details" not in str(response)
 
 
 async def test_a_frame_for_another_request_is_a_protocol_error():

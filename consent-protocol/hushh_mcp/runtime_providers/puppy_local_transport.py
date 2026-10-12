@@ -26,6 +26,7 @@ from .puppy_transport import (
     DEVICE_CAPABILITY_NAMES,
     PuppyCapabilityUnsupported,
     PuppyCatalogStale,
+    PuppyInferenceTimedOut,
     PuppyModelUnavailable,
     PuppyRelayProtocolError,
     PuppyRelayTransport,
@@ -125,6 +126,8 @@ class PuppyLocalBrokerTransport(PuppyRelayTransport):
                     kind = str(frame.get("type") or "")
                     if kind == "inference.error":
                         code = str(frame.get("code") or "")
+                        if code == "PUPPY_TIMEOUT":
+                            raise PuppyInferenceTimedOut("Puppy inference timed out")
                         if code == "MODEL_UNAVAILABLE" or code == "PUPPY_MODEL_UNAVAILABLE":
                             raise PuppyModelUnavailable("selected local model unavailable")
                         if code == "STALE_MODEL_CATALOG" or code == "PUPPY_CATALOG_STALE":

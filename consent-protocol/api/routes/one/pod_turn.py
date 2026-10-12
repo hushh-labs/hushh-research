@@ -46,6 +46,7 @@ from api.routes.one.pod_turn_target import (
     owner_selected_turn,
     turn_target,
 )
+from hushh_mcp.hushh_adk.events import AdkEventCleanupError, AdkEventTimeoutError
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
 from hushh_mcp.services.compute_backend import is_owner_cloud_target
 from hushh_mcp.services.pod_commit_log import PodLogFenced
@@ -216,6 +217,7 @@ def _is_puppy_capability_unsupported(exc: BaseException) -> bool:
 def _puppy_model_refusal(exc: BaseException) -> str:
     from hushh_mcp.runtime_providers.puppy_transport import (  # noqa: PLC0415
         PuppyCatalogStale,
+        PuppyInferenceTimedOut,
         PuppyModelUnavailable,
     )
 
@@ -223,10 +225,14 @@ def _puppy_model_refusal(exc: BaseException) -> str:
     cur: BaseException | None = exc
     while cur is not None and id(cur) not in seen:
         seen.add(id(cur))
+        if isinstance(cur, AdkEventCleanupError):
+            return ""
         if isinstance(cur, PuppyCatalogStale):
             return "PUPPY_CATALOG_STALE"
         if isinstance(cur, PuppyModelUnavailable):
             return "PUPPY_MODEL_UNAVAILABLE"
+        if isinstance(cur, PuppyInferenceTimedOut):
+            return "PUPPY_TIMEOUT"
         cur = cur.__cause__ or cur.__context__
     return ""
 
@@ -617,20 +623,23 @@ async def run_pod_turn(
                 memory_review_policy=memory_review_policy,
             ):
                 kind = getattr(event, "kind", "")
+                if kind in {"token", "model"}:
+                    observed_model = (
+                        observed_model or str(getattr(event, "model_version", "") or "").strip()
+                    )
                 if kind == "token":
                     token = str(getattr(event, "text", "") or "")
                     chunks.append(token)
                     if token and on_token is not None:
                         await on_token(token)
-                    observed_model = (
-                        observed_model or str(getattr(event, "model_version", "") or "").strip()
-                    )
                 elif kind == "directive" and getattr(event, "directive", None) is not None:
                     directives.append(event.directive)
                 elif kind == "specialist" and getattr(event, "specialist", None) is not None:
                     specialists.append(event.specialist)
                 elif kind == "memory" and isinstance(getattr(event, "memory", None), dict):
                     memory_report = dict(event.memory)
+    except AdkEventTimeoutError:
+        raise HTTPException(status_code=504, detail={"code": "POD_TURN_TIMEOUT"}) from None
     except Exception as exc:  # noqa: BLE001 - a failed turn is a 502, never a 500 traceback
         # THE KEYLESS-POD DB WALL IS AN EXPECTED CONDITION, NOT A 502.
         # A pod holds no database credential by design. Some tools on One's roster
@@ -968,7 +977,7 @@ def _stream_error(exc: Exception) -> dict[str, str]:
         code = detail.get("code") if isinstance(detail, dict) else None
         if not isinstance(code, str):
             code = ""
-        if code in {"PUPPY_OFFLINE", "POD_TURN_TIMEOUT"}:
+        if code in {"PUPPY_OFFLINE", "PUPPY_TIMEOUT", "POD_TURN_TIMEOUT"}:
             return {"code": code, "message": "Puppy is unavailable. Try again shortly."}
         if code == "PUPPY_CATALOG_STALE":
             return {"code": code, "message": "The model list changed. Refresh it and try again."}

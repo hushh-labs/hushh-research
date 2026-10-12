@@ -159,9 +159,11 @@ class ProviderAdkModel(BaseLlm):
                 config=self._request_config(llm_request.config),
             )
             trailing_usage = None
+            trailing_model_version = None
             async for chunk in chunks:
-                # A usage-only final chunk carries no parts; keep its counts for close().
+                # Terminal metadata can arrive after the last text or tool delta.
                 trailing_usage = self._usage_metadata(chunk) or trailing_usage
+                trailing_model_version = self._model_version(chunk) or trailing_model_version
                 response = self._genai_response(chunk)
                 if response is None:
                     continue
@@ -171,6 +173,8 @@ class ProviderAdkModel(BaseLlm):
             if final is not None:
                 if final.usage_metadata is None and trailing_usage is not None:
                     final.usage_metadata = trailing_usage
+                if trailing_model_version is not None:
+                    final.model_version = trailing_model_version
                 yield final
             return
 

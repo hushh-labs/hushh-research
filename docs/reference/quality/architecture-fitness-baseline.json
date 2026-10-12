@@ -2885,7 +2885,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/pod_turn.py",
       "symbol": "run_pod_turn",
-      "value": 410
+      "value": 413
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3713,7 +3713,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
       "symbol": "_stream_one_text_turn_once",
-      "value": 292
+      "value": 299
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13766,7 +13766,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/pod_turn.py",
       "symbol": null,
-      "value": 1187
+      "value": 1196
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14054,7 +14054,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
       "symbol": null,
-      "value": 1132
+      "value": 1139
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16610,7 +16610,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_runtime_providers.py",
       "symbol": null,
-      "value": 1569
+      "value": 1585
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17231,7 +17231,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_text_runtime.py",
       "symbol": null,
-      "value": 1185
+      "value": 1199
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17636,7 +17636,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_turn_route.py",
       "symbol": null,
-      "value": 1445
+      "value": 1462
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29157,6 +29157,69 @@
           "source_sha256": "9183801cc51d3fbf877080eec72b6f34c3203fa2617da059c29ea16b5c986616",
           "reviewer": "sync_backend_review",
           "evidence": "Read-only independent review: distinct exact-environment OAuth/CORS and Drive registry authority regressions imported from main. No production budget, scanner, exclusion or other finding changed."
+        }
+      ]
+    },
+    "puppy_terminal_reporting_20261012": {
+      "parent_revision": "ce3331cb21c961a8c7642c3e79145ccd0f28bcc1",
+      "reviewer": "adk_authority_review",
+      "scope": "Seven inherited size slots only, independently reviewed; final test formatting adds one line. Budgets 500/250/80, scanner and unrelated allowances unchanged.",
+      "slots": [
+        {
+          "key": "function_size|consent-protocol/api/routes/one/pod_turn.py|run_pod_turn|function exceeds the advisory gene budget",
+          "path": "consent-protocol/api/routes/one/pod_turn.py",
+          "before": 410,
+          "after": 413,
+          "source_sha256": "dd28c629e64e6065148ccf8d2e079b5c5bca363ff442545ba93f616d5ff836c8",
+          "reason": "Truthful terminal Puppy model reporting and typed deadlines in existing lifecycle owners; nearest regression and negative controls preserve aggregation, specialist attribution, regional failover and cleanup uncertainty."
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/one_adk/text_runtime.py|_stream_one_text_turn_once|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
+          "before": 292,
+          "after": 299,
+          "source_sha256": "ae79afdeb932c1cfbb6683e80eb9d0acd8c59471c6c81ab4f8da547e9829412a",
+          "reason": "Truthful terminal Puppy model reporting and typed deadlines in existing lifecycle owners; nearest regression and negative controls preserve aggregation, specialist attribution, regional failover and cleanup uncertainty."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/services/test_runtime_providers.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_runtime_providers.py",
+          "before": 1569,
+          "after": 1585,
+          "source_sha256": "540d83d60c65179b9f30b974d579703496c99885c1d44d300f0e6ee345f41f99",
+          "reason": "Truthful terminal Puppy model reporting and typed deadlines in existing lifecycle owners; nearest regression and negative controls preserve aggregation, specialist attribution, regional failover and cleanup uncertainty."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_pod_turn_route.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_pod_turn_route.py",
+          "before": 1445,
+          "after": 1462,
+          "source_sha256": "67d11badf320b6a76aee63e5d3abc81fe0dd513d6c2b35d38fbac72f0eeb8fc7",
+          "reason": "Truthful terminal Puppy model reporting and typed deadlines in existing lifecycle owners; nearest regression and negative controls preserve aggregation, specialist attribution, regional failover and cleanup uncertainty."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_one_adk_text_runtime.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_one_adk_text_runtime.py",
+          "before": 1185,
+          "after": 1199,
+          "source_sha256": "90edd7e8cfd00dd580f08a596e601ddbce378acca556ff172fbe48a1d14d306e",
+          "reason": "Truthful terminal Puppy model reporting and typed deadlines in existing lifecycle owners; nearest regression and negative controls preserve aggregation, specialist attribution, regional failover and cleanup uncertainty."
+        },
+        {
+          "key": "module_size|consent-protocol/api/routes/one/pod_turn.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/api/routes/one/pod_turn.py",
+          "before": 1187,
+          "after": 1196,
+          "source_sha256": "dd28c629e64e6065148ccf8d2e079b5c5bca363ff442545ba93f616d5ff836c8",
+          "reason": "Truthful terminal Puppy model reporting and typed deadlines in existing lifecycle owners; nearest regression and negative controls preserve aggregation, specialist attribution, regional failover and cleanup uncertainty."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/one_adk/text_runtime.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
+          "before": 1132,
+          "after": 1139,
+          "source_sha256": "ae79afdeb932c1cfbb6683e80eb9d0acd8c59471c6c81ab4f8da547e9829412a",
+          "reason": "Truthful terminal Puppy model reporting and typed deadlines in existing lifecycle owners; nearest regression and negative controls preserve aggregation, specialist attribution, regional failover and cleanup uncertainty."
         }
       ]
     }

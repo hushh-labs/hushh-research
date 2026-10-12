@@ -29,6 +29,10 @@ class PuppyRelayUnavailable(RuntimeError):
     """The linked Puppy connection is unavailable or was interrupted."""
 
 
+class PuppyInferenceTimedOut(PuppyRelayUnavailable):
+    """The device inference or its response wait exceeded the existing budget."""
+
+
 class PuppyRelayProtocolError(RuntimeError):
     """Puppy returned a malformed, mismatched, or explicitly failed frame."""
 
@@ -331,7 +335,7 @@ class PuppyRelayTransport(ProviderTransport):
                     async with asyncio.timeout(self._timeout):
                         frame = self._decode(await socket.recv())
                 except asyncio.TimeoutError as exc:
-                    raise PuppyRelayUnavailable("Puppy inference timed out") from exc
+                    raise PuppyInferenceTimedOut("Puppy inference timed out") from exc
                 except PuppyRelayProtocolError:
                     raise
                 except Exception as exc:  # noqa: BLE001
@@ -340,6 +344,8 @@ class PuppyRelayTransport(ProviderTransport):
                     raise PuppyRelayProtocolError("Puppy returned a mismatched request")
                 kind = str(frame.get("type") or "")
                 if kind == "inference.error":
+                    if frame.get("code") == "PUPPY_TIMEOUT":
+                        raise PuppyInferenceTimedOut("Puppy inference timed out")
                     if str(frame.get("code") or "") == UNSUPPORTED_CAPABILITY_CODE:
                         capability = str(frame.get("capability") or "")
                         raise PuppyCapabilityUnsupported(capability or "requested capability")
@@ -377,6 +383,7 @@ class PuppyRelayTransport(ProviderTransport):
             async for frame in frames:
                 kind = str(frame.get("type") or "")
                 reported = _reported_model(frame) or reported
+                emitted_frame = False
                 if kind == "inference.delta":
                     # Display-only; never becomes model content (see puppy_reasoning).
                     await publish_reasoning(reasoning_text(frame))
@@ -384,6 +391,7 @@ class PuppyRelayTransport(ProviderTransport):
                     value = frame.get("text")
                     if isinstance(value, str) and value:
                         emitted_result = True
+                        emitted_frame = True
                         yield NormalizedChunk(
                             text=value,
                             function_calls=self._calls(frame.get("functionCalls")),
@@ -392,8 +400,16 @@ class PuppyRelayTransport(ProviderTransport):
                     else:
                         calls = self._calls(frame.get("functionCalls"))
                         if calls:
+                            emitted_frame = True
                             yield NormalizedChunk(function_calls=calls, model_version=reported)
                 if kind == "inference.done" and not emitted_result:
                     value = frame.get("text")
                     if isinstance(value, str) and value:
+                        emitted_frame = True
                         yield NormalizedChunk(text=value, model_version=reported)
+                if (
+                    kind in {"inference.result", "inference.done"}
+                    and reported
+                    and not emitted_frame
+                ):
+                    yield NormalizedChunk(model_version=reported)

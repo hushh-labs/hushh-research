@@ -224,6 +224,13 @@ An admission-stage timeout does not identify the particular HTTP hop or prove a
 slow model. Correlate provider-zero evidence with owner activation before calling
 a reconnect cold; do not discard the first timeout when a retry succeeds.
 
+Keep failure classes separate: `PUPPY_TIMEOUT` is a device inference deadline;
+`POD_TURN_TIMEOUT` is the agent or route deadline. Unconfirmed source cleanup is
+not an ordinary settled timeout. The answer's model label requires the device's
+actual report, including a terminal-only report; a requested model or heartbeat
+cannot substitute for it. Keep model metadata out of answer text and preserve
+the single executable ADK aggregate.
+
 ### Isolated image recovery rehearsal safeguards
 
 When constructing a fixture `PodSpec`, retain its registry `billing_space_id`

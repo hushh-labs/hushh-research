@@ -1506,21 +1506,28 @@ async def test_a_model_that_could_be_an_endpoint_or_path_is_not_reported(monkeyp
     assert result.model_version == ""
 
 
-async def test_provider_adk_model_reports_the_device_model_on_every_event(monkeypatch):
+@pytest.mark.parametrize("late_model", [False, True])
+async def test_provider_adk_model_reports_the_device_model_on_every_event(monkeypatch, late_model):
     lookup = NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1")
     models = _PuppyModels(
         scripts=[
             [
-                NormalizedChunk(text="local ", model_version="qwen3"),
-                NormalizedChunk(function_calls=(lookup,), model_version="qwen3"),
+                NormalizedChunk(text="local ", model_version="" if late_model else "qwen3"),
+                NormalizedChunk(
+                    function_calls=(lookup,), model_version="" if late_model else "qwen3"
+                ),
+                NormalizedChunk(model_version="qwen3"),
             ]
         ],
         full=NormalizedResponse(text="answer", model_version="qwen3"),
     )
     model, _ = _puppy_model(monkeypatch, models)
     stream = [event async for event in model.generate_content_async(_llm_request(), stream=True)]
-    assert stream and all(event.model_version == "qwen3" for event in stream)
+    assert stream[-1].model_version == "qwen3"
+    assert all(event.model_version == (None if late_model else "qwen3") for event in stream[:-1])
     assert stream[-1].partial is False
+    assert [call.id for call in stream[-1].get_function_calls()] == ["call-1"]
+    assert sum(not event.partial for event in stream) == 1
     full = [event async for event in model.generate_content_async(_llm_request(), stream=False)]
     assert full[0].model_version == "qwen3"
 
@@ -1528,10 +1535,19 @@ async def test_provider_adk_model_reports_the_device_model_on_every_event(monkey
 async def test_provider_adk_model_never_fabricates_a_version_when_unreported(monkeypatch):
     """The requested id is not a report. Returning it would make every Puppy turn
     read `modelReported: true` while the device had said nothing at all."""
-    models = _PuppyModels(scripts=[], full=NormalizedResponse(text="answer"))
+    models = _PuppyModels(
+        scripts=[[NormalizedChunk(text="answer")], [NormalizedChunk(model_version="qwen3")]],
+        full=NormalizedResponse(text="answer"),
+    )
     model, _ = _puppy_model(monkeypatch, models, model="local")
     full = [event async for event in model.generate_content_async(_llm_request(), stream=False)]
     assert full[0].model_version is None
+    stream = [event async for event in model.generate_content_async(_llm_request(), stream=True)]
+    assert stream[-1].model_version is None
+    metadata_only = [
+        event async for event in model.generate_content_async(_llm_request(), stream=True)
+    ]
+    assert metadata_only == []
 
 
 def test_adk_adapter_preserves_owner_vertex_key_transport(monkeypatch):

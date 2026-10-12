@@ -562,7 +562,11 @@ async def test_text_runtime_treats_an_all_partial_tool_call_turn_as_silent(monke
     assert committed == [], "a silent turn must never be committed to memory"
 
 
-async def test_text_runtime_stamps_the_reported_model_on_token_events(monkeypatch):
+@pytest.mark.parametrize("late_model", [False, True])
+@pytest.mark.parametrize("provider", ["gemini", "puppy"])
+async def test_text_runtime_stamps_the_reported_model_on_token_events(
+    monkeypatch, late_model, provider
+):
     """The provider's `model_version` rides on every token event so the pod turn
     route can report the model that answered rather than the one it asked for."""
 
@@ -574,7 +578,7 @@ async def test_text_runtime_stamps_the_reported_model_on_token_events(monkeypatc
             yield Event(
                 author="one",
                 partial=True,
-                model_version="qwen3-30b-a3b-mlx",
+                model_version=None if late_model else "qwen3-30b-a3b-mlx",
                 content=genai_types.Content(
                     role="model", parts=[genai_types.Part.from_text(text="Hello")]
                 ),
@@ -601,24 +605,33 @@ async def test_text_runtime_stamps_the_reported_model_on_token_events(monkeypatc
             timezone=None,
             screen_context=None,
             pkm_context=None,
-            runtime_provider="gemini",
+            runtime_provider=provider,
             runtime_model="gemini-test",
             runtime_mode="byok",
             runtime_credential="k",
         )
     ]
     tokens = [event for event in events if event.kind == "token"]
-    assert tokens and all(event.model_version == "qwen3-30b-a3b-mlx" for event in tokens)
+    assert [event.text for event in tokens] == ["Hello"]
+    assert tokens[0].model_version == ("" if late_model else "qwen3-30b-a3b-mlx")
+    assert [event.model_version for event in events if event.kind == "model"] == (
+        (["qwen3-30b-a3b-mlx"] if late_model else ["qwen3-30b-a3b-mlx"] * 2)
+        if provider == "puppy"
+        else []
+    )
 
 
+@pytest.mark.parametrize("provider", ["gemini", "puppy"])
 async def test_text_runtime_leaves_model_version_empty_when_unreported_negative_control(
     monkeypatch,
+    provider,
 ):
     class _FakeRunner:
         def __init__(self, *, app_name, agent, session_service, memory_service=None):
             self.session_service = session_service
 
         async def run_async(self, *, user_id, session_id, new_message, run_config):
+            yield Event(author="agent_files", model_version="specialist-model")
             yield Event(
                 author="one",
                 partial=True,
@@ -640,13 +653,14 @@ async def test_text_runtime_leaves_model_version_empty_when_unreported_negative_
             timezone=None,
             screen_context=None,
             pkm_context=None,
-            runtime_provider="gemini",
+            runtime_provider=provider,
             runtime_model="gemini-test",
             runtime_mode="byok",
             runtime_credential="k",
         )
     ]
     assert [event.model_version for event in events if event.kind == "token"] == [""]
+    assert not any(event.kind == "model" for event in events)
 
 
 async def test_text_runtime_reports_observed_recall_digest_and_catch_up(monkeypatch):

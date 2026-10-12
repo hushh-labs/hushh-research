@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 from api.routes.one import pod_turn
 from api.routes.one.pod_turn import PodTurnRequest
+from hushh_mcp.hushh_adk.events import AdkEventCleanupError, AdkEventTimeoutError
 
 
 class _Event:
@@ -182,21 +183,37 @@ async def test_directives_are_counted(enabled, monkeypatch):
     assert result["directiveCount"] == 1
 
 
-async def test_a_failed_turn_is_502_not_a_raw_traceback(enabled, monkeypatch, caplog):
+@pytest.mark.parametrize(
+    "failure", [RuntimeError, TimeoutError, AdkEventCleanupError, AdkEventTimeoutError]
+)
+async def test_a_failed_turn_is_502_not_a_raw_traceback(enabled, monkeypatch, caplog, failure):
     """A 500 both leaks internals and invites the caller to treat it as permanent."""
     _consent_ok(monkeypatch)
     import traceback
 
     private_text = " ".join(("credential-sentinel", "projection-sentinel", "storage-path-sentinel"))
+    error = failure(private_text)
+    if failure is AdkEventCleanupError:
+        from hushh_mcp.runtime_providers.puppy_transport import PuppyInferenceTimedOut
+
+        error.__context__ = PuppyInferenceTimedOut(private_text)
+        wrapped = RuntimeError(private_text)
+        wrapped.__cause__ = error
+        assert pod_turn._puppy_model_refusal(wrapped) == ""
     with pytest.raises(HTTPException) as exc:
         await pod_turn.run_pod_turn(
             payload=_payload(),
             consent_token="t",
-            stream_fn=_stream([], boom=RuntimeError(private_text)),
+            stream_fn=_stream([], boom=error),
         )
-    assert exc.value.status_code == 502
+    if failure is AdkEventTimeoutError:
+        assert exc.value.status_code == 504
+        assert exc.value.detail == {"code": "POD_TURN_TIMEOUT"}
+        assert pod_turn._stream_error(exc.value)["code"] == "POD_TURN_TIMEOUT"
+    else:
+        assert exc.value.status_code == 502
+        assert exc.value.detail == f"the agent could not complete this turn: {failure.__name__}"
     # The exception TYPE is useful; its message may carry internals, so it is not echoed.
-    assert exc.value.detail == "the agent could not complete this turn: RuntimeError"
     rendered = "".join(traceback.format_exception(exc.value))
     for sentinel in private_text.split():
         assert sentinel not in str(exc.value.detail)
@@ -691,15 +708,20 @@ class _ReportedEvent(_Event):
         self.model_version = model_version
 
 
-async def test_a_reported_model_is_named_and_flagged_reported(enabled, monkeypatch):
+@pytest.mark.parametrize("late_model", [False, True])
+async def test_a_reported_model_is_named_and_flagged_reported(enabled, monkeypatch, late_model):
     _consent_ok(monkeypatch)
+    event = _ReportedEvent("" if late_model else "hi", "qwen3-30b-a3b-mlx")
+    if late_model:
+        event.kind = "model"
     result = await pod_turn.run_pod_turn(
         payload=_payload(),
         consent_token="t",
-        stream_fn=_stream([_ReportedEvent("hi", "qwen3-30b-a3b-mlx")]),
+        stream_fn=_stream([_Event("token", "hi"), event] if late_model else [event]),
     )
     assert result["model"] == "qwen3-30b-a3b-mlx"
     assert result["modelReported"] is True
+    assert result["text"] == "hi"
 
 
 async def test_an_unreported_model_falls_back_to_the_resolved_id_and_says_so(enabled, monkeypatch):

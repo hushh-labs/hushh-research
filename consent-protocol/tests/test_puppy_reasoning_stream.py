@@ -82,6 +82,8 @@ async def test_reasoning_frames_reach_the_bound_sink_and_never_the_answer():
     await feeder
     assert seen == ["The user ", "asks a sum."]
     assert "".join(chunk.text for chunk in chunks) == "It is 391."
+    assert [chunk.text for chunk in chunks if chunk.text] == ["It is ", "391."]
+    assert chunks[-1].text == "" and chunks[-1].model_version == "google/gemma-4-12b"
 
 
 async def test_without_a_bound_sink_reasoning_is_dropped_not_spoken():

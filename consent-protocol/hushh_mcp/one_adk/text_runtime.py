@@ -64,7 +64,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 OneTextEventKind = Literal[
-    "token", "thought", "source", "directive", "specialist", "boundary", "memory"
+    "token", "model", "thought", "source", "directive", "specialist", "boundary", "memory"
 ]
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
@@ -747,6 +747,13 @@ async def _stream_one_text_turn_once(
             )
         )
 
+        reported_model = _event_model_version(event)
+        if (
+            runtime_provider == "puppy"
+            and str(getattr(event, "author", "") or "") == "one"
+            and reported_model
+        ):
+            yield OneTextStreamEvent(kind="model", model_version=reported_model)
         text = _event_text(event)
         if not text:
             continue
