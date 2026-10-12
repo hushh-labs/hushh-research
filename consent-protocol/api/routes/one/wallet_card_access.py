@@ -142,10 +142,16 @@ async def connections(
 
 
 @router.get("/cards/{card_id}")
-async def card_access(card_id: str, owner: str = Depends(owner_identity)):
+async def card_access(
+    card_id: str,
+    cursor: UUID | None = Query(default=None),
+    owner: str = Depends(owner_identity),
+):
     if len(card_id) > 64:
         raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"})
-    return await run_in_threadpool(service().card_access, owner, card_id)
+    return await run_in_threadpool(
+        service().card_access, owner, card_id, str(cursor) if cursor else None
+    )
 
 
 @router.post("/cards/{card_id}/grants")

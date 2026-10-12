@@ -4,11 +4,13 @@ No credential or document key is needed: recorded access remains manageable
 after disconnect, a rollout kill switch, or erasure of the private request.
 """
 
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import text
 
 from hushh_mcp.services.drive_live_preferences import LIVE_BACKGROUND_DISCLOSURE
+from hushh_mcp.services.drive_request_payment_view import requester_payment_view
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -59,7 +61,14 @@ WITH participants AS (
     {quote_version} AS quote_version,
     {owner_payout_account_ready} AS owner_payout_account_ready,
     {owner_price_ready} AS owner_price_ready,
-    {owner_drive_ready} AS owner_drive_ready
+    {owner_drive_ready} AS owner_drive_ready,
+    drive_share_requests.expires_at AS request_expires_at,
+    {payment_reconciliation_reason} AS payment_reconciliation_reason,
+    {refund_status} AS refund_status,
+    {refund_amount_cents} AS refund_amount_cents,
+    {payment_owner_payout_ready} AS payment_owner_payout_ready,
+    {estimate_known} AS estimate_known,
+    {estimate_cents} AS estimate_cents
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
@@ -67,7 +76,8 @@ WITH participants AS (
   UNION ALL
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
-    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -133,7 +143,8 @@ _QUERIES = """
       WHEN status='running' THEN 'pending'
       ELSE status END,
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
-    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -276,6 +287,32 @@ _IDENTITY_JOINS = """LEFT JOIN actor_identity_cache owner_identity
     ON recipient_identity.user_id=drive_share_requests.recipient_user_id"""
 
 
+# Requester-only inputs of the shared payment view; the owner's rows get NULL.
+_PAYMENT_RECONCILIATION_REASON = """(SELECT pay.reconciliation_reason
+  FROM drive_request_payment_orders pay
+  WHERE pay.request_id=drive_share_requests.request_id
+    AND drive_share_requests.recipient_user_id=:user)"""
+
+_REFUND_STATUS = """(SELECT refund.status FROM drive_request_payment_refunds refund
+  WHERE refund.request_id=drive_share_requests.request_id
+    AND drive_share_requests.recipient_user_id=:user)"""
+
+_REFUND_AMOUNT_CENTS = """(SELECT refund.amount_cents FROM drive_request_payment_refunds refund
+  WHERE refund.request_id=drive_share_requests.request_id
+    AND drive_share_requests.recipient_user_id=:user)"""
+
+# An enrolled bank-settled order cannot open Checkout until the owner's payout
+# account is ready (the same cached readiness Checkout rechecks live).
+_PAYMENT_OWNER_PAYOUT_READY = """CASE WHEN drive_share_requests.recipient_user_id=:user
+    AND drive_share_requests.settlement_method<>'hashcoins'
+    AND EXISTS (SELECT 1 FROM drive_request_owner_payouts p
+      WHERE p.request_id=drive_share_requests.request_id AND p.erased_at IS NULL)
+  THEN EXISTS (SELECT 1 FROM stripe_owner_payout_accounts account
+    WHERE account.user_id=drive_share_requests.user_id
+      AND account.account_ready=TRUE AND account.stripe_mode=:stripe_mode)
+  END"""
+
+
 def _trusted_authority_ready(owner_allowed: bool) -> str:
     recipient = (
         "(" + _TRUSTED_RECIPIENT + " OR " + _OWNER_ALLOWED_RECIPIENT + ")"
@@ -306,6 +343,7 @@ def _projection(
     owner_allowed: bool,
     pricing: bool = False,
     payout_projection: bool = False,
+    estimate: bool = False,
 ) -> str:
     projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
     projection = projection.replace("{identity_joins}", _IDENTITY_JOINS if identity_cache else "")
@@ -411,6 +449,23 @@ def _projection(
           ELSE NULL END"""
         if payments and pricing and payout_projection
         else "NULL::boolean",
+        # Requester payment view inputs (RequesterPaymentView); requester rows only.
+        "payment_reconciliation_reason": _PAYMENT_RECONCILIATION_REASON
+        if payments
+        else "NULL::text",
+        "refund_status": _REFUND_STATUS if payments else "NULL::text",
+        "refund_amount_cents": _REFUND_AMOUNT_CENTS
+        if payments and payout_projection
+        else "NULL::integer",
+        "payment_owner_payout_ready": _PAYMENT_OWNER_PAYOUT_READY
+        if payments and pricing and payout_projection
+        else "NULL::boolean",
+        # The estimate the requester saw (migration 320). NULL there means the
+        # estimate is unknown; estimate_known says the column exists at all.
+        "estimate_known": "TRUE" if pricing and estimate else "FALSE",
+        "estimate_cents": "drive_share_requests.initial_quote_cents"
+        if pricing and estimate
+        else "NULL::integer",
     }.items():
         projection = projection.replace("{" + name + "}", expression)
     return projection
@@ -589,6 +644,13 @@ def entry(row: Any) -> dict[str, Any]:
                     "quotedAmountCents": row["quoted_amount_cents"],
                     "quoteVersion": row["quote_version"],
                     "paymentRequired": True,
+                    # Same meaning as RequesterPriceView.estimateCents: null is
+                    # an unknown estimate. Omitted while migration 320 is absent.
+                    **(
+                        {"estimateCents": row.get("estimate_cents")}
+                        if row.get("estimate_known") is True
+                        else {}
+                    ),
                 }
                 if row["direction"] == "outgoing" and row.get("quoted_amount_cents") is not None
                 else {}
@@ -609,7 +671,47 @@ def entry(row: Any) -> dict[str, Any]:
                 if row["direction"] == "outgoing" and row.get("payment_status") is not None
                 else {}
             ),
+            **_payment_view_metadata(row),
         },
+    }
+
+
+def _payment_view_metadata(row: Any) -> dict[str, Any]:
+    """The requester's RequesterPaymentView, built by the one shared definition."""
+    if row["direction"] != "outgoing" or row.get("payment_required") is not True:
+        return {}
+    state = row["state"]
+    checkout_expires_at = row.get("checkout_expires_at")
+    order = (
+        {
+            "status": row["payment_status"],
+            "amount_cents": row.get("payment_amount_cents"),
+            # Projected only for a bound session (see checkout_expires_at).
+            "checkout_bound": checkout_expires_at is not None,
+            "checkout_expires_at": checkout_expires_at,
+            "reconciliation_reason": row.get("payment_reconciliation_reason"),
+        }
+        if row.get("payment_status") is not None
+        else None
+    )
+    return {
+        "paymentView": requester_payment_view(
+            payment_required=True,
+            # The requester projection renames no_match; the view needs the status.
+            request_status="no_match" if state == "no_files_shared" else state,
+            request_expires_at=row.get("request_expires_at"),
+            now=datetime.now(UTC),
+            access_stopped=row.get("access_stopped") is True,
+            preparation_error_code=row.get("preparation_error_code"),
+            quoted_amount_cents=row.get("quoted_amount_cents"),
+            order=order,
+            refund=(
+                {"status": row["refund_status"], "amount_cents": row.get("refund_amount_cents")}
+                if row.get("refund_status") is not None
+                else None
+            ),
+            owner_payout_ready=row.get("payment_owner_payout_ready"),
+        )
     }
 
 
@@ -722,6 +824,16 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
+    def _estimate_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS (SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='initial_quote_cents' AND NOT attisdropped)""")
+            ).scalar_one()
+        )
+
+    @staticmethod
     def _payout_projection_installed(connection) -> bool:
         return bool(
             connection.execute(
@@ -827,6 +939,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                             self._owner_allowed_installed(connection),
                             self._pricing_installed(connection),
                             self._payout_projection_installed(connection),
+                            self._estimate_installed(connection),
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -880,6 +993,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._owner_allowed_installed(connection),
                         self._pricing_installed(connection),
                         self._payout_projection_installed(connection),
+                        self._estimate_installed(connection),
                     )  # nosec B608
                     + """
                     , ranked AS (

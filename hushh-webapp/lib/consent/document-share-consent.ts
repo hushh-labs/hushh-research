@@ -20,6 +20,8 @@ const DOCUMENT_SHARE_NOTIFICATION_TYPES = new Set([
   "document_share_outcome",
   "document_share_revoked",
   "document_share_revocation_outcome",
+  // To the owner: the requester asked about files a partial delivery missed.
+  "document_share_review_requested",
   // Drive questions (drive_query_events): their request_id is a question.
   "document_share_question",
   "document_share_answered",
@@ -74,6 +76,10 @@ export const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE: Readonly<
   document_share_revocation_outcome: {
     title: "Drive access changed",
     body: "Open One to see what changed.",
+  },
+  document_share_review_requested: {
+    title: "Review requested",
+    body: "Open One to see the files that weren't shared.",
   },
   document_share_question: {
     title: "Drive question",

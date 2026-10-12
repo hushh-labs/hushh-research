@@ -97,6 +97,81 @@ async def test_earnings_history_paginates_and_never_crosses_owner_boundary(
     engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_earnings_history_shows_one_stripe_mode_and_test_includes_legacy(
+    connector_postgres_url, monkeypatch
+):
+    from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
+
+    monkeypatch.setattr(DriveSharingCipher, "open", lambda self, envelope, **kw: {})
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("HUSSH_DEPLOY_ENV", raising=False)
+    schema = "history_modes_" + uuid4().hex
+    admin = create_engine(connector_postgres_url)
+    with admin.begin() as c:
+        c.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+    engine = create_engine(
+        connector_postgres_url, connect_args={"options": f"-csearch_path={schema}"}
+    )
+    rows = {mode: str(uuid4()) for mode in ("live", "test", "legacy")}
+    try:
+        with engine.begin() as c:
+            c.exec_driver_sql(
+                "CREATE TABLE drive_share_requests(request_id UUID PRIMARY KEY,user_id TEXT,request_envelope JSONB)"
+            )
+            c.exec_driver_sql(
+                "CREATE TABLE drive_request_payment_orders(request_id UUID PRIMARY KEY,stripe_payment_intent_id TEXT)"
+            )
+            c.exec_driver_sql("""CREATE TABLE drive_request_owner_payouts(
+              request_id UUID PRIMARY KEY,status TEXT,gross_amount_cents INT,
+              refund_amount_cents INT,platform_fee_cents INT,allocated_processing_fee_cents INT,
+              owner_earning_cents INT,reversal_amount_cents INT,created_at TIMESTAMPTZ,
+              transferred_at TIMESTAMPTZ,expected_files INT,confirmed_files INT,erased_at TIMESTAMPTZ,
+              stripe_mode TEXT,settlement_method TEXT,credited_at TIMESTAMPTZ)""")
+            for i, (mode, request_id) in enumerate(rows.items()):
+                c.execute(
+                    text("INSERT INTO drive_share_requests VALUES (:id,'owner','{}')"),
+                    {"id": request_id},
+                )
+                c.execute(
+                    text("INSERT INTO drive_request_payment_orders VALUES (:id,'pi_test')"),
+                    {"id": request_id},
+                )
+                c.execute(
+                    text("""INSERT INTO drive_request_owner_payouts VALUES
+                  (:id,'transferred',1000,0,30,59,911,NULL,:created,:created,1,1,NULL,
+                   :mode,'stripe_transfer',NULL)"""),
+                    {
+                        "id": request_id,
+                        "mode": mode,
+                        "created": datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=i),
+                    },
+                )
+        service = DriveRequestOwnerPayoutService(
+            db=SimpleNamespace(engine=engine), stripe_api=Mock()
+        )
+
+        async def shown(**kwargs):
+            history = await service.owner_history(user_id="owner", **kwargs)
+            return history["mode"], {item["requestId"] for item in history["transactions"]}
+
+        monkeypatch.setenv("STRIPE_MODE", "live")
+        assert await shown() == ("live", {rows["live"]})
+        assert await shown(modes=["live"]) == ("live", {rows["live"]})
+        assert await shown(modes=["test"]) == ("test", {rows["test"], rows["legacy"]})
+        monkeypatch.setenv("STRIPE_MODE", "test")
+        assert await shown() == ("test", {rows["test"], rows["legacy"]})
+        for invalid in ([], ["prod"], ["live", "test"], ["live", "legacy"], "live"):
+            with pytest.raises(ValueError, match="invalid payout mode"):
+                await service.owner_history(user_id="owner", modes=invalid)
+    finally:
+        engine.dispose()
+        with admin.begin() as c:
+            c.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+        admin.dispose()
+
+
 def test_readiness_migration_replay_notifications_and_rollback(connector_postgres_url):
     """Execute both directions without touching another test's public schema."""
     migrations = Path(__file__).resolve().parents[1] / "db/migrations"
@@ -554,6 +629,81 @@ def test_full_refund_closes_only_verified_zero_earning_without_clearing_fences(
         assert "UPDATE drive_request_owner_payouts" in str(statement)
         assert "reconciliation_required" not in str(statement)
         assert parameters == {"request": REQUEST, "status": "void"}
+
+
+_PAST = datetime.now(UTC) - timedelta(minutes=1)
+_FUTURE = datetime.now(UTC) + timedelta(days=1)
+
+
+@pytest.mark.parametrize(
+    ("request_row", "order_status", "obligation_status", "expected"),
+    [
+        pytest.param({"status": "cancelled"}, "expired", "expired", "void", id="withdrawn-unpaid"),
+        pytest.param(
+            {"status": "declined"}, "checkout_open", "checkout_open", "void", id="declined-unpaid"
+        ),
+        pytest.param(
+            {"status": "pending", "expires_at": _PAST},
+            "awaiting_payment",
+            "awaiting_payment",
+            "void",
+            id="lapsed",
+        ),
+        pytest.param(
+            {"status": "cancelled"}, "refunded", "refunded", "void", id="withdrawn-refunded"
+        ),
+        # Negative controls: money still held, or the request is still open.
+        pytest.param({"status": "cancelled"}, "paid", "paid", "held", id="paid-awaiting-refund"),
+        pytest.param({"status": "cancelled"}, "expired", "paid", "held", id="paid-obligation"),
+        pytest.param(
+            {"status": "pending", "expires_at": _FUTURE},
+            "awaiting_payment",
+            "awaiting_payment",
+            "held",
+            id="open",
+        ),
+    ],
+)
+def test_closed_request_earning_is_void_only_when_unpaid_or_fully_refunded(
+    request_row, order_status, obligation_status, expected
+):
+    def money(status):
+        paid = status in {"paid", "refunded"}
+        return {
+            "status": status,
+            "paid_at": datetime.now(UTC) if paid else None,
+            "reconciliation_required": status == "refunded",
+            "stripe_payment_intent_id": "pi_123" if paid else None,
+            "stripe_mode": "test",
+            "amount_cents": 1000,
+        }
+
+    source, obligation = money(order_status), money(obligation_status)
+    if obligation_status == "paid" and order_status != "paid":
+        source["stripe_payment_intent_id"] = "pi_123"
+    refund = (
+        {"status": "succeeded", "amount_cents": 1000, "stripe_refund_id": "re_123"}
+        if order_status == "refunded"
+        else None
+    )
+    payout = {
+        "status": "awaiting_delivery",
+        "erased_at": None,
+        "gross_amount_cents": 1000,
+        "stripe_payment_intent_id": None,
+        "stripe_mode": "test",
+    }
+    service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
+    service._row = Mock(side_effect=[request_row, source, obligation, refund, payout])
+    connection = Mock()
+
+    assert service._advance_delivery(connection, REQUEST) == expected
+    if expected == "held":
+        connection.execute.assert_called_once()  # Only the share lock; no state change.
+    else:
+        statement, parameters = connection.execute.call_args.args
+        assert "status='void'" in str(statement) and "status='awaiting_delivery'" in str(statement)
+        assert parameters == {"request": REQUEST}
 
 
 def test_erased_delivery_waits_for_exact_refund_then_advances_to_fee():

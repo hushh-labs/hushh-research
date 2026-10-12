@@ -104,3 +104,26 @@ def test_network_endpoint_never_echoes_bad_input(body):
     assert response.status_code == 422
     assert response.json() == {"detail": {"code": "WALLET_CARD_REQUEST_INVALID"}}
     assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_history_cursor_is_forwarded_with_owner_authority():
+    service = MagicMock()
+    service.card_access.return_value = {
+        "eligible": True,
+        "grants": [],
+        "nextCursor": None,
+        "hasMore": False,
+    }
+    with patch("api.routes.one.wallet_card_access.service", return_value=service):
+        response = client().get(ROOT + "/cards/card_one", params={"cursor": ID})
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        service.card_access.assert_called_once_with("owner", "card_one", ID)
+
+
+def test_malformed_history_cursor_is_private_and_not_forwarded():
+    with patch("api.routes.one.wallet_card_access.service") as service:
+        response = client().get(ROOT + "/cards/card_one?cursor=not-a-uuid")
+        assert response.status_code == 422
+        assert response.headers["cache-control"] == "private, no-store"
+        service.assert_not_called()
