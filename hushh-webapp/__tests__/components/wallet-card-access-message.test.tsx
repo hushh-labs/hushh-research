@@ -1,8 +1,12 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ view: vi.fn(), verify: vi.fn(), reauthenticate: vi.fn(), token: vi.fn() }));
+const mocks = vi.hoisted(() => ({ view: vi.fn(), verify: vi.fn(), reauthenticate: vi.fn(), token: vi.fn(), openCard: vi.fn(), vaultKey: null as string | null }));
 const user = { uid: "recipient", getIdToken: mocks.token, providerData: [{ providerId: "google.com" }] };
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.vaultKey, getVaultOwnerToken: () => "consent" }) }));
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: () => null }));
+vi.mock("@/lib/one-location/service", () => ({ OneLocationService: { getState: async () => ({}) } }));
+vi.mock("@/lib/wallet/wallet-card-share", () => ({ openWalletCardShare: mocks.openCard }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { reauthenticateIdentity: mocks.reauthenticate } }));
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { view: mocks.view, verify: mocks.verify } }));
@@ -10,8 +14,21 @@ vi.mock("@/components/profile/settings-ui", () => ({ SettingsDetailPanel: ({ ope
 import { WalletCardAccessMessage } from "@/components/wallet/wallet-card-access-message";
 const pending = { status: "verification_required", senderName: "Sender", expiresAt: "2030-01-01T00:15:00Z", serverNow: "2030-01-01T00:00:00Z" };
 const active = { ...pending, status: "active", card: { brand: "visa", last4: "1234", expiryMonth: 6, expiryYear: 2030, issuingRegion: "IN" } };
-beforeEach(() => { vi.resetAllMocks(); mocks.token.mockResolvedValue("token"); mocks.view.mockResolvedValue(pending); mocks.verify.mockResolvedValue(active); });
+beforeEach(() => { vi.resetAllMocks(); mocks.vaultKey = null; mocks.token.mockResolvedValue("token"); mocks.view.mockResolvedValue(pending); mocks.verify.mockResolvedValue(active); });
 afterEach(() => vi.restoreAllMocks());
+it("reveals the decrypted number only while the authorized recipient wallet is unlocked", async () => {
+  mocks.vaultKey = "unlocked";
+  mocks.view.mockResolvedValue({ ...active, encryptedCard: "ciphertext", senderUserId: "sender" });
+  mocks.openCard.mockResolvedValue({ pan: "4111111111111234", cardholderName: "Test", ...active.card });
+  const rendered = render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  await waitFor(() => expect(screen.getByTestId("wallet-card-face")).toHaveTextContent("4111"));
+  expect(mocks.openCard).toHaveBeenCalledWith(expect.objectContaining({ userId: "recipient", peerUserId: "sender", senderIsViewer: false }));
+  mocks.vaultKey = null;
+  rendered.rerender(<WalletCardAccessMessage grantId="grant" />);
+  expect(screen.getByTestId("wallet-card-face")).not.toHaveTextContent("4111");
+  expect(screen.getByRole("button", { name: "Unlock to view card number" })).toBeInTheDocument();
+});
 it("renders the authorized masked card face", async () => {
   mocks.view.mockResolvedValue(active);
   render(<WalletCardAccessMessage grantId="grant" />);

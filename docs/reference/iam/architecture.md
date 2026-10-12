@@ -204,6 +204,14 @@ Private data is always consent-gated and scoped.
 
 ### Contact-sync relationship boundary
 
+Requester admission uses an existing verified phone claim, or, for an active-vault
+or setup-completed account, a fresh Firebase Admin verified Google/Apple email
+that matches the currently verified backend identity. Both the lookup budget and
+relationship mutation check this rule. The fallback establishes account identity,
+does not claim phone ownership, and cannot make a phone-less account discoverable
+by phone. Per-UID lookup quotas and every target-phone/privacy rule below remain
+unchanged. Client hints and setup completion alone provide no admission proof.
+
 1. Contact sync uses `contact_directory_auto_connect_v2`: a current, exact,
    unambiguous verified-phone match to a visible ONE Connect-directory account
    is eligible by default. A version-zero preference with no enablement evidence

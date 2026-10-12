@@ -251,6 +251,57 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
     expect(result).toMatchObject({ empty: 1, retry: 0, delivered: 0 });
   });
 
+  it("never calls an unreadable scope an absent answer", async () => {
+    // The vault was locked, the manifest was stale, the network blipped --
+    // whatever it was, nothing was read. Delivering empty here would tell the
+    // requester the answer does not exist, refuse their payment for good, and
+    // do it on evidence that was never gathered. It stays queued instead.
+    buildConsentExportForScope.mockRejectedValue(new Error("vault locked"));
+    answerable.mockResolvedValue([work()]);
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+    });
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ retry: 1, delivered: 0, empty: 0 });
+  });
+
+  it("carries the owner's own name and photo into the answer document", async () => {
+    // The requester already sees these on the profile they asked from, and
+    // without them a question like "what is your name" had no name to answer
+    // from even with Identity information approved.
+    buildConsentExportForScope.mockResolvedValue({
+      payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
+      sourceContentRevision: 7,
+    });
+    answerable.mockResolvedValue([work()]);
+    compose.mockResolvedValue({
+      answerMode: "agent",
+      answer: "Tokyo.",
+      covers: [],
+      gaps: [],
+    });
+
+    await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+      ownerIdentity: {
+        displayName: "Smirthika Dharmalingam",
+        email: "smirthika@example.com",
+        photoUrl: "https://example.com/photo.jpg",
+      },
+    });
+
+    const memory = String(compose.mock.calls[0]![2].memory);
+    expect(memory).toContain("Smirthika Dharmalingam");
+  });
+
   it("delivers a written answer", async () => {
     buildConsentExportForScope.mockResolvedValue({
       payload: { trips: [{ city: "Tokyo", amount: 1200 }] },

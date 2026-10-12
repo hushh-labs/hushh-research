@@ -422,7 +422,23 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             success_url=_checkout_return_url(origin, request_id, "paid"),
             cancel_url=_checkout_return_url(origin, request_id, "cancelled"),
             expires_at=reserved["checkout_expires"],
-            payment_intent_data={"transfer_group": f"pkm-answer:{request_id}"},
+            payment_intent_data={
+                "transfer_group": f"pkm-answer:{request_id}",
+                # The same routing metadata as the session, because the one
+                # Stripe endpoint routes on `data.object.metadata.payment_kind`
+                # and a payment_intent or charge event carries the INTENT's
+                # metadata, not the session's. Without it those events route to
+                # no lane at all: the endpoint answers Stripe `{"received":
+                # true}` and settles nothing, which is the exact failure the
+                # dispatcher's own comment warns about -- money taken, nothing
+                # delivered. The Drive lane has always tagged both.
+                "metadata": {
+                    "payment_kind": PAYMENT_KIND,
+                    "request_id": request_id,
+                    "checkout_attempt_id": reserved["checkout_attempt_id"],
+                    "terms_digest": reserved["terms_digest"],
+                },
+            },
             line_items=[
                 {
                     "quantity": 1,

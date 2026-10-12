@@ -38,7 +38,7 @@ class PrivateWalletAccessRoute(APIRoute):
                     async with asyncio.timeout(15):
                         async for chunk in request.stream():
                             size += len(chunk)
-                            if size > 16384:
+                            if size > (98304 if request.url.path.endswith("/grants") else 16384):
                                 raise HTTPException(413, {"code": "WALLET_CARD_REQUEST_TOO_LARGE"})
                             chunks.append(chunk)
                     request._body = b"".join(chunks)
@@ -87,6 +87,9 @@ class ShareBody(RegistrationBody):
         alias="recipientPersonRefs", min_length=1, max_length=20
     )
     duration_minutes: Literal[5, 10, 15] = Field(alias="durationMinutes")
+    encrypted_cards: dict[UUID, str] | None = Field(
+        default=None, alias="encryptedCards", max_length=20
+    )
 
 
 class SharingActivity(BaseModel):
@@ -228,6 +231,11 @@ async def create_grants(card_id: str, body: ShareBody, owner: str = Depends(owne
         str(body.request_id),
         [str(v) for v in body.recipient_person_refs],
         body.duration_minutes,
+        **(
+            {"encrypted_cards": {str(k): v for k, v in body.encrypted_cards.items()}}
+            if body.encrypted_cards is not None
+            else {}
+        ),
     )
 
 

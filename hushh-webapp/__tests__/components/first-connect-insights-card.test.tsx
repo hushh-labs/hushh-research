@@ -105,6 +105,12 @@ describe("FirstConnectInsightsCard", () => {
     expect(await screen.findByTestId("first-connect-insights-card")).toHaveTextContent(
       "Here's what I picked up from Calendar",
     );
+    const keepActions = screen.getAllByRole("button", { name: "Keep", exact: true });
+    const forgetActions = screen.getAllByRole("button", { name: "Forget", exact: true });
+    for (const [index, item] of offer().items.entries()) {
+      expect(keepActions[index]).toHaveAccessibleDescription(item.label);
+      expect(forgetActions[index]).toHaveAccessibleDescription(item.label);
+    }
     // Asked with the chat's own gate: vault-owner token plus chat key.
     const [, init] = mocks.apiFetch.mock.calls[0]!;
     expect(init.method).toBe("POST");

@@ -6,7 +6,7 @@ vi.mock("@/lib/services/direct-messages-service", () => ({ DirectMessagesService
 vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { getCard: mocks.getCard, recordCardShareReceipt: mocks.record } }));
 vi.mock("@/lib/wallet/wallet-card-share", () => ({ sealWalletCardShare: mocks.seal }));
 vi.mock("@/lib/wallet/wallet-card-file", () => ({ createEncryptedCardFile: mocks.file }));
-import { prepareSavedCardFile, shareSavedCard, type CardShareContext } from "@/lib/services/wallet-card-share-service";
+import { prepareTemporaryCardShares, prepareSavedCardFile, shareSavedCard, type CardShareContext } from "@/lib/services/wallet-card-share-service";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 const recipient = { userId: "bob", publicPersonRef: "person-bob", displayName: "Bob", keyId: "bob-key", publicKeyJwk: { kty: "EC" } } as OneLocationRecipient;
 const ack = { conversation: { id: "chat", peerPersonRef: "person-bob" }, message: { id: "msg", content: "encrypted-envelope", senderIsViewer: true, createdAt: "2026-10-10T10:00:00Z" } };
@@ -14,6 +14,17 @@ let current = true;
 const context: CardShareContext = { userId: "alice", vaultKey: "vault-key", vaultOwnerToken: "owner-token", isCurrent: () => current, getIdToken: async () => "id-token" };
 
 describe("owner-confirmed encrypted card delivery", () => {
+  it("prepares only recipient ciphertext for temporary grants and excludes CVV/PIN", async () => {
+    const result = await prepareTemporaryCardShares(context, "selected-card", [recipient.publicPersonRef!]);
+    expect(result).toEqual({ "person-bob": "encrypted-envelope" });
+    expect(mocks.seal.mock.calls[0][0].card).toEqual({ pan: "4111111111111111", cardholderName: "Alice", brand: "visa", expiryMonth: 4, expiryYear: 2030, issuingRegion: "US" });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it("does not silently downgrade a recipient without an encryption key", async () => {
+    mocks.directory.mockResolvedValue({ items: [{ ...recipient, keyId: null }], page: 1, hasMore: false });
+    await expect(prepareTemporaryCardShares(context, "selected-card", [recipient.publicPersonRef!])).rejects.toThrow("unlock Hushh");
+    expect(mocks.getCard).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.resetAllMocks(); current = true;
     mocks.directory.mockResolvedValue({ items: [recipient], page: 1, hasMore: false });

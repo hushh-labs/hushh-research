@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
+import { CardRecipientKeyUnavailableError, prepareTemporaryCardShares } from "@/lib/services/wallet-card-share-service";
 import { CardAccessUnavailableError, WalletCardAccessService, type CardAccessRecipient, type CardAccessState } from "@/lib/services/wallet-card-access-service";
 import { WalletService, type WalletCardSummary } from "@/lib/services/wallet-service";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -124,13 +125,17 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
       if (!state.eligible && isProfile) throw new Error("Profile sharing is unavailable.");
       if (!state.eligible) await WalletService.prepareCardSharing({ ...context, cardId: card.cardId });
       if (!context.isCurrent()) return;
-      await WalletCardAccessService.share(context, card.cardId, refs, duration, attempt.current.id);
+      const encryptedCards = isProfile ? undefined : await prepareTemporaryCardShares(context, card.cardId, refs);
+      if (!context.isCurrent()) return;
+      await WalletCardAccessService.share(context, card.cardId, refs, duration, attempt.current.id, encryptedCards);
       if (!context.isCurrent()) return;
       attempt.current = null; close(); setRevision(value => value + 1);
       morphyToast.success("Card shared.");
     } catch (error) {
       if (context.isCurrent()) {
-        if (error instanceof CardAccessUnavailableError) {
+        if (error instanceof CardRecipientKeyUnavailableError) {
+          morphyToast.error(error.message);
+        } else if (error instanceof CardAccessUnavailableError) {
           close(); setState(null); setStateFailed(true); setUnavailable(true);
           morphyToast.error("Card sharing is temporarily unavailable. Try again later.");
         } else {
@@ -175,7 +180,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
           {loadingMore ? "Loading more shares…" : moreFailed ? "Retry loading shares" : "Load more shares"}
         </Button>
       </div> : null}
-      <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title={isProfile ? "Share Profile Card" : "Share card"} description={isProfile ? "Share your selected profile details with your connections." : "Share masked card details with your connections."}
+      <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title={isProfile ? "Share Profile Card" : "Share card"} description={isProfile ? "Share your selected profile details with your connections." : "Share your full card number and details with selected connections."}
         mobilePresentation="sheet" desktopMaxWidth="580px" desktopMaxWidthClassName="sm:!max-w-[580px]" surfaceClassName={styles.accessSurface} bodyClassName={styles.accessBody}
         footer={<Button className="w-full" disabled={busy || stateFailed || !state || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button>}>
         <div className="space-y-4">

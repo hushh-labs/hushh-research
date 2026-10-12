@@ -238,7 +238,8 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref: ROUTES.ONE_HOME,
         width: "content",
         align: "center",
-        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Referrals" }],
+        items: [{ label: "One", href: ROUTES.ONE_HOME }],
+        suppressFallbackTitle: true,
       };
     },
   },

@@ -57,6 +57,25 @@ def test_share_uses_authenticated_owner_and_explicit_recipients():
         service.create_grants.assert_called_once_with("owner", "card_one", ID, [ID], 10)
 
 
+def test_recipient_envelopes_are_forwarded_with_owner_authority():
+    service = MagicMock()
+    service.create_grants.return_value = {"grants": []}
+    with patch("api.routes.one.wallet_card_access.service", return_value=service):
+        response = client().post(
+            ROOT + "/cards/card_one/grants",
+            json={
+                "requestId": ID,
+                "recipientPersonRefs": [ID],
+                "durationMinutes": 10,
+                "encryptedCards": {ID: "opaque-recipient-envelope"},
+            },
+        )
+        assert response.status_code == 200
+        service.create_grants.assert_called_once_with(
+            "owner", "card_one", ID, [ID], 10, encrypted_cards={ID: "opaque-recipient-envelope"}
+        )
+
+
 def test_recipient_view_needs_no_owner_vault_token_and_errors_are_private():
     service = MagicMock()
     service.view_grant.side_effect = RuntimeError("internal secret")

@@ -141,7 +141,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/kyc`
 - `/one/career`
 - `/one/referrals` — authenticated referral dashboard; `/one/profile/referrals` redirects here. Account totals and milestone cards come from the referral API, with explicit unavailable states and no sample balances.
-  - A first-visit introduction pairs the agent artwork with a short referral explanation. Continue and Skip intro open the dashboard; View welcome screen replays it. The cosmetic dismissal is scoped to the account on this device through `OnboardingLocalService`, with Capacitor Preferences and browser fallback. It never completes account setup, connects an agent, qualifies a referral, or awards points. Back from either view returns to `/one`.
+  - The standard shared shell provides Back, the top-right profile avatar, Talk to One, and the five-item bottom navigation on web and Capacitor. The Share button expands into Copy link, WhatsApp, SMS, and more sharing options; Back or Escape closes it. How it works opens the existing coins and rules view; Back closes that view before returning to `/one`. Viewing the dashboard never completes setup, qualifies a referral, or awards points.
 - `/one/location`
 - `/one/location/map`
 - `/one/location/check-in`

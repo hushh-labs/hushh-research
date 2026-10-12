@@ -20,6 +20,7 @@ export type CardAccessState = { eligible: boolean; reason?: string; grants: Card
 export type CardAccessView = {
   status: "active" | "verification_required" | "expired" | "revoked" | "unavailable";
   expiresAt: string; serverNow: string; senderName: string;
+  encryptedCard?: string; senderUserId?: string;
   card?: { brand: string; last4: string; expiryMonth: number; expiryYear: number; issuingRegion: string };
   cardType?: "payment" | "profile";
   profileCard?: Partial<WalletCardPublicProfile> & {
@@ -68,8 +69,8 @@ export const WalletCardAccessService = {
   reserve: (idToken: string, vaultOwnerToken: string, requestId: string) => request<{ cardId: string | null; enabled: boolean }>(idToken, "/registrations", "POST", { requestId }, vaultOwnerToken),
   state: (context: CardShareContext, cardId: string, signal?: AbortSignal, cursor?: string) => ownerRequest<CardAccessState>(context, `/cards/${encodeURIComponent(cardId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, "GET", undefined, signal),
   recipients: (context: CardShareContext, query: string, signal?: AbortSignal) => ownerRequest<{ items: CardAccessRecipient[]; hasMore: boolean }>(context, `/connections?query=${encodeURIComponent(query)}`, "GET", undefined, signal),
-  share: async (context: CardShareContext, cardId: string, recipientPersonRefs: string[], durationMinutes: 5 | 10 | 15, requestId: string) => {
-    const result = await ownerRequest<{ grants: CardAccessGrant[] }>(context, `/cards/${encodeURIComponent(cardId)}/grants`, "POST", { requestId, recipientPersonRefs, durationMinutes });
+  share: async (context: CardShareContext, cardId: string, recipientPersonRefs: string[], durationMinutes: 5 | 10 | 15, requestId: string, encryptedCards?: Record<string, string>) => {
+    const result = await ownerRequest<{ grants: CardAccessGrant[] }>(context, `/cards/${encodeURIComponent(cardId)}/grants`, "POST", { requestId, recipientPersonRefs, durationMinutes, ...(encryptedCards ? { encryptedCards } : {}) });
     changed(context.userId); return result;
   },
   revoke: async (context: CardShareContext, grantId: string) => {

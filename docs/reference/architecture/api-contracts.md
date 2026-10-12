@@ -178,8 +178,14 @@ The `/api/one/wallet/card-access` endpoints are:
 | POST | `/grants/{grant_id}/verify` | Fresh same-user Firebase provider authentication after the server challenge for non-trusted recipients. |
 
 Responses are private and non-cacheable. The encrypted server projection contains
-only network, last four digits, expiry and normalized issuing region; no PAN,
-name, CVV, PIN or vault key enters grants or notification metadata. Removing the
+network, last four digits, expiry and normalized issuing region. New grant requests
+may also provide `encryptedCards`, an exact map of selected person references to
+bounded `hushh-wallet-card:v1:` recipient envelopes (maximum 4096 characters each,
+20 recipients, 96 KiB request limit). Plaintext PAN, CVV, PIN and vault keys remain
+forbidden. Each recipient's envelope is stored only in that grant's encrypted
+contents, never notifications or Feed metadata. Authorized active views return
+`encryptedCard` and the authenticated owner's `senderUserId` for client decryption;
+denied, expired and revoked views return neither. Old grants remain masked. Removing the
 card revokes access. Explicit owner-added Trusted Circle members skip additional
 verification; ordinary connection mirror records do not grant this exemption.
 
@@ -1189,6 +1195,16 @@ even if the optional directory lookup is already ready. Review and explicit
 receipt-confirmed PKM completion are unchanged. Hosted multi-instance acceptance
 and physical-device suspension are separate verification, not localhost proof.
 
+Personal review pins one complete, owner-scoped decrypted inventory before asynchronous memory
+preparation. Duplicate checks, semantic reconciliation and business-origin binding
+use that same memory-only witness even if a concurrent PKM write invalidates the
+shared context cache. Vault expiry revokes the witness; it is not persisted or
+write authority. Canonical saves still rebuild against fresh PKM on every conflict
+retry. A bound existing business must retain its UID at the same active target;
+deleted, moved, inactive or replaced targets require another review and cannot
+be resurrected by an extension. Personal details remain independent of Business
+cache readiness once preparation has captured its complete inventory.
+
 Personal completion is independent of Business completion. A successful review
 calls `POST /api/one/profile-research/complete` with 1–64 unique domain/plan
 receipts using the same VAULT_OWNER + derived chat-key authority. The server
@@ -1433,10 +1449,17 @@ The client reads up to 5,000 unique usable numbers per sync, dispatches them in 
 most 1,000, and reports any source/cap overflow as unchecked rather than as zero/unmatched.
 Contact sync reuses the phone verification established at signup. Client phone
 hydration is an optional normalization hint and cannot require a second OTP.
-Both contact-sync mutation and `one_network` compatibility matching refresh an
-incomplete identity shadow from the authenticated owner's Firebase record before
-the existing database verification and lookup-budget gates; complete verified
-claims use the cached path. Provider refresh preserves backend-only verified phone
+Complete verified phone claims keep the existing cached web/iOS/Android path.
+For a phone-less requester, both contact-sync mutation and `one_network`
+compatibility matching read the authenticated owner's current Firebase Admin
+record before lookup charging. A current verified, nonblank Google/Apple email
+can admit an established account: the database must contain the same verified
+email and an active vault or completed setup. The mutation rechecks those facts
+under the existing identity table SHARE lock before writing relationships.
+Client-supplied email evidence, retained display email, setup flags alone,
+unverified email, disabled identities, and unfinished accounts cannot use this
+fallback. It verifies the requester account, never a phone or target contact.
+Provider refresh preserves backend-only verified phone
 claims when the primary Firebase account has no phone. Missing normalization
 identity permits explicit international numbers and Android SIM-region numbers;
 ambiguous national numbers remain uncheckable without locale guessing. A partially
@@ -1455,12 +1478,18 @@ account when the new number is unbound.
 If an incomplete identity cannot be refreshed because the provider or persistence
 is unavailable, both contact-sync endpoints return retryable HTTP 503 with
 `CONTACT_SYNC_IDENTITY_UNAVAILABLE`, before lookup charging or matching. That
-failure does not ask for another OTP. A successful refresh with no trusted phone
-proof still fails the existing verified-requester admission gate; vault/setup
-completion and client phone hints are not proof. The refusal describes account
+failure does not ask for another OTP. A successful refresh with neither a trusted
+phone claim nor the established-account email evidence above still fails with
+HTTP 403. The compatibility error code remains
+`CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED`; the refusal describes account
 verification recovery rather than telling a signed-in user to repeat phone OTP.
 Previously deleted app-only
 claims cannot be reconstructed from a phone-less Firebase record.
+The email fallback leaves both endpoints' shared per-UID minute/day lookup
+allowance, batch limit, target verified-phone matching, opt-outs, and disconnect
+rules unchanged. It admits a narrower established-account class than accepting
+every email-verified signup, but that class no longer requires a current phone
+claim for requester admission.
 
 `actor_identity_cache` stores only canonical E.164 verified phones. Migration 198 clears every
 member of a malformed or duplicate verified binding, marks the shadow stale for an immediate
@@ -1493,7 +1522,7 @@ budget to Redis/Memorystore later without changing the API contract.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| POST | `/api/marketplace/contacts/match` | Firebase Bearer; verified requester phone for `one_network` | Match up to 1000 `{hash, last4}` lookups against the directory. `scope: "one_network"` uses exact current verified-phone matches to visible ONE Connect-directory accounts under `contact_directory_auto_connect_v2` and consumes the same Postgres-backed lookup allowance as canonical contact sync, so switching endpoints cannot bypass the enumeration budget. An untouched preference is eligible by default; explicit contact opt-out, marketplace hide, and invalid preference evidence block new-person discovery. `scope: "marketplace"` (the default) keeps the Connect deck's publicly-discoverable-profiles policy and existing requester contract. Returns `user_id`, `kind`, `display_name`, `headline`, `profile` — and **no phone digits** |
+| POST | `/api/marketplace/contacts/match` | Firebase Bearer; verified requester account for `one_network` | Match up to 1000 `{hash, last4}` lookups against the directory. `scope: "one_network"` uses exact current verified-phone matches to visible ONE Connect-directory accounts under `contact_directory_auto_connect_v2` and consumes the same Postgres-backed lookup allowance as canonical contact sync, so switching endpoints cannot bypass the enumeration budget. An untouched preference is eligible by default; explicit contact opt-out, marketplace hide, and invalid preference evidence block new-person discovery. `scope: "marketplace"` (the default) keeps the Connect deck's publicly-discoverable-profiles policy and existing requester contract. Returns `user_id`, `kind`, `display_name`, `headline`, `profile` — and **no phone digits** |
 | POST | `/api/one/connections/contact-sync` | Firebase Bearer + verified requester phone | Exact-match up to 1000 opaque `{lookup_id, hash, last4}` proofs from `lookups` (`last4` is exactly four digits). A current, unique verified-phone proof may map to an already-active canonical ONE connection even when that target has contact discovery disabled; this recognition creates no new contact provenance or Trusted/Circle projection. New relationships use the visible Connect-directory default, honor explicit contact opt-out and marketplace hide, and reject malformed preference evidence. The mutation revalidates proof, relationship, and policy under transaction locks shared with preference/profile writers. Hidden nonconnections and hidden revoked pairs are omitted; a fresh explicit sync may reconnect an eligible pair only when the requester made the earlier disconnect. The database-clock attempt cutoff and exact revocation episode prevent an in-flight sync from undoing a newer removal. Peer-made, unknown-actor and mismatched-episode disconnects stay suppressed. Migration 205 stores actor/episode annotations; the bounded historical backfill only promotes two agreeing exact-episode events. Returns batch counts, matched `items` only as `{lookupId, userId, displayName, photoUrl, outcome}`, and opaque `indeterminateLookupIds` for initially matched proofs that could not be safely revalidated; clients must neither display those as matches nor treat them as invitation candidates. Emits `auto_connected`, `already_connected`, or `suppressed` (`request_required` remains client-readable only for rolling compatibility). Viewer-relative provenance records `verified_phone_directory_match`, `contact_directory_auto_connect_v2`, and the actual target preference state; it never fabricates historical v1 consent or persists proof material. Hashes and digits are never returned or stored. Contact sync grants no location or private-information access; a later eligible location request from any active connection follows the owner's pre-existing `all_contacts` standing rule. |
 | GET | `/api/one/connections` | Firebase Bearer | With no query parameters, preserves the legacy complete `{items}` array. Supplying any of `page`, `limit` (maximum 100), `query`, or `audience=all\|ria` selects the bounded contract `{items,page,hasMore,totalCount,audience}`. Filtering, including verified-RIA audience filtering, happens before stable normalized-name/user/connection ordering and paging; contact provenance and RIA annotations are computed only for page rows. |
 | GET | `/api/iam/contact-discoverability` | Firebase Bearer | Read effective contact-directory eligibility plus `stored_contact_discoverable`, `directory_visible`, `contact_sync_preference_state` (`default`, `enabled`, `disabled`, or `invalid`), and `contact_sync_match_policy_version`. Untouched accounts follow the visible Connect-directory default; explicit opt-outs and marketplace hides remain disabled. Historical explicit enablement timestamp, rule version, and consent-contract version are reported as stored, never fabricated for default eligibility |

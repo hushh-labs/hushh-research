@@ -7396,18 +7396,21 @@
       "page_file": "app/one/referrals/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
+        "mode": "standard",
         "exemption_reason": null,
         "shell_verification_file": "components/referrals/referral-dashboard-page.tsx",
         "shell_verification_includes": [
-          "NativeTestBeacon"
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.one.referrals",
-          "purpose": "Open the referral dashboard directly so the person can read their referral link, coins, ranking, and reward progress. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+          "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share expands the sharing options; Back closes them. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
           "screen": "one_referrals",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -10121,5 +10124,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "90d37b89b926cbd7e257564d3b2b3d7a9e2c75968bebb702d94b8ccac0765d0f"
+  "content_sha256": "eae2f4dbd2d98c70f7f289631a455e742e041800c43767f304d5e2f3dc2ea155"
 }

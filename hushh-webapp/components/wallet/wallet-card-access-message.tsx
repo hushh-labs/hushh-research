@@ -5,8 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { SettingsDetailPanel, SettingsPresentationProvider } from "@/components/profile/settings-ui";
-import { WalletCardFace } from "@/components/wallet/wallet-card-face";
-import type { WalletCardSummary } from "@/lib/services/wallet-service";
+import { WalletAccessCardDetails } from "./wallet-access-card-details";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { WalletCardAccessService, type CardAccessView } from "@/lib/services/wallet-card-access-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -113,16 +112,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
           {card ? <>
             <p className="text-xs">{view?.data.senderName} shared this card. {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} remaining.</p>
             <div className="mx-auto mt-4 w-full max-w-md">
-              <WalletCardFace summary={{
-                cardId: grantId,
-                nickname: "Shared card",
-                brand: card.brand as WalletCardSummary["brand"],
-                last4: card.last4,
-                expiryMonth: card.expiryMonth,
-                expiryYear: card.expiryYear,
-                issuingRegion: card.issuingRegion,
-                createdAt: "",
-              }} />
+              <WalletAccessCardDetails grantId={grantId} data={view!.data} />
             </div>
           </> : null}
         </div>

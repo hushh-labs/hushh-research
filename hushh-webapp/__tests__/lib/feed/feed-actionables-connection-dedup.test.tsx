@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   appTasks: [] as Array<Record<string, unknown>>,
   dismissTask: vi.fn(),
   pendingCount: 0,
+  userId: "user-1",
+  realConsentResources: false,
   vaultToken: "vault-token" as string | null,
   allow: vi.fn(),
   setRequestPrice: vi.fn(),
@@ -59,7 +61,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    user: { uid: "user-1", getIdToken: async () => "id-token" },
+    user: { uid: mocks.userId, getIdToken: async () => "id-token" },
   }),
 }));
 
@@ -87,31 +89,49 @@ vi.mock("@/lib/services/document-payout-service", () => ({
   DocumentPayoutService: { account: mocks.account },
 }));
 
-vi.mock("@/lib/services/cache-service", () => ({
+vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/services/cache-service")>()),
   CACHE_KEYS: {
-    CONSENT_CENTER_SUMMARY: () => "summary",
-    CONSENT_CENTER_LIST: () => "list",
+    CONSENT_CENTER_SUMMARY: (userId: string) => `summary:${userId}`,
+    CONSENT_CENTER_LIST: (
+      userId: string,
+      actor: string,
+      surface: string,
+      _query: string,
+      _page: number,
+      limit: number,
+    ) => `list:${userId}:${actor}:${surface}:${limit}`,
     ONE_LOCATION_STATE: () => "location",
     CONNECTIONS_INCOMING: () => "connections",
   },
-  CACHE_TTL: { SHORT: 1000 },
-  CacheService: { getInstance: () => ({ set: vi.fn(), get: vi.fn() }) },
 }));
 
-// Stand in for the SWR wrapper so each lane yields fixture data by cache key.
-vi.mock("@/lib/cache/use-stale-resource", () => ({
-  useStaleResource: ({ cacheKey }: { cacheKey: string }) => {
-    const data =
-      cacheKey === "summary"
-        ? { counts: { pending: mocks.pendingCount } }
-        : cacheKey === "list"
-          ? { items: mocks.consentItems }
-          : cacheKey === "location"
-            ? { requests: [], circleMemberInvites: mocks.circleMemberInvites }
-            : mocks.connectionRequests;
-    return { data, loading: false, refresh: mocks.refresh };
-  },
-}));
+// Most cases use fixed fixtures; the invalidation case runs the real SWR hook.
+vi.mock("@/lib/cache/use-stale-resource", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("@/lib/cache/use-stale-resource")
+  >();
+  return {
+    useStaleResource: (options: Parameters<typeof actual.useStaleResource>[0]) => {
+      const { cacheKey } = options;
+      if (
+        mocks.realConsentResources &&
+        (cacheKey.startsWith("summary:") || cacheKey.startsWith("list:"))
+      ) {
+        return actual.useStaleResource(options);
+      }
+      const data =
+        cacheKey.startsWith("summary:")
+          ? { counts: { pending: mocks.pendingCount } }
+          : cacheKey.startsWith("list:")
+            ? { items: mocks.consentItems }
+            : cacheKey === "location"
+              ? { requests: [], circleMemberInvites: mocks.circleMemberInvites }
+              : mocks.connectionRequests;
+      return { data, loading: false, refresh: mocks.refresh };
+    },
+  };
+});
 
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
@@ -198,6 +218,9 @@ import {
   type FeedActionable,
 } from "@/lib/feed/use-feed-actionables";
 import { DriveSharingError } from "@/lib/services/drive-sharing-service";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { ConsentCenterService } from "@/lib/services/consent-center-service";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 
 /** The Consent Center's projection of an incoming connection request. */
 const consentConnectionEntry = {
@@ -220,6 +243,7 @@ const incomingConnection = {
 };
 
 beforeEach(() => {
+  CacheService.getInstance().clear();
   vi.clearAllMocks();
   platform.android = false;
   mocks.consentItems = [];
@@ -227,11 +251,142 @@ beforeEach(() => {
   mocks.circleMemberInvites = [];
   mocks.appTasks = [];
   mocks.pendingCount = 0;
+  mocks.userId = "user-1";
+  mocks.realConsentResources = false;
   mocks.vaultToken = "vault-token";
   mocks.account.mockResolvedValue({ account: null });
 });
 
 describe("useFeedActionables — connection request de-duplication", () => {
+  it("keeps warm consent rows visible during invalidation and replaces them on fresh resolution", async () => {
+    mocks.realConsentResources = true;
+    const cache = CacheService.getInstance();
+    const summaryKey = CACHE_KEYS.CONSENT_CENTER_SUMMARY(
+      "user-1",
+      "one:consents",
+    );
+    const pendingKey = CACHE_KEYS.CONSENT_CENTER_LIST(
+      "user-1",
+      "one:consents",
+      "pending",
+      "",
+      1,
+      20,
+    );
+    const oldEntry = {
+      id: "consent-old",
+      request_id: "consent-old",
+      kind: "incoming_request",
+      status: "pending",
+      action: "REQUESTED",
+      counterpart_type: "ria",
+      counterpart_label: "Old advisor",
+      scope_description: "your holdings",
+    };
+    const newEntry = {
+      ...oldEntry,
+      id: "consent-new",
+      request_id: "consent-new",
+      counterpart_label: "New advisor",
+    };
+    cache.set(summaryKey, { counts: { pending: 1 } });
+    cache.set(pendingKey, { items: [oldEntry] });
+    const progressKeys = ([
+      ["one:consents", "pending"],
+      ["one:consents", "active"],
+      ["one:consents:sent", "pending"],
+    ] as const).map(([actor, surface]) =>
+      CACHE_KEYS.CONSENT_CENTER_LIST("user-1", actor, surface, "", 1, 100),
+    );
+    for (const key of progressKeys) {
+      cache.set(key, { items: [], has_more: true });
+    }
+
+    let resolveSummary!: (value: { counts: { pending: number } }) => void;
+    let resolvePending!: (value: { items: typeof oldEntry[] }) => void;
+    const resolveProgress: Array<
+      (value: { items: unknown[]; has_more: boolean }) => void
+    > = [];
+    vi.mocked(ConsentCenterService.getSummary).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSummary = resolve;
+        }),
+    );
+    vi.mocked(ConsentCenterService.listEntries).mockImplementation(
+      ({ limit }) =>
+        limit === 20
+          ? new Promise((resolve) => {
+              resolvePending = resolve;
+            })
+          : new Promise((resolve) => {
+              resolveProgress.push(resolve);
+            }),
+    );
+
+    const { result, rerender } = renderHook(() => useFeedActionables());
+    expect(result.current.actionables.map((row) => row.id)).toContain(
+      "consent:consent-old",
+    );
+    expect(result.current.progressOverflow).toHaveLength(3);
+
+    act(() => {
+      cache.invalidateMany([summaryKey, pendingKey, ...progressKeys]);
+      window.dispatchEvent(
+        new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
+          detail: { source: "sse" },
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(ConsentCenterService.getSummary).toHaveBeenCalled();
+      expect(ConsentCenterService.listEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 20, force: true }),
+      );
+    });
+    expect(cache.peek(summaryKey)).toBeNull();
+    expect(cache.peek(pendingKey)).toBeNull();
+    expect(result.current.actionables.map((row) => row.id)).toContain(
+      "consent:consent-old",
+    );
+    expect(result.current.progressOverflow).toHaveLength(3);
+
+    await act(async () => {
+      resolveSummary({ counts: { pending: 1 } });
+      resolvePending({ items: [newEntry] });
+      for (const resolve of resolveProgress) {
+        resolve({ items: [], has_more: false });
+      }
+    });
+    await waitFor(() => {
+      expect(result.current.actionables.map((row) => row.id)).toContain(
+        "consent:consent-new",
+      );
+    });
+    expect(result.current.actionables.map((row) => row.id)).not.toContain(
+      "consent:consent-old",
+    );
+    await waitFor(() => expect(result.current.progressOverflow).toHaveLength(0));
+
+    act(() => {
+      for (const source of ["hydrated_pending", "fcm_opened"]) {
+        window.dispatchEvent(
+          new CustomEvent(CONSENT_STATE_CHANGED_EVENT, { detail: { source } }),
+        );
+      }
+    });
+    expect(ConsentCenterService.getSummary).toHaveBeenCalledTimes(1);
+
+    cache.set(CACHE_KEYS.CONSENT_CENTER_SUMMARY("user-2", "one:consents"), {
+      counts: { pending: 0 },
+    });
+    mocks.userId = "user-2";
+    rerender();
+    expect(result.current.actionables.map((row) => row.id)).not.toContain(
+      "consent:consent-new",
+    );
+  });
+
   it("renders one row when a connection request arrives on both lanes", () => {
     mocks.pendingCount = 1;
     mocks.consentItems = [consentConnectionEntry];
