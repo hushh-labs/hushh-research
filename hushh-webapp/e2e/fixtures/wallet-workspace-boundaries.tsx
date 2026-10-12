@@ -224,7 +224,9 @@ export const ApiService = {
   apiFetch: async (requestPath: string) => {
     // Production profile/referral views keep their rendering; only network
     // responses are synthetic. No live profile, visitor, or payment is touched.
-    const payload = requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
+    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? { items: [], nextCursor: null }
+      : requestPath.startsWith("/api/one/wallet/card-access/profile") ? { eligible: false, cardId: null }
+      : requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
       items: [
         { personRef: "11111111-1111-4111-8111-111111111111", displayName: "Test Recipient", photoUrl: null, trusted: false },
         { personRef: "22222222-2222-4222-8222-222222222222", displayName: "Trusted Recipient", photoUrl: null, trusted: true },

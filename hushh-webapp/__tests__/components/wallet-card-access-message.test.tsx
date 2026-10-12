@@ -35,6 +35,14 @@ it("renders the authorized masked card face", async () => {
   fireEvent.click(screen.getByRole("button", { name: "View card" }));
   expect(await screen.findByTestId("wallet-card-face")).toHaveTextContent("1234");
 });
+it("renders the live permitted Profile Card and removes it on expiry", async () => {
+  mocks.view.mockResolvedValue({ ...active, card: undefined, cardType: "profile", profileCard: { fullName: "Alice Example", email: "alice@example.test", updatedOn: "2030-01-01" }, expiresAt: "2030-01-01T00:00:01Z" });
+  render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  expect(await screen.findByText("Alice Example")).toBeVisible();
+  expect(screen.getByText("alice@example.test")).toBeVisible();
+  await waitFor(() => expect(screen.queryByText("alice@example.test")).toBeNull(), { timeout: 2500 });
+});
 it("completes verification after authentication backgrounds the tab", async () => {
   let finish!: (value: string) => void;
   mocks.reauthenticate.mockImplementation(() => new Promise(resolve => { finish = resolve; }));

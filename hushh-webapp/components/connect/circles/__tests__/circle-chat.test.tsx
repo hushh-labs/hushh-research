@@ -188,8 +188,11 @@ it("revokes a downloaded image even when unmount wins the state commit", async (
   api.image.mockImplementationOnce(() => new Promise((resolve) => { download = resolve; }));
   const view = render(<CircleChat session={session} circleName="Family" initialOpen />);
   await screen.findByText("Loading image…");
-  observe(true);
-  await waitFor(() => expect(download).toBeDefined());
+  // The media observer can subscribe after the loading placeholder commits.
+  await waitFor(() => {
+    observe(true);
+    expect(download).toBeDefined();
+  });
   await act(async () => {
     download(new Blob(["fixture"]));
     await Promise.resolve(); await Promise.resolve();
