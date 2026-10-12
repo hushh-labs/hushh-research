@@ -11,6 +11,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -751,13 +752,14 @@ class PersonProfileService:
 
         relationship = await asyncio.to_thread(self._relationship, viewer_user_id, subject_user_id)
         contact_email = None
+        contact_phone_number = None
         if relationship["status"] == "connected":
             # Recheck the edge when reading identity: a profile URL or a
             # relationship that was just removed grants no contact access.
             contact_row = await asyncio.to_thread(
                 self._execute_one,
                 """
-                SELECT identity.email
+                SELECT identity.email, identity.phone_number, identity.phone_verified
                 FROM connections edge
                 JOIN actor_identity_cache identity ON identity.user_id = :subject
                 WHERE edge.status = 'active'
@@ -768,10 +770,16 @@ class PersonProfileService:
                 {"viewer": viewer_user_id, "subject": subject_user_id},
             )
             contact_email = str((contact_row or {}).get("email") or "").strip() or None
+            phone = str((contact_row or {}).get("phone_number") or "").strip()
+            if (contact_row or {}).get("phone_verified") is True and re.fullmatch(
+                r"\+[1-9][0-9]{1,14}", phone
+            ):
+                contact_phone_number = phone
         return {
             **self._public_projection(row),
             "relationship": relationship,
             "contactEmail": contact_email,
+            "contactPhoneNumber": contact_phone_number,
             "requestableScopes": scopes,
             **({"scopeCatalog": catalog} if catalog is not None else {}),
             "grants": grants,

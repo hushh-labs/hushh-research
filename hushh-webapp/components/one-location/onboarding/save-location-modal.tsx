@@ -108,7 +108,7 @@ const controlInputClassName =
  */
 function primaryActionClassName(enabled: boolean): string {
   return cn(
-    "press-scale ui-text-button-label flex h-[50px] min-h-[50px] w-full items-center justify-center gap-2 rounded-full px-6 transition-colors disabled:cursor-not-allowed",
+    "press-scale ui-text-button-label mx-auto flex h-11 min-h-11 w-fit max-w-full items-center justify-center gap-2 rounded-full px-5 transition-colors disabled:cursor-not-allowed",
     enabled
       ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
       : "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-tertiary-label)]",
@@ -116,7 +116,7 @@ function primaryActionClassName(enabled: boolean): string {
 }
 
 const secondaryActionClassName =
-  "ui-text-button-label h-11 min-h-11 w-full rounded-full text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50";
+  "ui-text-button-label mx-auto block h-11 min-h-11 w-fit max-w-full rounded-none px-5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50";
 
 /**
  * Where you are in the pin-then-details pair, and a way to move without
@@ -1304,7 +1304,7 @@ export function SaveLocationModal({
                         autoComplete={
                           deferredUntilVault ? "off" : "address-line2"
                         }
-                        placeholder="Near the main gate"
+                        placeholder="e.g. Opposite City Hospital"
                         className={controlInputClassName}
                       />
                     </div>
@@ -1337,13 +1337,6 @@ export function SaveLocationModal({
                     </div>
                   ) : null}
 
-                  <p className="flex items-center gap-2 rounded-[14px] bg-[color:var(--app-accent)]/8 px-3.5 py-3 text-[13px] leading-[18px] text-muted-foreground">
-                    <Check
-                      className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
-                      aria-hidden
-                    />
-                    Private to you. Nothing is shared until you choose.
-                  </p>
                 </section>
               </div>
             </div>
@@ -1682,7 +1675,7 @@ export function SaveLocationModal({
                   disabled={interactionBusy}
                   maxLength={100}
                   autoComplete={deferredUntilVault ? "off" : "address-line2"}
-                  placeholder="Near the main gate"
+                  placeholder="e.g. Opposite City Hospital"
                   className={controlInputClassName}
                 />
               </div>

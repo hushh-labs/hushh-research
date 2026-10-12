@@ -6,6 +6,8 @@ import {
   isAnswerRequestEntry,
   isAnswerRequestSelection,
 } from "@/lib/consent/answer-request-consent";
+import { consentSelectionId } from "@/lib/consent/consent-selection-id";
+import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type { FeedItem } from "@/lib/services/feed-service";
 
 const REQUEST = "11111111-2222-3333-4444-555555555555";
@@ -83,5 +85,94 @@ describe("answer-request selection helpers fail closed", () => {
       true,
     );
     expect(isAnswerRequestEntry({ id: "other", action: "OTHER", metadata: {} })).toBe(false);
+  });
+});
+
+describe("a Consent Center row keeps its lane in the URL", () => {
+  // Exactly what PkmAnswerCenterContributor emits: the lane lives in `id`,
+  // while `request_id` is the bare uuid shared with the generic consent path.
+  const answerRow = (role: "owner" | "requester") =>
+    ({
+      id: `answer_request:${REQUEST}`,
+      request_id: REQUEST,
+      kind: role === "owner" ? "incoming_request" : "outgoing_request",
+      status: role === "owner" ? "awaiting_owner" : "approved",
+      action: "ANSWER_REQUEST_REVIEW",
+      scope: null,
+      counterpart_type: "person",
+      counterpart_id: role === "owner" ? "requester-uid" : "owner-uid",
+      counterpart_label: role === "owner" ? "The requester" : "The owner",
+      issued_at: 1,
+      metadata: {
+        request_source: "answer_request",
+        role,
+        direction: role === "owner" ? "incoming" : "outgoing",
+        request_status: role === "owner" ? "awaiting_owner" : "approved",
+      },
+    }) as unknown as ConsentCenterEntry;
+
+  it.each(["owner", "requester"] as const)(
+    "sends the %s to the answer card, not the generic approve path",
+    (role) => {
+      const selected = consentSelectionId(answerRow(role));
+      // Dropping the prefix to `request_id` left the detail panel unable to
+      // tell the lane apart once the row was not in the loaded list, and the
+      // request fell through to the approve/deny path -- which grants the
+      // scopes without showing the question, its scopes or the price.
+      expect(selected).toBe(`answer_request:${REQUEST}`);
+      expect(isAnswerRequestSelection(selected)).toBe(true);
+      expect(answerRequestId(selected)).toBe(REQUEST);
+    },
+  );
+
+  it.each([
+    ["Received", "incoming_request", "awaiting_owner"],
+    ["Sent", "outgoing_request", "approved"],
+    ["Previous", "history", "answered"],
+  ] as const)(
+    "keeps the typed id for a row shown on the %s tab",
+    (_tab, kind, status) => {
+      // The row moves bucket as the request progresses -- the owner's row
+      // leaves "Received" once it is approved. Each tab has its own select
+      // handler, and a tab that dropped the prefix would reopen the request
+      // through the generic approve/deny path.
+      const row = {
+        ...answerRow("owner"),
+        kind,
+        status,
+        metadata: { ...answerRow("owner").metadata, request_status: status },
+      } as unknown as ConsentCenterEntry;
+      expect(consentSelectionId(row)).toBe(`answer_request:${REQUEST}`);
+      expect(answerRequestId(consentSelectionId(row))).toBe(REQUEST);
+    },
+  );
+
+  it("still routes the Drive lanes and the generic lane unchanged", () => {
+    // Negative control: the fix must not broaden recognition. A bare
+    // `request_id` remains correct for the generic consent path, and both
+    // Drive lanes keep deciding by their own discriminated id.
+    const driveQuery = {
+      id: `drive_query_request:${REQUEST}`,
+      request_id: REQUEST,
+      action: "DRIVE_QUERY_REVIEW",
+      metadata: { request_source: "drive_live_query_request" },
+    } as unknown as ConsentCenterEntry;
+    const documentShare = {
+      id: `document_share_request:${REQUEST}`,
+      request_id: REQUEST,
+      action: "DOCUMENT_SHARE_REVIEW",
+      metadata: { request_source: "drive_document_share_request" },
+    } as unknown as ConsentCenterEntry;
+    const genericConsent = {
+      id: "consent-row-1",
+      request_id: REQUEST,
+      action: "CONSENT_REVIEW",
+      metadata: {},
+    } as unknown as ConsentCenterEntry;
+
+    expect(consentSelectionId(driveQuery)).toBe(`drive_query_request:${REQUEST}`);
+    expect(consentSelectionId(documentShare)).toBe(`document_share_request:${REQUEST}`);
+    expect(consentSelectionId(genericConsent)).toBe(REQUEST);
+    expect(isAnswerRequestSelection(consentSelectionId(documentShare))).toBe(false);
   });
 });

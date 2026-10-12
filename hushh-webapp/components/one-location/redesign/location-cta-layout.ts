@@ -20,11 +20,11 @@ export const PUBLIC_LINK_CREATE_FORM_CLASSNAME =
 
 export const PUBLIC_LINK_DURATION_GROUP_CLASSNAME = "w-full";
 
-/** Select and CTA share one height and radius so they read as a pair. */
+/** The field fills its form; the action keeps a compact width at the left edge. */
 export const PUBLIC_LINK_SELECT_CLASSNAME = "h-12 rounded-full px-4";
 
 export const PUBLIC_LINK_PRIMARY_CTA_CLASSNAME =
-  "ui-text-button-label h-12 min-h-12 w-full rounded-full px-6 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
+  "ui-text-button-label h-12 min-h-12 w-auto max-w-full self-start rounded-full px-6 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
 
 export const DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME =
   "grid w-full grid-cols-3 gap-2";

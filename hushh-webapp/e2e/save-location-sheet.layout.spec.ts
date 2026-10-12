@@ -288,6 +288,8 @@ test.describe("Place-saving flow with persistent app chrome", () => {
         const primary = await confirm.boundingBox();
         const skip = await modal.getByRole("button", { name: "Skip for now" }).boundingBox();
         expect(primary!.y + primary!.height).toBeLessThanOrEqual(skip!.y);
+        expect(primary!.width).toBeLessThanOrEqual(210);
+        expect(skip!.width).toBeLessThanOrEqual(210);
         expect(skip!.y + skip!.height).toBeLessThanOrEqual(scenario.height);
         const selectedSpot = await modal.locator('[data-location-picker-body] > [aria-live="polite"]').boundingBox();
         expect(selectedSpot!.y + selectedSpot!.height).toBeLessThanOrEqual(primary!.y);
@@ -305,6 +307,9 @@ test.describe("Place-saving flow with persistent app chrome", () => {
       expect(secondary!.y + secondary!.height).toBeLessThanOrEqual(scenario.height);
       expect(primary!.height).toBeGreaterThanOrEqual(44);
       expect(secondary!.height).toBeGreaterThanOrEqual(44);
+      expect(primary!.width).toBeLessThanOrEqual(scenario.unified ? 244 : 210);
+      expect(secondary!.width).toBeLessThanOrEqual(scenario.unified ? 270 : 210);
+      expect(Math.abs((primary!.x + primary!.width / 2) - (secondary!.x + secondary!.width / 2))).toBeLessThanOrEqual(1);
       for (const action of [save, skip]) {
         expect(await action.evaluate((node) => {
           const box = node.getBoundingClientRect();
@@ -372,15 +377,17 @@ test.describe("Save-location address sheet layout", () => {
       const confirm = await boxOf(page, "picker-confirm");
       const skip = await boxOf(page, "picker-skip");
 
-      expect(actions.width).toBeLessThanOrEqual(320.5);
-      expect(actions.width).toBeCloseTo(Math.min(320, surface.width - 40), 0);
+      expect(actions.width).toBeLessThanOrEqual(180);
+      expect(actions.width).toBeLessThan(surface.width - 40);
       expect(
         Math.abs(
           actions.x + actions.width / 2 - (surface.x + surface.width / 2),
         ),
       ).toBeLessThanOrEqual(1);
-      expect(confirm.width).toBeCloseTo(actions.width, 0);
-      expect(skip.width).toBeCloseTo(actions.width, 0);
+      for (const button of [confirm, skip]) {
+        expect(button.width).toBeLessThanOrEqual(180);
+        expect(Math.abs(button.x + button.width / 2 - (surface.x + surface.width / 2))).toBeLessThanOrEqual(1);
+      }
       expect(confirm.height).toBeGreaterThanOrEqual(44);
       expect(skip.height).toBeGreaterThanOrEqual(44);
       expect(

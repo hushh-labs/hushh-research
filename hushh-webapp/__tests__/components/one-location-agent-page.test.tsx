@@ -1455,6 +1455,8 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("resolves and shares with a spoken recipient beyond the initial recipient page", async () => {
+    // Exercise recipient resolution in the workspace; onboarding has its own cases.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     mockListRecipientsPage.mockImplementation(async ({ query, limit }) => ({
       items: query || limit === 100
         ? [
@@ -2145,6 +2147,7 @@ describe("OneLocationAgentPage", () => {
       "min-h-[50px]",
       "w-full",
       "max-w-[244px]",
+      "mr-auto",
     );
     expect(within(primary).getByText("You're not sharing")).toBeTruthy();
     expect(
@@ -2436,7 +2439,15 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("heading", { name: "Auto-approve for" }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("radio", { name: "All contacts" }));
+    const allContacts = screen.getByRole("checkbox", { name: "All contacts" });
+    fireEvent.click(allContacts);
+    expect(allContacts).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("button", { name: "Turn on" })).toBeEnabled();
+    fireEvent.click(allContacts);
+    expect(allContacts).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("button", { name: "Turn on" })).toBeDisabled();
+    expect(mockUpdateAutoApprovePreference).not.toHaveBeenCalled();
+    fireEvent.click(allContacts);
     fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
     await waitFor(() =>
       expect(mockUpdateAutoApprovePreference).toHaveBeenCalledWith({
@@ -2529,6 +2540,16 @@ describe("OneLocationAgentPage", () => {
     expect(familyCheckbox).toHaveAttribute("aria-checked", "false");
     expect(friendsCheckbox).toHaveAttribute("aria-checked", "false");
 
+    const contacts = screen.getByRole("checkbox", { name: "All contacts" });
+    fireEvent.click(familyCheckbox);
+    expect(familyCheckbox).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(contacts);
+    expect(contacts).toHaveAttribute("aria-checked", "true");
+    expect(familyCheckbox).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(friendsCheckbox);
+    expect(contacts).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(friendsCheckbox);
+    expect(screen.getByRole("button", { name: "Turn on" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     expect(familyCheckbox).toHaveAttribute("aria-checked", "true");
     expect(friendsCheckbox).toHaveAttribute("aria-checked", "true");
@@ -2572,6 +2593,13 @@ describe("OneLocationAgentPage", () => {
       "false",
     );
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    const writes = mockUpdateAutoApprovePreference.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    fireEvent.click(screen.getByTestId("one-location-auto-approve-row").querySelector("button")!);
+    expect(await screen.findByRole("checkbox", { name: /^Family/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("checkbox", { name: /^Friends/ })).toHaveAttribute("aria-checked", "true");
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(mockUpdateAutoApprovePreference).toHaveBeenCalledTimes(writes);
   });
 
   it("shows owned SMS Circle in auto-approve circles list and excludes Trusted Circle", async () => {
@@ -3861,6 +3889,8 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("retries revoking a grant that resolves after the composer is cancelled", async () => {
+    // Start in the workspace; this regression concerns an in-flight share.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const circleSummary = {
       id: "circle_during_delivery",
       name: "Delivery Circle",
@@ -4689,6 +4719,11 @@ describe("OneLocationAgentPage", () => {
         name: "Share your location easily with anyone.",
       }),
     ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
+    expect(onNavigationRequest).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(mockRouterBack).not.toHaveBeenCalled();
     expect(onNavigationRequest).toHaveBeenCalledTimes(1);
@@ -5691,7 +5726,8 @@ describe("OneLocationAgentPage", () => {
     expect(createLinkButton).toHaveClass(
       "h-12",
       "min-h-12",
-      "w-full",
+      "w-auto",
+      "self-start",
       "rounded-full",
     );
     expect(createLinkButton.className).not.toContain("mx-auto");
@@ -8158,6 +8194,8 @@ describe("OneLocationAgentPage", () => {
   }, 10_000);
 
   it("creates an approval-first invite path for contacts who are not One users", async () => {
+    // This case exercises Links; the first-run onboarding has dedicated cases.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
@@ -8169,9 +8207,13 @@ describe("OneLocationAgentPage", () => {
     // One button, one press. There used to be two, both labelled "Create
     // link": the tab's, which only navigated, and the flow screen's, which
     // created. The first is gone.
-    fireEvent.click(
-      await screen.findByRole("button", { name: /^Create link$/i }),
-    );
+    const createLink = await screen.findByRole("button", {
+      name: /^Create link$/i,
+    });
+    await waitFor(() => expect(createLink).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(createLink);
+    });
 
     await waitFor(() =>
       expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1),
@@ -8184,6 +8226,14 @@ describe("OneLocationAgentPage", () => {
         longitude: 77.209,
       }),
     });
+    // Settle the resulting UI before checking the complete analytics payload.
+    expect(await screen.findByRole("button", { name: /Copy link/i })).toBeTruthy();
+    await waitFor(() =>
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        "one_location_public_link_created",
+        expect.objectContaining({ result: "success" }),
+      ),
+    );
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
     );

@@ -129,7 +129,6 @@ import {
   SectionCard,
   StatusPill,
   TaskFlowHeader,
-  TrustNoteCard,
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -1842,7 +1841,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             }}
           />
         ) : flow === "invite" ? (
-          <InviteFlow vm={vm} onClose={closeFlow} />
+          <InviteFlow vm={vm} />
         ) : flow === "settings" ? (
           <LocationSettingsFlow
             vm={vm}
@@ -2356,7 +2355,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-          className="mx-auto w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
+          className="mr-auto w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
         >
           Share location
         </Button>
@@ -3397,7 +3396,8 @@ function LocationSettingsFlow({
             <AutoApproveScopeOption
               title="All contacts"
               selected={autoApproveScopeEqual(draftScope, allContactsScope)}
-              onSelect={() => setDraftScope(allContactsScope)}
+              onSelect={() => setDraftScope((current) => current?.kind === "all_contacts" ? null : allContactsScope)}
+              multi
             />
 
             {ownedCircles.length ? (
@@ -3673,7 +3673,7 @@ export function PersonRow({
     <div
       className={cn(
         hasQuickActions
-          ? "grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-2.5 shadow-[var(--app-card-shadow-standard)] min-[400px]:grid-cols-[minmax(0,1fr)_auto]"
+          ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] px-2 py-2.5 shadow-[var(--app-card-shadow-standard)] sm:px-3.5"
           : "relative",
         !first &&
           !hasQuickActions &&
@@ -3685,7 +3685,10 @@ export function PersonRow({
         onClick={onOpen}
         aria-label={ariaLabel}
         className={cn(
-          "grid min-h-[54px] w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 text-left outline-none transition-colors motion-reduce:transition-none",
+          "grid min-h-[54px] w-full items-center text-left outline-none transition-colors motion-reduce:transition-none",
+          hasQuickActions
+            ? "grid-cols-[auto_minmax(0,1fr)] gap-2 sm:gap-3"
+            : "grid-cols-[auto_minmax(0,1fr)_auto] gap-3",
           "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
           "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
         )}
@@ -3709,12 +3712,8 @@ export function PersonRow({
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
           <p
-            className={cn(
-              "min-w-0 text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground",
-              hasQuickActions
-                ? "line-clamp-2 [overflow-wrap:anywhere] sm:block sm:truncate sm:[overflow-wrap:normal]"
-                : "break-words",
-            )}
+            title={name}
+            className="min-w-0 truncate text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground"
           >
             {name}
           </p>
@@ -3738,17 +3737,17 @@ export function PersonRow({
       </button>
       {hasQuickActions ? (
         <div
-          className="grid w-full grid-cols-2 gap-2 min-[400px]:flex min-[400px]:w-auto"
+          className="flex w-auto items-center justify-end gap-1 [--type-compact-button-label-size:13px] [--type-compact-button-label-weight:500] sm:[--type-compact-button-label-size:15px]"
           role="group"
           aria-label={`Actions for ${name}`}
         >
           {onAsk ? (
             <Button
               type="button"
-              variant="secondary"
+              variant="link"
               size="compact"
               onClick={onAsk}
-              className="w-full min-w-0 gap-1 bg-[color:var(--app-accent-tint)] px-2 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[400px]:w-auto min-[400px]:min-w-16 sm:min-w-[104px] sm:gap-1.5 sm:px-3"
+              className="min-h-11 min-w-11 gap-1 bg-transparent px-1 text-[color:var(--app-accent)] sm:gap-1.5 sm:px-2"
               aria-label={`Ask ${name} for their location`}
             >
               <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
@@ -3760,11 +3759,11 @@ export function PersonRow({
           {onShare ? (
             <Button
               type="button"
-              variant="secondary"
+              variant="link"
               size="compact"
               onClick={onShare}
               disabled={!shareReady}
-              className="w-full min-w-0 gap-1 bg-[color:var(--app-accent-tint)] px-2 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[400px]:w-auto min-[400px]:min-w-16 sm:min-w-[104px] sm:gap-1.5 sm:px-3"
+              className="min-h-11 min-w-11 gap-1 bg-transparent px-1 text-[color:var(--app-accent)] sm:gap-1.5 sm:px-2"
               aria-label={`Share your location with ${name}`}
             >
               <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
@@ -4669,13 +4668,13 @@ function LinkIdentityMark({
       {tone === "success" ? (
         <ShieldCheck className="h-[17px] w-[17px]" strokeWidth={2.1} />
       ) : (
-        <Link2 className="h-[17px] w-[17px]" strokeWidth={2.1} />
+        <Link2 className="h-6 w-6" strokeWidth={2.1} />
       )}
     </span>
   );
 }
 
-function PublicLinkActionRows({
+export function PublicLinkActionRows({
   onCopy,
   onShare,
   onRevoke,
@@ -4718,12 +4717,13 @@ function PublicLinkActionRows({
 
   return (
     <div className="space-y-2.5 px-4 pb-4 pt-1.5">
-      <div className="grid grid-cols-1 gap-2 min-[340px]:grid-cols-2">
+      <div className="flex flex-wrap items-center gap-2" data-testid="public-link-actions">
         <Button
           onClick={onShare}
-          className="ui-text-button-label h-11 rounded-[13px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          size="compact"
+          className="ui-text-button-label h-11 min-w-0 gap-1.5 rounded-full px-3 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
         >
-          <Share2 className="mr-1.5 h-4 w-4" />
+          <Share2 className="h-4 w-4" />
           Share
         </Button>
         <Button
@@ -4731,9 +4731,10 @@ function PublicLinkActionRows({
           onClick={handleCopy}
           disabled={copyBusy}
           aria-busy={copyBusy || undefined}
-          className="ui-text-button-label h-11 rounded-[13px]"
+          size="compact"
+          className="ui-text-button-label h-11 min-w-0 gap-1.5 rounded-full px-3"
         >
-          <Copy className="mr-1.5 h-4 w-4" />
+          <Copy className="h-4 w-4" />
           {copyBusy ? "Copying…" : copyLabel}
         </Button>
       </div>
@@ -6695,13 +6696,7 @@ function SelectedRecipientsRail({
 /* INVITE FLOW                                                          */
 /* =================================================================== */
 
-function InviteFlow({
-  vm,
-  onClose,
-}: {
-  vm: LocationHubViewModel;
-  onClose: () => void;
-}) {
+export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
   const created =
     Boolean(vm.circleInviteUrl) || Boolean(vm.latestActiveCircleInvite);
 
@@ -6734,23 +6729,24 @@ function InviteFlow({
             </span>
           </div>
         </SectionCard>
-        <FlowActionGroup
-          primary={
-            <Button size="standard" onClick={vm.onShareCircleInvite}>
-              <Send className="mr-1.5 h-4 w-4" />
-              Share invite
-            </Button>
-          }
-          secondary={
-            <Button
-              size="standard"
-              variant="outline"
-              onClick={vm.onCopyCircleInvite}
-            >
-              Copy link
-            </Button>
-          }
-        />
+        <div className="grid grid-cols-2 gap-2.5" data-testid="circle-invite-actions">
+          <Button
+            size="standard"
+            className="min-w-0 gap-1.5 px-2"
+            onClick={vm.onShareCircleInvite}
+          >
+            <Send className="h-4 w-4" />
+            Share invite
+          </Button>
+          <Button
+            size="standard"
+            variant="outline"
+            className="min-w-0 px-2"
+            onClick={vm.onCopyCircleInvite}
+          >
+            Copy link
+          </Button>
+        </div>
         {invite ? (
           <Button
             variant="ghost"
@@ -6761,13 +6757,6 @@ function InviteFlow({
             Revoke invite
           </Button>
         ) : null}
-        <Button
-          variant="ghost"
-          onClick={onClose}
-          className="h-11 w-full rounded-2xl text-sm"
-        >
-          Done
-        </Button>
       </div>
     );
   }
@@ -6776,8 +6765,7 @@ function InviteFlow({
     <div className="space-y-5">
       <TaskFlowHeader
         eyebrow="Invite to One / Circle"
-        title="Invite to Circle"
-        description="Invite before sharing."
+        title="Invite before sharing"
       />
       <SettingsGroup
         title="Invite"
@@ -6788,11 +6776,13 @@ function InviteFlow({
           title="Expires after"
           description="How long the link stays usable."
           stackTrailingOnMobile
+          className="[&_[data-slot=settings-row-trailing]]:justify-end [&_[data-slot=settings-row-trailing]]:pl-0 [&_[role=radiogroup]]:justify-end"
           trailing={
             <DurationSelector
               value={vm.durationHours}
               onChange={vm.setDurationHours}
               label=""
+              maxWidthClassName="w-max max-w-full"
               // 24 hours is the ceiling, not a preference. The API rejects
               // anything above it (`duration_hours … le=24` on
               // CreateCircleInviteRequest) and `normalize_duration_hours` raises
@@ -6807,10 +6797,6 @@ function InviteFlow({
           }
         />
       </SettingsGroup>
-      <TrustNoteCard
-        title="No location shared"
-        description="They approve first."
-      />
       <Button
         size="prominent"
         onClick={vm.onCreateCircleInvite}
