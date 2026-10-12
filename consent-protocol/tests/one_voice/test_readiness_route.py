@@ -228,6 +228,7 @@ def test_socket_rejects_a_bad_ticket_without_a_provider(monkeypatch):
 def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(
     monkeypatch, deploy_env, expected_labels
 ):
+    monkeypatch.setattr(voice, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
     monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", LIVE_MODEL)
     monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")

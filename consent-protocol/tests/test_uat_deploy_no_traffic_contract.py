@@ -486,12 +486,12 @@ def test_one_voice_vertex_override_is_uat_only_and_probed_before_traffic() -> No
     assert "One voice Vertex target is not allowlisted." in backend_build
     assert '_HUSHH_ONE_VOICE_VERTEX_PROJECT: ""' in backend_build
     assert (
-        'add_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"'
-        in backend_build
+        'append_optional_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"'
+        in _backend_deploy()
     )
-    assert "one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in backend_build
-    assert "tr -c 'a-z0-9_-' '-' | cut -c1-63" in backend_build
-    assert "one-voice-live-model=${live_model_label}" in backend_build
+    assert "one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in _backend_deploy()
+    assert "tr -c 'a-z0-9_-' '-' | cut -c1-63" in _backend_deploy()
+    assert "one-voice-live-model=${live_model_label}" in _backend_deploy()
     assert "##_HUSHH_ONE_VOICE_VERTEX_PROJECT=hussh-511311" in uat_workflow
     assert "HUSHH_ONE_VOICE_VERTEX_PROJECT" not in dev_workflow
     assert "HUSHH_ONE_VOICE_VERTEX_PROJECT" not in production_workflow

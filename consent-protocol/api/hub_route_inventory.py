@@ -112,6 +112,9 @@ GET /api/one/payouts/hashcoins
 GET /api/one/wallet/card-access/cards/{card_id}
 GET /api/one/wallet/card-access/connections
 GET /api/one/wallet/card-access/grants/{grant_id}
+GET /api/one/wallet/card-access/history
+GET /api/one/wallet/card-access/history/{grant_id}
+GET /api/one/wallet/card-access/profile
 POST /api/one/answer-requests
 POST /api/one/answer-requests/payout-account/{action}
 POST /api/one/answer-requests/{request_id}/approve

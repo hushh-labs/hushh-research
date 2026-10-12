@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { ProfilePaymentsLink } from "@/components/profile/profile-account-link";
 import { Button } from "@/components/ui/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -14,7 +14,6 @@ import {
 import { ExternalConnectorService, McpCatalogAuthenticationError, type StripeConnectorReadiness as StripeReadiness } from "@/lib/services/external-connector-service";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { ROUTES } from "@/lib/navigation/routes";
 
 const ENDPOINT = "https://mcp.stripe.com";
 type ConnectionStatus = "unchecked" | "saved" | "connected" | "verified" | "sign_in_needed" | "unavailable";
@@ -152,13 +151,13 @@ export function StripeConnectorReadiness({ access, onPrepareRecovery }: {
       {" "}{status !== "verified" && "Stripe account and balance tools still need verification."}
     </p>
     {status === "verified" && lifetime.current() && verification?.verifiedAt && <p className="text-sm text-muted-foreground">
-      Provider observation: {new Date(verification.verifiedAt).toLocaleString()}. Payments still use Account and Consent review.
+      Provider observation: {new Date(verification.verifiedAt).toLocaleString()}. Purchases still require Consent review.
     </p>}
-    <p className="text-sm text-muted-foreground">Use Account to fund purchases and set up earnings payouts. Stripe tool sign-in is optional for sharing.</p>
+    <p className="text-sm text-muted-foreground">Use Payments and earnings to fund purchases and receive earnings. Stripe tool sign-in is optional for sharing.</p>
     <p className="text-sm text-muted-foreground">Enable MCP access in your Stripe Sandbox, then sign in and select that Sandbox.</p>
     <div className="flex flex-wrap gap-2">
       <Button asChild variant="outline" className="min-h-11">
-        <Link href={ROUTES.PROFILE_ACCOUNT}>Open payments and earnings</Link>
+        <ProfilePaymentsLink>Open payments and earnings</ProfilePaymentsLink>
       </Button>
       <Button variant="outline" className="min-h-11" disabled={!access || !onPrepareRecovery || busy || checking} onClick={() => void connect()}>
         {busy ? "Opening Stripe…" : "Connect or reconnect Stripe tools"}

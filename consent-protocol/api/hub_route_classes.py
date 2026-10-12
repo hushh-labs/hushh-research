@@ -233,6 +233,8 @@ POST /api/one/google/connect/transition/complete
 GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
 [SUPPORT]
+GET /api/one/wallet/card-access/networks
+POST /api/one/wallet/card-access/networks/resolve
 POST /api/kai/decision/store
 DELETE,GET /api/kai/decision/{decision_id}
 GET /api/kai/health

@@ -100,7 +100,18 @@ existing clean verification checkout qualifies the exact committed candidate;
 its stale main reference and two frontend lint failures were corrected before
 the next full core run. No required gate is skipped or weakened.
 
-The last qualified Dev observation at `22:32:50Z` served source `0d00ceaf1e1b` and retained two funding records,
+The `22a555ca6b` core run passed web-core and 18,534 protocol cases, but failed
+five protocol cases. Exact Wallet sharing/reference routes and the canonical
+owner-bound encrypted checkpoint adapter were missing from their inventories;
+the Voice project test lacked its explicit Shared-hosting fixture, and its deploy
+assertions still targeted the pre-extraction build file. The precise registrations
+and fixture/assertion corrections preserve the scanners, private-hosting refusals
+and UAT-only project/probe checks. All 108 focused protocol cases pass after
+correction. Stripe's tools screen now opens the existing Payments and earnings
+pane directly, retaining Back to its origin; all 16 connection cases and 447 Back
+cases pass. The final exact-candidate core and hosted CI remain required.
+
+The last qualified Dev observation at `23:26:31Z` served source `0d00ceaf1e1b` and retained two funding records,
 three journals, zero purchases and zero withdrawals. Counterpart funding totals
 $10.50 ($0.50 plus $10), and the tagged $5 operating Topup was already settled;
 never repeat either. Reconcile fresh provider/application receipts before any
