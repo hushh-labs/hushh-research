@@ -2207,6 +2207,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     consentDecision.allow,
     declineConsentRequest,
     declineDocumentRequest,
+    declineAnswerRequest,
     openDocumentPrice,
     markConsentSettled,
     settledConsentKeys,
