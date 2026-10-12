@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const mapHarness = vi.hoisted(() => {
@@ -258,9 +258,11 @@ vi.mock(
       onPlaceFocusChange,
       presentationReady = true,
       onStartupReadyChange,
+      rendererAccess,
     }: {
       presentationReady?: boolean;
       onStartupReadyChange?: (ready: boolean) => void;
+      rendererAccess?: ReactNode;
       open: boolean;
       onOpenChange: (open: boolean) => void;
       onStateChange: (state: unknown) => void;
@@ -274,6 +276,7 @@ vi.mock(
         data-one-location-nearby-check-in-sheet=""
         data-open={open && presentationReady ? "true" : "false"}
       >
+        {open && presentationReady ? rendererAccess : null}
         <button data-testid="finish-check-in-startup" onClick={() => onStartupReadyChange?.(true)}>Finish startup</button>
         <button
           type="button"
@@ -556,7 +559,7 @@ beforeEach(() => {
   });
   serviceHarness.getMapPreferences.mockResolvedValue({
     presenceMode: "ghost",
-    rendererConsentVersion: null,
+    rendererConsentVersion: "google-maps-renderer-v1",
   });
   serviceHarness.captureCurrentPosition.mockResolvedValue({
     latitude: 37.776,
@@ -666,13 +669,39 @@ afterEach(() => {
 });
 
 describe("LocationImmersiveMap demo experience", () => {
-  it("opens Your Map directly and prepares only the renderer preference", async () => {
+  it("opens Your Map directly with existing acceptance without changing preferences", async () => {
     experienceHarness.demoMode = false;
     render(<LocationImmersiveMap />);
     expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
     expect(screen.queryByText("Private until you share.")).toBeNull();
     await awaitMapPreparation();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-map-people-tray")).toBeInTheDocument();
+  });
+
+  it.each([null, "outdated-version"])("does not renew %s renderer consent on reopening until explicitly accepted", async (rendererConsentVersion) => {
+    experienceHarness.demoMode = false;
+    serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion });
+    const first = render(<LocationImmersiveMap />);
+    await screen.findByTestId("one-location-map-renderer-access");
+    expect(screen.queryByTestId("one-location-map-loading")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    first.unmount();
+    render(<LocationImmersiveMap />);
+    await screen.findByTestId("one-location-map-renderer-access");
+    expect(screen.queryByTestId("one-location-map-loading")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
+    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledTimes(1);
     expect(serviceHarness.updateMapPreferences).toHaveBeenCalledWith({ vaultOwnerToken: "in-memory-owner-token", rendererConsentVersion: "google-maps-renderer-v1" });
     expect(screen.getByTestId("one-location-map-people-tray")).toBeInTheDocument();
   });
@@ -701,6 +730,21 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-close")).toBeInTheDocument();
   });
 
+  it("keeps explicit renderer access reachable inside ready Check-in with missing consent", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion: null });
+    render(<LocationImmersiveMap surface="check-in" />);
+    const access = await screen.findByTestId("one-location-map-renderer-access");
+    expect(access.closest('[data-testid="nearby-check-in-sheet-mock"]')).not.toBeNull();
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true");
+    expect(screen.queryByTestId("one-location-map-loading")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
+    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledTimes(1);
+  });
+
   it("retries check-in preparation when Maps is unavailable", async () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
@@ -720,15 +764,12 @@ describe("LocationImmersiveMap demo experience", () => {
     });
     expect(screen.queryByTestId("one-location-map-preparation-error")).toBeNull();
     expect(mapHarness.create).not.toHaveBeenCalled();
-    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledWith({
-      vaultOwnerToken: "in-memory-owner-token",
-      rendererConsentVersion: "google-maps-renderer-v1",
-    });
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
   });
 
   it("recovers from preparation failure without revealing private coordinates", async () => {
     experienceHarness.demoMode = false;
-    serviceHarness.updateMapPreferences.mockRejectedValueOnce(new Error("offline"));
+    serviceHarness.getMapPreferences.mockRejectedValueOnce(new Error("offline"));
     render(<LocationImmersiveMap />);
     await screen.findByTestId("one-location-map-preparation-error");
     expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
@@ -737,6 +778,7 @@ describe("LocationImmersiveMap demo experience", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await awaitMapPreparation();
     expect(screen.queryByTestId("one-location-map-preparation-error")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
   });
   it("requires the server's exact renderer version and settles a superseding failed read", async () => {
     experienceHarness.demoMode = false;
@@ -751,6 +793,9 @@ describe("LocationImmersiveMap demo experience", () => {
     serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion: null });
     serviceHarness.updateMapPreferences.mockResolvedValueOnce({ presenceMode: "ghost", rendererConsentVersion: "outdated-version" });
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByTestId("one-location-map-renderer-access");
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
     await screen.findByTestId("one-location-map-preparation-error");
     expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
     expect(serviceHarness.getMapState).not.toHaveBeenCalled();
@@ -3298,7 +3343,7 @@ describe("LocationImmersiveMap reported map defects", () => {
       expect(mapHarness.map.destroy).toHaveBeenCalledTimes(1);
       expect(mapHarness.create).toHaveBeenCalledTimes(2);
       expect(
-        screen.getByTestId("one-location-map-preparation-error"),
+        screen.getByTestId("one-location-map-renderer-access"),
       ).toBeInTheDocument();
       expect(screen.queryByTestId("one-location-map-self-avatar")).toBeNull();
     });
@@ -3349,7 +3394,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(2));
 
     // Reopening must not inherit the abandoned refresh's in-flight lock.
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use Google Maps" }));
     await awaitMapPreparation();
     await waitFor(() => {
       expect(serviceHarness.getMapState).toHaveBeenCalledTimes(2);
@@ -3399,7 +3444,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
     await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(2));
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use Google Maps" }));
     await awaitMapPreparation();
     await reportCamera();
     await waitFor(() => {

@@ -1455,6 +1455,8 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("resolves and shares with a spoken recipient beyond the initial recipient page", async () => {
+    // Exercise recipient resolution in the workspace; onboarding has its own cases.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     mockListRecipientsPage.mockImplementation(async ({ query, limit }) => ({
       items: query || limit === 100
         ? [
@@ -3887,6 +3889,8 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("retries revoking a grant that resolves after the composer is cancelled", async () => {
+    // Start in the workspace; this regression concerns an in-flight share.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const circleSummary = {
       id: "circle_during_delivery",
       name: "Delivery Circle",

@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import {
   CaretDownIcon,
@@ -716,11 +717,13 @@ export function NearbyCheckInSheet({
   onPlaceFocusChange,
   presentationReady = true,
   onStartupReadyChange,
+  rendererAccess,
 }: {
   open: boolean;
   /** Bootstrap can run before the parent reveals the map and sheet together. */
   presentationReady?: boolean;
   onStartupReadyChange?: (ready: boolean) => void;
+  rendererAccess?: ReactNode;
   ownerId: string | null;
   vaultOwnerToken: string | null;
   /**
@@ -2593,6 +2596,7 @@ export function NearbyCheckInSheet({
           </SheetHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+            {rendererAccess}
             <p className="sr-only" aria-live="polite" aria-atomic="true">
               {state.presence
                 ? `Checked in. ${state.attendees.length} ${
