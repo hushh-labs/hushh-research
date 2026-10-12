@@ -15,13 +15,20 @@ another navigation stack, WebView, session, or information store.
 
 ### Integrated native shell candidate — 2026-10-12
 
-Merged implementation source `855e6fcc73` contains fetched `main` at
-`bf6ec5d728` on the ADK verification lane. The live development branch remains
+Merged implementation source `a1d97cbcb2` contains fetched `main` at
+`a05166ee86` on the ADK verification lane. The live development branch remains
 `feat/adk-orchestration-runtime`; it advances only after combined verification.
 The merge preserves retained native controls and their authored operation ports,
 while integrating current Wallet network lookup, Profile review and routing.
 History keeps leading Close and inline age; shared inset panes reconcile their
 geometry with acknowledged native seats rather than overriding them.
+The combined core run exposed three merged test-fixture mismatches. The origin
+catalog retains environment separation and existing RP values, payload-growth
+checks now exceed the unchanged approved cap, and the two-poll rollback fixture
+asserts its actual mock budget without changing the production 55-poll budget.
+The affected 102 tests pass; a forced rejecting origin guard fails the acceptance
+test. Canonical combined verification and installed-device evidence remain
+revision-bound, rather than inferred from those focused results.
 Normal product admission remains **off**. The document-start coherent-shell
 bootstrap is available only through the explicit qualification launch switch;
 old experiment flags do not enable it. Web, Android, older wrappers and iPad
