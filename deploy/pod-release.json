@@ -1,5 +1,5 @@
 {
-  "version": "2026.10-dev.18",
+  "version": "2026.10-dev.19",
   "channel": "dev",
   "summary": "Smoother reconnects and clearer private-agent progress.",
   "notes": {
@@ -17,5 +17,7 @@
       "Long-running jobs retain their existing authenticated queues; Computer Use stays disabled."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:47bb9a718063c679f797dc93ca6c37eaa5e5ce7cab5431e66e4d9edc4ef45f97"
+  ]
 }
