@@ -991,6 +991,7 @@ jobs:
           # hushh-pda-uat for Cloud Run, SQL, secrets and native ADC resources.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GENAI_PROJECT_ID=hushh-vertex-personal54"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_HUSHH_ONE_VOICE_VERTEX_PROJECT=hussh-511311"
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"

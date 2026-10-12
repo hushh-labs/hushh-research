@@ -273,6 +273,10 @@ def translate_message(message: Any) -> list[LiveEvent]:
 @asynccontextmanager
 async def connect_live(config: OneVoiceLiveConfig, live_config: genai_types.LiveConnectConfig):
     """Open one Gemini Live session on the pinned model/region (ADC only)."""
-    client = build_managed_live_client(model=config.model_id, location=config.location)
+    client = build_managed_live_client(
+        model=config.model_id,
+        location=config.location,
+        vertex_project=config.vertex_project,
+    )
     async with client.aio.live.connect(model=config.model_id, config=live_config) as session:
         yield GeminiLiveSession(session)

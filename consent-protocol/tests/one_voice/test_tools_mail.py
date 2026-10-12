@@ -590,6 +590,7 @@ async def test_the_owner_timezone_reaches_the_planner(monkeypatch):
     await spec.handler(ctx, spec.input_model(request="any mail today?"))
 
     assert runner.calls[0]["timezone"] == "Asia/Kolkata"
+    assert runner.calls[0]["voice_metadata_listing"] is True
 
 
 # -- the voice-scoped switch -------------------------------------------------

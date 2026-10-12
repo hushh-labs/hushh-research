@@ -48,7 +48,10 @@ from hushh_mcp.one_voice.tools.base import (
 )
 from hushh_mcp.one_voice.tools.executor import ToolExecutor
 from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
-from hushh_mcp.runtime_providers.factory import build_managed_live_client
+from hushh_mcp.runtime_providers.factory import (
+    bind_managed_vertex_project,
+    build_managed_live_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +84,11 @@ def reset_readiness_cache() -> None:
 
 async def _probe_live_connect(config: OneVoiceLiveConfig) -> None:
     """Open and immediately close one Live session. No audio, no output."""
-    client = build_managed_live_client(model=config.model_id, location=config.location)
+    client = build_managed_live_client(
+        model=config.model_id,
+        location=config.location,
+        vertex_project=config.vertex_project,
+    )
     # Native-audio Live models refuse a TEXT-only session; opening with AUDIO and
     # closing immediately proves availability without sending or receiving audio.
     live_config = genai_types.LiveConnectConfig(response_modalities=[genai_types.Modality.AUDIO])
@@ -373,7 +380,10 @@ async def voice_live(websocket: WebSocket, ticket: str = Query(default="")) -> N
     if previous is not None:
         await previous._close(protocol.CLOSE_REPLACED, "replaced")
     try:
-        await session.run()
+        # ContextVars follow VoiceSession's child tasks, including tool narration,
+        # without changing the process-wide project used by unrelated chat turns.
+        with bind_managed_vertex_project(config.vertex_project):
+            await session.run()
     finally:
         async with _active_lock:
             if _active_sessions.get(claims.user_id) is session:

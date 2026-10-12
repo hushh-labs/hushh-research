@@ -441,6 +441,7 @@ async def _read_mail(ctx: ToolContext, args: ReadMailInput) -> ToolResult:
             message_ids=message_ids,
             offer_mailbox=offer_mailbox,
             expect_account=expect_account,
+            voice_metadata_listing=True,
         )
     except PermissionError:
         # Admission was withdrawn mid-read. Nothing fetched is released.
