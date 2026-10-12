@@ -2698,6 +2698,22 @@ describe("Connect — the phone-width geometry QA reported", () => {
   // `e2e/connect-circle-cta.layout.spec.ts` measured and found correct. Neither
   // half is sufficient on its own; that spec is the other half.
 
+  it("opens the tapped connection by person identity when names are identical", async () => {
+    mocks.listConnections.mockResolvedValue([
+      { connectionId: "ankit-first", userId: "ankit-first-user", publicPersonRef: "ankit-first-person", displayName: "Ankit Kumar Singh" },
+      { connectionId: "ankit-second", userId: "ankit-second-user", publicPersonRef: "ankit-second-person", displayName: "Ankit Kumar Singh" },
+    ]);
+    render(<ConnectPageClient />);
+    const actions = await screen.findAllByRole("button", { name: "Message Ankit Kumar Singh" });
+
+    fireEvent.click(actions[1]);
+    expect(mocks.messageSelection).toHaveBeenLastCalledWith({ personRef: "ankit-second-person" });
+    fireEvent.click(actions[0]);
+    expect(mocks.messageSelection).toHaveBeenLastCalledWith({ personRef: "ankit-first-person" });
+    expect(mocks.routerPush).toHaveBeenCalledWith("/one/messages?token=opaque-test-token");
+    expect(mocks.removeConnection).not.toHaveBeenCalled();
+  });
+
   it("keeps Message and icon-only removal beside the name", async () => {
     // `stackTrailingOnMobile` puts the trailing control on its own line below
     // `sm:` -- which is 640px, so on every iPhone. It was set here for a single
