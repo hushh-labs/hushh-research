@@ -1360,6 +1360,7 @@ export function ConsentCenterView({
     <AppPageShell
       as="div"
       width="standard"
+      headerContentSpacing="compact"
       className={cn("pb-6 md:pb-8", className)}
     >
       <AppPageHeaderRegion>

@@ -1840,7 +1840,12 @@ export function ConsentCenterPage() {
       : `Search ${tab} by name, email, scope, or reason`;
 
   return (
-    <AppPageShell as="main" width="expanded" className="pb-24 sm:pb-28">
+    <AppPageShell
+      as="main"
+      width="expanded"
+      headerContentSpacing="compact"
+      className="pb-24 sm:pb-28"
+    >
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow={pageEyebrow}

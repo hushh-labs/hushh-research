@@ -632,6 +632,13 @@ a, button, input, select, textarea {
   --data-table-cell-py: 9px;
 }
 
+/* One-agent homes use a shorter handoff from their identity header to the
+   first local control or content surface. This is opt-in so general pages
+   retain their existing rhythm. */
+.app-page-shell[data-app-header-content-spacing="compact"] {
+  --page-header-section-gap: 0px;
+}
+
 @media (min-width: 640px) {
   .app-page-shell[data-app-density="compact"] {
     --page-header-stack-gap: 10px;
@@ -659,6 +666,10 @@ a, button, input, select, textarea {
     --data-table-controls-gap: 14px;
     --data-table-cell-px: 12px;
     --data-table-cell-py: 10px;
+  }
+
+  .app-page-shell[data-app-header-content-spacing="compact"] {
+    --page-header-section-gap: 6px;
   }
 }
 
