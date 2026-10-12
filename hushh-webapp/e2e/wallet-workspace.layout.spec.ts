@@ -111,7 +111,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; profileGallery?: boolean; artworkGallery?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -889,3 +889,18 @@ test("Wallet sharp onboarding and stacked detail links", async ({ page }) => {
   await expect(page.getByTestId("wallet-sharing-content").locator('figure [data-agent-card="profile"]')).toBeVisible();
   await expect(page.getByTestId("wallet-sharing-content").locator("figure")).toBeInViewport();
 });
+
+for (const width of [320, 375, 390, 430, 768, 1024, 1440]) {
+  test(`premium profile card and preview fit at ${width}px`, async ({ page }, testInfo) => {
+    const errors = await open(page, width, "light", { profileGallery: true });
+    await page.addScriptTag({ content: script });
+    await expect(page.getByTestId("wallet-profile-card")).toHaveCount(3);
+    expect(await page.getByTestId("wallet-profile-card").evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth + 1))).toBe(true);
+    await expect(page.getByRole("img", { name: "Profile QR code: Scan to connect" })).toHaveCount(2);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`profile-${width}.png`), fullPage: true });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => { document.documentElement.style.fontSize = "32px"; });
+    expect(await page.getByTestId("wallet-profile-card").evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth + 1))).toBe(true);
+  });
+}

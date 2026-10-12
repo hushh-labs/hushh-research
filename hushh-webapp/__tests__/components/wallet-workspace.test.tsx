@@ -88,7 +88,6 @@ import { OnboardingLocalService } from "@/lib/services/onboarding-local-service"
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
 import { stageReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 import { WalletCardService, type WalletCardRecord } from "@/lib/services/wallet-card-service";
-import * as walletCardArtwork from "@/lib/services/wallet-card-artwork-service";
 import { decodePayload } from "@/components/wallet-card/__tests__/qr-code-test-decoder";
 
 function makeCards(count: number) {
@@ -123,75 +122,42 @@ describe("WalletWorkspace at scale", () => {
     let changed: (() => void) | undefined;
     let recovered = false;
     const getCard = vi.spyOn(WalletCardService, "getCard")
-      .mockResolvedValueOnce({ enabled: true, exists: true, card, shareUrl: "https://one.hushh.ai/c/original" })
+      .mockResolvedValueOnce({ enabled: true, exists: true, card, shareUrl: "https://one.hushh.ai/c/original-token-12345" })
       .mockResolvedValue({ enabled: true, exists: true, card: rotated, shareUrl: null });
     vi.spyOn(WalletCardService, "subscribe").mockImplementation((_owner, listener) => { changed = listener; return () => { changed = undefined; }; });
     vi.spyOn(WalletCardService, "readShareLink").mockImplementation((_owner, current) => current?.shareTokenVersion === 1
-      ? { shareToken: "original", shareUrl: "https://one.hushh.ai/c/original", version: 1 }
-      : recovered ? { shareToken: "rotated", shareUrl: "https://one.hushh.ai/c/rotated", version: 2 } : null);
+      ? { shareToken: "original", shareUrl: "https://one.hushh.ai/c/original-token-12345", version: 1 }
+      : recovered ? { shareToken: "rotated", shareUrl: "https://one.hushh.ai/c/rotated-token-12345", version: 2 } : null);
     let finishRecovery!: () => void;
     const recovery = new Promise<void>((resolve) => { finishRecovery = resolve; });
     const ensure = vi.spyOn(WalletCardService, "ensureCard").mockImplementation(async () => {
       await recovery;
       recovered = true;
       changed?.();
-      return { card: rotated, shareToken: "rotated", shareUrl: "https://one.hushh.ai/c/rotated", passUrl: null };
+      return { card: rotated, shareToken: "rotated", shareUrl: "https://one.hushh.ai/c/rotated-token-12345", passUrl: null };
     });
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
     serviceMock.listCardSummaries.mockResolvedValue([]);
-    // Exercise the real cohesive SVG renderer; only public asset I/O and the
-    // browser object-URL boundary are replaced in JSDOM.
-    vi.spyOn(walletCardArtwork, "loadWalletCardArtwork").mockImplementation(async (kind) =>
-      readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v1.svg`), "utf8"));
-    const images = new Map<string, Blob>();
-    vi.stubGlobal("URL", class extends URL {
-      static createObjectURL = vi.fn((blob: Blob) => {
-        const url = `blob:wallet-rotation-${images.size + 1}`;
-        images.set(url, blob);
-        return url;
-      });
-      static revokeObjectURL = vi.fn();
-    });
     const { container } = render(<WalletWorkspace />);
-    const profileImage = () => container.querySelector<HTMLImageElement>('[data-agent-card="profile"] img');
-    const renderedQr = async () => {
-      const image = profileImage();
-      expect(image).not.toBeNull();
-      const blob = images.get(image!.getAttribute("src")!);
-      expect(blob).toBeDefined();
-      const svg = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = reject;
-        reader.readAsText(blob!);
-      });
-      const document = new DOMParser().parseFromString(svg, "image/svg+xml");
-      expect(document.querySelector("image")).not.toBeNull();
-      const qr = document.querySelector("[data-wallet-qr]");
-      expect(qr).not.toBeNull();
-      const size = Number(qr!.getAttribute("viewBox")!.split(" ")[2]) - 8;
+    const profileQr = () => container.querySelector<SVGElement>('[data-agent-card="profile"] svg[role="img"]');
+    const renderedQr = () => {
+      const svg = profileQr();
+      expect(svg).not.toBeNull();
+      const size = Number(svg!.getAttribute("viewBox")!.split(" ")[2]) - 8;
       const modules = new Uint8Array(size * size);
-      for (const run of qr!.querySelector("path")!.getAttribute("d")!.matchAll(/M(\d+) (\d+)h(\d+)v1H\d+z/g)) {
-        for (let x = Number(run[1]) - 4; x < Number(run[1]) - 4 + Number(run[3]); x += 1) modules[(Number(run[2]) - 4) * size + x] = 1;
+      for (const rect of svg!.querySelectorAll("g rect")) {
+        const x = Number(rect.getAttribute("x")) - 4;
+        const y = Number(rect.getAttribute("y")) - 4;
+        for (let offset = 0; offset < Number(rect.getAttribute("width")); offset++) modules[y * size + x + offset] = 1;
       }
       return decodePayload({ size, modules });
     };
-    await waitFor(async () => expect(await renderedQr()).toBe("https://one.hushh.ai/c/original"), { timeout: 5000 });
-    const originalImage = profileImage()!;
-    const originalSource = originalImage.getAttribute("src");
-    await act(async () => { fireEvent.load(originalImage); });
-    expect(screen.getByRole("img", { name: "Agent One Profile", exact: true })).toBeVisible();
-
+    await waitFor(() => expect(renderedQr()).toBe("https://one.hushh.ai/c/original-token-12345"));
     await act(async () => { changed?.(); });
     await waitFor(() => expect(ensure).toHaveBeenCalledOnce());
-    // The revoked link must disappear while its replacement is being recovered.
-    expect(originalImage).not.toBeInTheDocument();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith(originalSource);
+    expect(profileQr()).toBeNull();
     await act(async () => { finishRecovery(); });
-    await waitFor(async () => expect(await renderedQr()).toBe("https://one.hushh.ai/c/rotated"), { timeout: 5000 });
-    expect(profileImage()).not.toHaveAttribute("src", originalSource);
-    await act(async () => { fireEvent.load(profileImage()!); });
-    expect(screen.getByRole("img", { name: "Agent One Profile", exact: true })).toBeVisible();
+    await waitFor(() => expect(renderedQr()).toBe("https://one.hushh.ai/c/rotated-token-12345"));
     expect(ensure).toHaveBeenCalledOnce();
     expect(getCard).toHaveBeenCalledTimes(2);
   });

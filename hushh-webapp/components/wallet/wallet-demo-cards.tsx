@@ -6,10 +6,13 @@ import { WalletCardFace } from "@/components/wallet/wallet-card-face";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import type { WalletCardPayload } from "@/lib/services/wallet-card-service";
 import { buildWalletCardSvg, walletCardImageFields, walletCardImageKey, NWS_SAMPLE_DESCRIPTION, type WalletCardImageKind } from "@/lib/wallet/wallet-card-image";
+import { WalletProfileCard } from "@/components/wallet-card/wallet-profile-card";
+import { walletProfilePresentation } from "@/components/wallet-card/wallet-profile-presentation";
 import styles from "./wallet-demo-cards.module.css";
 
 export type WalletDemoProfile = {
   ownerId?: string;
+  avatarUrl?: string | null;
   shareToken?: string | null;
   displayName: string | null;
   shareUrl: string | null;
@@ -45,6 +48,7 @@ export function isAgentWalletCard(cardId: string): boolean {
 export function WalletDemoCardFace({ summary, profile, onArtworkLoad }: { summary: WalletCardSummary; profile?: WalletDemoProfile | null; onArtworkLoad?: () => void }) {
   const card = AGENT_CARDS.find((item) => item.id === summary.cardId);
   if (!card) return <WalletCardFace summary={summary} collection />;
+  if (card.finish === "profile") return <div className="@container" data-testid="wallet-card-face" data-agent-card="profile" data-artwork-ready="true"><WalletProfileCard profile={walletProfilePresentation(profile)} compact /></div>;
   return <WalletAgentCardImage kind={card.finish} name={card.name} profile={profile} onArtworkLoad={onArtworkLoad} />;
 }
 

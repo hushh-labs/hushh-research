@@ -24,7 +24,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("Agent One cohesive card faces", () => {
   it("shows no live field or QR overlay before the complete card image is ready", async () => {
-    const { container } = render(<WalletDemoCardFace summary={card("profile")} profile={profile} />);
+    const { container } = render(<WalletDemoCardFace summary={card("referral")} profile={profile} />);
     expect(container.querySelector("iframe")).toBeNull();
     const face = screen.getByTestId("wallet-card-face");
     await waitFor(() => expect(container.querySelector("img")).not.toBeNull());
@@ -41,18 +41,28 @@ describe("Agent One cohesive card faces", () => {
   it("immediately hides a previous owner's image and ignores its late artwork completion", async () => {
     let finish!: (svg: string) => void;
     buildSvg.mockImplementationOnce(() => new Promise<string>((resolve) => { finish = resolve; }));
-    const { rerender, container, unmount } = render(<WalletDemoCardFace summary={card("profile")} profile={profile} />);
-    rerender(<WalletDemoCardFace summary={card("profile")} profile={{ ...profile, ownerId: "owner-b", cardPayload: { username: "new.owner" } }} />);
+    const { rerender, container, unmount } = render(<WalletDemoCardFace summary={card("referral")} profile={profile} />);
+    rerender(<WalletDemoCardFace summary={card("referral")} profile={{ ...profile, ownerId: "owner-b", cardPayload: { username: "new.owner" } }} />);
     await waitFor(() => expect(container.querySelector("img")).toHaveAttribute("src", "blob:card-1"));
     await act(async () => { fireEvent.load(container.querySelector("img")!); });
     await act(async () => finish("<svg>old owner</svg>"));
     expect(URL.createObjectURL).toHaveBeenCalledOnce();
     expect(container.querySelector("dl")).toHaveTextContent("new.owner");
-    rerender(<WalletDemoCardFace summary={card("profile")} profile={{ ...profile, shareUrl: "https://one.hushh.ai/c/rotated-token" }} />);
+    rerender(<WalletDemoCardFace summary={card("referral")} profile={{ ...profile, referralUrl: "https://one.hushh.ai/r/rotated-token" }} />);
     expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-artwork-ready", "false");
     expect(container.querySelector('img[src="blob:card-1"]')).toBeNull();
     unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:card-1");
+  });
+
+  it("updates profile fields synchronously when the owner changes, without image-loading flashes", () => {
+    const { rerender } = render(<WalletDemoCardFace summary={card("profile")} profile={{ ...profile, cardPayload: { full_name: "First owner", email: "first@example.com" } }} />);
+    expect(screen.getByTestId("wallet-profile-card")).toHaveTextContent("First owner");
+    expect(buildSvg).not.toHaveBeenCalled();
+    rerender(<WalletDemoCardFace summary={card("profile")} profile={{ ownerId: "owner-b", displayName: "Second owner", shareUrl: null }} />);
+    expect(screen.getByTestId("wallet-profile-card")).toHaveTextContent("Second owner");
+    expect(screen.queryByText("first@example.com")).toBeNull();
+    expect(screen.queryByText("First owner")).toBeNull();
   });
 
   it("keeps NWS sample semantics and sends the complete live identity into the same renderer", async () => {

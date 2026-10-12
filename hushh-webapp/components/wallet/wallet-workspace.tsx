@@ -374,7 +374,7 @@ export function WalletWorkspace() {
         const state = await WalletCardService.getCard({ userId: user.uid, vaultOwnerToken: token });
         if (cancelled) return;
         const payloadName = state.card?.cardPayload.full_name?.trim() || null;
-        setDemoProfile({ ownerId: user.uid, displayName: payloadName || state.card?.displayName?.trim() || user.displayName?.trim() || null, shareUrl: state.card?.status === "active" ? state.shareUrl : null, cardPayload: state.card?.cardPayload ?? null, memberSince: user.metadata?.creationTime, walletId: state.card?.passSerial, shareToken: WalletCardService.readShareLink(user.uid, state.card)?.shareToken ?? null });
+        setDemoProfile({ ownerId: user.uid, displayName: payloadName || state.card?.displayName?.trim() || user.displayName?.trim() || null, shareUrl: state.card?.status === "active" ? state.shareUrl : null, cardPayload: state.card?.cardPayload ?? null, avatarUrl: state.card?.avatarUrl ?? null, memberSince: user.metadata?.creationTime, walletId: state.card?.passSerial, shareToken: WalletCardService.readShareLink(user.uid, state.card)?.shareToken ?? null });
         if (state.card && state.card.status !== "revoked" && !WalletCardService.readShareLink(user.uid, state.card)) {
           const version = state.card.shareTokenVersion ?? null;
           if (!recoveryAttempts.has(version)) {
@@ -382,7 +382,7 @@ export function WalletWorkspace() {
             const recovered = await WalletCardService.ensureCard({ userId: user.uid, vaultOwnerToken: token });
             if (cancelled) return;
             const link = WalletCardService.readShareLink(user.uid, recovered.card);
-            setDemoProfile({ ownerId: user.uid, displayName: recovered.card.cardPayload.full_name?.trim() || recovered.card.displayName?.trim() || fallbackName, shareUrl: recovered.card.status === "active" ? link?.shareUrl ?? null : null, cardPayload: recovered.card.cardPayload, memberSince: user.metadata?.creationTime, walletId: recovered.card.passSerial, shareToken: link?.shareToken ?? null });
+            setDemoProfile({ ownerId: user.uid, displayName: recovered.card.cardPayload.full_name?.trim() || recovered.card.displayName?.trim() || fallbackName, shareUrl: recovered.card.status === "active" ? link?.shareUrl ?? null : null, cardPayload: recovered.card.cardPayload, avatarUrl: recovered.card.avatarUrl, memberSince: user.metadata?.creationTime, walletId: recovered.card.passSerial, shareToken: link?.shareToken ?? null });
           }
         }
       } catch { /* Retain the last confirmed snapshot during a transient outage. */ }
