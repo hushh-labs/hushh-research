@@ -130,9 +130,11 @@ def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
     for environment, suffix in (("uat", "UAT"), ("dev", "DEV"), ("production", "PROD")):
         mapped = (root / f".github/workflows/deploy-{environment}.yml").read_text()
         for mode in ("TEST", "LIVE"):
-            for kind in ("SECRET_KEY", "WEBHOOK_SECRET"):
-                name = f"PKM_ANSWER_STRIPE_{mode}_{kind}"
-                default = ("STRIPE_SECRET_KEY" if kind == "SECRET_KEY" else "STRIPE_WEBHOOK_SECRET") if environment == "uat" and mode == "TEST" else ""
+            for name, retained_test_default in (
+                (f"PKM_ANSWER_STRIPE_{mode}_SECRET_KEY", "STRIPE_SECRET_KEY"),
+                (f"PKM_ANSWER_STRIPE_{mode}_WEBHOOK_SECRET", "STRIPE_WEBHOOK_SECRET"),
+            ):
+                default = retained_test_default if environment == "uat" and mode == "TEST" else ""
                 assert f"_{name}_SECRET=${{{{ vars.{name}_{suffix}_SECRET || '{default}' }}}}" in mapped
                 assert f'add_secret "${{_{name}_SECRET}}" "{name}"' in cloudbuild_text
                 assert cloudbuild["substitutions"][f"_{name}_SECRET"] == ""
