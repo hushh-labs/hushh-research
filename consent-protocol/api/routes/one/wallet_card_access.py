@@ -122,7 +122,7 @@ class SharingHistoryItem(BaseModel):
     durationMinutes: Literal[5, 10, 15]
     trustedCircle: bool | None
     method: Literal["trusted_circle", "standard_connection", "legacy_unspecified"]
-    verificationMethod: Literal["identity_reauthentication", "trusted_circle"]
+    verificationMethod: Literal["identity_reauthentication", "trusted_circle", "legacy_unspecified"]
     verifiedAt: str | None
     status: Literal["active", "expired", "revoked"]
     revokedAt: str | None

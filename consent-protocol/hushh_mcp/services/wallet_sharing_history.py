@@ -173,7 +173,9 @@ def history(
                     "permittedFields": row["permitted_fields"],
                     "verificationMethod": "identity_reauthentication"
                     if row["verification_required"]
-                    else "trusted_circle",
+                    else "trusted_circle"
+                    if row["trusted_at_creation"] is True
+                    else "legacy_unspecified",
                     "verifiedAt": iso(row["verified_at"]),
                     "status": service._grant_status(row, row["server_now"]),
                     "revokedAt": iso(row["revoked_at"]),

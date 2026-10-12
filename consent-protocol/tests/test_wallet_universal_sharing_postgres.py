@@ -272,6 +272,25 @@ def test_legacy_manual_grants_work_before_universal_migration(legacy_cards_db):
     with pytest.raises(WalletCardAccessError, match="UNAVAILABLE"):
         service.history("alice")
 
+    db.apply_migrations(
+        [
+            "132_one_wallet_card.sql",
+            "322_wallet_universal_sharing.sql",
+            "323_wallet_sharing_owner_index.sql",
+            "324_wallet_sharing_recipient_index.sql",
+            "325_wallet_sharing_audit_index.sql",
+        ]
+    )
+    history = service.history("alice")["items"]
+    assert len(history) == 2
+    assert all(row["trustedCircle"] is None for row in history)
+    assert all(row["method"] == "legacy_unspecified" for row in history)
+    trusted_history = next(row for row in history if row["id"] == identifier)
+    assert trusted_history["verificationMethod"] == "legacy_unspecified"
+    assert trusted_history["status"] == "revoked"
+    normal_history = next(row for row in history if row["id"] != identifier)
+    assert normal_history["verificationMethod"] == "identity_reauthentication"
+
 
 def test_profile_mutations_history_and_views_share_lock_order(cards_db, monkeypatch):
     from hushh_mcp.services import one_wallet_card_service as module
