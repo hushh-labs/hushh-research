@@ -149,14 +149,14 @@ def build_push_message(
 
     webpush = None
     webpush_link = _webpush_link(request_url)
-    if show_alert and normalized_platform == "web":
+    if normalized_platform == "web" and (show_alert or is_sms_created):
         webpush = messaging.WebpushConfig(
             headers={
                 "Urgency": "high",
                 **({"TTL": str(alert_ttl)} if is_chat or is_sms_created else {}),
             },
             notification=None
-            if is_chat
+            if is_chat or not show_alert
             else messaging.WebpushNotification(
                 title=title,
                 body=body,
@@ -169,7 +169,7 @@ def build_push_message(
             ),
             fcm_options=(
                 messaging.WebpushFCMOptions(link=webpush_link)
-                if webpush_link and not is_chat
+                if webpush_link and not is_chat and show_alert
                 else None
             ),
         )
@@ -179,7 +179,7 @@ def build_push_message(
         android = messaging.AndroidConfig(priority="high")
     if normalized_platform == "android" and is_chat and data.get("recipient_key_id"):
         android = messaging.AndroidConfig(priority="high", ttl=timedelta(seconds=chat_ttl))
-    if normalized_platform == "android" and show_alert:
+    if normalized_platform == "android" and (show_alert or is_sms_created):
         android = android or messaging.AndroidConfig(
             priority="high",
             ttl=timedelta(seconds=alert_ttl) if is_chat or is_sms_created else None,
@@ -195,7 +195,9 @@ def build_push_message(
                 priority="max" if is_sms_emergency else None,
                 visibility="public" if is_sms_emergency else None,
                 vibrate_timings_millis=([0, 240, 120, 240, 120, 520] if is_sms_emergency else None),
-            ),
+            )
+            if show_alert
+            else None,
         )
 
     apns = None
@@ -245,6 +247,7 @@ def build_push_message(
             headers={
                 "apns-push-type": "alert" if chat_badge is not None else "background",
                 "apns-priority": "5",
+                **({"apns-expiration": str(sms_expiry)} if is_sms_created else {}),
             },
             payload=messaging.APNSPayload(
                 aps=messaging.Aps(

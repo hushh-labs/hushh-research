@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => {
     pathname: "/one/location",
     initializeFCM: vi.fn(),
     prepareFCMListeners: vi.fn(),
+    playEmergencySmsCue: vi.fn().mockResolvedValue({ played: true }),
+    stopEmergencySmsCue: vi.fn().mockResolvedValue(undefined),
     getState: vi.fn(),
     startTask: vi.fn(),
     completeTask: vi.fn(),
@@ -77,6 +79,18 @@ vi.mock("@capacitor/core", async (importOriginal) => {
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: mocks.auth.user }),
 }));
+
+vi.mock("@/lib/capacitor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/capacitor")>();
+  return {
+    ...actual,
+    HushhNotifications: {
+      ...actual.HushhNotifications,
+      playEmergencySmsCue: mocks.playEmergencySmsCue,
+      stopEmergencySmsCue: mocks.stopEmergencySmsCue,
+    },
+  };
+});
 
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
@@ -156,6 +170,7 @@ import {
   useConsentNotificationState,
 } from "@/components/consent/notification-provider";
 import { markOneLocationGrantUnwatched } from "@/lib/one-location/notifications";
+import * as locationNotifications from "@/lib/one-location/notifications";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import type { OneLocationState } from "@/lib/one-location/types";
 import { CacheService } from "@/lib/services/cache-service";
@@ -509,12 +524,52 @@ describe("global One Location Feed-first notification policy", () => {
     dispatchLocation({ type: "location_share_revoked", grant_id: data.grant_id });
     expect(dispatchLocation(data, { source: "service_worker" }).accepted).toBe(true);
     expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.playEmergencySmsCue).not.toHaveBeenCalled();
+  });
+
+  it.each(["ios", "android"])("uses a single native foreground cue on %s when Web Audio is unavailable, and stops it on revoke/sign-out", async (platform) => {
+    mocks.platform.native = true;
+    mocks.platform.value = platform;
+    const view = renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalled());
+    const now = Date.now();
+    const data = { type: "location_share_created", grant_id: "native-sms", share_kind: "sos" };
+    dispatchLocation(data);
+    dispatchLocation(data);
+    expect(mocks.playEmergencySmsCue).toHaveBeenCalledTimes(1);
+    const options = mocks.playEmergencySmsCue.mock.calls[0][0];
+    expect(options).toMatchObject({ userId: "recipient-user", grantId: "native-sms" });
+    expect(options.expiresAt).toBeGreaterThan(now);
+    expect(options.expiresAt).toBeLessThanOrEqual(Date.now() + 2000);
+    dispatchLocation({ type: "location_share_revoked", grant_id: data.grant_id });
+    expect(mocks.stopEmergencySmsCue).toHaveBeenCalledWith({ grantId: data.grant_id });
+    dispatchLocation(data);
+    dispatchLocation({ ...data, grant_id: "expired-native", expires_at: "2000-01-01T00:00:00Z" });
+    expect(mocks.playEmergencySmsCue).toHaveBeenCalledTimes(1);
+    mocks.auth.user = null;
+    view.rerender(<ConsentNotificationProvider><div>Signed out</div></ConsentNotificationProvider>);
+    expect(mocks.stopEmergencySmsCue).toHaveBeenCalledWith({});
+  });
+
+  it("does not duplicate successful native Web Audio with a bridge cue", async () => {
+    mocks.platform.native = true;
+    mocks.platform.value = "ios";
+    const sound = vi.spyOn(locationNotifications, "playOneLocationNotificationSound").mockReturnValue(true);
+    try {
+      await renderReady();
+      dispatchLocation({ type: "location_share_created", grant_id: "audible-native", share_kind: "sos" });
+      expect(sound).toHaveBeenCalledWith("sos", "audible-native");
+      expect(mocks.playEmergencySmsCue).not.toHaveBeenCalled();
+    } finally {
+      sound.mockRestore();
+    }
   });
 
   it.each(["2000-01-01T00:00:00Z", "invalid"])("acknowledges stale SMS silently without requesting an OS alarm: %s", async (expires_at) => {
     await renderReady();
     expect(dispatchLocation({ type: "location_share_created", grant_id: "stale-sms", share_kind: "sos", expires_at }, { source: "service_worker" }).accepted).toBe(true);
     expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.startTask).not.toHaveBeenCalled();
   });
 
   it("deduplicates and retains terminal precedence when browser storage is unavailable", async () => {

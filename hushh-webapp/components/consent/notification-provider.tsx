@@ -37,6 +37,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
+import { HushhNotifications } from "@/lib/capacitor";
 import { useVault } from "@/lib/vault/vault-context";
 import { type PendingConsent } from "@/lib/consent";
 import { ApiService } from "@/lib/services/api-service";
@@ -784,8 +785,12 @@ export function ConsentNotificationProvider({
 
   useEffect(() => {
     if (!user?.uid) return;
-    return installOneLocationNotificationSound();
-  }, [user?.uid]);
+    const release = installOneLocationNotificationSound();
+    return () => {
+      release();
+      if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({}).catch(() => undefined);
+    };
+  }, [isNativePlatform, user?.uid]);
 
   const showOneLocationShareNotification = useCallback(
     (
@@ -800,6 +805,16 @@ export function ConsentNotificationProvider({
           hasSeenOneLocationNotification(user.uid, `share-ended:${grantId}`) ||
           hasSeenOneLocationNotification(user.uid, `location_share_revoked:${grantId}`) ||
           hasSeenOneLocationNotification(user.uid, `location_share_expired:${grantId}`)) return true;
+      const isEmergencySms = isOneLocationSmsEmergencyAlert({
+        shareKind: data.share_kind,
+        notificationProfile: data.notification_profile,
+      });
+      const expiry = String(data.expires_at || "").trim();
+      if (isEmergencySms && expiry && (!Number.isFinite(Date.parse(expiry)) || Date.parse(expiry) <= Date.now())) {
+        rememberSmsPresentation(smsPresentationRef.current, grantId, "ended");
+        markOneLocationNotificationSeen(user.uid, `share-ended:${grantId}`);
+        return true;
+      }
       const ownerLabel = oneLocationOwnerLabel(data);
       recordOneLocationShareNotification({
         userId: user.uid,
@@ -815,16 +830,6 @@ export function ConsentNotificationProvider({
         requestId: grantId,
         notificationType: data.type || "location_share_created",
       });
-      const isEmergencySms = isOneLocationSmsEmergencyAlert({
-        shareKind: data.share_kind,
-        notificationProfile: data.notification_profile,
-      });
-      const expiry = String(data.expires_at || "").trim();
-      if (isEmergencySms && expiry && (!Number.isFinite(Date.parse(expiry)) || Date.parse(expiry) <= Date.now())) {
-        rememberSmsPresentation(smsPresentationRef.current, grantId, "ended");
-        markOneLocationNotificationSeen(user.uid, `share-ended:${grantId}`);
-        return true;
-      }
       // Routine notification cards are owned by Feed. The only foreground
       // popup retained here is the safety-critical Save My Soul alarm.
       if (options.present === false || !isEmergencySms ||
@@ -871,7 +876,16 @@ export function ConsentNotificationProvider({
         data.share_point_lat,
         data.share_point_lng,
       );
-      const sounded = playOneLocationNotificationSound("sos");
+      const sounded = playOneLocationNotificationSound("sos", grantId);
+      if (!sounded && isNativePlatform) {
+        // Invoke the existing bridge directly: no delayed import can outlive Stop.
+        // Native also checks owner, active host and a short execution deadline.
+        void HushhNotifications.playEmergencySmsCue({
+          userId: user.uid,
+          grantId,
+          expiresAt: Math.min(expiry ? Date.parse(expiry) : Infinity, Date.now() + 2000),
+        }).catch(() => undefined); // Older installed wrappers do not expose this method.
+      }
       rememberSmsPresentation(smsPresentationRef.current, grantId, sounded);
       if (!sounded) markOneLocationNotificationSeen(user.uid, fallbackId);
       markOneLocationNotificationSeen(user.uid, presentationId);
@@ -884,6 +898,8 @@ export function ConsentNotificationProvider({
           coordinatesFallback={emergencyCoordinatesFallback}
           onOpen={() => {
             markOneLocationGrantOpened(user.uid, grantId);
+            stopOneLocationNotificationSound(grantId);
+            if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({ grantId }).catch(() => undefined);
             toast.dismiss(toastKey);
             router.push(href, { scroll: false });
           }}
@@ -898,7 +914,7 @@ export function ConsentNotificationProvider({
       );
       return sounded;
     },
-    [router, user?.uid],
+    [isNativePlatform, router, user?.uid],
   );
 
   const showOneLocationWorkflowNotification = useCallback(
@@ -977,6 +993,8 @@ export function ConsentNotificationProvider({
         if (grantId) {
           rememberSmsPresentation(smsPresentationRef.current, grantId, "ended");
           markOneLocationNotificationSeen(user.uid, `share-ended:${grantId}`);
+          stopOneLocationNotificationSound(grantId);
+          if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({ grantId }).catch(() => undefined);
         }
         if (grantId && isOneLocationGrantUnwatched(user.uid, grantId)) {
           publishStateMutation();
@@ -1103,7 +1121,7 @@ export function ConsentNotificationProvider({
       });
       return true;
     },
-    [showOneLocationShareNotification, user?.uid],
+    [isNativePlatform, showOneLocationShareNotification, user?.uid],
   );
 
   useEffect(() => {
@@ -2211,6 +2229,8 @@ export function ConsentNotificationProvider({
         if (grant.status === "revoked" || grant.status === "expired") {
           rememberSmsPresentation(smsPresentationRef.current, grant.id, "ended");
           markOneLocationNotificationSeen(user.uid, `share-ended:${grant.id}`);
+          stopOneLocationNotificationSound(grant.id);
+          if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({ grantId: grant.id }).catch(() => undefined);
           toast.dismiss(`one-location-share:${grant.id}`);
         }
       }
@@ -2254,6 +2274,7 @@ export function ConsentNotificationProvider({
   }, [
     fcmInitStatus,
     getVaultOwnerToken,
+    isNativePlatform,
     isVaultUnlocked,
     showOneLocationWorkflowNotification,
     user?.uid,

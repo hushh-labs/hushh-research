@@ -9,6 +9,8 @@ import { WebPlugin } from "@capacitor/core";
 import type { HushhNotificationsPlugin } from "../index";
 
 export class HushhNotificationsWeb extends WebPlugin implements HushhNotificationsPlugin {
+  async playEmergencySmsCue(): Promise<{ played: boolean }> { return { played: false }; }
+  async stopEmergencySmsCue(): Promise<void> {}
   async setActiveChat(): Promise<void> {}
   async deletePushToken(): Promise<void> {
     throw this.unavailable("Native push token deletion is unavailable on web.");

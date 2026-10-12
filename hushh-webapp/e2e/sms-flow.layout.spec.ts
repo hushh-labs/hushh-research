@@ -129,6 +129,9 @@ test("Chrome autoplay blocking uses the system fallback, then a gesture primes l
     await evaluateWithoutGesture(`
       window.createdContexts = [];
       window.toneConnections = 0;
+      window.vibrationCalls = 0;
+      window.vibrationStopped = false;
+      Object.defineProperty(navigator, "vibrate", { configurable: true, value: (pattern) => { window.vibrationCalls++; window.vibrationStopped = pattern === 0; return true; } });
       const NativeAudio = window.AudioContext;
       window.AudioContext = class extends NativeAudio {
         constructor() { super(); window.createdContexts.push(this); }
@@ -146,10 +149,18 @@ test("Chrome autoplay blocking uses the system fallback, then a gesture primes l
     `);
     expect(await evaluateWithoutGesture(`SmsSound.playOneLocationNotificationSound("sos")`)).toBe(false);
     expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
+    expect(await evaluateWithoutGesture("window.vibrationCalls")).toBe(1);
+    await evaluateWithoutGesture("SmsSound.stopOneLocationNotificationSound()");
+    expect(await evaluateWithoutGesture("window.vibrationStopped")).toBe(true);
     await page.getByRole("button", { name: "Open One" }).click();
     await expect.poll(() => evaluateWithoutGesture("window.createdContexts[0].state")).toBe("running");
-    expect(await evaluateWithoutGesture(`SmsSound.playOneLocationNotificationSound("sos")`)).toBe(true);
+    expect(await evaluateWithoutGesture(`SmsSound.playOneLocationNotificationSound("sos", "active")`)).toBe(true);
     expect(await evaluateWithoutGesture("window.toneConnections")).toBe(1);
+    await evaluateWithoutGesture(`SmsSound.stopOneLocationNotificationSound("unrelated")`);
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(1);
+    await evaluateWithoutGesture(`SmsSound.stopOneLocationNotificationSound("active")`);
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
+    expect(await evaluateWithoutGesture(`SmsSound.playOneLocationNotificationSound("sos", "next")`)).toBe(true);
     // Hiding the app must disconnect synchronously, even if both native audio
     // time and JS timers freeze before the tone's scheduled end.
     await evaluateWithoutGesture(`window.dispatchEvent(new Event("pagehide"))`);

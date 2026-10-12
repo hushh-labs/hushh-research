@@ -1,8 +1,16 @@
 let context: AudioContext | null = null;
-const activeTones = new Set<() => void>();
+const activeTones = new Map<() => void, string | undefined>();
+let vibrationGrant: string | undefined;
+let vibrating = false;
 
-export function stopOneLocationNotificationSound(): void {
-  for (const stop of activeTones) stop();
+export function stopOneLocationNotificationSound(grantId?: string): void {
+  for (const [stop, owner] of activeTones) {
+    if (!grantId || owner === grantId) stop();
+  }
+  if (vibrating && (!grantId || vibrationGrant === grantId)) {
+    vibrating = false;
+    try { navigator.vibrate(0); } catch { /* Device policy. */ }
+  }
 }
 
 /** Prime the same context from an ordinary app gesture, before a push arrives. */
@@ -25,7 +33,8 @@ export function installOneLocationNotificationSound(): () => void {
     if (document.visibilityState !== "visible") stopOneLocationNotificationSound();
   };
   document.addEventListener("visibilitychange", onVisibility);
-  window.addEventListener("pagehide", stopOneLocationNotificationSound);
+  const onPageHide = () => stopOneLocationNotificationSound();
+  window.addEventListener("pagehide", onPageHide);
   const events = ["pointerdown", "touchend", "keydown"] as const;
   for (const event of events) {
     window.addEventListener(event, prepareOneLocationNotificationSound, { capture: true, passive: true });
@@ -33,7 +42,7 @@ export function installOneLocationNotificationSound(): () => void {
   return () => {
     stopOneLocationNotificationSound();
     document.removeEventListener("visibilitychange", onVisibility);
-    window.removeEventListener("pagehide", stopOneLocationNotificationSound);
+    window.removeEventListener("pagehide", onPageHide);
     for (const event of events) window.removeEventListener(event, prepareOneLocationNotificationSound, true);
     const previous = context;
     context = null;
@@ -42,11 +51,18 @@ export function installOneLocationNotificationSound(): () => void {
 }
 
 /** Never queue a tone in a suspended context: it could ring after Stop/unlock. */
-export function playOneLocationNotificationSound(shareKind?: string | null): boolean {
+export function playOneLocationNotificationSound(shareKind?: string | null, grantId?: string): boolean {
+  const emergency = String(shareKind || "").trim().toLowerCase() === "sos";
+  // Vibration remains available even when Web Audio is absent or suspended.
+  if (emergency && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+    try {
+      vibrating = navigator.vibrate([240, 120, 240, 120, 520]);
+      vibrationGrant = grantId;
+    } catch { /* Device policy. */ }
+  }
   prepareOneLocationNotificationSound();
   const audio = context;
   if (!audio || audio.state !== "running") return false;
-  const emergency = String(shareKind || "").trim().toLowerCase() === "sos";
   try {
     const tone = audio.createOscillator();
     const gain = audio.createGain();
@@ -84,13 +100,10 @@ export function playOneLocationNotificationSound(shareKind?: string | null): boo
     };
     // The wall-clock deadline also disconnects audio interrupted mid-tone.
     const deadline = setTimeout(cleanup, emergency ? 1000 : 300);
-    activeTones.add(cleanup);
+    activeTones.set(cleanup, grantId);
     tone.onended = cleanup;
     tone.start(start);
     tone.stop(start + (emergency ? 0.94 : 0.24));
-    if (emergency && typeof navigator.vibrate === "function") {
-      navigator.vibrate([240, 120, 240, 120, 520]);
-    }
     return true;
   } catch {
     return false;

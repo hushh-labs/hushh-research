@@ -769,3 +769,10 @@ def test_expired_sms_is_silent_on_every_transport(deadline):
         if platform == "ios":
             assert "sound" not in wire["apns"]["payload"]["aps"]
             assert "alert" not in wire["apns"]["payload"]["aps"]
+            assert int(wire["apns"]["headers"]["apns-expiration"]) <= 946684800
+        elif platform == "android":
+            assert wire["android"]["ttl"] == "0s"
+            assert "notification" not in wire["android"]
+        else:
+            assert wire["webpush"]["headers"]["TTL"] == "0"
+            assert "notification" not in wire["webpush"]
