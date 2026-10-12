@@ -31,6 +31,7 @@ def test_service_only_preflight_accepts_only_the_cutover_delta(
         lambda *_args: "\n".join(
             [
                 "consent-protocol/api/routes/one/agent_chat.py",
+                "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",
                 "consent-protocol/hushh_mcp/runtime_providers/factory.py",
                 "consent-protocol/hushh_mcp/services/information_chat_service.py",
                 "consent-protocol/hushh_mcp/services/location_chat_service.py",
@@ -38,7 +39,7 @@ def test_service_only_preflight_accepts_only_the_cutover_delta(
             ]
         ),
     )
-    assert len(module.release_paths("a" * 40, "b" * 40)) == 5
+    assert len(module.release_paths("a" * 40, "b" * 40)) == 6
     command.assert_called_once_with("git", "merge-base", "--is-ancestor", "a" * 40, "b" * 40)
 
     monkeypatch.setattr(

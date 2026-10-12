@@ -38,6 +38,7 @@ ALLOWED_PATHS = frozenset(
         ".codex/skills/repo-operations/references/admin-release-sop.md",
         "consent-protocol/api/routes/one/agent_chat.py",
         "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+        "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",
         "consent-protocol/hushh_mcp/runtime_providers/__init__.py",
         "consent-protocol/hushh_mcp/runtime_providers/factory.py",
         "consent-protocol/hushh_mcp/services/information_chat_service.py",
