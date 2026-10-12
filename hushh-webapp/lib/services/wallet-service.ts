@@ -14,7 +14,7 @@
  */
 
 import {
-  CARD_BRANDS,
+  isCardNetworkId,
   normalizePan,
   validateCardForRegion,
   type CardBrand,
@@ -71,7 +71,7 @@ export interface WalletNetworkResult {
 
 function normalizedNetwork(value: unknown): CardBrand {
   const key = String(value ?? "").trim().toLowerCase() as CardBrand;
-  return CARD_BRANDS.includes(key) ? key : "other";
+  return isCardNetworkId(key) ? key : "other";
 }
 
 function networkSessionGuard(context: WalletNetworkContext, signal?: AbortSignal): () => void {
@@ -158,7 +158,8 @@ export class WalletService {
   static async supportedCardNetworks(context: WalletNetworkContext, signal?: AbortSignal): Promise<CardBrand[]> {
     const data = await this.networkRequest(context, "", signal);
     if (!isRecord(data) || !Array.isArray(data.networks)) throw new Error("Network identification unavailable.");
-    return data.networks.filter((value): value is CardBrand => typeof value === "string" && CARD_BRANDS.includes(value as CardBrand));
+    if (!data.networks.length || !data.networks.every(isCardNetworkId)) throw new Error("Network identification unavailable.");
+    return [...new Set(data.networks)];
   }
 
   static async resolveCardNetwork(context: WalletNetworkContext, input: WalletNetworkInput, signal?: AbortSignal): Promise<WalletNetworkResult> {
@@ -166,7 +167,7 @@ export class WalletService {
     if (!/^[0-9]{6}$/.test(input.iinPrefix) || !Number.isInteger(input.panLength) || input.panLength < 13 || input.panLength > 19) throw new Error("Network identification unavailable.");
     const payload = { iinPrefix: input.iinPrefix, panLength: input.panLength, ...(input.selectedNetwork ? { selectedNetwork: input.selectedNetwork } : {}) };
     const data = await this.networkRequest(context, "/resolve", signal, payload);
-    if (!isRecord(data)) throw new Error("Network identification unavailable.");
+    if (!isRecord(data) || typeof data.network !== "string" || !isCardNetworkId(data.network.trim().toLowerCase())) throw new Error("Network identification unavailable.");
     const source = data.source;
     if (!["prefix", "owner_selected", "ambiguous", "unknown"].includes(String(source))) throw new Error("Network identification unavailable.");
     return { network: normalizedNetwork(data.network), source: source as WalletNetworkResult["source"], candidates: Array.isArray(data.candidates) ? data.candidates.map(normalizedNetwork).filter(value => value !== "other") : [] };

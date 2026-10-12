@@ -77,10 +77,17 @@ describe("validateCardForRegion", () => {
     expect(validateCardForRegion({ ...base, pan: "0000000000000000" }).valid).toBe(false);
   });
 
-  it("rejects malformed names and unsupported runtime network choices", () => {
+  it("rejects malformed names and network identifiers", () => {
     expect(validateCardForRegion({ ...base, cardholderName: "Test\u0000Owner" }).errors).toContain("cardholder_name_invalid");
     expect(validateCardForRegion({ ...base, cardholderName: "A".repeat(81) }).errors).toContain("cardholder_name_invalid");
-    expect(validateCardForRegion({ ...base, brand: "unknown" as never }).errors).toContain("brand_invalid");
+    expect(validateCardForRegion({ ...base, brand: "invalid/network" }).errors).toContain("brand_invalid");
+  });
+
+  it("retains new backend network IDs without guessing from the PAN and keeps generic credential checks", () => {
+    expect(validateCardForRegion({ ...base, brand: "future_network", cvv: "1234" })).toMatchObject({ valid: true, brand: "future_network" });
+    expect(validateCardForRegion({ ...base, brand: "future_network", pan: "4111111111111112" }).errors).toContain("pan_checksum_invalid");
+    expect(validateCardForRegion({ ...base, brand: "future_network", cvv: "12" }).errors).toContain("cvv_invalid");
+    expect(validateCardForRegion({ ...base, brand: undefined }).brand).toBe("other");
   });
 
   it("rejects a region-locked brand outside its home market", () => {

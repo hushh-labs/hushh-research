@@ -17,7 +17,14 @@ export const CARD_BRANDS = [
   "unionpay", "rupay", "mir", "elo", "verve", "other",
 ] as const;
 
-export type CardBrand = (typeof CARD_BRANDS)[number];
+export type KnownCardBrand = (typeof CARD_BRANDS)[number];
+// The backend owns supported networks. This list only specializes credential
+// validation for networks this client knows; it must not classify a PAN.
+export type CardBrand = string;
+
+export function isCardNetworkId(value: unknown): value is CardBrand {
+  return typeof value === "string" && /^[a-z][a-z0-9_-]{0,39}$/.test(value);
+}
 
 export const REGION_LOCKED_BRANDS: Readonly<Partial<Record<CardBrand, readonly string[]>>> = {
   rupay: ["IN"],
@@ -26,7 +33,7 @@ export const REGION_LOCKED_BRANDS: Readonly<Partial<Record<CardBrand, readonly s
   verve: ["NG", "GH"],
 };
 
-const BRAND_PAN_LENGTHS: Readonly<Record<CardBrand, readonly number[]>> = {
+const BRAND_PAN_LENGTHS: Readonly<Record<KnownCardBrand, readonly number[]>> = {
   visa: [13, 16, 19],
   mastercard: [16],
   amex: [15],
@@ -88,8 +95,9 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
   const errors: string[] = [];
   const digits = normalizePan(input.pan);
   const selectedBrand = input.brand;
-  const validSelection = selectedBrand === undefined || CARD_BRANDS.includes(selectedBrand);
+  const validSelection = selectedBrand === undefined || isCardNetworkId(selectedBrand);
   const brand = validSelection ? (selectedBrand ?? "other") : "other";
+  const credentialBrand = Object.hasOwn(BRAND_PAN_LENGTHS, brand) ? brand as KnownCardBrand : "other";
   const cardholderName = String(input.cardholderName ?? "").trim();
   if (!validSelection) errors.push("brand_invalid");
   if (!cardholderName) {
@@ -105,14 +113,14 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
     errors.push("pan_checksum_invalid");
   }
 
-  if (/^\d{13,19}$/.test(digits) && !BRAND_PAN_LENGTHS[brand].includes(digits.length)) {
+  if (/^\d{13,19}$/.test(digits) && !BRAND_PAN_LENGTHS[credentialBrand].includes(digits.length)) {
     errors.push("pan_length_invalid_for_brand");
   }
 
   if (region && !/^[A-Z]{2}$/.test(region)) {
     errors.push("issuing_region_invalid");
   } else if (region) {
-    const locked = REGION_LOCKED_BRANDS[brand];
+    const locked = Object.hasOwn(REGION_LOCKED_BRANDS, brand) ? REGION_LOCKED_BRANDS[brand] : undefined;
     if (locked && !locked.includes(region)) {
       errors.push("brand_region_mismatch");
     }
@@ -121,7 +129,7 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
   if (!input.cvv?.trim()) {
     errors.push("cvv_required");
   } else {
-    const cvvPattern = brand === "amex" ? /^\d{4}$/ : brand === "other" ? /^\d{3,4}$/ : /^\d{3}$/;
+    const cvvPattern = credentialBrand === "amex" ? /^\d{4}$/ : credentialBrand === "other" ? /^\d{3,4}$/ : /^\d{3}$/;
     if (!cvvPattern.test(input.cvv)) errors.push("cvv_invalid");
   }
 

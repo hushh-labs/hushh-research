@@ -331,6 +331,18 @@ Requests and saves are fenced by the existing validated account generation and
 vault session epoch; signing out or locking the vault invalidates delayed replies
 and prevents their eventual encrypted publication.
 
+The frontend `CARD_BRANDS` list names networks with specialized local credential
+rules; it is not a supported-network allowlist or a prefix classifier.
+`BRAND_PAN_LENGTHS` and `REGION_LOCKED_BRANDS` validate an already identified or
+selected network. The dropdown uses the backend catalogue without filtering
+against that list. New backend network IDs survive resolution, encrypted storage
+and existing-card reads, with generic credential checks and neutral artwork
+until specialized client rules or approved artwork are available. Network-specific
+credential rules for future networks still require a client update. Malformed
+catalogue entries fail the request instead of silently disappearing.
+The form distinguishes owner selection from prefix identification and explains
+that neither verifies the card or issuing bank. No issuer lookup is performed.
+
 Visa previously lacked an official asset in the mark inventory, so its compact
 mark showed a generic icon. The existing fallback cell now prints `VISA` for
 recognition. No new official artwork or network partnership claim is introduced.

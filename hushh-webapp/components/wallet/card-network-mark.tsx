@@ -22,7 +22,7 @@ import Image from "next/image";
 import { CreditCard } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
-import type { CardBrand } from "@/lib/wallet/card-validation";
+import { isCardNetworkId, type KnownCardBrand as CardBrand } from "@/lib/wallet/card-validation";
 
 type NetworkStyle = {
   /** Short enough for a lettermark tile. */
@@ -92,6 +92,9 @@ function normalizeBrand(brand: string | null | undefined): CardBrand {
 
 /** The full name of a network, for prose and assistive technology. */
 export function cardNetworkLabel(brand: string | null | undefined): string {
+  const key = String(brand ?? "").trim().toLowerCase();
+  // Display a newly supported backend ID without inventing network artwork.
+  if (isCardNetworkId(key) && !Object.hasOwn(NETWORKS, key)) return key.replace(/[_-]/g, " ").toUpperCase();
   return NETWORKS[normalizeBrand(brand)].label;
 }
 

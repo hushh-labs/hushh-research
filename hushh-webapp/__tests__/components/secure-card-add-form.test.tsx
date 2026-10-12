@@ -32,7 +32,7 @@ beforeEach(() => {
     networkApi.resolve.mockReset();
     networkApi.supported.mockReset();
     networkApi.supported.mockResolvedValue(["visa", "mastercard", "amex", "discover", "rupay", "other"]);
-    networkApi.resolve.mockImplementation(async (_context, input) => ({ network: input.selectedNetwork || "visa", source: "prefix", candidates: [] }));
+    networkApi.resolve.mockImplementation(async (_context, input) => ({ network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }));
 });
 
 describe("Secure manual card entry", () => {
@@ -199,4 +199,14 @@ it("hides the previous network when the owner authorization changes", async () =
   await waitFor(() => expect(networkApi.resolve).toHaveBeenCalledTimes(2));
   await act(async () => finish({ network: "mastercard", source: "prefix", candidates: [] }));
   expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect · Mastercard");
+});
+
+it("offers a new backend network and distinguishes owner selection from identification", async () => {
+  networkApi.supported.mockResolvedValue(["visa", "future_network", "other"]);
+  render(<SecureCardAddForm onSubmit={vi.fn()} />);
+  fillRequired();
+  expect(await screen.findByText("Network identified from the card prefix. This does not verify the card or its issuer.")).toBeInTheDocument();
+  fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: "FUTURE NETWORK" }));
+  expect(await screen.findByText("You selected this network. This does not verify the card or its issuer.")).toBeInTheDocument();
 });

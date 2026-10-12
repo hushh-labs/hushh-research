@@ -274,6 +274,19 @@ describe("WalletService", () => {
 });
 
 describe("backend network integration", () => {
+it("preserves newly supported backend networks in options, resolution, storage and existing records", async () => {
+ networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ networks: ["visa", "future_network", "other"] })));
+ expect(await WalletService.supportedCardNetworks(CONTEXT)).toEqual(["visa", "future_network", "other"]);
+ networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ network: "future_network", source: "owner_selected", candidates: [] })));
+ const saved = await WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", brand: "future_network", cardholderName: "Test Owner", cvv: "123", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "test" });
+ expect(saved.summary.brand).toBe("future_network");
+ mockLoadDomainData.mockResolvedValueOnce(mockStoreWalletDomain.mock.calls[0][0].applyMutation({}));
+ expect((await WalletService.listCardSummaries(CONTEXT))[0].brand).toBe("future_network");
+});
+it("rejects malformed backend catalogue entries instead of silently hiding options", async () => {
+ networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ networks: ["visa", "invalid/network"] })));
+ await expect(WalletService.supportedCardNetworks(CONTEXT)).rejects.toThrow("Network identification unavailable");
+});
  beforeEach(() => { vi.clearAllMocks(); networkApi.fetch.mockReset(); mockStoreWalletDomain.mockResolvedValue({ success: true }); mockLoadDomainData.mockResolvedValue(DOMAIN_DATA); });
 it("requests only issuer metadata and never card credentials", async () => {
  networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })));

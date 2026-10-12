@@ -110,7 +110,9 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       ? "This number matches more than one network. Choose the network printed on your card."
       : currentReply.result.source === "unknown"
         ? "Network not recognized. Choose the network printed on your card, or save it as Card."
-        : null;
+        : currentReply.result.source === "owner_selected"
+          ? "You selected this network. This does not verify the card or its issuer."
+          : "Network identified from the card prefix. This does not verify the card or its issuer.";
   useEffect(() => {
     const current = contextRef.current;
     const controller = new AbortController();
