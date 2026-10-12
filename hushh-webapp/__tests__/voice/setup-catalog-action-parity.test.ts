@@ -44,7 +44,6 @@ describe("setup catalog voice parity", () => {
     ]);
     const visibleSetupActionIds = new Set([
       "setup.open_cloud",
-      "setup.open_connections",
       ...ONE_SETUP_CAPABILITIES.map((capability) => capability.setupActionId),
     ]);
     expect(
@@ -52,8 +51,7 @@ describe("setup catalog voice parity", () => {
         .filter((action) => visibleSetupActionIds.has(action.action_id))
         .map((action) => mailDisplayLabel(action.label)),
     ).toEqual([
-      "Set up your cloud",
-      "Choose your AI",
+      "Set up your private agent",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
     expect(
@@ -68,6 +66,11 @@ describe("setup catalog voice parity", () => {
       path: "route",
       target: "/one/setup/connections",
     });
+    const compatibilityAction = hubContract.actions.find(
+      (action) => action.action_id === "setup.open_connections",
+    );
+    expect(compatibilityAction?.reachability.hidden_navigable).toBe(true);
+    expect(compatibilityAction?.control_ids).toEqual([]);
     for (const capability of ONE_SETUP_CAPABILITIES) {
       const action = actions.get(capability.setupActionId);
       expect(action, capability.id).toBeDefined();
@@ -86,7 +89,6 @@ describe("setup catalog voice parity", () => {
     );
     const orderedHubActionIds = [
       "setup.open_cloud",
-      "setup.open_connections",
       ...orderedActionIds,
     ];
     expect(

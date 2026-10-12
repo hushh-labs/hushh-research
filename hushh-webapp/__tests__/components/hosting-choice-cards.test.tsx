@@ -4,10 +4,11 @@
  * the server write belongs to the one explicit button under the cards.
  */
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiService } from "@/lib/services/api-service";
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({ user: { uid: "uid-first-run" }, loading: false }),
@@ -45,6 +46,9 @@ vi.mock("@/lib/services/api-service", () => ({
 vi.mock("@/components/connections/byoc-cloud-card", () => ({
   ByocCloudCard: () => <div data-testid="byoc-cloud-card">naming form</div>,
 }));
+vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
+  GeminiRuntimeConfigurationPage: () => <section aria-label="AI access" />,
+}));
 
 vi.mock("@/components/onboarding/setup/setup-completion-footer", () => ({
   SetupCompletionFooter: () => null,
@@ -70,6 +74,11 @@ async function renderSharedDefault() {
 describe("Hosting choice cards on the cloud step", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    publishValidatedAuthSessionOwner("uid-first-run");
+  });
+  afterEach(() => {
+    publishValidatedAuthSessionOwner(null);
     vi.unstubAllEnvs();
   });
 

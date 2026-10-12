@@ -91,7 +91,9 @@
           "one_setup"
         ],
         "hidden_navigable": true,
-        "navigation_prerequisites": []
+        "navigation_prerequisites": [
+          "Navigate to the standalone AI access setup page for the compatibility entry; the normal setup journey configures AI within /one/setup/cloud."
+        ]
       },
       "guard_ids": [
         "auth_signed_in"

@@ -23,11 +23,38 @@ Checked-in code implements a USD funded-balance and owner tariff lane for existi
 consented scope requests. Source checks, focused contracts and isolated local
 PostgreSQL acceptance establish the bounded behavior below; they do not establish Stripe acceptance, connected-account readiness,
 complete Sandbox/live financial acceptance, native browser returns, or legal/tax
-approval. Signed capital settlement and shared Dev reconciliation are separately
-verified below; they do not prove a consumer purchase or payout.
+approval. Signed capital and the first requester funding settlement on shared Dev
+are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
+- At `06:21:29Z`, the counterpart's explicitly confirmed $0.50 funding completed
+  through normal headless hosted Checkout. The signed event, expected payer and
+  operation, test-mode account pin, exact amount/currency, Checkout, charge and
+  balance-transaction receipts agree. Available balance is 50 cents/50 Hussh
+  coins, with one funding journal entry and no unbalanced journals. Stripe's
+  observed processing fee is 31 cents and its 19-cent net backing remains
+  pending. Gross funding principal remains refundable; purchase and withdrawal
+  counts are zero. Neither the redirect nor caller-supplied evidence proved
+  settlement. The existing $5 capital Topup was not repeated.
+- Checkout returned to the exact Dev origin with matching opaque attempt
+  parameters, but the operator-issued reviewer bootstrap entered `auth_error`
+  after the document return. Separate canonical cold authentication/unlock and
+  normal Memory-to-Account navigation passed without a new funding attempt.
+  This proves cold recovery; warm hosted-return continuity remains unverified.
+  The next $10 funding amount is prepared for human review and has not been
+  submitted.
+- The merged source `a0c76dccb3f9` passed the complete local core in 2,493 seconds.
+  [Hosted CI 38211634206](https://github.com/hushh-labs/hushh-research/actions/runs/38211634206)
+  passed protocol, integration, web core, targeted browser/node contracts,
+  Android and security/governance. Its iOS dependency-cache collision passed on
+  a targeted rerun; full-suite shards 1/3 and 3/3 remain failed. Source review
+  identified stale setup fixtures/expectations and a hidden compatibility
+  action missing navigation-prerequisite metadata. The nearest 40 regression
+  cases pass after correction, with all 438 Back cases passing during normal
+  contract generation. The corrected combined candidate still requires core,
+  exact-source hosted CI and governed Dev deployment. Current traffic is
+  preserved until those gates pass.
 - Full application CI passed all 23 jobs at `1aeb1b4e83b6` in
   [38198263668](https://github.com/hushh-labs/hushh-research/actions/runs/38198263668).
   Earlier Dev application

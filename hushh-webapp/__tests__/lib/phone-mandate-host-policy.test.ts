@@ -60,11 +60,11 @@ it.each([false, true, null])("rechecks unknown identity during explicit reviewer
   refreshIdentity.mockClear();
   refreshIdentity.mockResolvedValue(verified === null ? null : { phone_verified: verified });
   const request = { userId: "synthetic-owner", hostname: "preview.example.com" };
-  await expect(PostAuthRouteService.resolveAfterLogin(request)).resolves.toBe("/one/setup/connections");
+  await expect(PostAuthRouteService.resolveAfterLogin(request)).resolves.toBe("/one/setup/cloud");
   expect(refreshIdentity).not.toHaveBeenCalled();
   const explicit = PostAuthRouteService.resolveAfterLogin({ ...request, allowNativeRouteAuditBypass: false });
   if (verified === null) await expect(explicit).rejects.toThrow("Unable to verify account onboarding");
-  else await expect(explicit).resolves.toBe(verified ? "/one/setup/connections" : "/register-phone?redirect=%2Fone%2Fsetup%2Fconnections");
+  else await expect(explicit).resolves.toBe(verified ? "/one/setup/cloud" : "/register-phone?redirect=%2Fone%2Fsetup%2Fcloud");
   expect(refreshIdentity).toHaveBeenCalledWith("synthetic-owner", "synthetic-token");
 });
 
