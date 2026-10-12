@@ -271,7 +271,17 @@ class ConsentCenterService:
         except Exception as error:
             if getattr(self, "_require_complete", False):
                 raise
-            logger.warning("answer_center.unavailable type=%s", type(error).__name__)
+            # Name the person and the cause, like the marketplace sibling above.
+            # Logging only the exception class left a dropped Request scope row
+            # indistinguishable from "this person has none": the owner's
+            # Consent Center read empty and every downstream metric read
+            # healthy. A substitution nobody can observe is the failure mode
+            # the semantic-boundary contract forbids.
+            logger.warning(
+                "answer_center.unavailable user=%s error=%s",
+                user_id,
+                error,
+            )
             return marketplace
         return {key: [*marketplace.get(key, []), *answers.get(key, [])] for key in marketplace}
 
