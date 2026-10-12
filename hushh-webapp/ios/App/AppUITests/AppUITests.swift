@@ -922,16 +922,19 @@ final class AppUITests: XCTestCase {
                 if cycle == 0 {
                     let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "native-history-actions-")).firstMatch
                     guard waitForAdmittedControl(actions) else { XCTFail("COHERENT_HISTORY_ACTION_FIXTURE_MISSING"); return }
-                    let row = app.buttons[actions.identifier.replacingOccurrences(of: "native-history-actions-", with: "native-history-row-")].firstMatch
-                    let title = row.staticTexts.firstMatch
-                    guard row.exists, title.exists else { XCTFail("COHERENT_HISTORY_ROW_GEOMETRY_UNAVAILABLE"); return }
-                    XCTAssertEqual(row.staticTexts.count, 1, "History age must share title flow, not add a second label/padding track")
+                    let rowIdentifier = actions.identifier.replacingOccurrences(of: "native-history-actions-", with: "native-history-row-")
+                    let row = app.buttons[rowIdentifier].firstMatch
+                    guard waitForAdmittedControl(row) else { XCTFail("COHERENT_HISTORY_ROW_GEOMETRY_UNAVAILABLE"); return }
+                    // SwiftUI combines this label into the Button's AX node.
+                    // Actual text centering and inline age are measured on the
+                    // same shared renderer in NativeSupportTests, not inferred
+                    // from inaccessible text descendants or the hit rectangle.
                     XCTAssertGreaterThanOrEqual(row.frame.height, 44)
-                    XCTAssertEqual(title.frame.midY, row.frame.midY, accuracy: 1, "History title must be centered in its hit region")
-                    XCTAssertLessThanOrEqual(title.frame.maxX, actions.frame.minX + 1, "History text must not collide with More")
+                    XCTAssertEqual(row.frame.midY, actions.frame.midY, accuracy: 1)
+                    XCTAssertLessThanOrEqual(row.frame.maxX, actions.frame.minX + 1, "History selection must not collide with More")
                     XCTAssertEqual(actions.frame.width, 44, accuracy: 1)
                     XCTAssertEqual(actions.frame.height, 44, accuracy: 1)
-                    print("COHERENT_HISTORY_ROW_GEOMETRY centered=true inline_age=true hit_region=true")
+                    print("COHERENT_HISTORY_ROW_HIT_REGIONS independent=true aligned=true minimum=true")
                     actions.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
                     let rename = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Rename")).firstMatch
                     print("COHERENT_HISTORY_MENU rename=\(rename.exists) close_hittable=\(close.isHittable)")
@@ -2687,10 +2690,11 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(profileClose.exists && profileClose.isHittable)
         // Drag the unoccupied middle of the owned Profile header, not a row
         // action, field, photo, horizontal rail or an inferred DOM control.
-        let origin = webView.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
-        let headerY = profileClose.frame.midY - webView.frame.minY
-        let pullStart = origin.withOffset(CGVector(dx: webView.frame.width * 0.40, dy: headerY))
-        let pullEnd = origin.withOffset(CGVector(dx: webView.frame.width * 0.86, dy: headerY + 2))
+        let pane = try admittedProfilePaneFrame(app, web: webView, close: profileClose)
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let headerY = profileClose.frame.midY - app.frame.minY
+        let pullStart = origin.withOffset(CGVector(dx: pane.minX + pane.width * 0.35 - app.frame.minX, dy: headerY))
+        let pullEnd = origin.withOffset(CGVector(dx: pane.maxX - 8 - app.frame.minX, dy: headerY + 2))
         let hostFrame = webView.frame
         pullStart.press(forDuration: 0.05, thenDragTo: pullEnd)
         let retired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: profileClose)
@@ -3214,6 +3218,19 @@ final class AppUITests: XCTestCase {
         }
     }
 
+    private func admittedProfilePaneFrame(_ app: XCUIApplication, web: XCUIElement, close: XCUIElement) throws -> CGRect {
+        // A tablet sheet occupies only the right-hand portion of the WebView.
+        // Its authored dialog, not the viewport, owns gestures and scrolling.
+        let pane = web.otherElements["Profile"].firstMatch
+        XCTAssertTrue(pane.waitForExistence(timeout: 10), "PROFILE_PANE_FRAME_UNAVAILABLE")
+        let frame = pane.frame.intersection(web.frame).intersection(app.frame)
+        let closeCenter = CGPoint(x: close.frame.midX, y: close.frame.midY)
+        guard !frame.isNull, frame.width >= 200, frame.height > 100, frame.contains(closeCenter) else {
+            XCTFail("PROFILE_PANE_FRAME_INVALID"); throw NSError(domain: "ProfilePaneFixture", code: 1)
+        }
+        return frame
+    }
+
     func testLocalSessionProfileBackAcrossTheSettingsStack() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in shared Profile Back and fallback regression")
@@ -3251,6 +3268,7 @@ final class AppUITests: XCTestCase {
             open.tap()
         }
         XCTAssertTrue(close.waitForExistence(timeout: 10), "PROFILE_CLOSE_NOT_ADMITTED")
+        let paneFrame = try admittedProfilePaneFrame(app, web: web, close: close)
         func row(_ label: String) -> XCUIElement {
             web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
         }
@@ -3259,7 +3277,7 @@ final class AppUITests: XCTestCase {
             // intentionally isolated native seat in the compositor. Keep the
             // whole gesture in the Profile reading region below its header.
             let origin = app.coordinate(withNormalizedOffset: .zero)
-            let x = web.frame.midX - app.frame.minX
+            let x = paneFrame.midX - app.frame.minX
             let lower = origin.withOffset(CGVector(dx: x, dy: app.frame.midY - app.frame.minY))
             let upper = origin.withOffset(CGVector(dx: x, dy: close.frame.maxY + 44 - app.frame.minY))
             (up ? lower : upper).press(forDuration: 0.01, thenDragTo: up ? upper : lower)

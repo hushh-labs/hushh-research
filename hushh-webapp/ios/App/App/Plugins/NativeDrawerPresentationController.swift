@@ -15,7 +15,18 @@ final class NativeDrawerModel: ObservableObject {
     var choose: ((String, String?, String?) -> Bool)?
     var close: (() -> Void)?
     private let menus = NSHashTable<NativeDrawerMenuControl>.weakObjects()
+    private var retiringMenus = [ObjectIdentifier: NativeDrawerMenuControl]()
     func registerMenu(_ menu: NativeDrawerMenuControl) { menus.add(menu) }
+    func retireMenu(_ menu: NativeDrawerMenuControl) {
+        // Filtering/removing a List row can dismantle its trigger while UIKit
+        // still presents its menu. Retain that owner until actual disappearance;
+        // privacy/drawer retirement must still be able to find and dismiss it.
+        let id = ObjectIdentifier(menu)
+        retiringMenus[id] = menu
+        menu.isEnabled = false
+        menu.dismissOwnedMenu { [weak self] in self?.retiringMenus.removeValue(forKey: id) }
+        menu.menu = nil
+    }
     func dismissMenus(completion: @escaping () -> Void = {}) {
         let active = menus.allObjects.filter { $0.menuVisible }
         guard !active.isEmpty else { completion(); return }
@@ -348,8 +359,40 @@ private final class NativeDrawerHitSurface: UIView {
     }
 }
 
+// An injected, public-fixture-only layout sink measures rendered Text rather
+// than relying on SwiftUI's combined Button accessibility implementation.
+// Product hosts never inject it; no private row or drag-frame telemetry exists.
+struct NativeHistoryRowLayout: Equatable {
+    let title: CGRect
+    let row: CGRect
+    let more: CGRect
+}
+
+enum NativeHistoryLayoutPart: Hashable { case title, row, more }
+private struct NativeHistoryLayoutMeasurement: ViewModifier {
+    let observe: ((String, NativeHistoryLayoutPart, CGRect) -> Void)?
+    let row: String
+    let part: NativeHistoryLayoutPart
+    @ViewBuilder func body(content: Content) -> some View {
+        if let observe {
+            // List cells own separate hosting boundaries. Measure locally in
+            // the shared window space instead of bubbling preferences through
+            // List, which need not forward the cell's anchors to its parent.
+            content.background {
+                GeometryReader { geometry in
+                    let frame = geometry.frame(in: .global)
+                    Color.clear.allowsHitTesting(false).accessibilityHidden(true)
+                        .onAppear { observe(row, part, frame) }
+                        .onChange(of: frame) { _, next in observe(row, part, next) }
+                }
+            }
+        } else { content }
+    }
+}
+
 struct NativeDrawerContent: View {
     @ObservedObject var model: NativeDrawerModel
+    var historyLayoutObserver: ((String, NativeHistoryLayoutPart, CGRect) -> Void)? = nil
     @ScaledMetric(relativeTo: .body) private var profileRowFont: CGFloat = 16
     @ScaledMetric(relativeTo: .subheadline) private var profileGroupFont: CGFloat = 14
     @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 22
@@ -396,6 +439,7 @@ struct NativeDrawerContent: View {
                                     // column nor a second vertical padding track.
                                     Text("\(Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary))\(historyAge(row.detail))")
                                         .font(.system(size: historyTitleFont)).fixedSize(horizontal: false, vertical: true)
+                                        .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .title))
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     Spacer(minLength: 8)
                                     if row.pending == true { ProgressView() }
@@ -404,8 +448,10 @@ struct NativeDrawerContent: View {
                             }.disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
                                 .accessibilityAddTraits(row.selected == true ? .isSelected : [])
                                 .accessibilityIdentifier("native-\(model.projection.family)-row-\(row.id)")
+                                .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .row))
                             if row.renameActionId != nil || row.deleteActionId != nil {
                                 NativeDrawerRowMenu(model: model, row: row).frame(width: 44, height: 44)
+                                    .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .more))
                             }
                           }
                           // Automatic List buttons can invoke the row as well
@@ -599,12 +645,16 @@ struct NativeDrawerContent: View {
     }
 }
 
-private struct NativeDrawerRowMenu: UIViewRepresentable {
+struct NativeDrawerRowMenu: UIViewRepresentable {
     // A reference-only child can retain its old UIAction closures when the
     // row is unchanged but the applied projection advances. Observe the
     // presentation so menu bindings refresh without weakening the fence.
     @ObservedObject var model: NativeDrawerModel
     let row: NativeDrawerRow
+    func makeCoordinator() -> NativeDrawerModel { model }
+    static func dismantleUIView(_ button: NativeDrawerMenuControl, coordinator: NativeDrawerModel) {
+        coordinator.retireMenu(button)
+    }
     func makeUIView(context: Context) -> NativeDrawerMenuControl {
         let button = NativeDrawerMenuControl(type: .system)
         button.setImage(UIImage(systemName: "ellipsis"), for: .normal)

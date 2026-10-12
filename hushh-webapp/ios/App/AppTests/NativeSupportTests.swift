@@ -22,13 +22,68 @@ final class NativeSupportTests: XCTestCase {
 
     private func privateDrawerState(family: String = "profile", open: Bool = true,
                                    owner: String = "opaque-owner", revision: Int = 1, update: Int = 1,
-                                   appearance: String = "light", privacy: Int = 0, enabled: Bool = true) -> NativeDrawerProjection {
+                                   appearance: String = "light", privacy: Int = 0, enabled: Bool = true,
+                                   sampleRow: NativeDrawerRow? = nil) -> NativeDrawerProjection {
         NativeDrawerProjection(documentId: "public-document", ownerEpoch: owner, ownerGeneration: revision, revision: revision, family: family,
             updateSequence: update, privacyGeneration: privacy, appearance: appearance, accentHex: "#007aff", foregroundHex: "#000000",
             title: "Public sample", sections: [NativeDrawerSection(id: "settings", title: "Settings",
-                rows: [NativeDrawerRow(id: "row-handle", label: "Appearance", detail: nil, symbol: "circle.lefthalf.filled",
+                rows: [sampleRow ?? NativeDrawerRow(id: "row-handle", label: "Appearance", detail: nil, symbol: "circle.lefthalf.filled",
                     enabled: true, destructive: nil, selected: nil, pending: nil)])],
             open: open, enabled: enabled, backEnabled: false)
+    }
+
+    @MainActor
+    func testRenderedHistoryTitleSharesAgeFlowAndStaysCenteredBesideA44PointMenu() async throws {
+        // Actual shared SwiftUI content, not a lookalike or private transcript.
+        func measure(_ title: String, age: String?, size: DynamicTypeSize = .large) async throws -> NativeHistoryRowLayout {
+            let row = NativeDrawerRow(id: "public-row", label: title, detail: age, symbol: nil,
+                enabled: true, destructive: nil, selected: nil, pending: nil, renameActionId: "public-rename")
+            let model = NativeDrawerModel(privateDrawerState(family: "history", sampleRow: row))
+            model.interactionEnabled = true
+            var measured: [NativeHistoryLayoutPart: CGRect] = [:]
+            let host = UIHostingController(rootView: NativeDrawerContent(model: model, historyLayoutObserver: { id, part, frame in
+                if id == "public-row" { measured[part] = frame }
+            }).environment(\.dynamicTypeSize, size))
+            let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+            let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 343, height: 844))
+            window.windowScene = scene
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            defer {
+                window.isHidden = true; window.rootViewController = nil
+                previousKeyWindow?.makeKeyAndVisible()
+            }
+            host.view.layoutIfNeeded()
+            let rendered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                [NativeHistoryLayoutPart.title, .row, .more].allSatisfy {
+                    guard let frame = measured[$0] else { return false }
+                    return frame.width > 0 && frame.height > 0 && frame.minX.isFinite && frame.minY.isFinite
+                }
+            }, object: nil)
+            await fulfillment(of: [rendered], timeout: 3)
+            let layout = NativeHistoryRowLayout(title: try XCTUnwrap(measured[.title]),
+                row: try XCTUnwrap(measured[.row]), more: try XCTUnwrap(measured[.more]))
+            XCTAssertEqual(layout.title.midY, layout.row.midY, accuracy: 1)
+            XCTAssertLessThanOrEqual(layout.title.maxX, layout.more.minX + 1)
+            XCTAssertGreaterThanOrEqual(layout.row.height, 44 - 1e-6,
+                "Ignore only floating-point roundoff, never an undersized hit region")
+            XCTAssertEqual(layout.more.width, 44, accuracy: 1)
+            XCTAssertEqual(layout.more.height, 44, accuracy: 1)
+            return layout
+        }
+        let titleOnly = try await measure("Weekend", age: nil)
+        let inlineAge = try await measure("Weekend", age: "2h")
+        XCTAssertGreaterThan(inlineAge.title.width, titleOnly.title.width + 5,
+            "Rendered age must extend the title's own text flow, not disappear or occupy another track")
+        XCTAssertEqual(inlineAge.title.height, titleOnly.title.height, accuracy: 1,
+            "Short title and age share one rendered line")
+        let wrapped = try await measure("A public conversation title that wraps naturally without changing the More track", age: "2h")
+        XCTAssertGreaterThan(wrapped.title.height, inlineAge.title.height + 5,
+            "A long title must wrap rather than truncate at the More track")
+        let enlarged = try await measure("Weekend", age: "2h", size: .accessibility3)
+        XCTAssertGreaterThan(enlarged.title.height, inlineAge.title.height + 5,
+            "Dynamic Type must enlarge the rendered title while preserving centering and menu geometry")
     }
 
     func testPrivateDrawerRenameBindsTheExactEmittedTextAndRejectsUnboundedInput() throws {
@@ -182,6 +237,30 @@ final class NativeSupportTests: XCTestCase {
         model.update(privateDrawerState(family: "history", update: 2))
         model.showDetails(oldState.sections[0].rows[0], mode: "rename", from: oldState)
         XCTAssertNil(model.detailRow, "An old menu cannot open a replacement owner's editor")
+
+        // List filtering/removal uses the real representable teardown, not
+        // whole-drawer retirement. A vanished trigger still owns its popup.
+        var removed: NativeDrawerMenuControl? = NativeDrawerMenuControl(type: .system)
+        weak var retained = removed
+        let rowInteraction = UIContextMenuInteraction(delegate: removed!)
+        model.registerMenu(removed!)
+        removed!.contextMenuInteraction(rowInteraction, willDisplayMenuFor: configuration, animator: nil)
+        var rowActed = false
+        removed!.afterDismissal { rowActed = true }
+        NativeDrawerRowMenu.dismantleUIView(removed!, coordinator: model)
+        removed = nil
+        let retiring = try XCTUnwrap(retained, "Row teardown must retain its still-visible owned menu")
+        XCTAssertFalse(retiring.isEnabled)
+        XCTAssertNil(retiring.menu)
+        var disappeared = false
+        model.dismissMenus { disappeared = true }
+        XCTAssertFalse(disappeared)
+        let rowAnimator = OwnedMenuTestAnimator()
+        retiring.contextMenuInteraction(rowInteraction, willEndFor: configuration, animator: rowAnimator)
+        XCTAssertFalse(disappeared)
+        rowAnimator.finish()
+        XCTAssertTrue(disappeared)
+        XCTAssertFalse(rowActed, "A removed row cannot deliver its queued menu action")
     }
 
     @MainActor
