@@ -245,6 +245,8 @@ export interface DocumentPricePrompt {
   paymentRequired: boolean;
   lockedAmountCents: number | null;
   initialAmountCents?: number | null;
+  /** The estimate the requester saw when sending; display only, never a fixed price. */
+  estimateCents?: number | null;
   priceOnly?: boolean;
   purpose: string | null;
   recipientEmail: string | null;
@@ -270,6 +272,7 @@ type DocumentPriceTerms = {
   paymentRequired: boolean;
   lockedAmountCents: number | null;
   initialAmountCents?: number | null;
+  estimateCents: number | null;
   priceOnly?: boolean;
   purpose: string;
   recipientEmail: string;
@@ -1018,6 +1021,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // A non-trusted Allow sets this request's price; a draft quote is not an order.
         lockedAmountCents: null,
         initialAmountCents: review.priceCents ?? null,
+        // Display only: a missing or malformed estimate never blocks pricing.
+        estimateCents: isValidDocumentRequestPriceCents(review.estimateCents)
+          ? review.estimateCents
+          : null,
         priceOnly: target.priceOnly === true,
         purpose: review.purpose.purpose,
         recipientEmail: review.recipientEmail,
@@ -1118,6 +1125,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         priceTerms?.paymentRequired ?? priceTarget?.paymentRequired ?? false,
       lockedAmountCents: priceTerms?.lockedAmountCents ?? null,
       initialAmountCents: priceTerms?.initialAmountCents ?? null,
+      estimateCents: priceTerms?.estimateCents ?? null,
       priceOnly: priceTerms?.priceOnly ?? priceTarget?.priceOnly ?? false,
       purpose: priceTerms?.purpose ?? null,
       recipientEmail: priceTerms?.recipientEmail ?? null,

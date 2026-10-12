@@ -41,7 +41,13 @@ vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
 // Activity, its sheets and the freshness line have their own tests; here they
 // only show what Payouts hands them.
 vi.mock("@/components/consent/payouts/activity-card", () => ({
-  PayoutActivityCard: ({ freshness }: { freshness?: ReactNode }) => <section aria-label="Activity">{freshness}</section>,
+  PayoutActivityCard: ({ freshness, onAction }: { freshness?: ReactNode; onAction?: (action: "manage_bank" | "verify") => void }) => (
+    <section aria-label="Activity">{freshness}
+      {onAction ? (["manage_bank", "verify"] as const).map((action) => (
+        <button key={action} type="button" onClick={() => onAction(action)}>{`Receipt step ${action}`}</button>
+      )) : null}
+    </section>
+  ),
 }));
 vi.mock("@/components/consent/payouts/activity-sheet", () => ({
   PayoutActivitySheet: ({ open, initialFilter, onOpenChange }: { open: boolean; initialFilter?: string; onOpenChange: (open: boolean) => void }) => open
@@ -612,6 +618,37 @@ describe("document payout account", () => {
     expect(row).toHaveTextContent("Tax return 2025 · Wait for the bank");
     expect(row).toHaveTextContent("$9.11");
     expect(screen.getByRole("region", { name: "Your money" })).not.toHaveTextContent("items");
+  });
+
+  it("takes a receipt's next step with the bank rows' own Manage and Verify details, never a money action", async () => {
+    const assign = vi.fn();
+    const realLocation = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { assign, replace: vi.fn() } });
+    try {
+      state.hashcoins.mockResolvedValue(liveWallet);
+      state.manage.mockResolvedValue({ url: "https://stripe.com/express/acct_owner/login_token" });
+      state.onboard.mockResolvedValue({ url: "https://connect.stripe.com/setup/safe_link" });
+      state.account.mockResolvedValue({ stripeMode: "live", account: { ...pausedForVerification, verification: verificationNeeded } });
+      render(<DocumentHashcoinPayouts />);
+      const money = await screen.findByRole("region", { name: "Your money" });
+      expect(await within(money).findByRole("button", { name: /Verify details/ })).toBeEnabled();
+      const activity = screen.getByRole("region", { name: "Activity" });
+
+      fireEvent.click(within(activity).getByRole("button", { name: "Receipt step verify" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("https://connect.stripe.com/setup/safe_link"));
+      expect(state.onboard).toHaveBeenCalledExactlyOnceWith("owner-token", "verify");
+      expect(state.manage).not.toHaveBeenCalled();
+      await waitFor(() => expect(within(money).getByRole("button", { name: /Verify details/ })).toBeEnabled());
+
+      fireEvent.click(within(activity).getByRole("button", { name: "Receipt step manage_bank" }));
+      // Stripe's bank settings open in a new tab from inside the click, like the bank row.
+      expect(window.open).toHaveBeenCalledExactlyOnceWith("about:blank", "_blank");
+      await waitFor(() => expect(assign).toHaveBeenLastCalledWith("https://stripe.com/express/acct_owner/login_token"));
+      expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token");
+      expect(state.onboard).toHaveBeenCalledOnce();
+      expect(state.redeemLive).not.toHaveBeenCalled();
+      expect(state.redeemTest).not.toHaveBeenCalled();
+    } finally { Object.defineProperty(window, "location", { configurable: true, value: realLocation }); }
   });
 
   it("opens coin activity from the Hussh Coins row and returns focus to it", async () => {

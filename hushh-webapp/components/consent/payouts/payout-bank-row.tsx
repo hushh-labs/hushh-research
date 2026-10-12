@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -231,18 +231,41 @@ export function DocumentPayoutAccountCard({
 }
 
 /**
+ * The bank rows' own actions, for another control on Payouts (a receipt's
+ * next step). Each does what tapping its row does, with the same busy guard,
+ * and shows any failure on that row.
+ */
+export type PayoutBankActions = {
+  /** The bank row: Manage in Stripe (or finish setup, or re-check the bank). */
+  manageBank: () => void;
+  /** The Verify details row; the bank row while that row can't act. */
+  verifyDetails: () => void;
+};
+
+/**
  * The payout bank as SettingsRows for use INSIDE a SettingsGroup ("Your
  * money"): the masked bank with an inline Manage, and "Verify details" while
  * Stripe needs more information. Mount it once per screen with handleReturn.
  */
-export function PayoutBankRows({ handleReturn = false, onAccountChange }: {
+export function PayoutBankRows({ handleReturn = false, onAccountChange, actionsRef }: {
   handleReturn?: boolean;
   onAccountChange?: (state: PayoutAccountState) => void;
+  /** Filled with the rows' actions while they're mounted. */
+  actionsRef?: Ref<PayoutBankActions>;
 }) {
   const bank = usePayoutBank({ handleReturn, onAccountChange });
-  if (!bank.shown) return null;
   const { resource, account, stripeMode, canManage, retryBankCheck, bankCheckUnavailable, label, bankLabel, verification } = bank;
   const busy = bank.busyAction !== null;
+  const verify = account && verificationShown(verification) ? verification : null;
+  // Nothing to do while Stripe reviews; the row only reports it.
+  const canVerify = verify !== null && verify.state !== "in_review";
+  const openBank = retryBankCheck ? resource.retry : () => void bank.start(canManage);
+  const openVerify = () => void bank.start(false, false, "verify");
+  useImperativeHandle(actionsRef, () => {
+    const manageBank = () => { if (!busy && !resource.loading) openBank(); };
+    return { manageBank, verifyDetails: () => (canVerify && !busy && !resource.failed ? openVerify() : manageBank()) };
+  });
+  if (!bank.shown) return null;
   const failure = (action: BankAction): string | null =>
     bank.actionError?.action === action ? bank.actionError.text : null;
   // What needs the owner; routine lines stay out of the row's spoken name.
@@ -264,15 +287,12 @@ export function PayoutBankRows({ handleReturn = false, onAccountChange }: {
   // since the fix may be in Stripe, and Retry sits beside it.
   const retryBeside = (resource.failed || bankCheckUnavailable) && !retryBankCheck;
   const alert = announce ? <span role="alert" className="sr-only">{announce}</span> : null;
-  const verify = account && verificationShown(verification) ? verification : null;
-  // Nothing to do while Stripe reviews; the row only reports it.
-  const canVerify = verify !== null && verify.state !== "in_review";
   return <>
     <SettingsRow testId="payout-bank-row" icon={ProfileAccountBankIcon} iconTone="capability"
       title={bankLabel ?? "Payout bank"} description={description}
       ariaLabel={[retryBankCheck ? "Retry bank check" : label, bankLabel, attention].filter(Boolean).join(", ")}
       chevron disabled={busy || resource.loading}
-      onClick={retryBankCheck ? resource.retry : () => void bank.start(canManage)}
+      onClick={openBank}
       trailingInteractive={retryBeside}
       trailing={retryBeside ? <>{alert}
         <Button type="button" size="compact" variant="none" effect="fade" className="profile-account-inline-action"
@@ -284,7 +304,7 @@ export function PayoutBankRows({ handleReturn = false, onAccountChange }: {
     {verify ? <SettingsRow testId="payout-verify-row" icon={ProfileInnerReviewIcon} iconTone="capability"
       title="Verify details" description={failure("verify") ? <span role="alert">{failure("verify")}</span> : verificationCopy(verify)}
       chevron={canVerify} disabled={canVerify && (busy || resource.failed)}
-      onClick={canVerify ? () => void bank.start(false, false, "verify") : undefined}
+      onClick={canVerify ? openVerify : undefined}
       trailing={bank.busyAction === "verify"
         ? <span className="profile-account-inline-action">Opening…</span> : undefined} /> : null}
   </>;

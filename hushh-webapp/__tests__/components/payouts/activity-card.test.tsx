@@ -193,6 +193,42 @@ describe("payout activity card", () => {
     expect(navigate).toHaveBeenCalledWith({ href: "/one/profile", mode: "push", transitionMode: "full" });
   });
 
+  it("hands a receipt's next step to Payouts after closing the receipt, and View all over it", async () => {
+    const review = { reason: "transfer_check", nextStep: "update_bank" };
+    state.list.mockImplementation((query: URLSearchParams) => page(query, range(9, 4).map((n) => earning(n))));
+    state.item.mockImplementation((itemId: string) => ({ ...earningReceipt(receiptNumber(itemId), "held"), review }));
+    const onAction = vi.fn();
+    render(<PayoutActivityCard onAction={onAction} />);
+    const card = await screen.findByRole("region", { name: "Payout activity" });
+    fireEvent.click(await within(card).findByRole("button", { name: /^Earned\s*Request 9 ·/ }));
+    const receipt = await screen.findByRole("dialog", { name: "$1.09" });
+    fireEvent.click(await within(receipt).findByRole("button", { name: "Update your bank" }));
+    expect(onAction).toHaveBeenCalledExactlyOnceWith("manage_bank");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    fireEvent.click(within(card).getByRole("button", { name: "View all" }));
+    const sheet = await screen.findByRole("dialog", { name: "Activity" });
+    state.item.mockImplementation((itemId: string) => ({ ...earningReceipt(receiptNumber(itemId), "held"),
+      review: { ...review, nextStep: "verify_details" } }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: /^Earned\s*Request 6 ·/ }));
+    const viewAllReceipt = await screen.findByRole("dialog", { name: "$1.06" });
+    fireEvent.click(await within(viewAllReceipt).findByRole("button", { name: "Verify details" }));
+    expect(onAction).toHaveBeenLastCalledWith("verify");
+    expect(onAction).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("offers no receipt action without onAction", async () => {
+    state.list.mockImplementation((query: URLSearchParams) => page(query, [earning(9)]));
+    state.item.mockImplementation((itemId: string) => ({ ...earningReceipt(receiptNumber(itemId), "held"),
+      review: { reason: "transfer_check", nextStep: "update_bank" } }));
+    render(<PayoutActivityCard />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Earned\s*Request 9 ·/ }));
+    const receipt = await screen.findByRole("dialog", { name: "$1.09" });
+    expect(await within(receipt).findByText("Update your bank")).toBeVisible();
+    expect(within(receipt).queryByRole("button", { name: /Update your bank|Next step/ })).toBeNull();
+  });
+
   it("offers Retry when the first read fails and closes its sheets for another vault owner", async () => {
     state.list.mockRejectedValueOnce(new Error("offline"))
       .mockImplementation((query: URLSearchParams) => page(query, [earning(5)]));

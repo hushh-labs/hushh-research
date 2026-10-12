@@ -54,6 +54,9 @@ export function PayoutFreshness({ className }: { className?: string }) {
 
   // Nothing on screen yet: each card shows its own loading or failure.
   const updated = lastSuccessAt === null ? null : payoutUpdatedLabel(lastSuccessAt, now);
+  // After a failed read, "Updated just now" reads as that read's success: an
+  // age under a minute goes unsaid, and the line names it from 1m on.
+  const sinceLastGood = failures > 0 && age !== null && age < MINUTE_MS ? null : updated;
   let notice: "Offline" | "Couldn't update" | null = null;
   let detail: string | null = null;
   if (updated !== null && age !== null) {
@@ -64,9 +67,9 @@ export function PayoutFreshness({ className }: { className?: string }) {
       detail = "Updating…";
     } else if (failures >= 2) {
       notice = "Couldn't update";
-      detail = updated;
+      detail = sinceLastGood;
     } else if (failures > 0 || age > PAYOUT_FRESH_MS) {
-      detail = updated;
+      detail = sinceLastGood;
     }
   }
 
