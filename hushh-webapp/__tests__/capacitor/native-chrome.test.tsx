@@ -2409,8 +2409,21 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(3));
     // Native invalidation has already removed the host. A local retained
     // reference must not try to suspend/resume that absent installation.
+    const removed = deferred<ChromeAcknowledgement>();
+    bridge.retire.mockReturnValueOnce(removed.promise);
+    const preparedBeforeInvalidation = bridge.prepare.mock.calls.length;
+    const oldBinding = bridge.prepare.mock.calls.at(-1)![0];
     physicallyRemoved = true;
-    act(() => bridge.callbacks.get("invalidated")?.(undefined));
+    act(() => {
+      privacy.callbacks.forEach(callback => callback({ generation: 1, shielded: false, appIsActive: true }));
+      bridge.callbacks.get("invalidated")?.(undefined);
+      bridge.callbacks.get("choiceRequested")?.({ ...oldBinding, sequence: 1, privacyGeneration: 0 });
+    });
+    await waitFor(() => expect(bridge.retire.mock.results.at(-1)?.value).toBe(removed.promise));
+    expect(bridge.prepare).toHaveBeenCalledTimes(preparedBeforeInvalidation);
+    expect(bridge.confirmChoice).not.toHaveBeenCalled();
+    const retirement = bridge.retire.mock.calls.at(-1)![0];
+    await act(async () => removed.resolve({ ...retirement, phase: "retired" }));
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(4));
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       x: 3, y: 60, width: 44, height: 44, top: 60, left: 3, right: 47, bottom: 104, toJSON: () => ({}),

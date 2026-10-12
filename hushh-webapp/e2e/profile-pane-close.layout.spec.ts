@@ -200,13 +200,22 @@ test.describe("Profile pane custom close layout", () => {
             const header = node.closest("header")!;
             const back = header.querySelector('[data-native-chrome-slot="profile-back"]')!;
             const title = node.getBoundingClientRect(), control = back.getBoundingClientRect();
+            const page = header.closest(".native-feature-page")!.getBoundingClientRect();
+            const body = header.parentElement!.querySelector(".native-feature-page-body")!.getBoundingClientRect();
             return { width: node.clientWidth, scroll: node.scrollWidth, left: title.left, right: title.right,
-              center: title.top + title.height / 2, backRight: control.right, backCenter: control.top + control.height / 2 };
+              center: title.top + title.height / 2, backRight: control.right, backCenter: control.top + control.height / 2,
+              top: title.top, bottom: title.bottom, pageTop: page.top, pageBottom: page.bottom,
+              bodyTop: body.top, bodyBottom: body.bottom, bodyHeight: body.height };
           });
           expect(geometry.scroll).toBeLessThanOrEqual(geometry.width + 1);
           expect(geometry.left - geometry.backRight).toBeCloseTo(8, 0);
           expect(geometry.right).toBeLessThanOrEqual(viewport.width - 24 + 1);
           expect(geometry.center).toBeCloseTo(geometry.backCenter, 0);
+          expect(geometry.top).toBeGreaterThanOrEqual(geometry.pageTop);
+          expect(geometry.bottom).toBeLessThanOrEqual(geometry.pageBottom + 1);
+          expect(geometry.bodyTop).toBeGreaterThanOrEqual(geometry.bottom);
+          expect(geometry.bodyBottom).toBeLessThanOrEqual(geometry.pageBottom + 1);
+          expect(geometry.bodyHeight).toBeGreaterThan(0);
         }
         await title.evaluate(node => {
           node.textContent = "Preferences";

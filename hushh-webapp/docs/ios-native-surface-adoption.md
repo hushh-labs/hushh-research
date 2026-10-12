@@ -68,8 +68,22 @@ The native-invalidated lease now requires confirmed retirement before fresh
 admission; ordinary drawer coverage still retains presentation. Existing owner,
 privacy, choice and popup fences are unchanged. The retained History/Profile Back
 regression fails the old adapter and the full 147-case suite passes the correction.
-Physical qualification of this follow-up is recorded separately below; source
-and build checks alone do not establish transition or visual acceptance.
+Independent native review confirms the bounded correction by source. Follow-up
+regressions deliver both native/privacy invalidation and a deferred retirement;
+they reject old choices and prohibit fresh preparation before its acknowledgment.
+The enlarged-title checks also retain vertical containment and usable body space.
+
+Source `523d016849` exports, syncs, signs and builds as Debug/UAT
+`com.hushh.app` 1.4.0 (69). Product executable SHA-256 is
+`f7ba5cc5853fd866839df76499165defd9764c1d059deb6ee203f9493c5903e6`;
+the UI-test executable is
+`ea748335aa25c46d208d91487b6f0ac0111eb752ef48f9500f1975a233a7bd55`.
+Packaged-CSS and static plugin/Siri checks pass. It is **not installed or physically
+accepted**: CoreDevice reports the paired iPhone unavailable, service admission
+fails with 4016, and a bounded paired reconnect fails with 4000. Neither account
+reset nor another credential retry was performed. The adoption flag remains off.
+The branch also lacks the canonical `ui:doctor` command; resolve that governance
+alignment before pushing rather than substituting an ad-hoc alias.
 
 `components/profile/profile-menu-model.ts` now authors the roster, labels and
 availability for both renderers. Callbacks remain in the Profile workspace;
