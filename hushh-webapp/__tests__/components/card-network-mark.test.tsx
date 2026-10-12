@@ -40,5 +40,11 @@ describe("CardNetworkMark", () => {
     const mark = screen.getByRole("img", { name: "Visa" });
     expect(mark).toBeInTheDocument();
     expect(mark.querySelector("img")).toBeNull();
+    expect(mark).toHaveTextContent("VISA");
   });
+});
+
+it("renders stored Visa casing with a visible network name", () => {
+ render(<CardNetworkMark brand=" Visa " />);
+ expect(screen.getByRole("img", { name: "Visa" })).toHaveTextContent("VISA");
 });

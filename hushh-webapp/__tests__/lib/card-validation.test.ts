@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  detectBrand,
   luhnValid,
   validateCardForRegion,
 } from "@/lib/wallet/card-validation";
@@ -41,28 +40,10 @@ describe("luhnValid", () => {
   });
 });
 
-describe("detectBrand", () => {
-  it("detects the majors", () => {
-    expect(detectBrand(VISA)).toBe("visa");
-    expect(detectBrand(MASTERCARD)).toBe("mastercard");
-    expect(detectBrand(AMEX)).toBe("amex");
-    expect(detectBrand(DISCOVER)).toBe("discover");
-  });
-
-  it("ranks RuPay's 6521 window ahead of Discover's broad 65", () => {
-    expect(detectBrand(luhnFix(RUPAY))).toBe("rupay");
-    expect(detectBrand(luhnFix("6511111111111111"))).toBe("discover");
-  });
-
-  it("detects Mir ahead of Mastercard's 2-series", () => {
-    expect(detectBrand(luhnFix("2200111111111111"))).toBe("mir");
-    expect(detectBrand(luhnFix("2221111111111111"))).toBe("mastercard");
-  });
-});
-
 describe("validateCardForRegion", () => {
   const base = {
     pan: VISA,
+    brand: "visa" as const,
     cardholderName: "Test Owner",
     cvv: "123",
     pin: "1234",
@@ -89,9 +70,8 @@ describe("validateCardForRegion", () => {
 
   it("accepts new BIN ranges with a chosen network or Other fallback", () => {
     const pan = luhnFix("9111111111111111");
-    expect(detectBrand(pan)).toBeNull();
-    expect(validateCardForRegion({ ...base, pan }).brand).toBe("other");
-    expect(validateCardForRegion({ ...base, pan, cvv: "1234" }).valid).toBe(true);
+    expect(validateCardForRegion({ ...base, pan, brand: undefined }).brand).toBe("other");
+    expect(validateCardForRegion({ ...base, pan, brand: undefined, cvv: "1234" }).valid).toBe(true);
     expect(validateCardForRegion({ ...base, pan, brand: "mastercard" }).brand).toBe("mastercard");
     expect(validateCardForRegion({ ...base, pan, brand: "mastercard", cvv: "1234" }).errors).toContain("cvv_invalid");
     expect(validateCardForRegion({ ...base, pan: "0000000000000000" }).valid).toBe(false);
@@ -107,6 +87,7 @@ describe("validateCardForRegion", () => {
     const result = validateCardForRegion({
       ...base,
       pan: luhnFix(RUPAY),
+      brand: "rupay",
       issuingRegion: "US",
     });
     expect(result.errors).toContain("brand_region_mismatch");
@@ -118,10 +99,10 @@ describe("validateCardForRegion", () => {
 
   it("requires a 4-digit CVV for amex and 3 for others", () => {
     expect(
-      validateCardForRegion({ ...base, pan: AMEX, cvv: "123" }).errors,
+      validateCardForRegion({ ...base, pan: AMEX, brand: "amex", cvv: "123" }).errors,
     ).toContain("cvv_invalid");
     expect(
-      validateCardForRegion({ ...base, pan: AMEX, cvv: "1234" }).valid,
+      validateCardForRegion({ ...base, pan: AMEX, brand: "amex", cvv: "1234" }).valid,
     ).toBe(true);
     expect(validateCardForRegion({ ...base, cvv: "1234" }).errors).toContain(
       "cvv_invalid",
@@ -150,4 +131,27 @@ describe("validateCardForRegion", () => {
       validateCardForRegion({ ...base, issuingRegion: "USA1" }).errors,
     ).toContain("issuing_region_invalid");
   });
+});
+
+it("never classifies a number without a backend-provided brand", () => {
+ for (const pan of [VISA, MASTERCARD, AMEX, DISCOVER, luhnFix(RUPAY)]) {
+  expect(validateCardForRegion({ pan, cardholderName: "Test", cvv: "123", expiryMonth: 12, expiryYear: 2099 }).brand).toBe("other");
+ }
+});
+
+describe("backend-supplied networks", () => {
+ const base = { cardholderName: "Test", cvv: "123", expiryMonth: 12, expiryYear: 2099 };
+ it("validates the common backend-supplied global brands", () => {
+  for (const [pan, brand] of [[VISA,"visa"],[MASTERCARD,"mastercard"],[AMEX,"amex"],[DISCOVER,"discover"]] as const) {
+   expect(validateCardForRegion({ ...base, pan, brand, cvv: brand === "amex" ? "1234" : "123" }).brand).toBe(brand);
+  }
+ });
+ it("preserves distinct backend-supplied RuPay and Discover networks", () => {
+  expect(validateCardForRegion({ ...base, pan: luhnFix(RUPAY), brand: "rupay" }).brand).toBe("rupay");
+  expect(validateCardForRegion({ ...base, pan: luhnFix("6511111111111111"), brand: "discover" }).brand).toBe("discover");
+ });
+ it("preserves distinct backend-supplied Mir and Mastercard networks", () => {
+  expect(validateCardForRegion({ ...base, pan: luhnFix("2200111111111111"), brand: "mir" }).brand).toBe("mir");
+  expect(validateCardForRegion({ ...base, pan: luhnFix("2221111111111111"), brand: "mastercard" }).brand).toBe("mastercard");
+ });
 });

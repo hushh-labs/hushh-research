@@ -29,7 +29,6 @@ import {
   type SecretKind,
   type SecretSpan,
 } from "@/lib/pkm/secret-patterns";
-import { detectBrand } from "@/lib/wallet/card-validation";
 
 /** A protected value found in outgoing text; callers decide its durable policy. */
 export type SecretCapture = {
@@ -77,10 +76,7 @@ const STOPWORDS: ReadonlySet<string> = new Set([
   "that", "the", "their", "these", "this", "those", "to", "token", "tokens", "use", "using", "value",
   "was", "with", "your",
 ]);
-const BRAND_LABELS: Readonly<Record<string, string>> = {
-  visa: "Visa", mastercard: "Mastercard", amex: "Amex", discover: "Discover", diners: "Diners Club",
-  jcb: "JCB", unionpay: "UnionPay", rupay: "RuPay", mir: "Mir", elo: "Elo", verve: "Verve",
-};
+
 
 /** A fresh placeholder id: `sec_` and 16 hex characters from the platform CSPRNG. */
 export function newSecretId(): string {
@@ -124,15 +120,14 @@ function maskSuffix(span: SecretSpan, value: string): string {
   return value.length >= 16 ? ` ending ${value.slice(-4)}` : "";
 }
 
-function baseLabelFor(source: string, span: SecretSpan, value: string): string {
+function baseLabelFor(source: string, span: SecretSpan, _value: string): string {
   const pattern = span.pattern;
   if (pattern.labelFromPrefix) {
     const prefix = source.slice(span.matchStart, span.start).replace(/[\s=:"']+$/g, "").trim();
     if (prefix) return prefix;
   }
   if (pattern.kind === "card_number") {
-    const brand = BRAND_LABELS[detectBrand(value) ?? ""];
-    return brand ? `${brand} card` : pattern.label;
+    return pattern.label;
   }
   return pattern.label;
 }

@@ -12,7 +12,20 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   },
 }));
 
+const networkApi = vi.hoisted(() => ({ fetch: vi.fn(), user: vi.fn(), token: vi.fn() }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: networkApi.fetch } }));
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: networkApi.user, getIdTokenWithRetry: networkApi.token } }));
+
 import { WalletService } from "@/lib/services/wallet-service";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { luhnValid } from "@/lib/wallet/card-validation";
+
+beforeEach(() => {
+  publishValidatedAuthSessionOwner("user_1");
+  networkApi.user.mockReturnValue({ uid: "user_1" });
+  networkApi.token.mockResolvedValue("identity");
+});
 
 const CONTEXT = {
   userId: "user_1",
@@ -60,6 +73,10 @@ describe("WalletService", () => {
   beforeEach(() => {
     mockLoadDomainData.mockResolvedValue(DOMAIN_DATA);
     mockStoreWalletDomain.mockResolvedValue({ success: true });
+    networkApi.fetch.mockImplementation(async (_url, options) => {
+      const input = options?.body ? JSON.parse(options.body) : {};
+      return new Response(JSON.stringify({ network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }), { status: 200 });
+    });
   });
 
   afterEach(() => {
@@ -143,6 +160,7 @@ describe("WalletService", () => {
   });
 
   it("addCard nests secrets under the secrets branch with a card_ segment id", async () => {
+    networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ network: "amex", source: "prefix", candidates: [] })));
     const saved = await WalletService.addCard({
       ...CONTEXT,
       surface: "chat",
@@ -253,4 +271,69 @@ describe("WalletService", () => {
     expect(WalletService.matchesQuery(card, "amex")).toBe(false);
     expect(WalletService.matchesQuery(card, "")).toBe(true);
   });
+});
+
+describe("backend network integration", () => {
+ beforeEach(() => { vi.clearAllMocks(); networkApi.fetch.mockReset(); mockStoreWalletDomain.mockResolvedValue({ success: true }); mockLoadDomainData.mockResolvedValue(DOMAIN_DATA); });
+it("requests only issuer metadata and never card credentials", async () => {
+ networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })));
+ await WalletService.resolveCardNetwork(CONTEXT, { iinPrefix: "411111", panLength: 16, pan: "4111111111111111", cvv: "123", pin: "1234" } as never);
+ const [url, options] = networkApi.fetch.mock.calls[0];
+ expect(url).toBe("/api/one/wallet/card-access/networks/resolve");
+ expect(JSON.parse(options.body)).toEqual({ iinPrefix: "411111", panLength: 16 });
+ expect(options.headers["X-Hushh-Consent"]).toBe(CONTEXT.vaultOwnerToken);
+ expect(options.cache).toBe("no-store");
+});
+it("uses a neutral brand when backend identification fails", async () => {
+ networkApi.fetch.mockResolvedValueOnce(new Response("private diagnostic", { status: 503 }));
+ const saved = await WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", cardholderName: "Test Owner", cvv: "123", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "test" });
+ expect(saved.summary.brand).toBe("other");
+ expect(JSON.stringify(mockStoreWalletDomain.mock.calls[0][0].applyMutation({}))).not.toContain("iinPrefix");
+});
+it("normalizes existing stored casing without modifying a saved record", async () => {
+ mockLoadDomainData.mockResolvedValueOnce({ ...DOMAIN_DATA, summary: { [CARD_ID]: { ...DOMAIN_DATA.summary[CARD_ID], brand: " Visa " } } });
+ expect((await WalletService.listCardSummaries(CONTEXT))[0].brand).toBe("visa");
+ expect(mockStoreWalletDomain).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["41111111111114", "visa"],
+  ["3711111111111117", "amex"],
+  ["555555555555558", "mastercard"],
+])("rejects a checksum-valid %s with an invalid backend-resolved network length", async (pan, network) => {
+  expect(luhnValid(pan)).toBe(true);
+  networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ network, source: "prefix", candidates: [] })));
+  await expect(WalletService.addCard({ ...CONTEXT, card: { pan, cardholderName: "Test Owner", cvv: "123", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "test" })).rejects.toThrow("pan_length_invalid_for_brand");
+  expect(mockStoreWalletDomain).not.toHaveBeenCalled();
+});
+
+it.each(["owner", "vault", "validated owner"])("refuses a delayed lookup after the %s session changes", async (change) => {
+  let finish!: (response: Response) => void;
+  networkApi.fetch.mockReturnValueOnce(new Promise<Response>(resolve => { finish = resolve; }));
+  const saving = WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", cardholderName: "Test Owner", cvv: "123", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "test" });
+  const rejected = expect(saving).rejects.toThrow("Wallet changed.");
+  await vi.waitFor(() => expect(networkApi.fetch).toHaveBeenCalledOnce());
+  if (change === "owner") networkApi.user.mockReturnValue({ uid: "another_owner" });
+  else if (change === "vault") advanceVaultSessionEpoch();
+  else publishValidatedAuthSessionOwner(null);
+  finish(new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })));
+  await rejected;
+  expect(mockStoreWalletDomain).not.toHaveBeenCalled();
+});
+
+it("fences the eventual vault publication and binds native identity to the owner", async () => {
+  networkApi.user.mockReturnValue(null);
+  networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ network: "Visa", source: "prefix", candidates: [] })));
+  const saved = await WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", cardholderName: "Test Owner", cvv: "123", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "test" });
+  expect(networkApi.token).toHaveBeenCalledWith({ expectedUserId: CONTEXT.userId });
+  expect(saved.summary.brand).toBe("visa");
+  const params = mockStoreWalletDomain.mock.calls[0][0];
+  expect(networkApi.fetch.mock.calls[0][1].isEffectCurrent()).toBe(true);
+  expect(params.mayPublish()).toBe(true);
+  advanceVaultSessionEpoch();
+  expect(networkApi.fetch.mock.calls[0][1].isEffectCurrent()).toBe(false);
+  expect(params.mayPublish()).toBe(false);
+  expect(() => params.applyMutation({})).toThrow("Wallet changed.");
+});
+
 });

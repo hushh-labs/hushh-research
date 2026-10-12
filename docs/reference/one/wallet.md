@@ -306,3 +306,31 @@ trigger a download. Copy link remains a separate action. Profile/NWS image shari
 is disabled when sharing is paused. Referral exports use the latest referral URL.
 No export uploads the card or adds a new tracking authority; the existing QR
 resolver still owns visits, pause and rotation behavior.
+
+
+## Card network identification
+
+The owner-authorized Wallet API provides the supported-network catalog at
+`GET /api/one/wallet/card-access/networks` and classification at
+`POST /api/one/wallet/card-access/networks/resolve`. Classification receives only
+`iinPrefix` (exactly six ASCII digits), `panLength` and an optional
+`selectedNetwork`; full PAN, last four digits, names, security codes and vault
+keys are refused. The prefix remains transient request metadata and never enters
+PKM, indexes, logs, caches, models, notifications or an external provider.
+
+The existing backend `wallet_card_validation.py` owns the supported prefix
+rules. Responses distinguish prefix matches, explicit owner choices, ambiguous
+ranges and unknown ranges. Recognized prefixes retain their network even when
+the length is wrong, so local validation rejects invalid network lengths.
+These rules are not a live issuer registry. On lookup
+failure, a valid card can still be saved with the neutral Card network. Client
+Luhn, expiry, CVV/PIN and region validation remain local; the backend continues
+validating only the non-secret stored envelope. The stored summary holds the
+normalized network, and the full card remains encrypted with the owner's key.
+Requests and saves are fenced by the existing validated account generation and
+vault session epoch; signing out or locking the vault invalidates delayed replies
+and prevents their eventual encrypted publication.
+
+Visa previously lacked an official asset in the mark inventory, so its compact
+mark showed a generic icon. The existing fallback cell now prints `VISA` for
+recognition. No new official artwork or network partnership claim is introduced.

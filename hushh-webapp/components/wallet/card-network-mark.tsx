@@ -5,8 +5,8 @@
  * `public/brand/cards/`, it is rendered unmodified in a transparent cell, the
  * same handling the runtime provider marks follow
  * (docs/reference/one/runtime-provider-brand-inventory.md). Until an asset is
- * recorded in `CARD_MARK_ASSETS`, the brand falls back to a generic card icon
- * with an accessible network name. The RuPay reference was supplied by the user.
+ * recorded in `CARD_MARK_ASSETS`, a known brand uses its readable short name;
+ * an unknown brand uses a generic card icon. The RuPay reference was supplied by the user.
  *
  * The asset map is the only thing that changes when artwork arrives: drop the
  * file into `public/brand/cards/`, add one line here, record the source in
@@ -35,7 +35,7 @@ type NetworkStyle = {
 };
 
 /**
- * Recorded network artwork. Empty entries fall back to a generic card icon.
+ * Recorded network artwork. Missing entries use a readable network identifier.
  * Every entry here must have a matching row in the card network brand
  * inventory naming where the file came from.
  */
@@ -87,7 +87,7 @@ const NETWORKS: Readonly<Record<CardBrand, NetworkStyle>> = {
 
 function normalizeBrand(brand: string | null | undefined): CardBrand {
   const key = String(brand || "").trim().toLowerCase() as CardBrand;
-  return key in NETWORKS ? key : "other";
+  return Object.hasOwn(NETWORKS, key) ? key : "other";
 }
 
 /** The full name of a network, for prose and assistive technology. */
@@ -191,7 +191,7 @@ export function CardNetworkMark({
       )}
       style={{ backgroundColor: network.background, color: network.foreground }}
     >
-      <CreditCard className="size-5" aria-hidden="true" />
+      {key === "other" ? <CreditCard className="size-5" aria-hidden="true" /> : <span>{network.short}</span>}
     </span>
   );
 }

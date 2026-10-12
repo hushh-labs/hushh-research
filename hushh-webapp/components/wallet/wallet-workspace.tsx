@@ -939,6 +939,7 @@ export function WalletWorkspace() {
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
+                getNetworkContext={vaultContext}
                 scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}

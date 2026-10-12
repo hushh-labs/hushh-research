@@ -9274,6 +9274,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   </div>
                 ) : widget.kind === "add" ? (
                   <SecureCardAddForm
+                    getNetworkContext={() => {
+                      const token = getVaultOwnerToken();
+                      return user?.uid && token ? { userId: user.uid, vaultOwnerToken: token } : null;
+                    }}
                     key={widget.id}
                     compact
                     onSubmit={async (card) => {

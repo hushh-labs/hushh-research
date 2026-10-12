@@ -2,7 +2,7 @@
  * Region-aware payment-card validation. Pure module: no network, no storage.
  *
  * BYOK means only the browser ever sees the PAN, so this module is the
- * authoritative validator for secrets (Luhn, brand detection, CVV/PIN shape).
+ * authoritative validator for secrets (Luhn, CVV/PIN shape).
  * The server independently re-validates the non-secret envelope (brand, last4,
  * expiry, issuing region) in consent-protocol wallet_card_validation.py -
  * keep the region rules in the two files in sync.
@@ -41,47 +41,6 @@ const BRAND_PAN_LENGTHS: Readonly<Record<CardBrand, readonly number[]>> = {
   other: [13, 14, 15, 16, 17, 18, 19],
 };
 
-/** Numeric prefix ranges per brand; order matters (specific before broad). */
-const BRAND_PREFIX_RANGES: ReadonlyArray<[CardBrand, number, number]> = [
-  // Region-locked and narrow BINs first so broad ranges never shadow them.
-  ["mir", 2200, 2204],
-  ["elo", 401178, 401179],
-  ["elo", 431274, 431274],
-  ["elo", 438935, 438935],
-  ["elo", 451416, 451416],
-  ["elo", 457393, 457393],
-  ["elo", 504175, 504175],
-  ["elo", 506699, 506778],
-  ["elo", 509000, 509999],
-  ["elo", 627780, 627780],
-  ["elo", 636297, 636297],
-  ["elo", 636368, 636368],
-  ["verve", 506099, 506198],
-  ["verve", 650002, 650027],
-  // Discover's specific windows must outrank RuPay's broad 60 and 65-adjacent
-  // prefixes; RuPay's own 6521/6522 window outranks Discover's broad 65.
-  ["rupay", 6521, 6522],
-  ["discover", 6011, 6011],
-  ["discover", 622126, 622925],
-  ["discover", 644, 649],
-  ["discover", 65, 65],
-  ["rupay", 508, 508],
-  ["rupay", 353, 353],
-  ["rupay", 356, 356],
-  ["rupay", 60, 60],
-  ["rupay", 81, 82],
-  ["jcb", 3528, 3589],
-  ["amex", 34, 34],
-  ["amex", 37, 37],
-  ["diners", 300, 305],
-  ["diners", 36, 36],
-  ["diners", 38, 39],
-  ["unionpay", 62, 62],
-  ["mastercard", 2221, 2720],
-  ["mastercard", 51, 55],
-  ["visa", 4, 4],
-];
-
 export function normalizePan(raw: string): string {
   return String(raw ?? "").replace(/[\s-]/g, "");
 }
@@ -101,17 +60,6 @@ export function luhnValid(pan: string): boolean {
     doubled = !doubled;
   }
   return sum % 10 === 0;
-}
-
-export function detectBrand(pan: string): CardBrand | null {
-  const digits = normalizePan(pan);
-  if (!/^\d{6,19}$/.test(digits)) return null;
-  for (const [brand, lo, hi] of BRAND_PREFIX_RANGES) {
-    const width = String(lo).length;
-    const prefix = Number(digits.slice(0, width));
-    if (prefix >= lo && prefix <= hi) return brand;
-  }
-  return null;
 }
 
 export interface CardValidationInput {
@@ -141,7 +89,7 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
   const digits = normalizePan(input.pan);
   const selectedBrand = input.brand;
   const validSelection = selectedBrand === undefined || CARD_BRANDS.includes(selectedBrand);
-  const brand = validSelection ? (selectedBrand ?? detectBrand(digits) ?? "other") : "other";
+  const brand = validSelection ? (selectedBrand ?? "other") : "other";
   const cardholderName = String(input.cardholderName ?? "").trim();
   if (!validSelection) errors.push("brand_invalid");
   if (!cardholderName) {

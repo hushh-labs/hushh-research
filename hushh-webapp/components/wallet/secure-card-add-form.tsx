@@ -6,7 +6,7 @@
  * the owner's vault key. They never enter a chat message or a Server Action.
  */
 
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
   ProfilePaneAccountIcon,
@@ -28,9 +28,10 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Label } from "@/components/ui/label";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { cn } from "@/lib/utils";
-import { CARD_BRANDS, detectBrand, validateCardForRegion, type CardBrand } from "@/lib/wallet/card-validation";
+import { normalizePan, validateCardForRegion, type CardBrand } from "@/lib/wallet/card-validation";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
-import type { WalletCardInput } from "@/lib/services/wallet-service";
+import { WalletService, type WalletNetworkContext, type WalletNetworkResult, type WalletCardInput } from "@/lib/services/wallet-service";
+import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { WalletCardScanner } from "./wallet-card-scanner";
 import styles from "./secure-card-add-form.module.css";
@@ -55,6 +56,7 @@ const ERROR_COPY: Record<string, string> = {
 export interface SecureCardAddFormProps {
   onSubmit: (card: WalletCardInput) => Promise<void>;
   onCancel?: () => void;
+  getNetworkContext?: () => WalletNetworkContext | null;
   compact?: boolean;
   /** Read a physical card locally, then review before saving. */
   scanEnabled?: boolean;
@@ -67,7 +69,7 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compact, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
@@ -89,8 +91,49 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = t
     if (errors.length) errorsRef.current?.focus();
   }, [errors]);
 
-  const detectedBrand = useMemo(() => detectBrand(pan), [pan]);
-  const brand = network || detectedBrand || "other";
+  const [supportedNetworks, setSupportedNetworks] = useState<CardBrand[]>([]);
+  const [networkReply, setNetworkReply] = useState<{ key: string; vaultOwnerToken: string; result: WalletNetworkResult | null } | null>(null);
+  const [networkLoading, setNetworkLoading] = useState(false);
+  const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
+  const context = getNetworkContext?.() ?? null;
+  const contextRef = useRef(context);
+  contextRef.current = context;
+  const digits = normalizePan(pan);
+  const prefix = /^[0-9]{6,19}$/.test(digits) ? digits.slice(0, 6) : "";
+  const length = digits.length;
+  const lookupKey = JSON.stringify([epoch, context?.userId, prefix, length, network]);
+  const currentReply = networkReply?.key === lookupKey && networkReply.vaultOwnerToken === context?.vaultOwnerToken ? networkReply : null;
+  const brand = currentReply?.result?.network ?? "other";
+  const networkHint = networkLoading || !currentReply ? null : !currentReply.result
+    ? "Network identification is unavailable. Your card will use a neutral Card label."
+    : currentReply.result.source === "ambiguous"
+      ? "This number matches more than one network. Choose the network printed on your card."
+      : currentReply.result.source === "unknown"
+        ? "Network not recognized. Choose the network printed on your card, or save it as Card."
+        : null;
+  useEffect(() => {
+    const current = contextRef.current;
+    const controller = new AbortController();
+    setSupportedNetworks([]);
+    if (current && active) void WalletService.supportedCardNetworks(current, controller.signal).then(values => {
+      if (!controller.signal.aborted) setSupportedNetworks(values);
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [context?.userId, context?.vaultOwnerToken, active, epoch]);
+  useEffect(() => {
+    const current = contextRef.current;
+    const controller = new AbortController();
+    setNetworkLoading(false);
+    if (!active || !current || !prefix || length < 13 || length > 19) return;
+    setNetworkLoading(true);
+    const timer = window.setTimeout(() => {
+      void WalletService.resolveCardNetwork(current, { iinPrefix: prefix, panLength: length, selectedNetwork: network || undefined }, controller.signal).then(result => {
+        if (!controller.signal.aborted) setNetworkReply({ key: lookupKey, vaultOwnerToken: current.vaultOwnerToken, result });
+      }).catch(() => { if (!controller.signal.aborted) setNetworkReply({ key: lookupKey, vaultOwnerToken: current.vaultOwnerToken, result: null }); })
+        .finally(() => { if (!controller.signal.aborted) setNetworkLoading(false); });
+    }, 150);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [context?.userId, context?.vaultOwnerToken, active, prefix, length, network, lookupKey]);
   const fieldErrors = (...codes: string[]) => {
     const matches = errors.filter((error) => codes.includes(error));
     return {
@@ -101,11 +144,11 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = t
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (saving.current || scanning || !active) return;
+    if (saving.current || scanning || networkLoading || !active) return;
     const match = expiry.trim().match(/^(\d{1,2})\s*\/\s*(\d{2}|\d{4})$/);
     const rawYear = Number(match?.[2] ?? 0);
     const card: WalletCardInput = {
-      nickname: initialNickname?.trim() || cardNetworkLabel(brand),
+      nickname: initialNickname?.trim() || cardNetworkLabel(network || brand),
       cardholderName: cardholderName.trim(),
       pan,
       brand: network || undefined,
@@ -115,7 +158,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = t
       expiryYear: match ? (rawYear < 100 ? 2000 + rawYear : rawYear) : 0,
       issuingRegion: issuingRegion || undefined,
     };
-    const result = validateCardForRegion(card);
+    const result = validateCardForRegion({ ...card, brand: network || brand });
     if (!result.valid) {
       setErrors(result.errors);
       return;
@@ -203,10 +246,11 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = t
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className={styles.selectMenu}>
-                <SelectItem value="auto">{detectedBrand ? `Auto-detect · ${cardNetworkLabel(detectedBrand)}` : "Auto-detect"}</SelectItem>
-                {CARD_BRANDS.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
+                <SelectItem value="auto">{brand !== "other" ? `Auto-detect · ${cardNetworkLabel(brand)}` : "Auto-detect"}</SelectItem>
+                {supportedNetworks.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
               </SelectContent>
             </Select>
+            {networkHint ? <p className={cn(TYPOGRAPHY_CLASSNAMES.helperText, "text-muted-foreground")} role="status">{networkHint}</p> : null}
           </div>
         </div>
         <div className={styles.row}>
@@ -288,7 +332,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = t
       ) : null}
       <FlowActionGroup
         stacked
-        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || !active} data-testid="secure-card-save">{submitting ? "Saving…" : "Save card"}</Button>}
+        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || networkLoading || !active} data-testid="secure-card-save">{submitting ? "Saving…" : "Save card"}</Button>}
         secondary={onCancel ? <Button type="button" variant="secondary" size="prominent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
       />
     </form>
