@@ -1,7 +1,7 @@
 """Stripe-hosted Checkout for one paid answer, at its order's approved price.
 
-This lane reuses Drive's amount/refund rules, Checkout duration, return URL
-builder and provider object normalization. Its explicit Stripe mode and secret
+This lane reuses Drive's amount/refund rules, Checkout duration and provider
+object normalization. Answer returns query their own status. Its Stripe mode and secret
 bindings are independent, so live answers cannot change Drive's sandbox mode.
 
 Settlement authority is the database order, never the event. A paid event must
@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import UTC, datetime
+from urllib.parse import quote
 from uuid import uuid4
 
 import stripe
@@ -26,7 +27,6 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_request_payment_service import (
     CHECKOUT_HOLD_SECONDS,
-    _checkout_return_url,
     _stripe_dict,
 )
 from hushh_mcp.services.external_connector_lifecycle_store import (
@@ -44,6 +44,11 @@ PAYMENT_KIND = "pkm_answer"
 
 MIN_ANSWER_PRICE_CENTS = 100
 MAX_ANSWER_PRICE_CENTS = 50_000
+
+
+def _answer_checkout_return_url(origin: str, request_id: str, result: str) -> str:
+    return f"{origin}/one/feed?answerPaymentRequestId={quote(request_id)}&checkout={result}"
+
 
 #: How long the owner's device has to produce the answer once payment settles.
 #: Quoted to the requester before checkout; a miss refunds in full.
@@ -119,9 +124,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 connection,
                 """SELECT r.status AS request_status, r.amount_cents, r.currency,
                           r.answer_deadline_at, r.question, o.status AS order_status,
-                          o.stripe_checkout_url, o.paid_at, o.refunded_at, o.refund_reason
+                          o.stripe_checkout_url, o.paid_at, o.refunded_at, o.refund_reason,
+                          o.reconciliation_required, d.has_content AS staged_has_content
                    FROM pkm_answer_requests r
                    LEFT JOIN pkm_answer_payment_orders o ON o.request_id = r.request_id
+                   LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
                    WHERE r.request_id = :request AND r.requester_user_id = :requester""",
                 {"request": request_id, "requester": requester_user_id},
             )
@@ -141,6 +148,14 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             "paidAt": row["paid_at"].isoformat() if row["paid_at"] else None,
             "refundedAt": row["refunded_at"].isoformat() if row["refunded_at"] else None,
             "refundReason": row["refund_reason"],
+            "reconciliationRequired": bool(row["reconciliation_required"]),
+            "preparationStatus": (
+                "preparing"
+                if row["staged_has_content"] is None
+                else "ready"
+                if row["staged_has_content"]
+                else "empty"
+            ),
             "answerDeadlineAt": (
                 row["answer_deadline_at"].isoformat() if row["answer_deadline_at"] else None
             ),
@@ -150,6 +165,24 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         }
 
     # -------------------------------------------------------------- checkout
+
+    @staticmethod
+    def _require_prepared_answer(connection, request_id: str) -> None:
+        staged = (
+            connection.execute(
+                text("""SELECT has_content, ciphertext, iv, recipient_key_id
+                    FROM pkm_answer_deliveries WHERE request_id = :request FOR SHARE"""),
+                {"request": request_id},
+            )
+            .mappings()
+            .first()
+        )
+        if staged is None:
+            raise AnswerPaymentError("answer_not_ready")
+        if not staged["has_content"]:
+            raise AnswerPaymentError("answer_not_found")
+        if not all(staged.get(field) for field in ("ciphertext", "iv", "recipient_key_id")):
+            raise AnswerPaymentError("answer_not_ready")
 
     def _retire_session(self, session_id: str, key: str) -> str:
         """Prove a superseded Checkout session can no longer be charged.
@@ -263,19 +296,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             # yielded nothing is already known to be unanswerable here, and
             # taking money for it would create a refund the person never
             # needed to be owed.
-            staged = (
-                connection.execute(
-                    text(
-                        """SELECT has_content FROM pkm_answer_deliveries
-                           WHERE request_id = :request FOR SHARE"""
-                    ),
-                    {"request": request_id},
-                )
-                .mappings()
-                .first()
-            )
-            if staged is not None and not staged["has_content"]:
-                raise AnswerPaymentError("answer_not_found")
+            self._require_prepared_answer(connection, request_id)
             order = self._row(
                 connection,
                 """SELECT * FROM pkm_answer_payment_orders
@@ -325,6 +346,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 raise AnswerPaymentError("request_unavailable")
             if fresh_request["status"] != "approved":
                 raise AnswerPaymentError("payment_not_ready")
+            self._require_prepared_answer(connection, request_id)
             fresh_order = self._row(
                 connection,
                 """SELECT * FROM pkm_answer_payment_orders
@@ -419,8 +441,8 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             self.stripe_api.checkout.Session.create,
             mode="payment",
             client_reference_id=request_id,
-            success_url=_checkout_return_url(origin, request_id, "paid"),
-            cancel_url=_checkout_return_url(origin, request_id, "cancelled"),
+            success_url=_answer_checkout_return_url(origin, request_id, "success"),
+            cancel_url=_answer_checkout_return_url(origin, request_id, "cancel"),
             expires_at=reserved["checkout_expires"],
             payment_intent_data={
                 "transfer_group": f"pkm-answer:{request_id}",
@@ -533,6 +555,53 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         if not isinstance(event, dict):
             raise AnswerPaymentError("payment_invalid_event")
 
+        await self._settle_verified_event(event=event, key=key)
+
+    async def recover_checkout_event(self, *, request_id: str, stripe_event_id: str) -> None:
+        """Operator recovery using an authenticated provider event, never fabricated signatures.
+
+        This uses the same transaction and replay guard as signed webhooks.
+        No browser-return, PaymentIntent, or caller-supplied event can settle an order.
+        """
+        key, _secret, _origin = _config()
+        from fastapi.concurrency import run_in_threadpool
+
+        raw = await run_in_threadpool(self.stripe_api.Event.retrieve, stripe_event_id, api_key=key)
+        event = _stripe_dict(raw)
+        session = (event.get("data") or {}).get("object") or {}
+        if (
+            event.get("id") != stripe_event_id
+            or event.get("type")
+            not in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}
+            or (session.get("metadata") or {}).get("request_id") != request_id
+        ):
+            raise AnswerPaymentError("payment_invalid_event")
+        current = _stripe_dict(
+            await run_in_threadpool(
+                self.stripe_api.checkout.Session.retrieve,
+                session.get("id"),
+                api_key=key,
+            )
+        )
+        # Confirm the same paid provider object still belongs to these exact terms.
+        for field in (
+            "id",
+            "client_reference_id",
+            "mode",
+            "payment_status",
+            "amount_total",
+            "currency",
+            "livemode",
+            "payment_intent",
+            "metadata",
+        ):
+            if current.get(field) != session.get(field):
+                raise AnswerPaymentError("payment_invalid_event")
+        await self._settle_verified_event(event=event, key=key)
+
+    async def _settle_verified_event(self, *, event: dict, key: str) -> None:
+        """Only signed webhook or authenticated provider-read callers enter here."""
+
         event_type = event.get("type")
         if event_type not in {
             "checkout.session.completed",
@@ -572,10 +641,10 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             raise AnswerPaymentError("payment_invalid_event")
 
         def settle(connection):
-            connection.execute(
-                text(
-                    "SELECT request_id FROM pkm_answer_requests WHERE request_id=:request FOR UPDATE"
-                ),
+            request = self._row(
+                connection,
+                """SELECT request_id, status, owner_user_id, requester_user_id, terms_digest
+                   FROM pkm_answer_requests WHERE request_id=:request FOR UPDATE""",
                 {"request": request_id},
             )
             order = self._row(
@@ -652,6 +721,39 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                     "session": session["id"],
                 },
             )
+            # Record a verified charge even if authority ended in flight, but
+            # never release its envelope. The connection lock serializes this
+            # decision against disconnect; the existing worker refunds it.
+            connected = self._row(
+                connection,
+                """SELECT id FROM connections WHERE status='active'
+                   AND ((user_a_id=:owner AND user_b_id=:requester)
+                     OR (user_b_id=:owner AND user_a_id=:requester)) FOR SHARE""",
+                {"owner": order["owner_user_id"], "requester": order["requester_user_id"]},
+            )
+            if not connected or not request or request["terms_digest"] != order["terms_digest"]:
+                connection.execute(
+                    text("""UPDATE pkm_answer_payment_orders
+                    SET reconciliation_required=TRUE, reconciliation_reason='authority_changed',
+                        reconciliation_at=clock_timestamp(), updated_at=clock_timestamp()
+                    WHERE request_id=:request"""),
+                    {"request": request_id},
+                )
+                if request and request["status"] == "approved":
+                    connection.execute(
+                        text("""UPDATE pkm_answer_requests SET status='declined',
+                        declined_at=clock_timestamp(), updated_at=clock_timestamp()
+                        WHERE request_id=:request"""),
+                        {"request": request_id},
+                    )
+                if request and request["status"] != "answered":
+                    from hushh_mcp.services.pkm_answer_work_worker import file_refund
+
+                    reason = {"cancelled": "requester_cancelled", "expired": "answer_timeout"}.get(
+                        request["status"], "owner_declined"
+                    )
+                    file_refund(connection, request_id, reason)
+                return
             # An answer prepared at approval was waiting on exactly this, so a
             # verified payment releases it here. Requiring the owner to unlock
             # and act a second time is what the 72-hour clock below exists to
@@ -771,7 +873,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         def file(connection):
             request = self._row(
                 connection,
-                "SELECT request_id FROM pkm_answer_requests WHERE request_id=:request FOR UPDATE",
+                "SELECT request_id, status FROM pkm_answer_requests WHERE request_id=:request FOR UPDATE",
                 {"request": request_id},
             )
             if request is None:
@@ -781,7 +883,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 "SELECT has_content FROM pkm_answer_deliveries WHERE request_id=:request",
                 {"request": request_id},
             )
-            if delivered and delivered["has_content"]:
+            if request["status"] == "answered" and delivered and delivered["has_content"]:
                 raise AnswerPaymentError("answer_already_delivered")
             return file_refund(connection, request_id, reason)
 

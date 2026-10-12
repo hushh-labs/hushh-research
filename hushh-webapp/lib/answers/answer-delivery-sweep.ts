@@ -39,7 +39,7 @@ import {
   type AnswerableWork,
 } from "@/lib/services/answer-request-service";
 import { encryptSliceForRecipient } from "@/lib/one-marketplace/encryption";
-import { buildConsentExportForScope } from "@/lib/consent/export-builder";
+import { buildConsentExportForScope, createConsentExportReadSession } from "@/lib/consent/export-builder";
 import {
   projectApprovedAnswer,
   type ScopeProjection,
@@ -137,9 +137,11 @@ export async function buildAnswerPayload(
 ): Promise<{ payload: AnswerPayload; hasContent: boolean }> {
   const projections: ScopeProjection[] = [];
   const unavailableScopes: string[] = [];
+  const sourceManifestRevisions: Record<string, number | null> = {};
+  const readSession = createConsentExportReadSession({ ...params, scopes: work.approvedScopes });
 
-  // One export per scope, still: each is its own consent decision and reading
-  // a domain as a unit would hand one approved field every sibling beside it.
+  // Each scope remains its own consent projection. The read session deduplicates
+  // domain ciphertext/manifest reads without exposing unapproved siblings.
   // What changes is the waiting. Awaiting them one after another made the
   // owner's preparation take the SUM of every scope's manifest read, blob
   // fetch and decrypt, on a phone, while they watched. A small bound runs
@@ -170,12 +172,14 @@ export async function buildAnswerPayload(
           scope,
           vaultKey: params.vaultKey,
           vaultOwnerToken: params.vaultOwnerToken,
+          readSession,
         });
         ordered[index] = {
           scope,
           payload: built.payload,
           contentRevision: built.sourceContentRevision ?? null,
         };
+        sourceManifestRevisions[scope] = built.sourceManifestRevision ?? null;
       } catch {
         // A scope that cannot be exported is named, never silently omitted: a
         // partial answer that reads complete is the failure mode to avoid,
@@ -205,7 +209,8 @@ export async function buildAnswerPayload(
   const memorySlice = buildAnswerMemorySlice({
     byScope: projected.byScope,
     sourceRevisions: projected.sourceRevisions,
-    ownerIdentity: params.ownerIdentity ?? null,
+    sourceManifestRevisions,
+    ownerIdentity: work.ownerIdentity ?? params.ownerIdentity ?? null,
     builtAt: new Date().toISOString(),
   });
 
@@ -222,7 +227,10 @@ export async function buildAnswerPayload(
   };
   if (!isVaultSessionEpochCurrent(epoch))
     throw new Error("Vault session changed");
-  if (firebaseIdToken && projected.hasContent) {
+  const identity = work.ownerIdentity ?? params.ownerIdentity;
+  const hasContent = projected.hasContent || Boolean(identity &&
+    [identity.displayName, identity.email, identity.photoUrl].some(value => value?.trim()));
+  if (firebaseIdToken && hasContent && !unavailableScopes.length && memorySlice.complete) {
     written = await AnswerRequestService.compose(
       firebaseIdToken,
       work.requestId,
@@ -253,7 +261,7 @@ export async function buildAnswerPayload(
       unavailableScopes,
       builtAt: new Date().toISOString(),
     },
-    hasContent: projected.hasContent,
+    hasContent,
   };
 }
 
@@ -318,7 +326,7 @@ export async function runAnswerDeliverySweep(
 
       // A question the owner's information CAN answer, but which the writer
       // failed to answer, is not finished work either.
-      if (hasContent && payload.answerMode !== "agent") {
+      if (hasContent && (payload.answerMode !== "agent" || !payload.answer?.trim())) {
         result.retry += 1;
         continue;
       }

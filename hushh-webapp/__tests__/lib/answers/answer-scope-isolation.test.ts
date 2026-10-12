@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const buildConsentExportForScope = vi.fn();
 vi.mock("@/lib/consent/export-builder", () => ({
+  createConsentExportReadSession: () => undefined,
   buildConsentExportForScope: (...args: unknown[]) =>
     buildConsentExportForScope(...args),
 }));

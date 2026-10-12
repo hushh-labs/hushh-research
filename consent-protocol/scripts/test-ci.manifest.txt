@@ -720,6 +720,7 @@ tests/services/test_pkm_answer_requests_postgres.py
 tests/services/test_pkm_answer_races_postgres.py
 tests/test_one_career_routes.py
 tests/services/test_pkm_answer_recovery_postgres.py
+tests/services/test_pkm_answer_signed_settlement_postgres.py
 tests/test_pkm_answer_config.py
 tests/test_pkm_answer_routes.py
 tests/test_sse_routes.py
