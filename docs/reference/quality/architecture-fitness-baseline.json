@@ -16988,7 +16988,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
       "symbol": null,
-      "value": 655
+      "value": 695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29126,7 +29126,18 @@
       "reviewed_at": "2026-10-08T19:51:43.522523+00:00",
       "source_sha256": "ede48565225ee7a9f7e9b739f774bb80a1f3ee1a95de91a3d8e7650fc7033186"
     },
-    "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d"
+    "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d",
+    "si_domain_auth_regressions_20261012": {
+      "after": 695,
+      "before": 655,
+      "evidence_revision": "86c1fded75f17b438211084d538806620b6be56b",
+      "key": "module_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py||module exceeds the advisory operon budget",
+      "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+      "review": "Two focused regressions execute existing shell guards to preserve same-environment domain admission and source-free prebuilt resolution; no runtime-module growth. Independent review found neither covered by existing prebuilt cases. Budgets, scanner, exclusions and all other findings unchanged.",
+      "reviewer": "si_compatibility_review",
+      "source_sha256": "1519641ed2da11dde757c456b38921c8456f818b993a681bcbcc83db69e30518",
+      "verification": "87 nearest backend cases passed; the new cases cover the observed Step1 catalog-read defect and foreign-environment negative controls."
+    }
   },
   "review": {
     "account_service_deprovision_fix": "Reviewed 2026-10-06: 2793 to 2797, the account erasure deprovision built as the route builds it (registry + backend); a bare constructor raised TypeError since 2026-09-08.",
