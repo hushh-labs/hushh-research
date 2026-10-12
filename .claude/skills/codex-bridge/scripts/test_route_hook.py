@@ -292,7 +292,7 @@ def main() -> int:
     check(
         "skill briefing for non-Q&A query includes Suggested delegation lanes footer",
         code == 0
-        and "skill `vault-pkm-governance`" in out
+        and "skill `security-audit`" in out
         and "Suggested delegation lanes" in out
         and "`security_consent_auditor`" in out,
         f"excerpt={out[-600:]!r}",
@@ -302,7 +302,7 @@ def main() -> int:
     check(
         "Q&A plus skill match suppresses agent lanes footer",
         code == 0
-        and "skill `vault-pkm-governance`" in out
+        and "skill `security-audit`" in out
         and "Suggested delegation lanes" not in out,
         f"excerpt={out[-400:]!r}",
     )

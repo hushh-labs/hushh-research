@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "security-audit",
   "primary_scope": "security-audit-intake",
-  "description": "Use when the request is about IAM, consent, trust, ordinary vault encryption, PKM storage or persistence, encrypted PKM records, plaintext localStorage leaks, streaming safety, verification, or security audit workflows and no narrower specialist owns the change.",
+  "description": "Use when the request is about IAM, consent, trust, ordinary vault encryption, failures decrypting PKM entries, PKM storage or persistence, encrypted PKM records, plaintext localStorage leaks, streaming safety, verification, or security audit workflows and no narrower specialist owns the change.",
   "owned_paths": [
     "docs/reference/iam",
     "docs/reference/streaming",
