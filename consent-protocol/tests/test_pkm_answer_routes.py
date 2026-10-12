@@ -78,6 +78,55 @@ async def test_request_intake_survives_paused_payments_but_checkout_does_not(mon
     payments.checkout.assert_not_called()
 
 
+async def test_preparing_the_answer_survives_paused_payments_but_selling_it_does_not(
+    monkeypatch,
+):
+    """The step that decides whether an answer EXISTS is not the money gate.
+
+    The owner's device prepares the answer at approval so "Answer not found"
+    is honest and a verified payment can release it with no second owner
+    action. Preparing moves no money. While it required the payment flag, a
+    deployment with payments paused could never leave "Checking their memory
+    for an answer": the device was never handed the work.
+
+    Negative control in the same test: loosening the checkout gate to match
+    fails the last assertion.
+    """
+    monkeypatch.setenv("PKM_ANSWER_REQUESTS_ENABLED", "true")
+    monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "false")
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
+    requests = Mock(
+        claim_answerable=AsyncMock(return_value=[{"requestId": "synthetic-request"}]),
+    )
+    payments = Mock(checkout=AsyncMock())
+    monkeypatch.setattr(routes, "_requests", lambda: requests)
+    monkeypatch.setattr(routes, "_payments", lambda: payments)
+
+    assert await routes.answerable_for_owner(Response(), "owner") == {
+        "requests": [{"requestId": "synthetic-request"}]
+    }
+
+    # Selling it still waits for the payment lane, and nothing was charged.
+    with pytest.raises(HTTPException) as error:
+        await routes.create_answer_checkout(uuid4(), Response(), "requester")
+    assert error.value.status_code == 503
+    payments.checkout.assert_not_called()
+
+
+async def test_preparing_the_answer_still_needs_its_own_composer_flag(monkeypatch):
+    # The composer is the one flag preparation does depend on: without it the
+    # device cannot read the approved information at all.
+    monkeypatch.setenv("PKM_ANSWER_REQUESTS_ENABLED", "true")
+    monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
+    requests = Mock(claim_answerable=AsyncMock())
+    monkeypatch.setattr(routes, "_requests", lambda: requests)
+    with pytest.raises(HTTPException) as error:
+        await routes.answerable_for_owner(Response(), "owner")
+    assert error.value.status_code == 503
+    requests.claim_answerable.assert_not_called()
+
+
 async def test_unset_request_flag_opens_intake_with_payments_off(monkeypatch):
     """The production regression: no binding must still mean open.
 

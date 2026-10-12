@@ -3730,13 +3730,13 @@ export function ConsentCenterPage() {
     setPreviousLocalPage,
   );
   return (
-    <AppPageShell as="main" width="agent" fitContent>
-      <AppPageHeaderRegion className="space-y-3.5 sm:space-y-3.5">
+    <AppPageShell as="main" width="agent" headerContentSpacing="compact" fitContent>
+      <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
         <PageHeader title="Consent Center" titleRole="agent" />
         <TopShellTabs tabSet={consentTabSet} />
       </AppPageHeaderRegion>
       <SettingsPresentationProvider density="compact">
-        <AppPageContentRegion className="!mt-3.5 sm:!mt-3.5">
+        <AppPageContentRegion>
           <section data-testid="consent-manager-primary" className="min-h-0">
             <section data-testid="consent-manager-list">
               <SettingsGroup

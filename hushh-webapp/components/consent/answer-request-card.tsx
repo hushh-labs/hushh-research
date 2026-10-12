@@ -205,7 +205,36 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         key={pending.requestId}
         request={pending}
         requesterLabel="The requester"
-        onResolved={() => void load()}
+        onResolved={() => {
+          // Prepare the answer now, while this device is unlocked and the
+          // owner is here. Nobody is asked to pay for an answer that turns
+          // out not to exist, and a verified payment later releases the
+          // prepared one without bringing the owner back to unlock again.
+          //
+          // Best effort: the request is approved either way, and the sweep
+          // retries. The requester's row says the answer is being checked
+          // until this reports, so a failure here never reads as "not found".
+          void (async () => {
+            try {
+              const token = await AuthService.getIdToken();
+              if (token && user?.uid && vaultKey && vaultOwnerToken)
+                await runAnswerDeliverySweep(
+                  {
+                    userId: user.uid,
+                    vaultKey,
+                    vaultOwnerToken,
+                    firebaseIdToken: token,
+                    requestId,
+                  },
+                  snapshotVaultSessionEpoch(),
+                );
+            } catch {
+              /* The staged answer is retried; approval already stands. */
+            } finally {
+              await load();
+            }
+          })();
+        }}
       />
     );
   }

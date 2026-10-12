@@ -168,6 +168,7 @@ export function assertBusinessMemoryTarget(
   current: Record<string, unknown>,
   card: AgentPkmPreviewCard,
   origin: BusinessMemoryOrigin,
+  options: { requireExistingTarget?: boolean } = {},
 ) {
   const incomingEntity = businessMemoryEntity(card);
   const mode = String(card.merge_decision?.merge_mode || card.merge_mode || "");
@@ -212,12 +213,20 @@ export function assertBusinessMemoryTarget(
       typeof value !== "object" ||
       Array.isArray(value) ||
       !Object.prototype.hasOwnProperty.call(value, segment)
-    )
+    ) {
+      if (options.requireExistingTarget)
+        throw new Error("The saved business changed. Review these details again. Nothing was changed.");
       return;
+    }
     value = (value as Record<string, unknown>)[segment];
   }
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("The saved business needs review.");
+  if (options.requireExistingTarget &&
+    ((value as Record<string, unknown>).active === false ||
+      ((value as Record<string, unknown>).status !== undefined &&
+        (value as Record<string, unknown>).status !== "active")))
+    throw new Error("The saved business changed. Review these details again. Nothing was changed.");
   const prior = (value as Record<string, unknown>)._business_origin;
   if (
     !prior ||

@@ -60,7 +60,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
         as="main"
         width="reading"
         headerContentSpacing="compact"
-        className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
+        className="pb-[calc(var(--app-bottom-inset)+1rem)]"
       >
         <AppPageHeaderRegion>
           <PageHeader

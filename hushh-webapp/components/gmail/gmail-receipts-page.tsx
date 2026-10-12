@@ -2108,11 +2108,6 @@ export default function GmailReceiptsPage({
           title="Mail"
           titleRole={journeyVariant === "workspace" ? "agent" : "page"}
           description={pageTitle}
-          className={
-            journeyVariant === "workspace"
-              ? "[&_[data-slot=page-header-copy]]:!space-y-3"
-              : undefined
-          }
           actions={
             isConnected && journeyVariant === "onboarding" ? (
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -2157,7 +2152,7 @@ export default function GmailReceiptsPage({
       <AppPageContentRegion
         className={
           journeyVariant === "workspace"
-            ? "mx-auto !mt-0 max-w-[820px]"
+            ? "mx-auto max-w-[820px]"
             : undefined
         }
       >

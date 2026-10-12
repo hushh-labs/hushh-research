@@ -17,6 +17,17 @@ from hushh_mcp.services.actor_identity_service import (
 )
 
 
+async def test_contact_sync_keeps_verified_phone_for_short_firebase_uid(monkeypatch) -> None:
+    service = ActorIdentityService()
+    cached = {"user_id": "imported", "phone_verified": True, "phone_number": "+919000000001"}
+    monkeypatch.setattr(service, "get_many", AsyncMock(return_value={"imported": cached}))
+    provider = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+    monkeypatch.setattr(service, "_get_firebase_user_record", provider)
+
+    assert await service.sync_contact_sync_requester_from_firebase("imported") is None
+    provider.assert_not_awaited()
+
+
 class _AliasFakeAcquire:
     def __init__(self, conn):
         self.conn = conn

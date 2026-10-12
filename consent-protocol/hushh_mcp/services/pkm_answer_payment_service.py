@@ -258,6 +258,24 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 raise AnswerPaymentError("payment_not_ready")
             if not valid_answer_price_cents(request["amount_cents"]):
                 raise AnswerPaymentError("payment_not_ready")
+            # One payment buys one answer. The owner's device prepares the
+            # answer at approval, so an approved question whose approved scopes
+            # yielded nothing is already known to be unanswerable here, and
+            # taking money for it would create a refund the person never
+            # needed to be owed.
+            staged = (
+                connection.execute(
+                    text(
+                        """SELECT has_content FROM pkm_answer_deliveries
+                           WHERE request_id = :request FOR SHARE"""
+                    ),
+                    {"request": request_id},
+                )
+                .mappings()
+                .first()
+            )
+            if staged is not None and not staged["has_content"]:
+                raise AnswerPaymentError("answer_not_found")
             order = self._row(
                 connection,
                 """SELECT * FROM pkm_answer_payment_orders
@@ -618,20 +636,67 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                     "session": session["id"],
                 },
             )
-            # Only now does the owner's device have authorized work to do, and
-            # only now does the fulfilment clock start.
-            moved = connection.execute(
-                text(
-                    """UPDATE pkm_answer_requests
-                       SET status = 'answering',
-                           answer_deadline_at = clock_timestamp()
-                               + make_interval(hours => :hours),
-                           updated_at = clock_timestamp()
-                       WHERE request_id = :request AND status = 'approved'
-                       RETURNING request_id"""
-                ),
-                {"request": request_id, "hours": ANSWER_DEADLINE_HOURS},
-            ).first()
+            # An answer prepared at approval was waiting on exactly this, so a
+            # verified payment releases it here. Requiring the owner to unlock
+            # and act a second time is what the 72-hour clock below exists to
+            # survive, and a staged answer never needs it.
+            staged = (
+                connection.execute(
+                    text(
+                        """SELECT has_content FROM pkm_answer_deliveries
+                           WHERE request_id = :request FOR SHARE"""
+                    ),
+                    {"request": request_id},
+                )
+                .mappings()
+                .first()
+            )
+            if staged is not None and staged["has_content"]:
+                moved = connection.execute(
+                    text(
+                        """UPDATE pkm_answer_requests
+                           SET status = 'answered', answered_at = clock_timestamp(),
+                               updated_at = clock_timestamp()
+                           WHERE request_id = :request AND status = 'approved'
+                           RETURNING request_id"""
+                    ),
+                    {"request": request_id},
+                ).first()
+                if moved is not None:
+                    connection.execute(
+                        text(
+                            """UPDATE pkm_answer_payment_orders
+                               SET owner_earning_status = 'due', updated_at = clock_timestamp()
+                               WHERE request_id = :request AND status = 'paid'"""
+                        ),
+                        {"request": request_id},
+                    )
+                    from hushh_mcp.services.pkm_answer_request_service import (
+                        PkmAnswerRequestService,
+                    )
+
+                    PkmAnswerRequestService._feed(
+                        connection,
+                        user_id=order["requester_user_id"],
+                        event_type="answer_delivered",
+                        request_id=request_id,
+                        status="answered",
+                    )
+            else:
+                # Only now does the owner's device have authorized work to do,
+                # and only now does the fulfilment clock start.
+                moved = connection.execute(
+                    text(
+                        """UPDATE pkm_answer_requests
+                           SET status = 'answering',
+                               answer_deadline_at = clock_timestamp()
+                                   + make_interval(hours => :hours),
+                               updated_at = clock_timestamp()
+                           WHERE request_id = :request AND status = 'approved'
+                           RETURNING request_id"""
+                    ),
+                    {"request": request_id, "hours": ANSWER_DEADLINE_HOURS},
+                ).first()
 
             if moved is None:
                 # The request closed while the payment was in flight: Stripe

@@ -1140,7 +1140,9 @@ async def test_magic_cohort_blocks_research_and_withdraws_changed_identity(monke
 
 
 @pytest.mark.parametrize("phase", ["1", "5"])
-async def test_pilot_or_general_uat_research_works_without_business_or_team_roster(monkeypatch, phase):
+async def test_pilot_or_general_uat_research_works_without_business_or_team_roster(
+    monkeypatch, phase
+):
     from hushh_mcp.services.magic_intelligence_admission import PILOT_EMAIL
 
     monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", phase)

@@ -697,7 +697,9 @@ export async function addToPKM(params: {
           if (params.businessOrigin) {
             if (automatic || !["business_profile_review", "profile_research_review"].includes(params.source || ""))
               throw new Error("Business information requires its explicit review writer.");
-            assertBusinessMemoryTarget(context.currentDomainData, card, params.businessOrigin);
+            assertBusinessMemoryTarget(context.currentDomainData, card, params.businessOrigin, {
+              requireExistingTarget: params.source === "profile_research_review",
+            });
           }
           // Re-run on a conflict retry, so the outcome follows the state that
           // was finally merged into.

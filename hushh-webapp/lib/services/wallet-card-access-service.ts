@@ -7,6 +7,7 @@ export type CardAccessState = { eligible: boolean; reason?: string; grants: Card
 export type CardAccessView = {
   status: "active" | "verification_required" | "expired" | "revoked";
   expiresAt: string; serverNow: string; senderName: string;
+  encryptedCard?: string; senderUserId?: string;
   card?: { brand: string; last4: string; expiryMonth: number; expiryYear: number; issuingRegion: string };
 };
 export class CardAccessUnavailableError extends Error {
@@ -38,8 +39,8 @@ export const WalletCardAccessService = {
   reserve: (idToken: string, vaultOwnerToken: string, requestId: string) => request<{ cardId: string | null; enabled: boolean }>(idToken, "/registrations", "POST", { requestId }, vaultOwnerToken),
   state: (context: CardShareContext, cardId: string, signal?: AbortSignal, cursor?: string) => ownerRequest<CardAccessState>(context, `/cards/${encodeURIComponent(cardId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, "GET", undefined, signal),
   recipients: (context: CardShareContext, query: string, signal?: AbortSignal) => ownerRequest<{ items: CardAccessRecipient[]; hasMore: boolean }>(context, `/connections?query=${encodeURIComponent(query)}`, "GET", undefined, signal),
-  share: (context: CardShareContext, cardId: string, recipientPersonRefs: string[], durationMinutes: 5 | 10 | 15, requestId: string) =>
-    ownerRequest<{ grants: CardAccessGrant[] }>(context, `/cards/${encodeURIComponent(cardId)}/grants`, "POST", { requestId, recipientPersonRefs, durationMinutes }),
+  share: (context: CardShareContext, cardId: string, recipientPersonRefs: string[], durationMinutes: 5 | 10 | 15, requestId: string, encryptedCards?: Record<string, string>) =>
+    ownerRequest<{ grants: CardAccessGrant[] }>(context, `/cards/${encodeURIComponent(cardId)}/grants`, "POST", { requestId, recipientPersonRefs, durationMinutes, ...(encryptedCards ? { encryptedCards } : {}) }),
   revoke: (context: CardShareContext, grantId: string) => ownerRequest<{ revoked: boolean }>(context, `/grants/${encodeURIComponent(grantId)}`, "DELETE"),
   view: (idToken: string, grantId: string) => request<CardAccessView>(idToken, `/grants/${encodeURIComponent(grantId)}`),
   verify: (idToken: string, grantId: string) => request<CardAccessView>(idToken, `/grants/${encodeURIComponent(grantId)}/verify`, "POST"),

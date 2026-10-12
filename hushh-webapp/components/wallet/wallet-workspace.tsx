@@ -100,7 +100,7 @@ const WALLET_TABS = [
 type WalletTab = "cards" | "add" | "sharing";
 
 /** One column for header and content, so both share a start line. */
-const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-1.5 sm:space-y-3.5";
+const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]";
 
 const CARD_SLOT_RADIUS = { borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})` };
 
@@ -779,6 +779,7 @@ export function WalletWorkspace() {
     <AppPageShell
       as="div"
       width="standard"
+      headerContentSpacing="compact"
       fitContent
       className="relative isolate [--app-page-content-bottom-gap:0px]"
     >

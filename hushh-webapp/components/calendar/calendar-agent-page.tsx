@@ -536,6 +536,7 @@ export function CalendarAgentPage({
   return (
     <AppPageShell
       width="reading"
+      headerContentSpacing={journeyVariant === "workspace" ? "compact" : "standard"}
       className={CALENDAR_SETUP_SHELL_CLASSNAME}
       nativeTest={{
         routeId: ROUTES.CALENDAR,
@@ -562,29 +563,31 @@ export function CalendarAgentPage({
             {popupWaitingNotice}
           </CalendarConnectHero>
         ) : (
-          <div className="flex flex-col items-center text-center space-y-1 pb-4 pt-8 max-w-sm mx-auto">
+          <div className="flex flex-col items-center text-center max-w-sm mx-auto">
             <div className="mb-6 flex size-24 items-center justify-center rounded-[24px] bg-[#FFF0F1] dark:bg-red-950/40">
               <CalendarConnectIcon className="size-11" style={{ color: "#FF3B30" }} />
             </div>
 
-            <h2 className="text-2xl sm:text-[26px] font-bold tracking-tight text-foreground">
-              {connected ? "Google Calendar" : "Connect Google Calendar"}
-            </h2>
+            <div className="space-y-[var(--page-header-copy-gap)]">
+              <h2 className="text-2xl sm:text-[26px] font-bold tracking-tight text-foreground">
+                {connected ? "Google Calendar" : "Connect Google Calendar"}
+              </h2>
 
-            <p className="text-base text-muted-foreground/80 mt-1 max-w-xs leading-normal">
-              {detail}
-            </p>
+              <p className="text-base text-muted-foreground/80 max-w-xs leading-normal">
+                {detail}
+              </p>
+            </div>
 
-            <div className="space-y-4 pt-6 w-full flex flex-col items-center">
+            <div className="space-y-4 pt-[var(--page-header-section-gap)] w-full flex flex-col items-center">
               {checkingConnection ? (
-                <span className="inline-flex items-center gap-2 pt-2 text-sm text-muted-foreground">
+                <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
                   {connectionPending
                     ? "Finishing Calendar connection…"
                     : "Loading Calendar…"}
                 </span>
               ) : (
-                <div className="pt-2 space-y-4 flex flex-col items-center w-full">
+                <div className="space-y-4 flex flex-col items-center w-full">
                   {/* Connection Status & Permission */}
                   <div className="flex flex-col items-center gap-1.5 text-center px-2">
                     <div

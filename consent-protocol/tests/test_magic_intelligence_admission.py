@@ -147,8 +147,14 @@ def test_general_rollout_removes_roster_not_fresh_owner_checks(
 
 @pytest.mark.parametrize(
     "environment,deploy_environment",
-    [("production", "production"), ("development", ""), ("uat", ""),
-     ("", "uat"), ("uat", "production"), ("production", "uat")],
+    [
+        ("production", "production"),
+        ("development", ""),
+        ("uat", ""),
+        ("", "uat"),
+        ("uat", "production"),
+        ("production", "uat"),
+    ],
 )
 def test_general_uat_rollout_never_opens_other_or_ambiguous_lanes(
     monkeypatch, cohort, environment, deploy_environment

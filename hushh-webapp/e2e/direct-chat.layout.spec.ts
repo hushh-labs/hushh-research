@@ -49,11 +49,11 @@ test.beforeAll(async () => {
   });
   css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
-async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle") {
+async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean } = {}) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("http://localhost/fixture-person-*.webp", (route) => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${Number(route.request().url().match(/person-(\d+)/)![1]) + 1}.webp`)) }));
-  await page.route("http://localhost/one/messages*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+  await page.route("http://localhost/one/messages*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" data-modal-fixture="${options.modal === true}" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
   await page.goto(`http://localhost/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}`}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
@@ -109,6 +109,45 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   const bounds = (await navigation.boundingBox())!;
   expect(Math.abs(bounds.x + bounds.width / 2 - 393 / 2)).toBeLessThanOrEqual(1);
 });
+
+for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 844], [0, 844, 390]] as const) {
+  test(`iOS Messages clears the status bar at ${inset}px in ${width}x${height} without covering the dock`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await mount(page, false, false, true);
+    await page.evaluate((value) => {
+      document.documentElement.classList.add("native-ios");
+      document.documentElement.style.setProperty("--app-native-safe-area-top", `${value}px`);
+    }, inset);
+    const minimumTop = (height > width ? Math.max(59, inset) : inset) + 8;
+    const canvas = page.locator("[data-direct-message-page]");
+    await expect.poll(async () => (await page.getByRole("heading", { name: "Messages" }).boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
+    expect((await canvas.boundingBox())!.y).toBe(minimumTop);
+    await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+    const title = page.getByRole("heading", { name: "Arjun Mehta with a very long display name", exact: true });
+    await expect(title).toBeVisible();
+    expect((await title.boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
+    const dock = page.locator("[data-agent-bar-shell]");
+    const assertTranscriptClear = async () => {
+      const bounds = (await canvas.boundingBox())!;
+      expect(bounds.y).toBe(minimumTop);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual((await dock.boundingBox())!.y + 1);
+    };
+    await assertTranscriptClear();
+    await page.screenshot({ path: test.info().outputPath(`messages-ios-${width}-inset-${inset}.png`), animations: "disabled" });
+    await page.locator("[data-direct-message-composer-input]").fill("A draft above the keyboard");
+    const keyboardHeight = height < 500 ? 140 : 300;
+    await page.evaluate((value) => {
+      document.documentElement.classList.add("kb-open", "native-keyboard-inset");
+      document.documentElement.style.setProperty("--kb-height", `${value}px`);
+      window.dispatchEvent(new Event("resize"));
+    }, keyboardHeight);
+    await expect.poll(async () => {
+      const bounds = (await page.getByRole("button", { name: "Send message" }).boundingBox())!;
+      return bounds.y + bounds.height;
+    }).toBeLessThanOrEqual(height - keyboardHeight + 1);
+    await assertTranscriptClear();
+  });
+}
 
 test("system Back closes message search before returning from a People thread", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
@@ -376,7 +415,7 @@ test("background refreshes do not read new messages; changing owner clears prior
 });
 
 test("incoming messages covered by a modal or moving composer keep their unread receipt", async ({ page }) => {
-  await mount(page); await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.reads.length)).toBeGreaterThan(0);
+  await mount(page, false, false, false, "idle", { modal: true }); await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.reads.length)).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Open fixture modal" }).click();
   await expect(page.getByRole("dialog", { name: "Fixture modal" })).toBeVisible();
   const before = await page.evaluate(() => (window as any).directChatFixture.reads.length);

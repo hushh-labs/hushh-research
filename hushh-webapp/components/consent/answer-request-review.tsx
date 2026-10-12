@@ -139,19 +139,16 @@ export function AnswerRequestReview({
         )}
       </fieldset>
 
+      {/* Staging changed what this step promises. It used to describe a
+          "Write answer" the owner came back to after payment, and a 72-hour
+          refund clock for not coming back. Their device prepares the answer
+          here instead, so the old sentences described a flow that no longer
+          runs. Google Vertex AI writing it is a real disclosure and stays. */}
       <HelperText as="p">
-        When you choose Write answer in the unlocked app, only this approved
-        information is sent temporarily to the answer service and its model
-        provider to write this answer. Your device encrypts the answer for the
-        requester. If it is not delivered within 72 hours, the requester
-        receives a full refund.
-      </HelperText>
-
-      <HelperText as="p">
-        Google Vertex AI processes the approved information. Its policies may
-        allow up to 90 days of abuse-monitoring retention and up to 24 hours of
-        memory caching, unless the project has verified exemptions or disabled
-        caching. These settings must be reviewed before live use.
+        Your device writes the answer now from what you tick, encrypts it for
+        them, and holds it until they pay. Google Vertex AI writes it, so the
+        ticked information reaches that provider under its retention and
+        caching policies. Nothing is sent if nothing you tick answers them.
       </HelperText>
 
       <Label className="flex items-start gap-2">
@@ -161,8 +158,8 @@ export function AnswerRequestReview({
           disabled={busy}
           onChange={(event) => setConsented(event.target.checked)}
         />
-        I agree to model processing of this question and only the selected
-        information to write this answer.
+        I agree to this question and the ticked information being used to
+        write the answer.
       </Label>
 
       {error ? (
