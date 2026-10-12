@@ -51,7 +51,7 @@ export type PkmNaturalLanguageIngestionResult = {
 };
 
 export type PkmNaturalLanguageWritePolicy = "reviewable" | "auto_save_only";
-export type PkmNaturalLanguageMemoryProfile = "general" | "kyc_identity_v1" | "business_directory_v1" | "soul_markdown_v1";
+export type PkmNaturalLanguageMemoryProfile = "general" | "kyc_identity_v1" | "business_directory_v1" | "soul_markdown_v1" | "profile_review_v1";
 
 export type PkmNaturalLanguagePreparationResult = {
   preview: AgentPkmPreviewResponse;
