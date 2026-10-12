@@ -135,6 +135,36 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testHistoryMenuRetirementWaitsForDisappearanceAndRejectsItsOldChoice() throws {
+        let controller = NativeDrawerPresentationController(privateDrawerState(family: "history"))
+        controller.loadViewIfNeeded()
+        let menu = NativeDrawerMenuControl(type: .system)
+        controller.model.registerMenu(menu)
+        let interaction = UIContextMenuInteraction(delegate: menu)
+        let configuration = UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: nil)
+        menu.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: nil)
+        var acted = false
+        menu.afterDismissal { acted = true }
+        var retired = false
+        controller.retire { retired = true }
+        XCTAssertFalse(retired, "A removed menu trigger cannot acknowledge native popup absence")
+        XCTAssertFalse(controller.children.isEmpty)
+        let animator = OwnedMenuTestAnimator()
+        menu.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
+        XCTAssertFalse(retired, "willEnd is not completed disappearance")
+        animator.finish()
+        XCTAssertTrue(retired)
+        XCTAssertTrue(controller.children.isEmpty)
+        XCTAssertFalse(acted, "Retirement cancels a pending action before its popup completes")
+        let model = NativeDrawerModel(privateDrawerState(family: "history"))
+        model.interactionEnabled = true
+        let oldState = model.projection
+        model.update(privateDrawerState(family: "history", update: 2))
+        model.showDetails(oldState.sections[0].rows[0], mode: "rename", from: oldState)
+        XCTAssertNil(model.detailRow, "An old menu cannot open a replacement owner's editor")
+    }
+
+    @MainActor
     func testWholeNativeDrawerKeepsBasePaintThroughCoverageAndClearsPrivateReplicaOnRetirement() throws {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
@@ -1859,4 +1889,12 @@ final class NativeSupportTests: XCTestCase {
             "HUSHH_HTTP_503"
         )
     }
+}
+
+@MainActor private final class OwnedMenuTestAnimator: NSObject, UIContextMenuInteractionAnimating {
+    var previewViewController: UIViewController? { nil }
+    private var completions = [() -> Void]()
+    func addAnimations(_ animations: @escaping () -> Void) { animations() }
+    func addCompletion(_ completion: @escaping () -> Void) { completions.append(completion) }
+    func finish() { let work = completions; completions.removeAll(); work.forEach { $0() } }
 }

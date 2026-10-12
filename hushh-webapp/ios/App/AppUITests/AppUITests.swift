@@ -3173,6 +3173,10 @@ final class AppUITests: XCTestCase {
         app.activate()
         dismissRehearsalChatKeyboard(app)
         returnToRehearsalChat(app)
+        if app.segmentedControls["chat-agent-surface"].firstMatch.exists {
+            try verifyCoherentProfileDestinations(app)
+            return
+        }
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
         let close = app.buttons["Close Profile"].firstMatch
@@ -3329,6 +3333,70 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(hosts.count, 1)
         }
         print("PROFILE_STACK_CONTINUITY screens=\(families.count) warm=true single_host=true")
+    }
+
+    /// Batch the actual authored menu and nested query parents. No account,
+    /// connector, vault or support operation is submitted by this read journey.
+    private func verifyCoherentProfileDestinations(_ app: XCUIApplication) throws {
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        let initialDraft = editor.value as? String // Process memory only.
+        let opener = app.buttons["Open Profile"].firstMatch
+        let close = app.buttons["Close Profile"].firstMatch
+        let back = app.buttons["Back in Profile"].firstMatch
+        let destinations = ["account", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
+        func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
+        func row(_ title: String) -> XCUIElement {
+            web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+        }
+        func admittedBack() -> Bool {
+            guard waitForAdmittedControl(back) else { return false }
+            XCTAssertEqual(back.frame.width, 44, accuracy: 1)
+            XCTAssertEqual(back.frame.height, 44, accuracy: 1)
+            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Back in Profile")).count, 1)
+            return true
+        }
+        defer {
+            for _ in 0..<4 {
+                if root("account").exists && root("account").isHittable { break }
+                if back.exists && back.isHittable { back.tap() }
+            }
+            if close.exists && close.isHittable { close.tap() }
+        }
+        guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
+        opener.tap()
+        for id in destinations {
+            let destination = root(id)
+            for _ in 0..<5 {
+                if destination.exists && destination.isHittable { break }
+                app.otherElements["native-profile-drawer-body"].firstMatch.swipeUp()
+            }
+            guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
+            destination.tap()
+            guard admittedBack() else { XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
+            // A complex detail is the only active layer. The native root must
+            // be withdrawn, not left hit-testable through its content.
+            XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
+            if id == "security" {
+                for title in ["Vault methods", "Account access", "Trusted devices"] {
+                    let nested = row(title)
+                    guard waitForAdmittedControl(nested) else { XCTFail("PROFILE_BATCH_SECURITY_ROW_UNAVAILABLE"); return }
+                    nested.tap()
+                    guard admittedBack() else { XCTFail("PROFILE_BATCH_NESTED_BACK_UNAVAILABLE"); return }
+                    back.tap()
+                    XCTAssertTrue(waitForAdmittedControl(row(title)), "PROFILE_BATCH_QUERY_PARENT_NOT_RESTORED")
+                }
+            }
+            back.tap()
+            XCTAssertTrue(waitForAdmittedControl(root("account")), "PROFILE_BATCH_MENU_NOT_RESTORED")
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            print("PROFILE_NATIVE_DESTINATION family=\(id) warm=true single_host=true")
+        }
+        close.tap()
+        XCTAssertTrue(waitForAdmittedControl(editor))
+        XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
+        print("PROFILE_STACK_CONTINUITY screens=9 warm=true single_host=true")
     }
 
     func testLocalSessionWorkspaceFamiliesKeepDraftAndAuthoritativeSelection() throws {

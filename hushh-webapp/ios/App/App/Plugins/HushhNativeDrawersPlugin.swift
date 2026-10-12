@@ -33,6 +33,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
     private var leases = [String: NativeDrawerLease]()
     private var controllers = [String: NativeDrawerPresentationController]()
+    private var retiringControllers = [ObjectIdentifier: NativeDrawerPresentationController]()
     private var sessionFence = NativeDrawerSessionFence()
     private var privacyObserver: NSObjectProtocol?
     private var isolationObserver: NSObjectProtocol?
@@ -79,6 +80,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let self, self.supported, let parent = self.bridge?.viewController, let container = self.container else {
                 call.reject("NATIVE_DRAWER_UNSUPPORTED"); return
             }
+            guard self.retiringControllers.isEmpty else { call.reject("NATIVE_DRAWER_RETIRING"); return }
             // Decode a closed shape without persisting/logging raw options.
             guard let options = call.options as? [String: Any], NativeDrawerProjection.hasClosedShape(options), JSONSerialization.isValidJSONObject(options),
                   let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 2_200_000,
@@ -101,6 +103,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.retireAll()
                 self.leases.removeAll()
                 self.sessionFence = session
+                guard self.retiringControllers.isEmpty else { call.reject("NATIVE_DRAWER_RETIRING"); return }
             }
             guard !next.open || !self.controllers.contains(where: { family, control in
                 family != next.family && (control.model.projection.open || control.motion.progress > 0)
@@ -108,6 +111,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             self.leases[next.family] = lease
             if let previous = self.controllers[next.family], previous.model.projection.identity != next.identity {
                 self.detach(next.family)
+                guard self.retiringControllers.isEmpty else { call.reject("NATIVE_DRAWER_RETIRING"); return }
             }
             if let previous = self.controllers[next.family] { previous.update(next) }
             else {
@@ -206,6 +210,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.retireAll(); self.leases.removeAll(); self.sessionFence = session
             }
             var lease = self.leases[identity.family] ?? NativeDrawerLease()
+            if let retiring = self.retiringControllers.values.first(where: { $0.model.projection.identity == identity }) {
+                let state = retiring.model.projection
+                retiring.retire { call.resolve(self.receipt(state, phase: "retired")) }
+                return
+            }
             // Privacy may already have detached this exact presentation. A
             // targeted tombstone proves absence; an old identity can never
             // acknowledge or remove the next owner's controller.
@@ -218,8 +227,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let state = controller.model.projection
             self.leases[identity.family] = lease
-            self.detach(identity.family)
-            call.resolve(self.receipt(state, phase: "retired"))
+            self.detach(identity.family) { call.resolve(self.receipt(state, phase: "retired")) }
         }
     }
     private func identity(_ call: CAPPluginCall) -> NativeDrawerIdentity? {
@@ -237,11 +245,17 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
          "revision": identity.revision, "family": identity.family, "updateSequence": lease.updateSequence,
          "privacyGeneration": max(0, lease.privacyGeneration), "phase": "retired"]
     }
-    @MainActor private func detach(_ family: String) {
+    @MainActor private func detach(_ family: String, completion: @escaping () -> Void = {}) {
+        guard let controller = controllers.removeValue(forKey: family) else { completion(); return }
         let shield = HushhSessionPrivacyShield.shared
         let token = shield.beginPresentationRetirement()
-        controllers.removeValue(forKey: family)?.retire()
-        shield.completePresentationRetirement(token)
+        let identity = ObjectIdentifier(controller)
+        retiringControllers[identity] = controller
+        controller.retire { [self] in
+            retiringControllers.removeValue(forKey: identity)
+            shield.completePresentationRetirement(token)
+            completion()
+        }
     }
     @MainActor private func retireAll() {
         for family in Array(controllers.keys) {

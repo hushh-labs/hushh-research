@@ -14,10 +14,24 @@ final class NativeDrawerModel: ObservableObject {
     var pendingSequence: Int?
     var choose: ((String, String?, String?) -> Bool)?
     var close: (() -> Void)?
+    private let menus = NSHashTable<NativeDrawerMenuControl>.weakObjects()
+    func registerMenu(_ menu: NativeDrawerMenuControl) { menus.add(menu) }
+    func dismissMenus(completion: @escaping () -> Void = {}) {
+        let active = menus.allObjects.filter { $0.menuVisible }
+        guard !active.isEmpty else { completion(); return }
+        var remaining = active.count
+        for menu in active {
+            menu.dismissOwnedMenu {
+                remaining -= 1
+                if remaining == 0 { completion() }
+            }
+        }
+    }
     init(_ projection: NativeDrawerProjection) { self.projection = projection }
     func update(_ projection: NativeDrawerProjection) {
         self.projection = projection
         if !projection.open || !projection.enabled || detailRow.map({ id in !projection.sections.contains { $0.rows.contains { $0.id == id } } }) == true {
+            dismissMenus()
             clearDetails()
         }
         if !projection.enabled { search = "" }
@@ -31,6 +45,13 @@ final class NativeDrawerModel: ObservableObject {
     func details(_ row: NativeDrawerRow) {
         guard interactionEnabled, !choicePending, row.enabled, row.pending != true else { return }
         detailRow = row.id; detailMode = "actions"; renameDraft = row.label
+    }
+    func showDetails(_ row: NativeDrawerRow, mode: String, from state: NativeDrawerProjection) {
+        guard projection.identity == state.identity, projection.privacyGeneration == state.privacyGeneration,
+              projection.updateSequence == state.updateSequence,
+              projection.sections.contains(where: { $0.rows.contains(where: { $0.id == row.id && $0.enabled && $0.pending != true }) }) else { return }
+        details(row)
+        if detailRow == row.id { detailMode = mode }
     }
     @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil) -> Bool {
         guard projection.allows(action: action, row: row, text: text) else { return false }
@@ -55,6 +76,8 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     private var dragging = false
     private var awaitingReadmission = false
     private var intentTimeout: DispatchWorkItem?
+    private var retirementCompletions = [() -> Void]()
+    private var detached = false
     var isolation: ((Bool) -> Void)?
     var invalidateInteractions: (() -> Void)?
     var leadingHeaderFrame: (() -> CGRect?)?
@@ -176,6 +199,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         let transform = host.view.layer.presentation()?.affineTransform() ?? host.view.transform
         let current = min(1, max(0, 1 - abs(transform.tx) / width))
         _ = motion.begin(at: current)
+        model.dismissMenus()
         invalidateInteractions?()
         animator?.stopAnimation(true); animator = nil
         origin = current
@@ -281,7 +305,9 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: deadline)
     }
     /// Clears the private model and callbacks only after child detachment.
-    func retire() {
+    func retire(completion: @escaping () -> Void = {}) {
+        if detached { completion(); return }
+        retirementCompletions.append(completion)
         guard !motion.retired else { return }
         motion.retire()
         intentTimeout?.cancel(); intentTimeout = nil
@@ -293,6 +319,11 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         invalidateInteractions = nil
         model.update(model.projection.cleared)
         model.interactionEnabled = false
+        // Removing a trigger/host does not prove UIKit's menu disappeared.
+        // Keep containment until its disappearance animator completes.
+        model.dismissMenus { [self] in detachRetiredPresentation() }
+    }
+    private func detachRetiredPresentation() {
         host.willMove(toParent: nil)
         host.view.removeFromSuperview()
         host.removeFromParent()
@@ -300,6 +331,10 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         view.removeFromSuperview()
         removeFromParent()
         isolation?(false); isolation = nil
+        detached = true
+        let completions = retirementCompletions
+        retirementCompletions.removeAll()
+        for completion in completions { completion() }
     }
 }
 
@@ -364,12 +399,7 @@ struct NativeDrawerContent: View {
                                 .accessibilityAddTraits(row.selected == true ? .isSelected : [])
                                 .accessibilityIdentifier("native-\(model.projection.family)-row-\(row.id)")
                             if row.renameActionId != nil || row.deleteActionId != nil {
-                                Button { model.details(row) } label: {
-                                    Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle())
-                                }
-                                    .accessibilityLabel("Open actions for \(row.label)")
-                                    .accessibilityIdentifier("native-\(model.projection.family)-actions-\(row.id)")
-                                    .disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
+                                NativeDrawerRowMenu(model: model, row: row).frame(width: 44, height: 44)
                             }
                           }
                           // Automatic List buttons can invoke the row as well
@@ -435,5 +465,71 @@ struct NativeDrawerContent: View {
             Button(action: action) { Image(systemName: symbol) }.frame(width: 44, height: 44)
                 .accessibilityLabel(label).disabled(!model.interactionEnabled)
         }
+    }
+}
+
+/// Standard UIKit compact menu embedded in the SwiftUI row. UIKit owns its
+/// material and animation; retirement is acknowledged only after willEnd's
+/// completion. Menu actions carry the exact projection, never ambient rows.
+@MainActor final class NativeDrawerMenuControl: UIButton {
+    private(set) var menuVisible = false
+    private var completions = [() -> Void]()
+    private var pendingChoice: (() -> Void)?
+    func afterDismissal(_ choice: @escaping () -> Void) {
+        if menuVisible { pendingChoice = choice } else { choice() }
+    }
+    func dismissOwnedMenu(completion: @escaping () -> Void) {
+        pendingChoice = nil
+        guard menuVisible else { completion(); return }
+        completions.append(completion)
+        contextMenuInteraction?.dismissMenu()
+    }
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+        willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+        super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
+        menuVisible = true
+    }
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+        willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+        super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
+        let finish = { [self] in
+            menuVisible = false
+            let choice = pendingChoice; pendingChoice = nil
+            let retired = completions; completions.removeAll()
+            for completion in retired { completion() }
+            if retired.isEmpty { choice?() }
+        }
+        if let animator { animator.addCompletion(finish) } else { finish() }
+    }
+}
+
+private struct NativeDrawerRowMenu: UIViewRepresentable {
+    let model: NativeDrawerModel
+    let row: NativeDrawerRow
+    func makeUIView(context: Context) -> NativeDrawerMenuControl {
+        let button = NativeDrawerMenuControl(type: .system)
+        button.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        button.showsMenuAsPrimaryAction = true
+        model.registerMenu(button)
+        return button
+    }
+    func updateUIView(_ button: NativeDrawerMenuControl, context: Context) {
+        button.accessibilityLabel = "Open actions for \(row.label)"
+        button.accessibilityIdentifier = "native-\(model.projection.family)-actions-\(row.id)"
+        button.isEnabled = row.enabled && row.pending != true && model.interactionEnabled
+        if !button.isEnabled { button.dismissOwnedMenu {} }
+        let state = model.projection
+        var actions = [UIAction]()
+        if row.renameActionId != nil {
+            actions.append(UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { [weak button, weak model] _ in
+                button?.afterDismissal { model?.showDetails(row, mode: "rename", from: state) }
+            })
+        }
+        if row.deleteActionId != nil {
+            actions.append(UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak button, weak model] _ in
+                button?.afterDismissal { model?.showDetails(row, mode: "delete", from: state) }
+            })
+        }
+        button.menu = UIMenu(children: actions)
     }
 }
