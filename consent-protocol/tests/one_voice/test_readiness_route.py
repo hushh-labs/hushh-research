@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth
 from api.routes.one import voice
+from hushh_mcp.one_voice.config import OneVoiceLiveConfig
+from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
 
 LIVE_MODEL = "gemini-live-2.5-flash-native-audio"
 
@@ -72,6 +78,28 @@ def test_ready_when_the_connect_probe_succeeds(monkeypatch):
         "protocol_version": "one-voice-v1",
         "ws_path": "/api/one/voice/live",
     }
+
+
+@pytest.mark.asyncio
+async def test_readiness_probes_the_voice_project_without_exposing_it(monkeypatch):
+    captured = []
+
+    @asynccontextmanager
+    async def connect(**_kwargs):
+        yield None
+
+    def build_client(**kwargs):
+        captured.append(kwargs)
+        return SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
+
+    monkeypatch.setattr(voice, "build_managed_live_client", build_client)
+    config = OneVoiceLiveConfig(
+        enabled=True, model_id=LIVE_MODEL, location="us-central1", vertex_project="hussh-511311"
+    )
+    await voice._probe_live_connect(config)
+    assert captured == [
+        {"model": LIVE_MODEL, "location": "us-central1", "vertex_project": "hussh-511311"}
+    ]
 
 
 def test_provider_outage_hides_voice_and_never_reflects_provider_text(monkeypatch):
@@ -184,6 +212,36 @@ def test_socket_rejects_a_bad_ticket_without_a_provider(monkeypatch):
     with client.websocket_connect("/api/one/voice/live?ticket=v1.bad.ticket") as ws:
         frame = ws.receive_json()
         assert frame["type"] == "error" and frame["code"] == "ticket_signature"
+
+
+def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(monkeypatch):
+    monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
+    monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", LIVE_MODEL)
+    monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")
+    monkeypatch.setenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", "hussh-511311")
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    seen = []
+
+    async def consume(_ticket):
+        return SimpleNamespace(user_id="owner-1")
+
+    class FakeSession:
+        def __init__(self, **kwargs):
+            self.config = kwargs["config"]
+
+        async def run(self):
+            async def child():
+                seen.append(ManagedGeminiRuntimeBinding.from_environment().project)
+
+            await asyncio.create_task(child())
+
+    monkeypatch.setattr(voice, "consume_ticket", consume)
+    monkeypatch.setattr(voice, "VoiceSession", FakeSession)
+    with TestClient(_owner_app()).websocket_connect("/api/one/voice/live?ticket=test"):
+        pass
+    assert seen == ["hussh-511311"]
+    assert ManagedGeminiRuntimeBinding.from_environment().project == "hushh-vertex-personal54"
 
 
 def test_retired_paths_stay_retired_while_live_is_enabled(monkeypatch):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from hushh_mcp.one_voice.config import (
+    HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV,
     MAIL_SCHEDULED_DRAIN_ENABLED_ENV,
     ONE_VOICE_LIVE_ENABLED_ENV,
     ONE_VOICE_MAIL_DRAFTS_ENABLED_ENV,
@@ -57,8 +58,20 @@ def test_flag_on_reads_the_pinned_contract(monkeypatch):
     assert config.enabled is True
     assert config.model_id == "gemini-live-2.5-flash-native-audio"
     assert config.location == "us-central1"
+    assert config.vertex_project is None
     assert config.session_max_seconds == 600
     assert config.idle_close_seconds == 90
+
+
+def test_voice_project_override_is_explicit_and_validated(monkeypatch):
+    monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
+    monkeypatch.setenv(VERTEX_LIVE_MODEL_ID_ENV, "gemini-live-2.5-flash-native-audio")
+    monkeypatch.setenv(VERTEX_LIVE_LOCATION_ENV, "us-central1")
+    monkeypatch.setenv(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV, "hussh-511311")
+    assert OneVoiceLiveConfig.from_environment().vertex_project == "hussh-511311"
+    monkeypatch.setenv(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV, "hussh-511311/other")
+    with pytest.raises(OneVoiceConfigError, match=HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV):
+        OneVoiceLiveConfig.from_environment()
 
 
 def test_limits_must_be_positive_integers(monkeypatch):
