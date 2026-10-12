@@ -85,38 +85,6 @@ def _run(script: str, *, env: dict[str, str] | None = None, cwd: Path = ROOT):
 # --- Cloud Build configs -----------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "lane,host,accepted",
-    [
-        ("production", "one.hussh.ai", True),
-        ("production", "one.hushh.ai", True),
-        ("uat", "uat.one.hussh.ai", True),
-        ("uat", "uat.one.hushh.ai", True),
-        ("dev", "dev.one.hushh.ai", True),
-        ("production", "uat.one.hussh.ai", False),
-        ("uat", "one.hussh.ai", False),
-        ("production", "unrelated.hussh.ai", False),
-        ("uat", "unrelated.hussh.ai", False),
-    ],
-)
-def test_frontend_origin_gate_preserves_only_same_environment_aliases(
-    lane: str,
-    host: str,
-    accepted: bool,
-) -> None:
-    body = _body(_steps(FRONTEND_BUILD)["resolve-google-contacts-client-config"])
-    start = body.index('expected_passkey_rp_id=""')
-    end = body.index("printf '%s'", start)
-    gate = _substitute(body[start:end], {"_DEPLOY_ENV": lane}).replace("$$", "$")
-    result = _run(
-        gate + '\nprintf "%s" "$PASSKEY_RP_ID_VAL"',
-        env={"PASSKEY_RP_ID_VAL": host},
-    )
-    assert (result.returncode == 0) is accepted, result.stderr
-    if accepted:
-        assert result.stdout == host  # Validation never rewrites an existing RP.
-
-
 def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
     combined = _steps(FRONTEND_BUILD)
     image_only = _steps(FRONTEND_IMAGE_BUILD)
@@ -151,8 +119,13 @@ def test_image_build_accepts_only_registered_environment_origins(environment, pr
     # Execute the actual catalog guard without invoking cloud services or writing /workspace.
     guard = step[step.index('python3 - "${_DEPLOY_ENV}"') : step.index("\nPY_RP") + len("\nPY_RP")]
     guard = guard.replace("${_DEPLOY_ENV}", environment).replace("$$", "$")
-    allowed = _run(guard, env={"PASSKEY_RP_ID_VAL": f"{prefix}.{domain}"})
+    hostname = f"{prefix}.{domain}"
+    allowed = _run(
+        guard + '\nprintf "%s" "$PASSKEY_RP_ID_VAL"',
+        env={"PASSKEY_RP_ID_VAL": hostname},
+    )
     assert allowed.returncode == 0, allowed.stderr
+    assert allowed.stdout == hostname  # Validation must not change an existing RP.
     foreign_prefix = "one" if environment != "production" else "uat.one"
     for hostname in (f"{foreign_prefix}.{domain}", f"evil.{prefix}.{domain}"):
         refused = _run(guard, env={"PASSKEY_RP_ID_VAL": hostname})

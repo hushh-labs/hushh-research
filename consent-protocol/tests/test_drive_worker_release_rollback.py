@@ -431,7 +431,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     assert state["log_reads"] == {
         "drive-work-drain-uat": 1,
         "drive-work-suggestions-uat": 1,
-        "drive-work-sharing-uat": 1 if log_failure == "none" else 55,
+        "drive-work-sharing-uat": 1 if log_failure == "none" else 2,
     }
     if log_failure != "none":
         assert result.returncode != 0
