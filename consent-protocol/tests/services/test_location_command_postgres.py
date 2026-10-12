@@ -1363,3 +1363,54 @@ async def test_sos_incident_guard_serialises_concurrent_arming_to_one_incident(d
         == 2
     )
     assert agents.OneLocationAgentService is Service
+
+
+async def test_checkpoint_expiry_preserves_fresh_legacy_and_other_namespace_rows(db):
+    """Execute canonical checkpoint retention SQL in the serial isolated DB lane."""
+    import asyncpg
+
+    from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_PREFIX
+    from hushh_mcp.services.profile_research_jobs import (
+        NAMESPACE,
+        SESSION,
+        ProfileResearchJobStore,
+    )
+
+    schema = db.execute_raw("SELECT current_schema() AS schema").data[0]["schema"]
+    assert schema.startswith("command_test_")
+    dsn = db.engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
+    async with asyncpg.create_pool(
+        dsn=dsn, min_size=1, max_size=2, server_settings={"search_path": schema}
+    ) as pool:
+
+        async def checkpoint_pool():
+            return pool
+
+        store = ProfileResearchJobStore(
+            pool_provider=checkpoint_pool, cipher=static_chat_cipher("12" * 32)
+        )
+        state = {"status": "offered", "result": {"status": "no_match", "pkm_written": False}}
+        await store.write("owner", state, None)
+        await store.write("other", state, None)
+        db.execute_raw(
+            "UPDATE one_adk_sessions SET updated_at=NOW()-INTERVAL '25 hours' WHERE user_id='owner'"
+        )
+        db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES('legacy')")
+        db.execute_raw(
+            """INSERT INTO one_adk_sessions
+               (app_name,user_id,session_id,payload_ciphertext,payload_iv,payload_tag,updated_at)
+               VALUES (:app,'owner','other-session',:marked,'iv','tag',NOW()-INTERVAL '25 hours'),
+                      ('hussh_one','owner','chat',:marked,'iv','tag',NOW()-INTERVAL '25 hours'),
+                      (:app,'legacy',:session,'legacy-row','iv','tag',NOW()-INTERVAL '25 hours')""",
+            {"app": NAMESPACE, "session": SESSION, "marked": CHAT_CIPHERTEXT_PREFIX + "fixture"},
+        )
+        await store.purge_expired()
+        rows = db.execute_raw("SELECT app_name,user_id,session_id FROM one_adk_sessions").data
+        assert {(row["app_name"], row["user_id"], row["session_id"]) for row in rows} == {
+            (NAMESPACE, "other", SESSION),
+            (NAMESPACE, "owner", "other-session"),
+            ("hussh_one", "owner", "chat"),
+            (NAMESPACE, "legacy", SESSION),
+        }
+        assert await store.get("owner") is None
+        assert (await store.get("other"))["result"] == state["result"]

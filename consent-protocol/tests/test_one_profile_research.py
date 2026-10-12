@@ -1,5 +1,7 @@
 """Profile drafts use real ADK task completion and never write owner memory."""
 
+import copy
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,7 +12,12 @@ from google.genai import types
 from pydantic import PrivateAttr, ValidationError
 
 from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
-from hushh_mcp.one_adk.profile_research import ProfileReport, run_profile_research
+from hushh_mcp.one_adk.profile_research import (
+    ProfileReport,
+    ProfileSourceRef,
+    profile_research_policy_fingerprint,
+    run_profile_research,
+)
 from hushh_mcp.services import profile_research_service as service
 
 SOURCE = "https://example.test/team/alex"
@@ -32,6 +39,238 @@ REPORT = {
         }
     ],
 }
+FOLLOWUP_SOURCES = [
+    {"title": "University", "url": "https://example.test/university/alex"},
+    {"title": "Project", "url": "https://example.test/projects/alex"},
+    {"title": "Event organizer", "url": "https://example.test/events/alex"},
+]
+ENRICHED_REPORT = {
+    **REPORT,
+    "sections": [
+        {
+            "kind": "career",
+            "facts": [
+                *REPORT["sections"][0]["facts"],
+                {
+                    "statement": "I built an open-source image classifier.",
+                    "confidence": "supported",
+                    "sources": [FOLLOWUP_SOURCES[1]],
+                },
+            ],
+        },
+        {
+            "kind": "education",
+            "facts": [
+                {
+                    "statement": "I studied computer science at Example University.",
+                    "confidence": "supported",
+                    "sources": [FOLLOWUP_SOURCES[0]],
+                }
+            ],
+        },
+        {
+            "kind": "personal",
+            "facts": [
+                {
+                    "statement": "I organized a campus hackathon in 2025.",
+                    "confidence": "supported",
+                    "sources": [FOLLOWUP_SOURCES[2]],
+                }
+            ],
+        },
+    ],
+}
+
+
+@pytest.mark.parametrize("status", ["matched", "uncertain", "no_match"])
+async def test_single_discovery_preserves_research_without_score_or_threshold(status):
+    from hushh_mcp.one_adk.profile_research import run_profile_discovery
+
+    report = {**REPORT, "match_status": status}
+    if status == "no_match":
+        report["sections"] = []
+    research = AsyncMock(return_value={"report": report, "search_suggestions": []})
+    charge = AsyncMock()
+    identity = {
+        "full_name": "Alex Example",
+        "email": "alex@example.test",
+        "phone_number": "+15555550123",
+    }
+    result = await run_profile_discovery(
+        identity=identity,
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        require_access=AsyncMock(),
+        researcher=research,
+        on_attempts_start=charge,
+    )
+    assert result == {"report": report, "search_suggestions": []}
+    assert "verification" not in result
+    research.assert_awaited_once()
+    charge.assert_awaited_once_with((1,))
+    assert research.await_args.kwargs["identity"] == identity
+    assert (
+        research.await_args.kwargs["exact_query"]
+        == '"Alex Example" "alex@example.test" "+15555550123"'
+    )
+    assert research.await_args.kwargs["search_limit"] == 1
+
+
+@pytest.mark.parametrize("missing", ["email", "phone_number"])
+async def test_single_discovery_never_substitutes_missing_owner_fields(missing):
+    from hushh_mcp.one_adk.profile_research import exact_identity_query, run_profile_discovery
+
+    identity = {
+        "full_name": "Alex Example",
+        "email": "alex@example.test",
+        "phone_number": "+15555550123",
+    }
+    identity[missing] = None
+    research = AsyncMock(return_value={"report": REPORT, "search_suggestions": []})
+    await run_profile_discovery(
+        identity=identity,
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        require_access=AsyncMock(),
+        researcher=research,
+    )
+    expected = {key: value for key, value in identity.items() if value is not None}
+    research.assert_awaited_once()
+    assert research.await_args.kwargs["identity"] == expected
+    assert research.await_args.kwargs["exact_query"] == exact_identity_query(expected)
+
+
+async def test_single_discovery_failure_and_consumed_slot_never_repeat_research():
+    from hushh_mcp.one_adk.profile_research import run_profile_discovery
+
+    research = AsyncMock(side_effect=RuntimeError("fixture source unavailable"))
+    args = dict(
+        identity={"full_name": "Alex Example"},
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        require_access=AsyncMock(),
+        researcher=research,
+    )
+    terminal = {"status": "unavailable", "retry_exhausted": True, "attempts": 1}
+    assert await run_profile_discovery(**args) == terminal
+    assert await run_profile_discovery(**args, attempts_used=(1,)) == terminal
+    research.assert_awaited_once()
+    research.side_effect = PermissionError("Owner session ended")
+    with pytest.raises(PermissionError):
+        await run_profile_discovery(**args)
+
+
+@pytest.mark.parametrize(
+    "changed",
+    ["research_instruction", "search_description", "output_cap", "resolved_model", "search_limit"],
+)
+def test_cached_policy_tracks_active_research_not_unrelated_one_copy(monkeypatch, changed):
+    from hushh_mcp.one_adk import agent_tree, profile_research
+
+    manifest = agent_tree._ONE_MANIFEST
+    original = profile_research_policy_fingerprint()
+    monkeypatch.setattr(
+        agent_tree,
+        "_ONE_MANIFEST",
+        manifest.model_copy(update={"system_instruction": "New head copy"}),
+    )
+    assert profile_research_policy_fingerprint() == original
+    children = []
+    for child in manifest.subagents:
+        if changed == "research_instruction" and child.id == "one_profile_research":
+            child = child.model_copy(
+                update={"system_instruction": child.system_instruction + "\nNew coverage"}
+            )
+        elif changed == "search_description" and child.id == "google_search":
+            child = child.model_copy(update={"description": child.description + " New description"})
+        elif changed == "output_cap" and child.id == "one_profile_research":
+            child = child.model_copy(
+                update={
+                    "performance": child.performance.model_copy(update={"max_output_tokens": 2048})
+                }
+            )
+        children.append(child)
+    monkeypatch.setattr(
+        agent_tree, "_ONE_MANIFEST", manifest.model_copy(update={"subagents": children})
+    )
+    if changed == "resolved_model":
+        monkeypatch.setattr(
+            "hushh_mcp.runtime_providers.gemini_config.resolve_fleet_model_name",
+            lambda name: "gemini-other",
+        )
+    elif changed == "search_limit":
+        monkeypatch.setattr(profile_research, "MAX_SEARCH_ATTEMPTS", 3)
+    assert profile_research_policy_fingerprint() != original
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        "request_dropped_phone",
+        "receipt_dropped_phone",
+        "receipt_dropped_local_part",
+        "missing_receipt",
+        "none",
+    ],
+)
+async def test_full_contacts_reach_search_child_and_internal_reformulation_is_allowed(
+    monkeypatch, changed
+):
+    from hushh_mcp.one_adk.profile_research import exact_identity_query
+
+    identity = {
+        "full_name": "Alex Example",
+        "email": "alex@example.test",
+        "phone_number": "+15555550123",
+    }
+    query = exact_identity_query(identity)
+    request = query.replace(' "+15555550123"', "") if changed == "request_dropped_phone" else query
+    observed = query
+    if changed == "receipt_dropped_phone":
+        observed = query.replace("+15555550123", "15555550123")
+    if changed == "receipt_dropped_local_part":
+        observed = query.replace("alex@example.test", "example.test")
+    model = ProfileModel(
+        query_request=request,
+        observed_queries=[] if changed == "missing_receipt" else [observed],
+        search_evidence=changed != "missing_receipt",
+        no_match=changed == "missing_receipt",
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_regional_gemini_adk_model", lambda _: model
+    )
+    invoke = run_profile_research(
+        identity=identity,
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        require_access=AsyncMock(),
+        search_limit=1,
+        exact_query=query,
+        include_evidence=True,
+    )
+    if changed in {"request_dropped_phone", "missing_receipt"}:
+        with pytest.raises((ValueError, SpecialistAdkTurnError)):
+            await invoke
+        if changed == "request_dropped_phone":
+            assert len(model._requests) == 1  # Refused before Search dispatch.
+    else:
+        result = await invoke
+        assert result["report"] == REPORT and len(model._requests) == 3
+        child = model._requests[1]
+        assert child.contents[-1].parts[0].text == query
+        assert any(tool.google_search is not None for tool in child.config.tools)
+        # Exact identifiers must not strip the research intent at the child hop.
+        # Otherwise Search receives a bare contact intersection instead of a
+        # profile question, and can return no-match despite public name evidence.
+        search_instruction = str(child.config.system_instruction)
+        assert "Treat the identifiers as identity anchors, not a required conjunction" in (
+            search_instruction
+        )
+        assert "roles, education, projects, competitions and public leadership" in (
+            search_instruction
+        )
+        assert "Do not require the email or phone to be published" in search_instruction
+    assert OWNER_TOKEN not in repr(model._requests)
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +293,13 @@ class ProfileModel(BaseLlm):
     _refuse_followup: bool = PrivateAttr(default=False)
     _parallel_tool: str | None = PrivateAttr(default=None)
     _repeat_search: bool = PrivateAttr(default=False)
+    _enrich: bool = PrivateAttr(default=False)
+    _followup_grounded: bool = PrivateAttr(default=True)
+    _root_only_grounding: bool = PrivateAttr(default=False)
+    _extra_sources: int = PrivateAttr(default=0)
+    _forced_ref: str | None = PrivateAttr(default=None)
+    _query_request: str | None = PrivateAttr(default=None)
+    _observed_queries: list[str] | None = PrivateAttr(default=None)
 
     def __init__(
         self,
@@ -65,6 +311,13 @@ class ProfileModel(BaseLlm):
         refuse_followup=False,
         parallel_tool=None,
         repeat_search=False,
+        enrich=False,
+        followup_grounded=True,
+        root_only_grounding=False,
+        extra_sources=0,
+        forced_ref=None,
+        query_request=None,
+        observed_queries=None,
     ):
         super().__init__(model="gemini-fixture")
         self._cited_url = cited_url
@@ -74,11 +327,23 @@ class ProfileModel(BaseLlm):
         self._refuse_followup = refuse_followup
         self._parallel_tool = parallel_tool
         self._repeat_search = repeat_search
+        self._enrich = enrich
+        self._followup_grounded = followup_grounded
+        self._root_only_grounding = root_only_grounding
+        self._extra_sources = extra_sources
+        self._forced_ref = forced_ref
+        self._query_request = query_request
+        self._observed_queries = observed_queries
 
     async def generate_content_async(self, llm_request, stream=False):
         self._requests.append(llm_request)
         self._calls += 1
-        followup = self._recover_after_refusal or self._refuse_followup or self._repeat_search
+        followup = (
+            self._recover_after_refusal
+            or self._refuse_followup
+            or self._repeat_search
+            or self._enrich
+        )
         if self._parallel_tool and self._calls == 1:
             yield LlmResponse(
                 content=types.Content(
@@ -113,7 +378,10 @@ class ProfileModel(BaseLlm):
                         types.Part(
                             function_call=types.FunctionCall(
                                 name="google_search",
-                                args={"request": "Public professional profile of Alex Example"},
+                                args={
+                                    "request": self._query_request
+                                    or "Public professional profile of Alex Example"
+                                },
                             )
                         )
                     ],
@@ -123,6 +391,20 @@ class ProfileModel(BaseLlm):
             refused = (self._recover_after_refusal and self._calls == 2) or (
                 self._refuse_followup and self._calls == 4
             )
+            sources = (
+                FOLLOWUP_SOURCES
+                if self._enrich and self._calls == 4
+                else [{"title": "Team", "url": SOURCE}]
+            )
+            if self._enrich and self._calls == 4 and not self._followup_grounded:
+                sources = sources[1:]
+            sources = [
+                *sources,
+                *[
+                    {"title": f"Extra {index}", "url": f"https://example.test/extra/{index}"}
+                    for index in range(self._extra_sources)
+                ],
+            ]
             yield LlmResponse(
                 content=types.Content(
                     role="model",
@@ -137,11 +419,18 @@ class ProfileModel(BaseLlm):
                     ],
                 ),
                 grounding_metadata=types.GroundingMetadata(
-                    web_search_queries=["Synthetic Alex Example profile"]
+                    web_search_queries=(
+                        self._observed_queries
+                        if self._observed_queries is not None
+                        else ["Synthetic Alex Example profile"]
+                    )
                     if self._search_evidence and not refused
                     else [],
                     grounding_chunks=[
-                        types.GroundingChunk(web=types.GroundingChunkWeb(uri=SOURCE, title="Team"))
+                        types.GroundingChunk(
+                            web=types.GroundingChunkWeb(uri=source["url"], title=source["title"])
+                        )
+                        for source in sources
                     ]
                     if not self._no_match and not refused
                     else [],
@@ -169,6 +458,44 @@ class ProfileModel(BaseLlm):
                     "summary": "No reliable match.",
                     "sections": [],
                 }
+            elif self._enrich:
+                report = ENRICHED_REPORT
+            refs = {
+                source["title"]: source["ref"]
+                for content in llm_request.contents or []
+                for part in content.parts or []
+                if part.function_response and part.function_response.name == "google_search"
+                for source in part.function_response.response.get("sources", [])
+            }
+            report = {
+                **report,
+                "sections": [
+                    {
+                        **section,
+                        "facts": [
+                            {
+                                **fact,
+                                "sources": [
+                                    {
+                                        "title": source["title"],
+                                        "ref": self._forced_ref
+                                        or (
+                                            refs.get(source["title"], "s999")
+                                            if self._cited_url == SOURCE
+                                            else "s2"
+                                            if self._root_only_grounding
+                                            else "s999"
+                                        ),
+                                    }
+                                    for source in fact["sources"]
+                                ],
+                            }
+                            for fact in section["facts"]
+                        ],
+                    }
+                    for section in report["sections"]
+                ],
+            }
             yield LlmResponse(
                 content=types.Content(
                     role="model",
@@ -177,7 +504,16 @@ class ProfileModel(BaseLlm):
                             function_call=types.FunctionCall(name="finish_task", args=report)
                         )
                     ],
+                ),
+                grounding_metadata=types.GroundingMetadata(
+                    grounding_chunks=[
+                        types.GroundingChunk(
+                            web=types.GroundingChunkWeb(uri=self._cited_url, title="Team")
+                        )
+                    ]
                 )
+                if self._root_only_grounding
+                else None,
             )
 
 
@@ -208,6 +544,11 @@ async def test_real_task_runner_uses_structured_output_and_grounded_sources(monk
         assert result["report"] == REPORT
         assert result["search_suggestions"] == []
     assert model._calls == 3 and len(checks) >= 7
+    # Both the root and its Search child must honor the bounded task policy;
+    # leaving this absent silently selects the provider's thinking default.
+    for request in model._requests:
+        assert request.config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+        assert request.config.max_output_tokens == 4096
     assert "fixture-owner-token" not in repr(model._requests)
     responses = [
         part.function_response
@@ -218,9 +559,81 @@ async def test_real_task_runner_uses_structured_output_and_grounded_sources(monk
     assert any(
         row.name == "google_search"
         and row.response.get("search_performed") is True
-        and row.response.get("sources") == [{"title": "Team", "url": SOURCE}]
+        and row.response.get("sources") == [{"title": "Team", "ref": "s1"}]
         for row in responses
     )
+
+
+@pytest.mark.parametrize(
+    "url,accepted",
+    [
+        (
+            "https://vertexaisearch.cloud.google.com/grounding-api-redirect/" + "Opaque0-_" * 100,
+            True,
+        ),
+        ("http://example.test/team/alex", False),
+        ("https://fixture:fixture@example.test/team/alex", False),
+    ],
+)
+async def test_source_refs_resolve_exact_receipts_without_changing_facts(
+    monkeypatch, url, accepted
+):
+    expected = copy.deepcopy(REPORT)
+    expected["sections"][0]["facts"][0]["sources"][0]["url"] = url
+    monkeypatch.setattr(sys.modules[__name__], "SOURCE", url)
+    monkeypatch.setattr(sys.modules[__name__], "REPORT", expected)
+    model = ProfileModel(url)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_regional_gemini_adk_model", lambda *args: model
+    )
+    invoke = run_profile_research(
+        identity={"full_name": "Alex Example", "email": None, "phone_number": None},
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        require_access=AsyncMock(),
+    )
+    if accepted:
+        assert (await invoke)["report"] == expected
+    else:
+        with pytest.raises(ValidationError, match="HTTPS link"):
+            await invoke
+
+
+async def test_parent_only_metadata_cannot_mint_a_selectable_source_ref(monkeypatch):
+    model = ProfileModel("https://example.test/root-only", root_only_grounding=True)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_regional_gemini_adk_model", lambda *args: model
+    )
+    with pytest.raises(ValueError, match="grounding receipt"):
+        await run_profile_research(
+            identity={"full_name": "Alex Example", "email": None, "phone_number": None},
+            user_id="owner",
+            consent_token=OWNER_TOKEN,
+            require_access=AsyncMock(),
+        )
+    assert model._calls == 3
+
+
+def test_internal_citation_contract_rejects_raw_url_fallback():
+    report = copy.deepcopy(REPORT)
+    report["sections"][0]["facts"][0]["sources"][0]["ref"] = "s1"
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        ProfileReport[ProfileSourceRef].model_validate(report)
+
+
+async def test_unexposed_receipts_cannot_be_selected_by_guessing_a_ref(monkeypatch):
+    model = ProfileModel(extra_sources=20, forced_ref="s21")
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_regional_gemini_adk_model", lambda *args: model
+    )
+    with pytest.raises(ValueError, match="grounding receipt"):
+        await run_profile_research(
+            identity={"full_name": "Alex Example", "email": None, "phone_number": None},
+            user_id="owner",
+            consent_token=OWNER_TOKEN,
+            require_access=AsyncMock(),
+        )
+    assert model._calls == 3
 
 
 async def test_a_public_search_follow_up_recovers_without_more_than_five_model_calls(monkeypatch):
@@ -244,6 +657,11 @@ async def test_a_public_search_follow_up_recovers_without_more_than_five_model_c
     )
     assert result["report"] == REPORT
     assert model._calls == 5
+    # Search's follow-up consumes the remaining read budget. The final model
+    # request still owns the report, but may only finish, not research forever.
+    final_policy = model._requests[-1].config.tool_config.function_calling_config
+    assert final_policy.mode == types.FunctionCallingConfigMode.ANY
+    assert final_policy.allowed_function_names == ["finish_task"]
     responses = [
         part.function_response
         for request in (model._requests[2], model._requests[4])
@@ -255,7 +673,47 @@ async def test_a_public_search_follow_up_recovers_without_more_than_five_model_c
     assert responses[0].response["search_performed"] is False
     assert responses[0].response["sources"] == []
     assert responses[-1].response["search_performed"] is True
-    assert responses[-1].response["sources"] == [{"title": "Team", "url": SOURCE}]
+    assert responses[-1].response["sources"] == [{"title": "Team", "ref": "s1"}]
+    assert responses[-1].response["searches_remaining"] == 0
+
+
+@pytest.mark.parametrize("followup_grounded", [True, False])
+async def test_coverage_followup_preserves_both_passes_and_rejects_uncited_enrichment(
+    monkeypatch, followup_grounded
+):
+    model = ProfileModel(enrich=True, followup_grounded=followup_grounded)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_regional_gemini_adk_model", lambda *args: model
+    )
+    invoke = run_profile_research(
+        identity={"full_name": "Alex Example", "email": None, "phone_number": None},
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        require_access=AsyncMock(),
+    )
+    if followup_grounded:
+        assert (await invoke)["report"] == ENRICHED_REPORT
+    else:
+        with pytest.raises(ValueError, match="grounding receipt"):
+            await invoke
+    assert model._calls == 5
+    responses = [
+        part.function_response.response
+        for content in model._requests[-1].contents or []
+        for part in content.parts or []
+        if part.function_response and part.function_response.name == "google_search"
+    ]
+    assert responses[0]["sources"] == [{"title": "Team", "ref": "s1"}]
+    assert responses[1]["sources"] == [
+        {"title": source["title"], "ref": f"s{index + 2}"}
+        for index, source in enumerate(
+            FOLLOWUP_SOURCES if followup_grounded else FOLLOWUP_SOURCES[1:]
+        )
+    ]
+    assert responses[1]["searches_remaining"] == 0
+    assert model._requests[
+        -1
+    ].config.tool_config.function_calling_config.allowed_function_names == ["finish_task"]
 
 
 @pytest.mark.parametrize("parallel_tool", ["google_search", "finish_task"])
@@ -547,13 +1005,23 @@ async def test_canonical_onboarding_name_fallback_keeps_contact_verification(
 
 
 @pytest.mark.parametrize(
-    "condition", ["disabled", "not_ready", "wrong_owner", "revoked", "kill_inflight"]
+    "condition",
+    [
+        "disabled",
+        "not_ready",
+        "wrong_owner",
+        "revoked",
+        "kill_inflight",
+        "phone_changed",
+        "name_changed",
+    ],
 )
 async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypatch, condition):
     monkeypatch.setenv(
         "ONE_PROFILE_RESEARCH_ENABLED", "false" if condition == "disabled" else "true"
     )
     live = True
+    changed = False
     calls = []
 
     async def admitted(*args):
@@ -567,19 +1035,25 @@ async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypa
         return SimpleNamespace(
             uid="other" if condition == "wrong_owner" else uid,
             disabled=False,
-            display_name="Alex Example",
+            display_name="Alex Changed"
+            if changed and condition == "name_changed"
+            else "Alex Example",
             email="alex@example.test",
             email_verified=True,
-            phone_number="+15555550123",
+            phone_number="+15555550124"
+            if changed and condition == "phone_changed"
+            else "+15555550123",
         )
 
     async def researcher(**kwargs):
-        nonlocal live
+        nonlocal live, changed
         calls.append("research")
         if condition == "revoked":
             live = False
         if condition == "kill_inflight":
             monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "false")
+        if condition in {"phone_changed", "name_changed"}:
+            changed = True
         return {"report": REPORT, "search_suggestions": []}
 
     invoke = service.offer_profile_research(
@@ -665,10 +1139,13 @@ async def test_magic_cohort_blocks_research_and_withdraws_changed_identity(monke
     assert researcher.await_count == (0 if change in {"excluded", "phone_only"} else 1)
 
 
-async def test_pilot_research_works_with_business_disabled_and_no_team_roster(monkeypatch):
+@pytest.mark.parametrize("phase", ["1", "5"])
+async def test_pilot_or_general_uat_research_works_without_business_or_team_roster(monkeypatch, phase):
     from hushh_mcp.services.magic_intelligence_admission import PILOT_EMAIL
 
-    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "1")
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", phase)
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
     monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS", "")
     monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "true")
     monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "false")
@@ -677,7 +1154,7 @@ async def test_pilot_research_works_with_business_disabled_and_no_team_roster(mo
             uid="owner",
             disabled=False,
             email_verified=True,
-            email=PILOT_EMAIL,
+            email=PILOT_EMAIL if phase == "1" else "new-owner@example.test",
             display_name="Pilot",
             phone_number="+15555550123",
         )

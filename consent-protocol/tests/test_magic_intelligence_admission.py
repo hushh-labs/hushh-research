@@ -8,6 +8,7 @@ from hushh_mcp.services.magic_intelligence_admission import (
     PILOT_EMAIL,
     magic_intelligence_emails,
     magic_intelligence_owner_admitted,
+    magic_intelligence_rollout_enabled,
 )
 
 INNER = [f"inner-{i}@example.test" for i in range(4)]
@@ -39,7 +40,7 @@ def test_only_the_current_and_previous_named_cohorts_are_admitted(
     assert len(magic_intelligence_emails()) == [0, 1, 5, 9, 10][phase]
 
 
-@pytest.mark.parametrize("phase", [None, "", "all", "5", "-1", "1.0", "01"])
+@pytest.mark.parametrize("phase", [None, "", "all", "6", "-1", "1.0", "01"])
 def test_missing_or_invalid_phase_denies_every_owner(monkeypatch, cohort, phase):
     if phase is None:
         monkeypatch.delenv("ONE_MAGIC_INTELLIGENCE_PHASE", raising=False)
@@ -112,4 +113,48 @@ def test_later_invalid_cohorts_do_not_block_an_earlier_phase(monkeypatch, cohort
     monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS", "unconfirmed")
     assert magic_intelligence_owner_admitted("owner", cohort)
     monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "2")
+    assert not magic_intelligence_owner_admitted("owner", cohort)
+
+
+@pytest.mark.parametrize(
+    "field,value,admitted",
+    [
+        ("email", "new-owner@example.test", True),
+        ("uid", "another-owner", False),
+        ("disabled", True, False),
+        ("email_verified", False, False),
+        ("email_verified", "true", False),
+        ("email", None, False),
+        ("email", "*@example.test", False),
+    ],
+)
+def test_general_rollout_removes_roster_not_fresh_owner_checks(
+    monkeypatch, cohort, field, value, admitted
+):
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "5")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS", "")
+    cohort.email = "new-owner@example.test"
+    setattr(cohort, field, value)
+    assert magic_intelligence_rollout_enabled()
+    assert magic_intelligence_emails() == frozenset()
+    assert magic_intelligence_owner_admitted("owner", cohort) is admitted
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "0")
+    assert not magic_intelligence_rollout_enabled()
+    assert not magic_intelligence_owner_admitted("owner", cohort)
+
+
+@pytest.mark.parametrize(
+    "environment,deploy_environment",
+    [("production", "production"), ("development", ""), ("uat", ""),
+     ("", "uat"), ("uat", "production"), ("production", "uat")],
+)
+def test_general_uat_rollout_never_opens_other_or_ambiguous_lanes(
+    monkeypatch, cohort, environment, deploy_environment
+):
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "5")
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", deploy_environment)
+    assert not magic_intelligence_rollout_enabled()
     assert not magic_intelligence_owner_admitted("owner", cohort)

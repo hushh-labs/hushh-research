@@ -1902,6 +1902,9 @@ export function AgentBubble({
     !isUser && isStreaming,
   );
   const assistantText = isUser ? message.text : animated.displayedText;
+  const backgroundOnly = Boolean(backgroundCard) && Boolean(message.ephemeral) &&
+    !isUser && !isStreaming && !isError && !shouldRenderStreamPanel &&
+    assistantText.trim().length === 0;
   const consentActionsPayload = !isUser
     ? getConsentActionsPayload(message.specialistDirective ?? null)
     : null;
@@ -1930,6 +1933,7 @@ export function AgentBubble({
   const showAssistantBubble =
     !isUser &&
     !shouldRenderStreamPanel &&
+    !backgroundOnly &&
     (assistantText.trim().length > 0 ||
       !(canRenderConsentActions || canRenderPendingConsentRequest));
 
@@ -2045,7 +2049,7 @@ export function AgentBubble({
       <div
         className={cn(
           "min-w-0",
-          shouldRenderStreamPanel && !isUser
+          (shouldRenderStreamPanel || backgroundOnly) && !isUser
             ? "w-full max-w-none"
             : "max-w-[90%] sm:max-w-[min(82%,48rem)]",
           isUser && "sm:max-w-[min(76%,42rem)]",
@@ -2109,7 +2113,7 @@ export function AgentBubble({
               <AgentMarkdown text={assistantText} />
               {showAssistantBubble && !isError ? hoverResponseActionsNode : null}
             </>
-          ) : canRenderConsentActions ||
+          ) : backgroundOnly || canRenderConsentActions ||
             canRenderPendingConsentRequest ? null : (
             <AgentThinkingDots />
           )}
@@ -2122,7 +2126,7 @@ export function AgentBubble({
               {message.errorNotice}
             </p>
           ) : null}
-          {!isUser && backgroundCard ? <div className="mt-3">{backgroundCard}</div> : null}
+          {!isUser && backgroundCard ? <div className={backgroundOnly ? undefined : "mt-3"}>{backgroundCard}</div> : null}
         </OneChatBubble>
         {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}
         {!isUser && !isStreaming && !isError ? driveMemoryReview : null}

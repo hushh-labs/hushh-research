@@ -8,9 +8,18 @@ After durable onboarding completion, the ephemeral Magic Intelligence card invok
 bounded `one_profile_research` ADK task with the current account's name and
 verified email/phone when available. The task uses One's existing public
 `google_search` child; it has no PKM, action or conversation-history tools.
-Its prompt starts with public name searches, treats an organization domain as
-an optional hint, and allows one broader name-only follow-up in the same budget.
-Contact identifiers are matching context; a public phone match is not required.
+Its raw compatibility prompt starts with broad public name searches across roles, education,
+projects, competitions and leadership. One remaining follow-up fills material
+coverage gaps using established public identity anchors, or targets original
+profile, university, project and event pages without an unhelpful domain filter
+when the first pass cannot establish a credible profile. Namesake candidates
+stay separate; a draft contains one coherent candidate, never a mix of people.
+Occurrence lists and answer-site assertions alone cannot establish biography.
+An organization domain remains only an optional hint. The task distinguishes
+attendance, organization and winning; dated evidence cannot establish a current
+role. Findings stay within the existing sections and exact source receipts.
+Raw compatibility keeps contacts as matching context. The verified composite
+instead sends all available full owner identifiers in one request.
 Magic Intelligence is the single profile feature in One. Business Intelligence
 populates its optional Business subsection, with no separate chat identity.
 Personal research is independent of the optional business lookup. A person with no
@@ -19,12 +28,40 @@ The initial offer shows one short notice and Review details, with findings
 revealed only after opening. Business facts start unchecked; public-source
 business facts and directory listings share the Business subsection. Its
 failure, absence or pending lookup does not hold up personal review or saving.
-Search calls run sequentially, with at most one
-follow-up, so an unavailable attempt cannot borrow another attempt's receipts.
+Search calls run sequentially, with at most one follow-up and five total model
+calls inside a 160-second task budget. An unavailable attempt cannot borrow
+another attempt's receipts. Supported first-pass facts survive a failed gap
+search as a partial draft; the model never fills missing facts from memory.
+Those limits describe the raw compatibility task. Default discovery uses one
+grounded research request with all available owner identifiers, up to three
+logical model calls, and one 160-second execution budget. There is no independent
+confidence assessor, percentage score, numerical release threshold, alternate
+identifier permutation or follow-up search. The researcher authors the profile,
+including normal matched/uncertain/no-match semantics and cited fact uncertainty.
+Full verified contacts go to the Search child in one unchanged JSON-quoted
+request. Missing fields remain missing. Native Google grounding may reformulate
+its internal queries; returned source receipts remain mandatory, but literal
+identifier presence in query receipts is not required.
+The Search child receives manifest-owned profile coverage guidance even when
+its request contains only the quoted identifiers. Those identifiers are anchors,
+not a mandatory intersection: contacts need not be published on a source page.
+Coherent cited candidates without a verified owner link stay uncertain; absence
+of public contact details alone does not establish no-match. Namesakes remain
+separate, and the host never substitutes a match or reuses an old report.
+The sole research slot is charged before dispatch in the existing owner-encrypted
+checkpoint CAS. Recovery cannot replay a consumed slot. Policy binding invalidates
+older scored drafts without clearing the rolling paid-start budget. Legacy score
+metadata/status are recognized only for migration and decoder compatibility;
+the current pipeline neither calculates nor emits them. Discovery remains
+owner-scoped, not arbitrary-person or private-account access.
 Structured task output and Search grounding receipts form the editable card.
 The report stays outside ordinary transcript persistence and automatic capture.
-Selected statements use the existing PKM agents for an exact preview; final
-confirmation alone authorizes encrypted writes. Business identity fences apply
+Selected statements use the existing PKM agents for exact internal preparation;
+Save to Memory commits those selections without a second raw PKM review screen.
+Edit remains beside the checkbox selection. Active sharing impact still requires
+the existing explicit acknowledgment. Exact scopes and payloads are pinned for
+uncertain/partial retries; fresh create-target guards prevent overwriting an
+existing entity. Business identity fences apply
 only when a proposed write touches an existing business record; ordinary sharing
 fences still apply. Back closes Edit/Review before route navigation.
 `ONE_PROFILE_RESEARCH_ENABLED` defaults off pending live quality evaluation;
