@@ -98,7 +98,7 @@ export function usePayoutBank({ active = true, handleReturn = false, disabled = 
     active, refreshKey: arrival?.source === "documents" && !arrival.action ? "done" : returnState ?? "", bankOnly: true, ignoreReadyEvent: true,
     freshLoad: loadFreshPayoutAccount,
   });
-  const { data, token, scope, loading, failed } = resource;
+  const { data, token, scope, loading, failed, retry } = resource;
   const [expiredHint, setExpiredHint] = useState<{ scope: typeof scope; epoch: ReturnType<typeof snapshotVaultSessionEpoch> } | null>(null);
   const expired = expiredHint?.scope === scope && isVaultSessionEpochCurrent(expiredHint.epoch);
   const setExpired = useCallback((value: boolean) => {
@@ -135,11 +135,11 @@ export function usePayoutBank({ active = true, handleReturn = false, disabled = 
       const hint = (event as CustomEvent<{ source?: string; action?: string }>).detail;
       if (!active || hint?.source !== "documents") return;
       setExpired(hint.action === "onboarding_refresh");
-      resource.retry();
+      retry();
     };
     window.addEventListener(COMMERCE_RETURN_EVENT, returned);
     return () => window.removeEventListener(COMMERCE_RETURN_EVENT, returned);
-  }, [active, resource.retry, setExpired]);
+  }, [active, retry, setExpired]);
   useEffect(() => {
     if (!data) return;
     const wasReady = announced.current?.scope === scope && announced.current.ready;
@@ -188,7 +188,7 @@ export function usePayoutBank({ active = true, handleReturn = false, disabled = 
         }
         setExpired(false);
         await openCommerceHostedUrl(session as CommerceHostedSession, "onboarding", tab, pending.signal);
-        if (current() && !pending.signal.aborted) resource.retry();
+        if (current() && !pending.signal.aborted) retry();
       } else if (tab) tab.location.replace(link);
       else {
         const { Browser } = await import("@capacitor/browser");
@@ -203,7 +203,7 @@ export function usePayoutBank({ active = true, handleReturn = false, disabled = 
       if (inFlight.current === scope) inFlight.current = null;
       if (current()) setBusy(null);
     }
-  }, [token, active, disabled, scope, returnState, origin, resource.retry, setExpired]);
+  }, [token, active, disabled, scope, returnState, origin, retry, setExpired]);
   const canManage = Boolean(account?.detailsSubmitted && (account.canManageBank ?? ready));
   const verification = account?.verification;
   return {

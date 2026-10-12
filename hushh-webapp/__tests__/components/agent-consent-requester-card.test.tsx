@@ -432,7 +432,7 @@ describe("InformationRequestReviewView with and without progress", () => {
   // own read of a starved pool and still said "Seen" until 33.5s.
   it("shows Reading… from the doorbell's reading at once, even while its own reads stall", async () => {
     mocks.getInformationRequest.mockResolvedValueOnce(bundle("pending", true));
-    const initialRead = readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token" });
+    void readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token" });
     let phase: "reading" | null = null;
     const card = (experience = restored) => (
       <ConsentCardPhaseContext.Provider value={(id) => id === bundleId ? phase : null}>
