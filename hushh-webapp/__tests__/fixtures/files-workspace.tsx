@@ -19,6 +19,7 @@ const files = vi.hoisted(() => ({
   upload: vi.fn(),
   organize: vi.fn(),
   history: vi.fn(),
+  job: vi.fn(),
   entry: vi.fn(),
   usagePage: vi.fn(async () => ({
     bytes: 101 * 1024 ** 3,

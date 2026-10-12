@@ -43,6 +43,31 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
   late admission cannot dispatch a cancelled turn or restart its watchdog.
 - Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
 
+### Private pod reconnect and settled work
+
+Private Agent Chat keeps its existing AG-UI protocol and encrypted conversation
+store. `one_adk/pod_chat_stream.py` separates the transport reader from the
+admitted run, with at most 64 buffered frames / 1 MiB. Detachment discards the
+buffer; it does not resubmit the turn. The producer exhausts SDK cleanup and
+retains only the original request-key lifetime (at most 300 seconds), including
+the existing update permit and access checks. Explicit Stop and parked review
+cards use the existing authenticated stop route. A preparing producer is fenced
+by owner and conversation; an unacknowledged Stop is reported as unconfirmed.
+
+Reconnection reads encrypted history and `turn.pending`; activity is sampled
+before and after the read so an older snapshot cannot invite a duplicate turn.
+No token replay log, parallel action ledger or automatic effect replay is added.
+Lost or uncertain consequential outcomes still need their owning reconciliation.
+Files activity reads only existing queued/running jobs, one at a time, while
+visible and online. The ten-minute observation window stops on terminal state,
+mutation, owner change, vault closure or unmount; it never resubmits a job.
+
+Process-local continuation does not guarantee completion after process loss.
+Request-based Cloud Run does not provide continuous CPU after the request ends;
+durable background completion belongs to the existing authenticated job/queue
+owners. Keep selected cost settings unchanged. See [Cloud Run CPU and background
+execution](https://docs.cloud.google.com/run/docs/tips/general).
+
 ### Live Email and Calendar reads
 
 One Live Voice keeps ordered tool dispatch while its provider/client intake can

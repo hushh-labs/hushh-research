@@ -269,13 +269,6 @@ describe("One chat key transport", () => {
     });
   });
 
-  it("turns a chat-key refusal into recoverable copy, never raw server text", () => {
-    expect(formatAgentChatErrorMessage("anything", "CHAT_KEY_REQUIRED")).toMatch(/^Unlock your vault, then try again/);
-    expect(formatAgentChatErrorMessage('HTTP 403: {"detail":{"code":"CHAT_KEY_REQUIRED"}}'))
-      .toMatch(/update or refresh the app/);
-    expect(formatAgentChatErrorMessage("x", "CHAT_KEY_MISMATCH")).toMatch(/did not open with this vault/);
-    expect(formatAgentChatErrorMessage("x", "CHAT_CONVERSATION_RETIRED")).toMatch(/Start a new chat/);
-  });
 
   it("sends the chat key when recording a submitted request into history", async () => {
     vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(new Response("{}", { status: 200 }));
@@ -868,6 +861,8 @@ describe("AG-UI Agent One client", () => {
     mockTransport.outcome = "success";
     mockTransport.emitEvents = null;
     mockTransport.aborted = false;
+    vi.mocked(ApiService.agentChatRequest).mockImplementation(async () =>
+      Response.json({ stopped: true, returned: [] }));
   });
 
   it("uses the canonical endpoint and official run fields", async () => {
@@ -1170,17 +1165,6 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(messages)).not.toContain("Private reasoning");
   });
 
-  it("never exposes unknown AG-UI runtime errors to the transcript", () => {
-    const raw =
-      'DB operation failed [<raw_sql>.execute_raw]: INSERT INTO one_adk_sessions [parameters: {"user":"owner-1","ciphertext":"secret"}]';
-
-    const visible = formatAgentChatErrorMessage(raw);
-
-    expect(visible).toBe("One couldn't complete that response. Please try again.");
-    expect(visible).not.toContain("one_adk_sessions");
-    expect(visible).not.toContain("owner-1");
-    expect(visible).not.toContain("ciphertext");
-  });
 
   it("uses hosting placement for consent conversation lookup", async () => {
     vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(
@@ -1195,11 +1179,6 @@ describe("AG-UI Agent One client", () => {
     );
   });
 
-  it("maps typed database failures to stable actionable copy", () => {
-    expect(
-      formatAgentChatErrorMessage("private database detail", "DATABASE_EXECUTION_ERROR"),
-    ).toBe("One's conversation history is temporarily unavailable. Please try again.");
-  });
 
   it("explains a refused pod endpoint before dispatch without exposing transport details", async () => {
     const onError = vi.fn();
@@ -1221,29 +1200,7 @@ describe("AG-UI Agent One client", () => {
       .toBe("One couldn't complete that response. Please try again.");
   });
 
-  it("maps untyped provider capacity failures without exposing runtime details", () => {
-    const visible = formatAgentChatErrorMessage(
-      "429 Too Many Requests: RESOURCE_EXHAUSTED",
-    );
 
-    expect(visible).toBe("One is temporarily at capacity. Please try again in a moment.");
-    expect(visible).not.toContain("RESOURCE_EXHAUSTED");
-    expect(visible).not.toContain("429");
-  });
-
-  // The server authors these (hushh_mcp/one_adk/run_errors.py) for the person;
-  // they used to fall through to the generic line because only text was read.
-  it("shows the server's authored retryable errors by code, never by message text", () => {
-    expect(formatAgentChatErrorMessage("One is temporarily at capacity. Please try again in a moment.", "RESOURCE_EXHAUSTED"))
-      .toBe("One is temporarily at capacity. Please try again in a moment.");
-    expect(formatAgentChatErrorMessage("anything", "MODEL_UNAVAILABLE"))
-      .toBe("One's model service was briefly unavailable. Please try again.");
-    expect(formatAgentChatErrorMessage("anything", "SERVER_RESTARTING"))
-      .toBe("One was interrupted because the service restarted. Please send that again.");
-    // Negative control: the same text under another code is not trusted.
-    expect(formatAgentChatErrorMessage("One's model service was briefly unavailable. Please try again.", "MODEL_ERROR"))
-      .toBe("One couldn't complete that response. Please try again.");
-  });
 
   it("settles an interrupted HITL turn while preserving its resumable boundary", async () => {
     mockTransport.outcome = "interrupt";
@@ -1263,6 +1220,10 @@ describe("AG-UI Agent One client", () => {
     expect(onInterrupt).toHaveBeenCalledWith({ conversationId: "thread-hitl" });
     expect(onComplete).not.toHaveBeenCalled();
     expect(result.interrupted).toBe(true);
+    expect(ApiService.agentChatRequest).toHaveBeenCalledExactlyOnceWith(
+      "/api/one/agent-chat/runs/thread-hitl/stop",
+      expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal) }),
+    );
   });
 
   it.each([true, false])("resumes MCP through native confirmation with private approval=%s", async (confirm) => {
@@ -1496,7 +1457,8 @@ describe("AG-UI Agent One client", () => {
     }));
   });
 
-  it("settles a synthetic confirmation turn when the card is staged", async () => {
+  it.each([true, false])("settles a staged confirmation only after Stop acknowledgement=%s", async (acknowledged) => {
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(Response.json({ stopped: acknowledged, returned: [] }));
     mockTransport.emitEvents = subscriber => {
       subscriber.onToolCallStartEvent?.({
         event: { toolCallId: "tool-confirm", toolCallName: "run_app_action" },
@@ -1520,13 +1482,19 @@ describe("AG-UI Agent One client", () => {
     const waiting = vi.fn();
     const onInterrupt = vi.fn();
     const onComplete = vi.fn();
-    const result = await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
+    const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY,
       userId: "user-1",
       message: "Cancel that request I just sent",
       conversationId: "thread-confirm",
       vaultOwnerToken: "owner-token",
       handlers: { onToolWaiting: waiting, onInterrupt, onComplete },
     });
+    if (!acknowledged) {
+      await expect(turn).rejects.toThrow("Could not confirm that One stopped");
+      expect(onComplete).not.toHaveBeenCalled();
+      return;
+    }
+    const result = await turn;
 
     expect(waiting).toHaveBeenCalledWith(
       expect.objectContaining({

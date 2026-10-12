@@ -120,6 +120,25 @@ def _owner():
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
 
 
+async def test_history_completion_race_stays_pending_until_fresh_read():
+    from hushh_mcp.one_adk.pod_agui_lifetime import _ACTIVE_THREADS
+
+    async def read(**kwargs):
+        # The save finishes after this read captured a user-only snapshot.
+        _ACTIVE_THREADS.discard("conv-1")
+        return SimpleNamespace(events=[])
+
+    owner = SimpleNamespace(owner="owner-a", sessions=SimpleNamespace(get_session=read))
+    _ACTIVE_THREADS.add("conv-1")
+    try:
+        stale = await pod_agent_chat.history("conv-1", limit=50, owner=owner)
+        fresh = await pod_agent_chat.history("conv-1", limit=50, owner=owner)
+        assert stale["turn"] == {"pending": True}
+        assert fresh["turn"] == {"pending": False}
+    finally:
+        _ACTIVE_THREADS.discard("conv-1")
+
+
 @pytest.mark.parametrize("focus", sorted(SPECIALIST_FOCI))
 async def test_a_closed_specialist_focus_reaches_trusted_state(focus):
     state, _ = pod_agent_chat.trusted_state(_turn(specialistFocus=focus), _owner())

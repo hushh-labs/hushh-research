@@ -1,3 +1,4 @@
+import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import { ApiService } from "@/lib/services/api-service";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
@@ -23,10 +24,8 @@ import { resolveTurnLocation } from "@/lib/agent/turn-location";
 import {
   QUEUED_INPUT_EVENT,
   parseQueuedInputNotice,
-  parseQueuedInputStatus,
   type QueuedInputNotice,
   type QueuedInputPorts,
-  type QueuedInputStatus,
 } from "@/lib/agent/agent-chat-live-turn-queue";
 import {
   ChatKeyUnavailableError,
@@ -1290,6 +1289,12 @@ export async function streamAgentChat(input: {
   let serverEvents = 0;
   let serverTerminal = false;
   let detached = false;
+  let stopRequest: Promise<void> | null = null;
+  const stopOnServer = () => stopRequest ??= createQueuedInputPorts(() => input.vaultOwnerToken)
+    .stop(threadId).then((receipt) => { if (!receipt.stopped) throw new Error(); }).catch(() => {
+      failure = new Error("Could not confirm that One stopped. Reconnect before continuing.");
+      handlers.onError?.(failure.message);
+    });
   const startedAtMs = Date.now();
   let settleTerminalRun: (() => void) | null = null;
   const terminalRun = new Promise<void>((resolve) => {
@@ -1335,6 +1340,7 @@ export async function streamAgentChat(input: {
     handlers.onInterrupt?.({ conversationId: threadId });
     finishTerminalRun();
     liveness.stop();
+    void stopOnServer();
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
@@ -1939,6 +1945,7 @@ export async function streamAgentChat(input: {
     // A detach reason means the caller stopped reading (it left the chat); the
     // server keeps the turn. Any other abort is the caller cancelling.
     if (input.signal?.reason === AGENT_TURN_DETACH_REASON) detached = true;
+    else void stopOnServer();
     liveness.stop();
     agent.abortRun();
     finishTerminalRun();
@@ -1988,6 +1995,7 @@ export async function streamAgentChat(input: {
   } finally {
     input.signal?.removeEventListener("abort", abort);
     unregisterAttached();
+    await stopRequest;
   }
   const leftTurn = detached && !serverTerminal && !intentionallyStoppedAtConfirmation;
   // Watch only a turn the server had started (more than RUN_STARTED seen); a
@@ -2104,50 +2112,7 @@ export async function streamAgentIntro(input: {
  * turn, and is never written to storage or logged on this device.
  */
 export function createQueuedInputPorts(getVaultOwnerToken: () => string | null): QueuedInputPorts {
-  const call = async (path: string, init: RequestInit = {}): Promise<Record<string, unknown>> => {
-    const token = getVaultOwnerToken();
-    if (!token) throw new Error("Vault access expired.");
-    // Own-cloud owners reach their agent; only a Shared owner's queue is on the hub.
-    const response = await ApiService.agentChatRequest(path, { ...init, cache: "no-store",
-      headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}) } });
-    if (!response.ok) throw new Error(await readError(response));
-    return ((await response.json()) ?? {}) as Record<string, unknown>;
-  };
-  const base = (conversationId: string) =>
-    `/api/one/agent-chat/runs/${encodeURIComponent(conversationId)}`;
-  return {
-    enqueue: async (conversationId, clientMessageId, text) => {
-      // The same last line as streamAgentChat: a raw secret never leaves.
-      assertNoUnguardedSecrets([text]);
-      return parseQueuedInputStatus((await call(`${base(conversationId)}/queue`, {
-        method: "POST",
-        body: JSON.stringify({ client_message_id: clientMessageId, text }),
-      })).status);
-    },
-    withdraw: async (conversationId, clientMessageId) =>
-      parseQueuedInputStatus((await call(
-        `${base(conversationId)}/queue/${encodeURIComponent(clientMessageId)}`,
-        { method: "DELETE" },
-      )).status),
-    status: async (conversationId, clientMessageIds) => {
-      const query = clientMessageIds.map((id) => `ids=${encodeURIComponent(id)}`).join("&");
-      const payload = await call(`${base(conversationId)}/queue?${query}`);
-      const statuses: Record<string, QueuedInputStatus> = {};
-      for (const receipt of Array.isArray(payload.receipts) ? payload.receipts : []) {
-        const record = asRecord(receipt);
-        const id = record ? readString(record, "clientMessageId") : "";
-        if (id) statuses[id] = parseQueuedInputStatus(record?.status);
-      }
-      return statuses;
-    },
-    stop: async (conversationId) => {
-      const payload = await call(`${base(conversationId)}/stop`, { method: "POST" });
-      const returned = Array.isArray(payload.returned)
-        ? payload.returned.filter((id): id is string => typeof id === "string")
-        : [];
-      return { stopped: payload.stopped === true, returned };
-    },
-  };
+  return queuedInputPorts(getVaultOwnerToken, readError);
 }
 
 export async function listAgentChatConversations(input: {

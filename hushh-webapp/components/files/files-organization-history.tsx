@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { RefreshCw } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { FilesService, type OrganizationJob } from "@/lib/files/service";
+import { useFilesJobReconciliation } from "@/lib/files/use-files-job-reconciliation";
 
 /** Paginated encrypted job records survive navigation and pod restarts. */
 export function FilesOrganizationHistory({ ownerId }: { ownerId: string }) {
@@ -14,6 +15,7 @@ export function FilesOrganizationHistory({ ownerId }: { ownerId: string }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [controller, setController] = useState(() => new AbortController());
+  useFilesJobReconciliation({ ownerId, jobs: busy ? [] : entries, signal: controller.signal, setJobs: setEntries });
   useEffect(() => {
     const operation = new AbortController();
     setController(operation);
