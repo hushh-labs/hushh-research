@@ -111,6 +111,44 @@ def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
             assert combined_config["substitutions"][name] == default, name
 
 
+@pytest.mark.parametrize(
+    "environment,prefix", [("dev", "dev.one"), ("uat", "uat.one"), ("production", "one")]
+)
+@pytest.mark.parametrize("domain", ["hushh.ai", "hussh.ai", "hussh.si"])
+def test_image_build_accepts_only_registered_environment_origins(environment, prefix, domain):
+    step = _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"])
+    # Execute the actual catalog guard without invoking cloud services or writing /workspace.
+    guard = step[step.index('python3 - "${_DEPLOY_ENV}"') : step.index("\nPY_RP") + len("\nPY_RP")]
+    guard = guard.replace("${_DEPLOY_ENV}", environment).replace("$$", "$")
+    allowed = _run(guard, env={"PASSKEY_RP_ID_VAL": f"{prefix}.{domain}"})
+    assert allowed.returncode == 0, allowed.stderr
+    foreign_prefix = "one" if environment != "production" else "uat.one"
+    for hostname in (f"{foreign_prefix}.{domain}", f"evil.{prefix}.{domain}"):
+        refused = _run(guard, env={"PASSKEY_RP_ID_VAL": hostname})
+        assert refused.returncode != 0
+        assert "does not match the deployment environment" in refused.stderr
+
+
+def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path):
+    config = yaml.safe_load(FRONTEND_BUILD.read_text())
+    values = {name: str(value) for name, value in config["substitutions"].items()}
+    values["_SKIP_IMAGE_BUILD"] = "true"
+    script = _substitute(
+        _body(_steps(FRONTEND_BUILD)["resolve-google-contacts-client-config"]), values
+    )
+    script = script.replace("$$", "$").replace("/workspace/", str(tmp_path) + "/")
+    guards = 'gcloud() { printf "%s" "synthetic.apps.googleusercontent.com"; };\n'
+    result = _run(
+        guards + script,
+        env={
+            "APP_FRONTEND_ORIGIN_VAL": "https://uat.one.hussh.si",
+            "PROJECT_ID": "synthetic-project",
+        },
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_image_build_config_never_deploys() -> None:
     config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text(encoding="utf-8"))
     bodies = [_body(step) for step in config["steps"]]

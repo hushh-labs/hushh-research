@@ -7,9 +7,11 @@ redirects, scopes, capability policy, or credential configuration.
 
 This module owns the reviewed production definition. It attests the live
 database before every read or write and refuses an existing row with policy
-drift rather than silently broadening or replacing it.  Activating this row
-does not enable any Drive feature; independent production runtime flags remain
-off until their separately verified rollout.
+drift rather than silently broadening or replacing it, except for exact
+previously reviewed redirect lists. Migration preserves scopes, credentials
+and staged live/indexing/sharing flags. Ordinary connection, Picker and Chat
+reads still require the active catalog row, credentials, owner grants and
+scoped authority; production activation retains its separate rollout gates.
 """
 
 from __future__ import annotations
@@ -48,11 +50,17 @@ LEGACY_REGISTERED_REDIRECT_URIS = (
     NATIVE_OAUTH_REDIRECT_URI,
     NATIVE_PICKER_REDIRECT_URI,
 )
-REGISTERED_REDIRECT_URIS = (
+PRE_SI_REGISTERED_REDIRECT_URIS = (
     *LEGACY_REGISTERED_REDIRECT_URIS,
     "https://one.hussh.ai/one/profile/connectors/oauth/return",
     "https://api.hussh.ai/api/connectors/oauth/native/callback",
     "https://api.hussh.ai/api/connectors/google_drive/picker/native/callback",
+)
+REGISTERED_REDIRECT_URIS = (
+    *PRE_SI_REGISTERED_REDIRECT_URIS,
+    "https://one.hussh.si/one/profile/connectors/oauth/return",
+    "https://api.hussh.si/api/connectors/oauth/native/callback",
+    "https://api.hussh.si/api/connectors/google_drive/picker/native/callback",
 )
 
 _LOAD_CONNECTOR_SQL = text(
@@ -316,8 +324,9 @@ class DriveProdRegistryProvisioner:
                 if row is None:
                     raise DriveProdRegistryProvisioningError("Drive registry policy is unavailable")
                 action = "activated"
-            elif _row_matches_policy(
-                row, require_active=False, redirect_uris=LEGACY_REGISTERED_REDIRECT_URIS
+            elif any(
+                _row_matches_policy(row, require_active=False, redirect_uris=prior)
+                for prior in (LEGACY_REGISTERED_REDIRECT_URIS, PRE_SI_REGISTERED_REDIRECT_URIS)
             ):
                 connection.execute(
                     text(

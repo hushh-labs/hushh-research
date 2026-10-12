@@ -5,7 +5,7 @@ This is intentionally not the generic external-MCP connector CLI. Google
 Drive uses a fixed REST transport and accepts no caller-provided endpoint,
 scope, redirect, policy, OAuth client, or secret. The default action is
 read-only verification; ``--activate`` inserts or activates the reviewed UAT
-row, or migrates its exact prior redirect list to the dual-domain list.
+row, or adds the reviewed callbacks to an exact prior redirect list.
 """
 
 from __future__ import annotations
