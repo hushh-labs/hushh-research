@@ -1076,7 +1076,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": "PKMAgentLabService",
-      "value": 5389
+      "value": 5411
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -8051,7 +8051,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": "_normalize_structure_preview",
-      "value": 563
+      "value": 566
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -15080,7 +15080,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": null,
-      "value": 6121
+      "value": 6143
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16538,7 +16538,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_pkm_agent_lab_service.py",
       "symbol": null,
-      "value": 3293
+      "value": 3381
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -37142,5 +37142,40 @@
         }
       ]
     }
+  },
+  "scope_commerce_prepared_answer_merge_20261012": {
+    "incoming_main": "be71618d997b2950386e8c01af930d9d028429fc",
+    "retained_parent": "a455fba787990ff8cadbfd603f859f2066ffdf7f",
+    "review": "Independent ci_registry_review qualifies exactly four inherited incoming spans after values-preserving fidelity correction and cohesive fixture reuse. All remain below incoming source bounds. Exact-scope denial, structured precedence and wildcard retention guards replace unsafe incoming behavior. Preserve all other baseline entries, multiplicities, budgets, scanner and future-growth enforcement. Source qualification is not deployed acceptance.",
+    "findings": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py|PKMAgentLabService|class exceeds the advisory operon budget",
+        "before": 5389,
+        "after": 5411,
+        "incoming_main_bound": 5423,
+        "source_sha256": "e72f906cc9fa865633c850bbe60b432a7fe04b87472a6625b5dcf4ff13c67ed2"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py|_normalize_structure_preview|function exceeds the advisory gene budget",
+        "before": 563,
+        "after": 566,
+        "incoming_main_bound": 566,
+        "source_sha256": "e72f906cc9fa865633c850bbe60b432a7fe04b87472a6625b5dcf4ff13c67ed2"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py||module exceeds the advisory operon budget",
+        "before": 6121,
+        "after": 6143,
+        "incoming_main_bound": 6155,
+        "source_sha256": "e72f906cc9fa865633c850bbe60b432a7fe04b87472a6625b5dcf4ff13c67ed2"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_pkm_agent_lab_service.py||module exceeds the advisory operon budget",
+        "before": 3293,
+        "after": 3381,
+        "incoming_main_bound": 3395,
+        "source_sha256": "675427d0baca3f573e70fe81a190f84bdec3976f89e0f53627860a9352511767"
+      }
+    ]
   }
 }

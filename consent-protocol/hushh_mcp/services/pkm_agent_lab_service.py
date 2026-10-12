@@ -2889,6 +2889,25 @@ class PKMAgentLabService:
         return False
 
     @classmethod
+    def _constrain_profile_review_entity(cls, value: Any) -> Any:
+        """Remove extra entity fields without replacing the model's meaning.
+
+        Preserve returned sources and metadata so the client's exact-selection
+        guard can reject mismatches. Enclosing entity paths remain unchanged.
+        """
+        if isinstance(value, dict):
+            summary = value.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                allowed = {"summary", "observations", "kind", "status", "sources"}
+                return {key: child for key, child in value.items() if key in allowed}
+            return {
+                key: cls._constrain_profile_review_entity(child) for key, child in value.items()
+            }
+        if isinstance(value, list):
+            return [cls._constrain_profile_review_entity(item) for item in value]
+        return value
+
+    @classmethod
     def _strip_internal_metadata(
         cls, value: Any, *, business_profile: bool = False, path: tuple[str, ...] = ()
     ) -> tuple[Any, bool]:
@@ -4555,6 +4574,9 @@ class PKMAgentLabService:
         ):
             validation_hints.append("primary_path_defaulted_to_root_scope")
         validation_hints = cls._unique_list(validation_hints)
+
+        if memory_profile == "profile_review_v1" and write_mode != "do_not_save":
+            candidate_payload = cls._constrain_profile_review_entity(candidate_payload)
 
         return {
             "candidate_payload": candidate_payload,

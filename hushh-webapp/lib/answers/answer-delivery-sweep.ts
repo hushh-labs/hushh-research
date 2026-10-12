@@ -41,10 +41,41 @@ import {
 import { encryptSliceForRecipient } from "@/lib/one-marketplace/encryption";
 import { buildConsentExportForScope, createConsentExportReadSession } from "@/lib/consent/export-builder";
 import {
+  hasAnyValue,
   projectApprovedAnswer,
   type ScopeProjection,
 } from "@/lib/answers/answer-projection";
 import { buildAnswerMemorySlice } from "@/lib/answers/answer-memory-slice";
+import {
+  approvedScopesBackedBySoul,
+  projectApprovedSoulFacts,
+} from "@/lib/answers/identity-soul-facts";
+import { loadMarkdownMemory } from "@/lib/pkm/markdown-memory";
+
+/**
+ * A name leaf inside the identity domain, which the account display name may
+ * stand in for when nothing else answered it.
+ *
+ * Bounded to `attr.identity.` deliberately: a name leaf elsewhere -- an
+ * employer's name, a school's name -- is not this person's name, and filling
+ * it in from their profile would answer a different question than the one the
+ * owner approved.
+ */
+const OWN_NAME_SCOPES = new Set([
+  "attr.identity.name",
+  "attr.identity.full_name",
+  "attr.identity.legal_name",
+  "attr.identity.identity_profile.full_name",
+  "attr.identity.identity_profile.name",
+  "attr.identity.identity_profile.legal_name",
+  "attr.identity.profile.name",
+  "attr.identity.profile.full_name",
+  "attr.identity.profile.legal_name",
+]);
+
+function isOwnNameScope(scope: string): boolean {
+  return OWN_NAME_SCOPES.has(scope);
+}
 import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
 
 /**
@@ -193,6 +224,95 @@ export async function buildAnswerPayload(
   if (!isVaultSessionEpochCurrent(epoch))
     throw new Error("Vault session changed");
 
+  // The identity intake records what the person states as labelled Soul
+  // bullets, not as structured leaves, so an approved identity scope had no
+  // leaf to project and came back empty even though the fact was sitting in
+  // Profile Memory. Read that document once, and only for the scopes the
+  // owner approved: the mapped labels are the only thing that can leave this
+  // way, and the person's free prose cannot.
+  const soulBackedScopes = approvedScopesBackedBySoul(projections
+    .filter((projection) => !hasAnyValue(projection.payload))
+    .map((projection) => projection.scope));
+  if (soulBackedScopes.length) {
+    try {
+      const memory = await loadMarkdownMemory({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      if (!isVaultSessionEpochCurrent(epoch))
+        throw new Error("Vault session changed");
+      const revision =
+        typeof memory?.dataVersion === "number" ? memory.dataVersion : null;
+      const facts = projectApprovedSoulFacts({
+        approvedScopes: soulBackedScopes,
+        markdown: memory?.markdown,
+      });
+      const soulProjections = new Map<string, ScopeProjection>();
+      for (const fact of facts) {
+        const projection = soulProjections.get(fact.scope) ?? {
+          scope: fact.scope, payload: {}, contentRevision: revision,
+        };
+        let branch = projection.payload as Record<string, unknown>;
+        const segments = fact.relativePath.split(".");
+        for (const segment of segments.slice(0, -1))
+          branch = (branch[segment] ??= {}) as Record<string, unknown>;
+        branch[segments[segments.length - 1]!] = fact.value;
+        soulProjections.set(fact.scope, projection);
+      }
+      // Only a successful empty canonical export admits this alternate source.
+      // Failed authority/manifest reads remain unavailable; current structured
+      // values remain authoritative. Combine wildcard facts into one projection.
+      for (let index = 0; index < projections.length; index += 1) {
+        const replacement = soulProjections.get(projections[index]!.scope);
+        if (replacement) projections[index] = replacement;
+      }
+    } catch {
+      // A Soul document that could not be read is not an absent fact. Naming
+      // the scopes keeps the caller's rule: this request stays queued rather
+      // than being delivered as "Answer not found".
+      for (const scope of soulBackedScopes)
+        if (!unavailableScopes.includes(scope)) unavailableScopes.push(scope);
+    }
+  }
+
+  // Precedence for a name request: the legal name the person stated wins,
+  // because they stated it. The account display name is the fallback, so a
+  // name question is still answerable for an owner who never completed the
+  // identity intake -- and it is the same value the requester already sees on
+  // the profile. Only ever for an approved name scope.
+  const accountName = (work.ownerIdentity ?? params.ownerIdentity)?.displayName?.trim();
+  if (accountName) {
+    // A scope whose read returned nothing is not answered. A confirmed-absent
+    // source (an HTTP 404) still pushes an empty projection, and treating that
+    // as an answer left a name request with no name in it.
+    const answeredScopes = new Set(
+      projections
+        .filter((projection) => hasAnyValue(projection.payload))
+        .map((projection) => projection.scope),
+    );
+    for (const scope of work.approvedScopes) {
+      if (!isOwnNameScope(scope)) continue;
+      if (answeredScopes.has(scope) || unavailableScopes.includes(scope)) continue;
+      projections.push({
+        scope,
+        payload: (() => {
+          // Nest under the scope's own path so it merges where the domain
+          // expects it, rather than inventing a branch beside it.
+          const segments = scope.split(".").slice(2);
+          const payload: Record<string, unknown> = {};
+          let branch = payload;
+          for (const segment of segments.slice(0, -1))
+            branch = (branch[segment] = {}) as Record<string, unknown>;
+          branch[segments[segments.length - 1]!] = accountName;
+          return payload;
+        })(),
+        // The account profile carries no PKM revision of its own.
+        contentRevision: null,
+      });
+    }
+  }
+
   const period =
     work.periodStart && work.periodEnd
       ? { start: work.periodStart, end: work.periodEnd }
@@ -227,9 +347,20 @@ export async function buildAnswerPayload(
   };
   if (!isVaultSessionEpochCurrent(epoch))
     throw new Error("Vault session changed");
-  const identity = work.ownerIdentity ?? params.ownerIdentity;
-  const hasContent = projected.hasContent || Boolean(identity &&
-    [identity.displayName, identity.email, identity.photoUrl].some(value => value?.trim()));
+  // Content is what the APPROVED scopes hold, and nothing else.
+  //
+  // Counting the account's own name, email or photo here made every owner who
+  // has a profile name produce a "complete" answer to any question at all --
+  // including one whose fact nobody ever recorded. "Answer not found" could
+  // not happen, and the requester was charged for an answer that did not
+  // exist. The account block is context ABOUT the person, carried in every
+  // answer because the requester already sees it on the profile they asked
+  // from; it is not an answer to what they asked.
+  //
+  // Where the account genuinely does answer the question -- a name request
+  // with no stated legal name -- it is projected into that scope above and
+  // counts through `projected` like any other fact.
+  const hasContent = projected.hasContent;
   if (firebaseIdToken && hasContent && !unavailableScopes.length && memorySlice.complete) {
     written = await AnswerRequestService.compose(
       firebaseIdToken,

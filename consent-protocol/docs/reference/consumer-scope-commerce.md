@@ -30,7 +30,8 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
 owner; PR #7555 and issue #7587 remain active. The remote pod-release and Android
-corrections are preserved. Main `337c4759e1b2` was merged normally at `9e5e58982b1c`; shared
+corrections are preserved. Main `337c4759e1b2` was merged normally at `9e5e58982b1c`;
+the continuation incorporates main `be71618d99` through a second normal merge. Shared
 history, unrelated workspace edits and the frozen migration preservation receipt
 remain intact. Main's 315–325 registrations retain their existing numbers. This lane's six
 registrations move to 326–331 with byte-identical forward and rollback SQL;
@@ -58,6 +59,22 @@ matching replay passes. Both cached private-placement cases fail on the actual
 incoming predecessor. The 447 Back cases pass; generated contract parity,
 complete core, exact-source hosted CI and Dev promotion must still complete.
 Source receipts never establish completed consumer purchases or bank payouts.
+
+Latest-main integration preserves prepared-answer payment ownership. Incoming
+profile-review normalization now retains model citations and semantic metadata
+so the existing owner-selection fidelity gate can reject mismatches. All 128
+structure-agent cases pass; the three focused fidelity cases fail on the actual
+incoming predecessor. Soul-backed answers use exact domain-bound scopes, admit
+alternate facts only after successful empty canonical exports, preserve current
+structured values and combine parent-wildcard facts. All 66 answer/identity/cache
+cases pass. Shared synthetic fixtures retain the original assertions without
+duplicate test setup. No migration or financial-source authority changed.
+
+The first root core attempt stopped on unrelated concurrent documentation-tool
+edits scanning ignored drafts. Those edits and drafts remain preserved. An
+existing clean verification checkout qualifies the exact committed candidate;
+its stale main reference and two frontend lint failures were corrected before
+the next full core run. No required gate is skipped or weakened.
 
 The last qualified Dev observation at `22:32:50Z` served source `0d00ceaf1e1b` and retained two funding records,
 three journals, zero purchases and zero withdrawals. Counterpart funding totals

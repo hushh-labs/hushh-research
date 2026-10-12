@@ -100,7 +100,7 @@ function session(scopes = [NAME_SCOPE, AGE_SCOPE]) {
 
 async function rawCache(): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
-    const open = indexedDB.open("hushh-secure-resource-cache", 1);
+    const open = indexedDB.open("hushh-secure-resource-cache");
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
       const database = open.result;
@@ -314,7 +314,13 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
     expect(result.payload.unavailableScopes).toEqual([]);
     expect(result.payload.memory).toContain("Synthetic Public Name");
     expect(result.payload.memory).not.toContain("Wrong caller name");
-    expect(result.payload.approvedInformation).toEqual({ [NAME_SCOPE]: {} });
+    // The account name answers the name scope, so it is the scope's value
+    // rather than an empty projection the owner is nonetheless paid for.
+    // Treating identity as content on its own made EVERY question with a
+    // profile name chargeable, including one whose fact nobody recorded.
+    expect(result.payload.approvedInformation).toEqual({
+      [NAME_SCOPE]: { profile: { name: "Synthetic Public Name" } },
+    });
     expect(transport.apiFetch.mock.calls.filter(([url]) => String(url).endsWith("/compose"))).toHaveLength(1);
   });
 

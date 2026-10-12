@@ -1,34 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-const buildConsentExportForScope = vi.fn();
-vi.mock("@/lib/consent/export-builder", () => ({
-  createConsentExportReadSession: () => undefined,
-  buildConsentExportForScope: (...args: unknown[]) =>
-    buildConsentExportForScope(...args),
-}));
-// Reading a whole PKM domain is the bug this file exists to prevent. If the
-// sweep ever reaches for the domain resource again, this mock records it.
-const getStaleFirst = vi.fn();
-vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
-  PkmDomainResourceService: {
-    getStaleFirst: (...a: unknown[]) => getStaleFirst(...a),
-  },
-}));
-
-const answerable = vi.fn();
-const compose = vi.fn();
-const deliver = vi.fn();
-vi.mock("@/lib/services/answer-request-service", () => ({
-  AnswerRequestService: {
-    answerable: (...a: unknown[]) => answerable(...a),
-    compose: (...a: unknown[]) => compose(...a),
-    deliver: (...a: unknown[]) => deliver(...a),
-  },
-}));
-const encrypt = vi.fn();
-vi.mock("@/lib/one-marketplace/encryption", () => ({
-  encryptSliceForRecipient: (...a: unknown[]) => encrypt(...a),
-}));
+import { buildConsentExportForScope, getStaleFirst, answerable, compose, deliver, encrypt, work, params, resetAnswerFixture } from "./fixtures";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import {
@@ -36,33 +8,7 @@ import {
   runAnswerDeliverySweep,
 } from "@/lib/answers/answer-delivery-sweep";
 import { projectApprovedAnswer } from "@/lib/answers/answer-projection";
-import type { AnswerableWork } from "@/lib/services/answer-request-service";
-
-const work = (overrides: Partial<AnswerableWork> = {}): AnswerableWork => ({
-  requestId: "11111111-2222-3333-4444-555555555555",
-  question: "How much did you spend on travel last year?",
-  periodStart: null,
-  periodEnd: null,
-  approvedScopes: ["attr.travel.trips"],
-  scopeLabels: {},
-  answerDeadlineAt: null,
-  requesterUserId: "requester-B",
-  recipientKey: { keyId: "key-1", publicKeyJwk: {} as JsonWebKey },
-  ...overrides,
-});
-
-const params = { userId: "owner-A", vaultKey: "key", vaultOwnerToken: "token" };
-
-beforeEach(() => {
-  buildConsentExportForScope.mockReset();
-  getStaleFirst.mockReset();
-  answerable.mockReset();
-  compose.mockReset();
-  deliver.mockReset();
-  encrypt.mockReset().mockResolvedValue({ sealed: "ciphertext" });
-  compose.mockResolvedValue({ answerMode: "projection", answer: null });
-  deliver.mockResolvedValue(undefined);
-});
+beforeEach(resetAnswerFixture);
 
 describe("an approved field cannot expose another field in the same domain", () => {
   it("asks for the exact approved scope and never reads the domain", async () => {
