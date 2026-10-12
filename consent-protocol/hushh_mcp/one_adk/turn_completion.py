@@ -25,6 +25,7 @@ from typing import Any
 
 from hushh_mcp.branding import PRODUCT_NAME
 from hushh_mcp.one_adk.follow_up_suggestions import FOLLOW_UP_TOOL_NAME
+from hushh_mcp.one_adk.message_reactions import REACTION_TOOL_NAME
 from hushh_mcp.services.chat_key import MAX_BINDING_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -89,11 +90,12 @@ def newest_turn_settled(events: Sequence[Any]) -> bool:
     return any(_is_final(event) for event in _newest_turn(events))
 
 
-def _ends_on_follow_ups(event: Any) -> bool:
-    """A turn closed by follow-up suggestions: its answer is on the call's own event."""
+def _ends_on_answer_sidecar(event: Any) -> bool:
+    """A presentation tool closed the turn after an answer in its model step."""
     responses = event.get_function_responses() if hasattr(event, "get_function_responses") else []
     return bool(responses) and all(
-        response.name == FOLLOW_UP_TOOL_NAME and (response.response or {}).get("status") == "shown"
+        response.name in {FOLLOW_UP_TOOL_NAME, REACTION_TOOL_NAME}
+        and (response.response or {}).get("status") == "shown"
         for response in responses
     )
 
@@ -106,7 +108,7 @@ def newest_turn_answered(events: Sequence[Any]) -> bool:
             continue
         if _has_answer(event):
             return True
-        if _ends_on_follow_ups(event) and any(
+        if _ends_on_answer_sidecar(event) and any(
             getattr(prior, "author", None) != "user" and _has_answer(prior)
             for prior in turn[:index]
         ):
