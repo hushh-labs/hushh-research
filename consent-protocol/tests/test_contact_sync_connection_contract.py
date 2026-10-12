@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -1211,11 +1211,64 @@ def test_account_deletion_explicitly_purges_the_fk_free_abuse_budget() -> None:
     assert '"contact_sync_lookup_budgets"' not in reset_source
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [True, False])
+async def test_ria_profile_deletion_preserves_account_phone_authority(verified: bool) -> None:
+    # Execute the actual persona deletion. Web phone proof belongs to the
+    # surviving account; its primary Google Firebase user has no phone to repair it.
+    identity = {
+        "phone_number": "+14155550999" if verified else None,
+        "phone_verified": verified,
+        "email": "owner@example.test",
+        "custom_photo_url": "https://example.test/owner.png",
+    }
+    original = identity.copy()
+    statements = []
+
+    @asynccontextmanager
+    async def transaction():
+        yield
+
+    async def execute(sql, *_args):
+        statements.append(sql)
+        if "DELETE FROM actor_identity_cache" in sql:
+            identity.clear()
+
+    conn = MagicMock()
+    conn.transaction = transaction
+    conn.fetchrow = AsyncMock(return_value={"id": "00000000-0000-0000-0000-000000000001"})
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchval = AsyncMock(return_value=False)
+    conn.execute = AsyncMock(side_effect=execute)
+    conn.close = AsyncMock()
+    service = RIAIAMService()
+    with (
+        patch.object(service, "_conn", AsyncMock(return_value=conn)),
+        patch.object(service, "_ensure_iam_schema_ready", AsyncMock()),
+        patch.object(service, "_ensure_vault_user_row", AsyncMock()),
+        patch.object(service, "_set_runtime_last_persona", AsyncMock()),
+    ):
+        result = await service.delete_ria_self_profile("requester")
+
+    assert result == {"deleted": True, "remaining_personas": ["investor"]}
+    assert identity == original
+    assert any("DELETE FROM ria_profiles" in sql for sql in statements)
+    graph = _ContactSyncService(requester_verified=bool(identity.get("phone_verified")))
+    if verified:
+        assert _behavior_sync(graph)["matchedCount"] == 1
+    else:
+        with pytest.raises(ConnectionsError) as error:
+            _behavior_sync(graph)
+        assert error.value.code == "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED"
+        assert graph.writes == []
+
+
 def test_ria_profile_deletion_preserves_contact_sync_lock_order() -> None:
     source = inspect.getsource(RIAIAMService.delete_ria_self_profile)
 
     assert "_ensure_actor_profile_row" not in source
-    assert source.index("DELETE FROM actor_identity_cache") < source.index("UPDATE actor_profiles")
+    assert source.index("FROM actor_identity_cache") < source.index("UPDATE actor_profiles")
+    assert "FOR UPDATE" in source
 
 
 def test_read_models_expose_only_viewer_relative_contact_provenance() -> None:

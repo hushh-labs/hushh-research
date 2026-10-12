@@ -12,7 +12,10 @@ from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityService,
+    ActorIdentitySyncUnavailableError,
+)
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -206,7 +209,7 @@ async def match_marketplace_contacts(
             scope=payload.scope,
         )
         return {"items": items}
-    except ConnectionsError as exc:
+    except (ConnectionsError, ActorIdentitySyncUnavailableError) as exc:
         raise HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}
         ) from None
