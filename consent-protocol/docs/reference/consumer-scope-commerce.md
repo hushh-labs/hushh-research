@@ -28,6 +28,28 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
+- At `08:54:12Z`, the counterpart's $10 Sandbox funding completed through the
+  same normal headless Checkout flow. Signed settlement and read-only provider
+  receipts agree on the payer, recorded attempt, pinned test account, amount and
+  currency. It credited exactly once: cumulative funding is $10.50/1,050 coins,
+  with balanced journals. Actual processing cost is 59 cents; the $9.41 net
+  backing was pending at verification. No purchase or withdrawal is implied.
+  The prior $0.50 payment and $5 capital Topup were not replayed. Separate cold
+  authentication/unlock passed again; warm hosted-return continuity is unverified.
+- A second enabled Azure subscription is now discoverable. Read-only ARM
+  inspection verifies zero Container Apps environments there. The primary's
+  existing failed setup still targets the old subscription; new capacity does
+  not replace owner-bound Azure OAuth or create a private pod.
+- Local core passed at `560897573dd0` in 1,299 seconds. The subsequent normal
+  main merge preserves scoped Saved information alongside private Soul memory,
+  with Saved/Add navigation, exact-scope pricing and owner review. Stripe read
+  verification forces catalog refresh before and after authenticated reads;
+  cached discovery cannot preserve proof after a schema change. Combined-source
+  core, hosted CI and Dev promotion remain pending.
+- Payout onboarding reached the normal hosted provider screen through Account,
+  but headless completion encountered a human-verification challenge. Eligibility,
+  both-role purchases, owner Stripe OAuth and payout acceptance remain unverified.
+
 - At `06:21:29Z`, the counterpart's explicitly confirmed $0.50 funding completed
   through normal headless hosted Checkout. The signed event, expected payer and
   operation, test-mode account pin, exact amount/currency, Checkout, charge and
@@ -42,8 +64,7 @@ are separately verified below; they do not prove a consumer purchase or payout.
   after the document return. Separate canonical cold authentication/unlock and
   normal Memory-to-Account navigation passed without a new funding attempt.
   This proves cold recovery; warm hosted-return continuity remains unverified.
-  The next $10 funding amount is prepared for human review and has not been
-  submitted.
+  The later $10 funding settlement is recorded above.
 - The merged source `a0c76dccb3f9` passed the complete local core in 2,493 seconds.
   [Hosted CI 38211634206](https://github.com/hushh-labs/hushh-research/actions/runs/38211634206)
   passed protocol, integration, web core, targeted browser/node contracts,

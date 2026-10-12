@@ -22,6 +22,12 @@ class _DurableSessionManager(SessionManager):
     a silent deletion of the person's history, so it never starts here.
     """
 
+    async def _find_session_by_thread_id(
+        self, app_name: str, user_id: str, thread_id: str
+    ) -> Any | None:
+        """Recover the exact owner-bound row without scanning encrypted history."""
+        return await self.get_session(thread_id, app_name, user_id)
+
     def _start_cleanup_task(self) -> None:
         return None
 

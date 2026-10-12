@@ -35,6 +35,16 @@ afterEach(async () => {
 });
 
 describe("SecureResourceCacheService.writeRequired", () => {
+  it("discovers only the owner's encrypted recovery keys and observes durable cleanup", async () => {
+    const params = { userId: USER_ID, resourceKey: "migration:test", vaultKey: VAULT_KEY };
+    await SecureResourceCacheService.writeRequired({ ...params, value: { fact: "Synthetic private fact" }, ttlMs: 60_000 });
+    expect(await SecureResourceCacheService.listResourceKeys("different-owner", "migration:")).toEqual([]);
+    expect(await SecureResourceCacheService.listResourceKeys(USER_ID, "unrelated:")).toEqual([]);
+    expect(await SecureResourceCacheService.listResourceKeys(USER_ID, "migration:")).toEqual(["migration:test"]);
+    expect(JSON.stringify(await readRawCacheRecord())).not.toContain("Synthetic private fact");
+    await SecureResourceCacheService.invalidateResourceRequired(USER_ID, "migration:test");
+    expect(await SecureResourceCacheService.readRequired(params)).toBeNull();
+  });
   it("recovery reads distinguish absence from failed decryption without deleting ciphertext", async () => {
     const params = { userId: USER_ID, resourceKey: "migration:test", vaultKey: VAULT_KEY };
     await expect(SecureResourceCacheService.readRequired(params)).resolves.toBeNull();

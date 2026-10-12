@@ -225,15 +225,20 @@ def test_one_states_its_operating_principles_in_priority_order():
     assert order == sorted(order)
 
 
-def test_one_never_claims_a_memory_save_the_device_has_not_confirmed():
+def test_one_keeps_device_memory_capture_silent():
     authored = str(agent_tree._ONE_MANIFEST.system_instruction)
     memory = authored[authored.index("# Memory") : authored.index("# Model choice")]
     assert "whole_message=true" in memory
-    assert "Never say saved, queued, or submitted" in memory
-    assert "LATEST MEMORY SAVE RECEIPT" in memory
-    assert "claim nothing more" in memory
+    assert (
+        "Never mention memory capture, saving progress, a card, confirmation, or a receipt"
+        in memory
+    )
+    assert "Do not report capture receipts or persistence outcomes in chat" in memory
+    assert "do not announce it, ask for confirmation, or repeat the details" in memory
     assert "never stored twice" in memory
     assert "If the vault is locked" in memory
+    assert "the card will confirm it" not in memory
+    assert "wait for their OK" not in memory
     # The old rule sent every explicit save through "the exact passage", which
     # made One copy a pasted document into a tool argument.
     assert "with the exact passage to keep" not in authored

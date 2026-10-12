@@ -4,6 +4,9 @@ import { isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
 
 describe("financial export policy (mirror of the server's domain_contracts)", () => {
   it.each([
+    "attr.one_memory.*",
+    "attr.one_memory.markdown",
+    "attr.one_memory.markdown.text",
     "attr.financial.*",
     "attr.financial.analysis_history.*",
     "attr.financial.sources.*",

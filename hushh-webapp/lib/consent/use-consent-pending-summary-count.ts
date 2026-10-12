@@ -17,6 +17,7 @@ import {
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
+import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
 
 /**
  * Returns `null` until the current persona's summary has resolved. Consumers
@@ -30,6 +31,7 @@ export function useConsentPendingSummaryCount(
   const pathname = usePathname();
   const { activePersona } = usePersonaState();
   const rootChatReady = useRootChatDeferredReady();
+  const foregroundChatActive = useForegroundChatActive();
   const actor: ConsentCenterActor | undefined =
     pathname?.startsWith("/ria") && activePersona === "ria" ? "ria" : undefined;
   const mode = "consents";
@@ -63,14 +65,8 @@ export function useConsentPendingSummaryCount(
   const summaryResource = useStaleResource({
     cacheKey,
     refreshKey: `${scope}:${mode}:${mutationTick}`,
-    // A NAV BADGE MUST NOT RACE THE SETUP GATE.
-    //
-    // This call is chrome for a nav that is already hidden on every setup
-    // surface, and it was measured at 125,614 ms on a brand-new person's first
-    // paint -- because `useSessionChromeSuppression` hides the chrome with a DOM
-    // attribute while every component under it stays mounted and every fetch
-    // still fires. Hidden was doing no work; only stopping the fetch does.
-    enabled: Boolean(user?.uid) && rootChatReady && (options?.enabled ?? true),
+    // Hidden chrome and foreground chat both defer background summaries.
+    enabled: Boolean(user?.uid) && rootChatReady && !foregroundChatActive && (options?.enabled ?? true),
     load: async () => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) {

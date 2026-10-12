@@ -252,12 +252,28 @@ def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmRe
         and outcome.get("invocation") == invocation
         and outcome.get("outcome") in _DRIVE_CONNECTION_ANSWERS
     ):
-        # End this answer without asking the model to reinterpret old history
-        # as new evidence. No generated text has been streamed for this step.
-        answer = _DRIVE_CONNECTION_ANSWERS[outcome["outcome"]]
-        return LlmResponse(
-            content=types.Content(role="model", parts=[types.Part(text=answer)]),
-            turn_complete=True,
+        from hushh_mcp.one_adk.agent_tree import STATE_PKM_CONTEXT
+        from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+
+        memory = resolve_request_secret(callback_context.state.get(STATE_PKM_CONTEXT))
+        if not memory:
+            # Without another authorized source, never reinterpret old filenames
+            # as fresh Drive evidence.
+            answer = _DRIVE_CONNECTION_ANSWERS[outcome["outcome"]]
+            return LlmResponse(
+                content=types.Content(role="model", parts=[types.Part(text=answer)]),
+                turn_complete=True,
+            )
+        llm_request.append_instructions(
+            [
+                "CURRENT DRIVE READ DID NOT PROVIDE FILE EVIDENCE: " + outcome["outcome"] + ". "
+                "Answer personal recall from CONSENTED TURN INFORMATION when it contains "
+                "the requested facts. A missing personal detail is unknown; do not require "
+                "Drive to answer a memory question. For an explicit Drive request, explain "
+                "the current connection or read failure. Never claim a fresh file check, "
+                "reuse earlier filenames or links as current results, or execute another "
+                "action. The external-read authority boundary remains in effect."
+            ]
         )
     if external_read_active(callback_context):
         # This callback runs only after the read's tool result has returned to

@@ -57,7 +57,6 @@
   "handoff_chain": [
     "security-audit",
     "iam-consent-governance",
-    "vault-pkm-governance",
     "quality-contracts",
     "backend"
   ],

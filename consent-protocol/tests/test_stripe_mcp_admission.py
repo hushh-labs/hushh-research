@@ -50,6 +50,10 @@ METADATA = {
 
 
 def _stripe_toolset(tools, *, endpoint=STRIPE_MCP_ENDPOINT, kind="oauth", headers=None):
+    # Each synthetic transport is a new provider catalog, not a cached discovery.
+    from hushh_mcp.one_adk.governed_mcp_toolset import clear_mcp_catalog_cache
+
+    clear_mcp_catalog_cache()
     toolset, approve, session = _policy_toolset("credentialed", tools, headers=headers)
     previous = toolset.resolve_connection.return_value
     toolset.binding = replace(previous.binding, endpoint=endpoint)

@@ -423,6 +423,13 @@ CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBIN
 OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"secrets", "source_library", "wallet"})
 
 DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
+    "one_memory": DomainSharingPolicy(
+        domain_key="one_memory",
+        allow_domain_wildcard=False,
+        allowed_manifest_path_prefixes=(),
+        requestable_scopes=frozenset(),
+        allow_public_projection=False,
+    ),
     "one_living_sources": DomainSharingPolicy(
         domain_key="one_living_sources",
         allow_domain_wildcard=False,

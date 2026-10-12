@@ -87,7 +87,7 @@ async def run_verification_read(tool, *, args, tool_context, approved_read=None)
     require_stripe_tool(owner.binding.endpoint, tool.descriptor, owner.stripe_reads)
     if tool.descriptor["name"] not in ACCOUNT_TOOLS:
         raise ExternalMcpError("Verification read unavailable.", code="MCP_STRIPE_READ_ONLY")
-    await owner.get_tools(tool_context)
+    await owner.get_tools(tool_context, force_refresh=True)
     if tool.epoch != owner.catalog_epoch:
         raise ExternalMcpError("Catalog changed.", code="MCP_CATALOG_CHANGED")
     arguments = validated_mcp_arguments(tool.descriptor["inputSchema"], args)
@@ -103,7 +103,7 @@ async def run_verification_read(tool, *, args, tool_context, approved_read=None)
             args=arguments, tool_context=tool_context, credential=None
         )
     headers = await owner._current_headers(tool_context)
-    await owner.get_tools(tool_context)
+    await owner.get_tools(tool_context, force_refresh=True)
     if tool.epoch != owner.catalog_epoch:
         raise ExternalMcpError("Catalog changed.", code="MCP_CATALOG_CHANGED")
     normalized = project_mcp_result(

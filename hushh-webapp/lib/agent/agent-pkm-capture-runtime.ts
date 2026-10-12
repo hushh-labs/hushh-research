@@ -60,8 +60,22 @@ export function shouldPresentAgentPkmCapture(
 export function shouldPublishAgentPkmCapture(
   status: AgentPkmCaptureStatus,
   sessionCurrent: boolean,
+  workspaceCurrent = true,
 ): boolean {
-  return sessionCurrent || !isAgentPkmCaptureRunning(status);
+  return workspaceCurrent && (sessionCurrent || !isAgentPkmCaptureRunning(status));
+}
+
+/** Ambient preparation cannot fulfill a later explicit or restricted write. */
+export function agentPkmCaptureJobKey(params: {
+  assistantMessageId: string;
+  sourceMessage: string;
+  explicitRequest?: boolean;
+  kycInformationSaveConfirmed?: boolean;
+  kycInformationRequestWorkflowId?: string;
+}): string {
+  const workflow = params.kycInformationSaveConfirmed && params.kycInformationRequestWorkflowId;
+  const authority = workflow ? ["kyc", workflow] : [params.explicitRequest ? "explicit" : "ambient"];
+  return JSON.stringify([params.assistantMessageId, params.sourceMessage, authority]);
 }
 
 /** Re-evaluate at each effect: time can expire without a React render. */

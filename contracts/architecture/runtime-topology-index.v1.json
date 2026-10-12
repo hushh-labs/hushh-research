@@ -955,7 +955,7 @@
       ],
       "id": "domain_reference_registry",
       "lifecycle_status": "transitional",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "legacy/domain reference compatibility during PKM scope migration"
     },
     {
@@ -1348,7 +1348,7 @@
       ],
       "id": "legacy_memory_cutover",
       "lifecycle_status": "legacy_migration",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "bounded legacy-to-PKM compatibility and account deletion cleanup only"
     },
     {
@@ -1613,7 +1613,7 @@
       ],
       "id": "pkm_answer_deliveries",
       "lifecycle_status": "customer0",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "The owner's unlocked device produces the answer from decrypted PKM within the approved scopes, seals it to the requester's ECDH P-256 recipient key and posts the envelope; the requester fetches and decrypts it on their own device. The server is a blind relay, exactly as in the marketplace delivery sweep."
     },
     {
@@ -1678,7 +1678,7 @@
       ],
       "id": "pkm_default_available_projection",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "vault-owner profile controls publish safe public-profile projections; authenticated developer connectors read them by opaque handle through the public-profile export endpoint"
     },
     {
@@ -1690,7 +1690,7 @@
       ],
       "id": "pkm_encrypted_memory",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "PKM coherent snapshot, atomic store, owner rollback, delete-domain routes, and client-side vault unlock flows"
     },
     {
@@ -1704,7 +1704,7 @@
       ],
       "id": "pkm_metadata_and_scope",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "PKM metadata, scope discovery, manifest repair, and replay/audit services"
     },
     {
@@ -1735,7 +1735,7 @@
       ],
       "id": "pkm_packets",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "One marketplace Owner tab: the owner creates, prices and lists packets (named bundles of their own PKM scope references) for sale; hussh.ai White Pages reads only the titles and prices of a verified owner's for-sale packets through the public listing lookup."
     },
     {
@@ -1749,7 +1749,7 @@
       ],
       "id": "pkm_upgrade_workflows",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration"
     },
     {
@@ -1939,7 +1939,7 @@
       ],
       "id": "vault_key_material",
       "lifecycle_status": "current",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, and owner-bound One review completion services"
     },
     {
@@ -6692,14 +6692,14 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "c0fee109f7399c33e455b5ba0f3a14bae28bad517e827de5cd721b26cf4ffe19",
-    "agent_registry": "80282e8bdcbca19ed906cbb6dd29285a09443774357a59df73d090d0b740c41e",
+    "agent_registry": "57d5d691db1ad0e591f50ff6862223b938fe82951dd088fad903bd91166c6136",
     "cache_manifest": "2f4ccfba59c856698838753971f14d3aa12e0dced3f8834cfe33ad8f98f75656",
-    "data_plane": "a9e640fd3ad325c2a89d8741546d828e644b5b1dbd3e641707df661e886798df",
+    "data_plane": "dff905610b0c2ab9c5639a87b762358e01bf8eff13ee2cc415a1028edaaf2c08",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "5fb9a81824a10aeaa2034f90a2642fb6d19acf1caab29a28e482447493b40b2a",
-    "route_index": "e1a17a84addcba4ca93739a4f714fde55b9d83a3c9c612b9a53a87245ac021c5",
-    "route_layout": "9b30adf17c0e2e027f3ed5c52be22079053fd115c416500a5908c667d663b803",
-    "surface_map": "e1a20dffb89c771c2323f2b2bad5f2c63b1baf320ddfe2a49f3be142d49ca04a",
+    "one_specialist_tools": "cb76edf8be0ad6bbef975a9a9db27c9564dd768e7edd3da999ec5d3a5877b283",
+    "route_index": "001ecb5145f40b7c7ede77f3452f1499f2ae803a22364020245803da14b2de72",
+    "route_layout": "ed731ccb27642087b36fa77b0a35d33c8f076ebeb07c98a8c4a4aa33c90eb42e",
+    "surface_map": "daa796f55e4b1bc895e09a300004ac68b3452aa41538b9c6171a27bc97dba9e9",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

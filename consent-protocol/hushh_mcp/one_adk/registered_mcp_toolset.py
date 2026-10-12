@@ -290,16 +290,21 @@ class RegisteredMcpToolset(BaseToolset):
         budget = mcp_call_timeout_seconds()
         definitions = []
         if not scope.vault_only:
-            try:
-                async with asyncio.timeout(budget):
-                    definitions = (
-                        await get_external_connector_registry_service().list_active_connectors(
-                            user_id=None if scope.has_vault_configurations else context.user_id
+            definitions = scope.registry_definitions
+            if definitions is None:
+                try:
+                    async with asyncio.timeout(budget):
+                        definitions = (
+                            await get_external_connector_registry_service().list_active_connectors(
+                                user_id=None if scope.has_vault_configurations else context.user_id
+                            )
                         )
-                    )
-            except Exception:
-                # Keep independently admitted vault configurations usable.
-                logger.warning("mcp_registry_unavailable")
+                    scope.registry_definitions = definitions
+                except Exception:
+                    # Registry availability never broadens owner authority or
+                    # removes independently admitted vault configurations.
+                    definitions = []
+                    logger.warning("mcp_registry_unavailable")
         admitted = [
             (item.connector_id, item.display_name)
             for item in definitions

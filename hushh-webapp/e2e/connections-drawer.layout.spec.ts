@@ -1284,12 +1284,12 @@ async function expectChatIntact(
   await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue("Unsent draft");
 }
 
-test("Gmail send upgrade connects in place and reopens the reviewed draft", async ({ page }) => {
+test("legacy Gmail reconnect stays in place and reopens the reviewed draft", async ({ page }) => {
   const { server, navigations } = await armChatConnect(page);
   const history = page.getByTestId("one-email-history-failed");
   await history.getByText("Mail activity").click();
   const popupEvent = page.waitForEvent("popup");
-  await history.getByRole("button", { name: "Enable sending" }).click();
+  await history.getByRole("button", { name: "Reconnect Mail" }).click();
   const consent = await popupEvent;
   await expect(history.getByRole("button", { name: "Waiting for Google…" })).toBeDisabled();
   await expect(page.getByText("Draft reopened for review")).toHaveCount(0);
@@ -1364,7 +1364,7 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
   );
   const history = page.getByTestId("one-email-history-failed");
   await history.getByText("Mail activity").click();
-  await history.getByRole("button", { name: "Enable sending" }).click();
+  await history.getByRole("button", { name: "Reconnect Mail" }).click();
   await expect(page.getByTestId("chat-connect-notice")).toHaveText(
     "Allow pop-ups for One, then try again. Your chat and draft stay here.",
   );

@@ -722,6 +722,7 @@ async def test_a_connector_is_listed_once_per_turn_not_once_per_model_step(regis
         first = await view.get_tools(context())
         second = await view.get_tools(context())
         third = await view.get_tools(context())
+        assert registry.list_active_connectors.await_count == 1
         assert toolset.get_tools.await_count == 1
         assert scope.acquire.await_count == 1
     assert [t.name for t in first] == [t.name for t in second] == [t.name for t in third]

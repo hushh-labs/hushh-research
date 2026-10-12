@@ -22,7 +22,8 @@ import {
   AgentPkmContextStore,
   type AgentPkmContextCoverage,
 } from "@/lib/agent/agent-pkm-context-store";
-import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { OWNER_STYLE_DOMAIN, OWNER_STYLE_BRANCH, ownerStyleFromBranch, ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
@@ -30,6 +31,19 @@ import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-te
 import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import { classifyMergeOutcome, type PkmMergeOutcome } from "@/lib/pkm/pkm-supersede-merge";
 import { assertBusinessMemoryTarget, assertProfileReviewTargetPath, touchesBusinessRecord, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
+import {
+  clearMarkdownMemory,
+  loadMarkdownMemory,
+  recoverMarkdownMemorySync,
+  isMarkdownMemoryGenerationCurrent,
+  markdownMemoryToAgentContext,
+  peekMarkdownMemory,
+  snapshotMarkdownMemoryGeneration,
+} from "@/lib/pkm/markdown-memory";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -816,6 +830,9 @@ export async function addToPKM(params: {
 
   const savedResults = completedResults.filter((result) => result.success);
   if (savedResults.length > 0 && (params.mayPublish?.() ?? true)) {
+    // Structured specialist writes invalidate their working set. The canonical
+    // Soul document, including uncommitted local facts, keeps its own lifecycle.
+    if (!peekMarkdownMemory(params.userId)) clearMarkdownMemory(params.userId);
     AgentPkmContextStore.invalidateUser(params.userId);
   }
   return {
@@ -897,16 +914,10 @@ export async function loadAgentPkmContext(params: {
   message?: string;
   forceRefresh?: boolean;
   maxChars?: number;
-  /**
-   * Interactive first turns may use redacted metadata while the decrypted
-   * session working set warms in the background. This never writes or changes
-   * PKM relevance/save policy; it only avoids blocking a new conversation on
-   * a full encrypted blob.
-   */
+  /** Deprecated compatibility flag. It yields no memory, never metadata. */
   metadataOnly?: boolean;
   /**
-   * Personal-memory requests must fail closed until the decrypted, typed
-   * session inventory is available. Metadata is intentionally insufficient.
+   * Personal-memory requests fail closed until the decrypted Soul is available.
    */
   requireDecrypted?: boolean;
 }): Promise<AgentPkmContext> {
@@ -917,18 +928,42 @@ export async function loadAgentPkmContext(params: {
   }
 
   if (params.vaultKey && !params.metadataOnly) {
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const memoryGeneration = snapshotMarkdownMemoryGeneration();
     try {
-      const workingContext = await AgentPkmContextStore.load({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        message: params.message,
-        forceRefresh: params.forceRefresh,
-        maxChars: params.maxChars,
-      });
-      if (workingContext) {
-        return workingContext;
+      const cachedMarkdown = peekMarkdownMemory(params.userId);
+      const markdownMemory = cachedMarkdown && !params.forceRefresh
+        ? cachedMarkdown
+        : (await loadMarkdownMemory({
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+              forceRefresh: params.forceRefresh,
+            }));
+      if (
+        !isVaultSessionEpochCurrent(vaultEpoch) ||
+        !isMarkdownMemoryGenerationCurrent(memoryGeneration)
+      ) {
+        return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
       }
+      if (markdownMemory) {
+        await recoverMarkdownMemorySync({ userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken });
+        if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
+          return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        // Settings ride in the closed style field, never as recalled identity.
+        const style = await PkmDomainResourceService.getStaleFirst({
+          userId: params.userId, domain: OWNER_STYLE_DOMAIN,
+          vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
+          forceRefresh: params.forceRefresh, backgroundRefresh: false,
+        }).catch(() => null);
+        if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
+          return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        return {
+          ...markdownMemoryToAgentContext(peekMarkdownMemory(params.userId) ?? markdownMemory),
+          communicationPreferences: ownerStyleRequestField(ownerStyleFromBranch(style?.data?.[OWNER_STYLE_BRANCH])),
+        };
+      }
+
       if (params.requireDecrypted) {
         throw new AgentPkmContextNotReadyError(
           "Your private memory is still preparing. Please try again in a moment."
@@ -944,7 +979,6 @@ export async function loadAgentPkmContext(params: {
       if (error instanceof AgentPkmContextNotReadyError) {
         throw error;
       }
-      AgentPkmContextStore.invalidateUser(params.userId);
       if (params.requireDecrypted) {
         throw new AgentPkmContextNotReadyError(
           "Your private memory could not be loaded. Please try again in a moment."
@@ -963,23 +997,12 @@ export async function loadAgentPkmContext(params: {
       "Unlock your vault before asking Agent about your private memory."
     );
   }
-  const metadata = await PersonalKnowledgeModelService.getMetadata(
-    params.userId,
-    params.forceRefresh === true,
-    params.vaultOwnerToken
-  );
-  return {
-    ...buildAgentPkmContextFromMetadata(metadata),
-    source: "metadata",
-    mode: "summary",
-  };
+  // Metadata and structured specialist records are not One's memory. Locked
+  // callers get no personal context; only the unlocked Soul.md may supply it.
+  return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
 }
 
-/**
- * The owner's saved receipt index for one typed chat turn, or null. Read from
- * the same unlocked working set as `peekAgentPkmContext`, so it costs no extra
- * decrypt and is voided by the same domain-change event as a new save.
- */
+/** Legacy specialist compatibility. One chat does not read this index. */
 export function peekReceiptMemoryIndex(params: {
   userId: string;
 }): ReceiptCanonicalIndex | null {
@@ -991,7 +1014,14 @@ export function peekAgentPkmContext(params: {
   message?: string;
   maxChars?: number;
 }): AgentPkmContext | null {
-  return AgentPkmContextStore.peek(params);
+  const markdownMemory = peekMarkdownMemory(params.userId);
+  if (markdownMemory) return {
+    ...markdownMemoryToAgentContext(markdownMemory),
+    communicationPreferences: ownerStyleRequestField(ownerStyleFromBranch(
+      PkmDomainResourceService.peek({ userId: params.userId, domain: OWNER_STYLE_DOMAIN })?.data?.data?.[OWNER_STYLE_BRANCH],
+    )),
+  };
+  return null;
 }
 
 export function warmAgentPkmContext(params: {
@@ -1004,9 +1034,9 @@ export function warmAgentPkmContext(params: {
   const existing = agentPkmWarmups.get(params.userId);
   if (existing) return existing;
 
-  // The agent-safe packet is deliberately built once at unlock and stays only
+  // Soul.md is deliberately loaded once at unlock and stays only
   // in browser RAM. Every subsequent One turn reads this same working set.
-  const warmup = AgentPkmContextStore.load({
+  const warmup = loadAgentPkmContext({
     userId: params.userId,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
@@ -1021,12 +1051,13 @@ export function warmAgentPkmContext(params: {
   return warmup;
 }
 
-export function clearAgentPkmContext(userId?: string): void {
+export function clearAgentPkmContext(userId?: string, options: { preserveMarkdown?: boolean } = {}): void {
   if (userId) {
     agentPkmWarmups.delete(userId);
   } else {
     agentPkmWarmups.clear();
   }
+  if (!options.preserveMarkdown) clearMarkdownMemory(userId);
   AgentPkmContextStore.clear(userId);
 }
 

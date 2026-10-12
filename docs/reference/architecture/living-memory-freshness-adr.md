@@ -1,25 +1,35 @@
 # ADR: Continuous living memory and an owner-controlled always-on runtime
 
-Status: **proposed runtime; locked and closed-app 24/7 operation remains unimplemented.**
+Status: **V1 Markdown memory implemented for One chat; locked and closed-app operation remains unimplemented.**
 Updated: 2026-10-11.
 
 ## Visual Map
 
 ```mermaid
 flowchart LR
-  Sources[Owner source changes] --> Client[Open unlocked owner client]
-  Client --> PKM[Encrypted PKM and source revisions]
-  PKM --> View[Verified session memory.md]
-  View --> Freshness[Current, stale or incomplete status]
-  Device[Proposed owner-operated always-on device] -. reviewed local key control .-> PKM
-  PKM --> Backend[Backend stores ciphertext only]
+  Legacy[Existing encrypted PKM domains] -->|first-session compatibility seed| Client[Open unlocked owner client]
+  Client --> Memory[Canonical One memory.md]
+  Memory --> Prompt[Whole file in every One prompt]
+  Client -->|AES-GCM encrypted write| Backend[Backend stores ciphertext only]
+  Device[Proposed owner-operated always-on device] -. reviewed local key control .-> Memory
 ```
 
-Solid arrows describe the implemented unlocked flow. The dotted device path is a proposal requiring separate owner review and implementation. The [PKM architecture](../../../consent-protocol/docs/reference/personal-knowledge-model.md) owns encrypted persistence.
+Solid arrows describe the implemented unlocked V1 flow. The dotted device path is a proposal requiring separate owner review and implementation. The existing PKM encryption and optimistic-write coordinator remain the persistence boundary; V1 does not introduce a second cryptosystem.
 
 ## Current boundary
 
-Encrypted PKM remains authoritative. The backend does not decrypt PKM and receives no vault key. `memory.md` is a reproducible, session-only view of verified encrypted readback; it is not another store. Source commits invalidate that view. Offline cached readback is stale, failed or incomplete sources are disclosed, and a change arriving during a refresh remains pending. Vault teardown clears the view and fences late publication.
+For One chat, `one_memory.markdown` is the V1 memory authority. It is one Markdown document inside one client-encrypted PKM domain. The backend stores ciphertext and never receives the vault key. Unlock decrypts the document into process memory, every One turn receives the whole document as private context, and chat memory capture rewrites the encrypted document through the existing conflict-aware coordinator. Vault teardown clears the plaintext session copy and fences late publication.
+
+Existing structured PKM domains remain authorities for Finance, KYC, Consent
+and explicit Saved-information workflows. One's conversation recall remains
+Soul-only: a missing document begins with an empty session document, and legacy
+records never seed it. An explicit `pkm.add` retains its resumable structured
+save/review contract for sharing and pricing. Its acknowledgement counts remain
+separate from private-agent memory; no whole PKM packet enters One's prompt.
+
+Chat facts are selected by the existing semantic preparation stage using `soul_markdown_v1`, then silently applied to the RAM document and encrypted through the existing writer. The model supplies a plain attributed bullet and section; corrections/extensions replace an exact offered bullet, and deletions remove it rather than saving the request. No legacy domains are imported. This V1 path has no per-fact confirmation card or automatic-memory switch: while the vault is unlocked, usable durable facts use the product-default authorization record and no capture status is added to chat. Owner identifiers may be retained; passwords, passphrases, API keys, tokens, private keys, PINs and card security codes are omitted. The whole document is bounded to 18,000 characters; reconciliation offers at most 256 bullets without silent truncation.
+
+Target references exist only in the preparation snapshot and encrypted recovery envelope, never as paths or IDs inside Soul.md. Stale, duplicate or unoffered targets fail closed. Automatic replacement refuses masked targets; multiline/nested owner-authored bullets need the editor rather than partial mutation. Unrelated text and fenced examples remain unchanged. Encrypted recovery envelopes carry their staging order, so interrupted dependent corrections replay FIFO even when device keys or encryption finish out of order. If any envelope cannot be read, recovery waits rather than replaying a later correction first.
 
 The implemented bridge runs while the owner's application is open and unlocked. It observes owner-scoped PKM commits, Profile identity changes, Consent changes, and connectivity/focus recovery, and verifies remote Profile/Consent sources every minute. Queued metadata or rebuilding on the next unlock does **not** satisfy 24/7 updates. No automatic answering runs in this bridge.
 
@@ -31,8 +41,8 @@ The implemented bridge runs while the owner's application is open and unlocked. 
 | Consent | Existing received/sent pending, active and previous Consent Center projections | Uncached complete reads, all pages and durable terminal Location requests/invitations; non-authority source IDs, activity/status/revocation/expiry; failed or racing reads preserve prior records and disclose incomplete inventory |
 | Saved Location and visit notes | Existing encrypted Location PKM writers | Stable source IDs, original creation time when known, revision receipts and deletion tombstones; every persisted note retained |
 | To-Do | Existing encrypted one_todos private tasks | Creation/edit/completion/deletion, source ID and record revision; stale completion cannot overwrite an edit or revive a deletion |
-| Memory and eligible specialist sources | Existing PKM mutation coordinator, manifests and content_revision | Rebuild every owner domain on committed changes; full eligible values, with explicit withheld branches and traversal limits |
-| Chat with One | Existing governed semantic capture and encrypted Chat history | Captured information already enters PKM through the existing capture coordinator; raw transcripts, credentials and withheld branches are not silently promoted to memory |
+| Memory and eligible specialist sources | Existing encrypted domains remain compatibility inputs | One prompts use private Soul; specialized records remain separate and never seed it |
+| Chat with One | Semantic fact selection plus the encrypted Markdown writer | Background and KYC facts update private Soul; explicit Saved actions retain reviewed scoped jobs; credentials are omitted |
 
 The Consent inventory uses a bounded owner-scoped MVCC equality fence before and after two complete scans. It detects row changes, delete/recreate and effective expiry while paging; it is not a durable owner revision. Reads never settle expiry or modify grants. UI flags and presentation grouping cannot silently remove source records. Authority tokens and provider payloads are excluded from the source projection. Exact private PKM keys survive segmented encrypted storage/readback; neither storage-ID normalization nor a summary may replace the authored complete records.
 

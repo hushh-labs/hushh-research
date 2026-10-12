@@ -304,7 +304,7 @@ describe("EmailDeliveryService", () => {
     });
   });
 
-  it("directs a disabled Gmail sender to enable sending without reconnecting", async () => {
+  it("directs a disabled Gmail sender to reconnect without exposing server detail", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(
       new Response(JSON.stringify({ detail: { code: "GMAIL_SEND_DISABLED", message: "do not expose" } }), {
         status: 409,
@@ -320,7 +320,7 @@ describe("EmailDeliveryService", () => {
       }),
     ).rejects.toMatchObject<Partial<EmailDeliveryError>>({
       code: "GMAIL_SEND_DISABLED",
-      message: "Turn on Gmail sending to continue. Your draft is still here.",
+      message: "Reconnect Mail to continue. Your draft is still here.",
       needsGmailReconnect: false,
       needsGmailSendingEnabled: true,
     });

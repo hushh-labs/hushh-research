@@ -7,6 +7,8 @@ from hushh_mcp.consent.pkm_scope_policy import (
 def test_private_analysis_scope_policy_retires_raw_finance_artifacts_and_broad_legacy_scope() -> (
     None
 ):
+    for scope in ("attr.one_memory.*", "attr.one_memory.markdown", "attr.one_memory.markdown.text"):
+        assert is_private_pkm_export_scope(scope) is True
     assert is_private_pkm_export_scope("attr.financial.analysis_history.*") is True
     assert is_private_pkm_export_scope("attr.financial.analysis_history.aapl.raw_card") is True
     assert is_private_pkm_export_scope("attr.financial.*") is True
@@ -15,6 +17,7 @@ def test_private_analysis_scope_policy_retires_raw_finance_artifacts_and_broad_l
 
 
 def test_private_analysis_manifest_policy_blocks_history_paths() -> None:
+    assert is_private_pkm_manifest_path(domain="one_memory", path="markdown.text") is True
     assert is_private_pkm_manifest_path(domain="financial", path="analysis_history.aapl") is True
     assert is_private_pkm_manifest_path(domain="financial", path="portfolio.holdings") is False
 

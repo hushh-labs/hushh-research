@@ -54,7 +54,8 @@ import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator"
 import { VaultService } from "@/lib/services/vault-service";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
-import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { renewMarkdownMemorySession } from "@/lib/pkm/markdown-memory";
 import {
   dispatchAuthSessionVerificationRequired,
   snapshotValidatedAuthSessionOwner,
@@ -411,9 +412,17 @@ export function VaultProvider({ children }: VaultProviderProps) {
         }
         // A response for the replaced credential must not invalidate its
         // successor. Identical-token reuse keeps revocation responses current.
+        const priorVaultEpoch = snapshotVaultSessionEpoch();
         if (issued.token !== priorToken) advanceVaultSessionEpoch();
         storedVaultOwnerTokenRef.current = issued.token;
         tokenExpiresAtRef.current = issued.expiresAt;
+        renewMarkdownMemorySession({ userId: owner.uid, previousEpoch: priorVaultEpoch,
+          vaultKey: key, vaultOwnerToken: issued.token,
+          beforeEffect: async () => {
+            if (!stillCurrent() || !authStateRef.current.ready || storedVaultOwnerTokenRef.current !== issued.token ||
+              Date.now() >= issued.expiresAt) throw new DOMException("Vault session changed", "AbortError");
+          },
+        });
         setVaultOwnerToken(issued.token);
         setTokenExpiresAt(issued.expiresAt);
         setRenewalState("idle");

@@ -161,6 +161,14 @@ function listRecordsByUser<T = SecureResourceCacheRecord>(
 }
 
 export class SecureResourceCacheService {
+  /** Metadata-only discovery for encrypted, resumable device work. */
+  static async listResourceKeys(userId: string, prefix: string): Promise<string[]> {
+    const database = await openDb();
+    if (!database) return [];
+    return (await listRecordsByUser(database, userId))
+      .filter(record => record.resourceKey.startsWith(prefix))
+      .map(record => record.resourceKey);
+  }
   /** One-use encrypted handoff; a second tab cannot consume the same record. */
   static async take<T>(params: {
     userId: string;
@@ -288,6 +296,13 @@ export class SecureResourceCacheService {
     } catch (error) {
       console.warn("[SecureResourceCacheService] Failed to invalidate secure cache:", error);
     }
+  }
+
+  /** Pending writes must observe deletion failure before allowing a manual edit. */
+  static async invalidateResourceRequired(userId: string, resourceKey: string): Promise<void> {
+    const database = await openDb();
+    if (!database) return; // No device checkpoint exists when storage is unavailable.
+    await deleteRecord(database, buildStorageKey(userId, resourceKey));
   }
 
   static async invalidateResourcePrefix(userId: string, resourcePrefix: string): Promise<void> {

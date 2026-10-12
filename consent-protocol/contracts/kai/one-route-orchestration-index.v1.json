@@ -3354,7 +3354,7 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.pkm",
-        "purpose": "Help the person understand and use the pkm screen through its generated controls.",
+        "purpose": "Memory has Saved and Add tabs. Saved includes private-agent memory, owner-controlled scope sharing, pricing and earnings. Private-agent memory remains private; the owner can edit and save it. Back cancels its editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
         "screen": "pkm",
         "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
         "proactivity": "on_entry",

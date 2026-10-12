@@ -58,7 +58,7 @@ function Lane() {
   const dark = document.documentElement.classList.contains("dark");
   return <div className={peopleStyles.page} data-direct-message-page style={{ display: "block" }} data-theme={dark ? "dark" : "light"}>
     <div className="flex h-dvh min-h-0 flex-col">
-      <div className="min-h-0 flex-1"><CircleMessagesPane initialCircleId="circle" theme={dark ? "dark" : "light"} /></div>
+      <div className="min-h-0 flex-1"><CircleMessagesPane initialCircleId={new URLSearchParams(location.search).has("list") ? null : "circle"} theme={dark ? "dark" : "light"} /></div>
       <div ref={dock?.setHost} className="shrink-0 rounded-full bg-background" />
     </div>
   </div>;

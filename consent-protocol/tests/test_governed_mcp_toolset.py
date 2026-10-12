@@ -16,6 +16,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     GovernedMcpToolset,
     McpConnectionBinding,
     ResolvedMcpConnection,
+    clear_mcp_catalog_cache,
     native_registration_admitted,
     resolve_registered_connection,
     validated_mcp_arguments,
@@ -34,6 +35,13 @@ def _hosted_workspace_mcp_enrolled(monkeypatch):
 
 
 _NATIVE_RUN = McpTool._run_async_impl
+
+
+@pytest.fixture(autouse=True)
+def _clear_descriptor_catalog_cache():
+    clear_mcp_catalog_cache()
+    yield
+    clear_mcp_catalog_cache()
 
 
 @pytest.mark.parametrize("revision", [["revision"], ("",), (None,), (1,)])
@@ -337,6 +345,33 @@ async def test_native_adk_toolset_defaults_to_app_review(harness):
     assert h.approve.await_args.args[4] == {"q": "fixture"}
 
 
+async def test_catalog_descriptors_are_reused_across_turn_toolsets(harness):
+    h = harness
+    first = await h.toolset.get_tools(h.context)
+    assert first
+    h.session.list_tools.assert_awaited_once()
+
+    second_resolve = AsyncMock(return_value=h.connection)
+    second = GovernedMcpToolset(
+        binding=h.connection.binding,
+        resolve_connection=second_resolve,
+        authorize_call=h.approve,
+    )
+    remote_session = SimpleNamespace(list_tools=AsyncMock())
+    second._mcp_session_manager = SimpleNamespace(
+        create_session=AsyncMock(return_value=remote_session),
+        _begin_session_use=Mock(),
+        _end_session_use=Mock(),
+    )
+
+    reused = await second.get_tools(h.context)
+
+    assert [tool.name for tool in reused] == [tool.name for tool in first]
+    second_resolve.assert_awaited_once()
+    second._mcp_session_manager.create_session.assert_not_awaited()
+    remote_session.list_tools.assert_not_awaited()
+
+
 async def test_catalog_policy_cannot_invent_provider_tool(harness):
     h = harness
     h.toolset.catalog_policy = lambda catalog: [{**catalog[0], "name": "invented"}]
@@ -559,7 +594,7 @@ async def test_rediscovery_invalidates_previous_tool_schema(harness):
         "properties": {"id": {"type": "string"}},
         "required": ["id"],
     }
-    fresh = (await h.toolset.get_tools(h.context))[0]
+    fresh = (await h.toolset.get_tools(h.context, force_refresh=True))[0]
     assert old.revision != fresh.revision
     assert await old.run_async(args={"q": "fixture"}, tool_context=h.context) == {
         "connectorId": "custom_one",

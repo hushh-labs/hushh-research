@@ -66,7 +66,7 @@ describe("KycIdentityPreface", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy import request" }));
 
     expect(mocks.writeText).toHaveBeenCalledWith(
-      "Can you share one to two pages of the information you have about me for an external agent? Organize it by domain, such as identity, contact details, education, work, finances, health, or preferences. Include any KYC-related information you have, and clearly note anything uncertain or missing.",
+      "Can you share one to two pages of the information you have about me for an external agent? Use simple Markdown bullet points under Facts, Preferences, and Commitments. Include any KYC-related information you have, and clearly note anything uncertain or missing. Do not include passwords, PINs, security codes, or authentication keys.",
     );
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Request copied to clipboard.");
   });

@@ -20,7 +20,7 @@ export type AgentPkmPreparationInput = {
   vaultOwnerToken: string;
   ingestionId?: string;
   chunkIndex?: number;
-  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1";
+  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1" | "soul_markdown_v1";
   /** Existing details the merge agent may extend or correct (explicit saves). */
   reconciliationCandidates?: readonly PkmReconciliationCandidate[];
   signal?: AbortSignal;
@@ -30,6 +30,9 @@ export type AgentPkmPreparationInput = {
 export async function requestPkmMemoryPreparation(
   params: AgentPkmPreparationInput,
 ): Promise<{ payload: AgentPkmPreviewResponse; privateOwner: boolean }> {
+  if (params.memoryProfile === "soul_markdown_v1" && (params.reconciliationCandidates?.length ?? 0) > 256) {
+    throw new Error("Soul reconciliation snapshot exceeds its bound.");
+  }
   // Last line before a memory proposal: the text was guarded on the device and
   // carries placeholders only. A raw secret here is refused, never sent; the
   // server's own net (secret_patterns.py) stays behind this one.
@@ -69,7 +72,7 @@ export async function requestPkmMemoryPreparation(
       ...(params.reconciliationCandidates?.length
         ? {
             simulated_state: {
-              memories: params.reconciliationCandidates.slice(0, 10),
+              memories: params.reconciliationCandidates.slice(0, params.memoryProfile === "soul_markdown_v1" ? 256 : 10),
             },
           }
         : {}),

@@ -1401,11 +1401,11 @@ function OwnerConnectorsPanel({
       }
     });
   };
-  const connectMail = (purpose: "read" | "compose" = "read") => {
+  const connectMail = (purpose: "send" | "compose" = "send") => {
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
-    const attempt = createGmailOAuthPopupAttempt(user.uid, "read");
+    const attempt = createGmailOAuthPopupAttempt(user.uid, purpose === "send" ? "send" : "read");
     const popup = native ? null : openGmailOAuthPopup(attempt);
     if (!native && !popup) {
       setMailMessage(
@@ -1460,13 +1460,15 @@ function OwnerConnectorsPanel({
             idToken,
             userId: user.uid,
             serverAuthCode: result.serverAuthCode,
-            purpose: "read",
+            // Native completion records the ordinary connection capability;
+            // compose is an additive provider grant retained by the plugin.
+            purpose: purpose === "compose" ? "read" : purpose,
           });
         } else if (popup) {
           const start = await GmailReceiptsService.startConnect({
             idToken,
             userId: user.uid,
-            includeGrantedScopes: purpose === "compose",
+            includeGrantedScopes: true,
             purpose,
           });
           if (signal.aborted) return;
@@ -1518,7 +1520,7 @@ function OwnerConnectorsPanel({
                   ? status.compose_permission_granted
                     ? "Gmail drafts enabled. Review your draft in Chat before saving."
                     : "Gmail drafts permission was not granted. Try again."
-                  : "Mail connected."
+                  : "Mail connected. You can send after reviewing each email."
                 : "Mail is not connected yet. You can retry.",
             );
         }

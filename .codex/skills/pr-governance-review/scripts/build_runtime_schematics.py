@@ -194,7 +194,7 @@ def build_schematics() -> OrderedDict[str, Any]:
     families = [
         _voice_family(skills),
         _family_from_skill(
-            _skill_by_id(skills, "vault-pkm-governance"),
+            _skill_by_id(skills, "security-audit"),
             "pkm-vault-runtime",
             [
                 "docs/reference/architecture/cache-coherence.md",

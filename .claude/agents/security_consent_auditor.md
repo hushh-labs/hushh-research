@@ -20,7 +20,6 @@ Use these repo-local skills when they fit the lane:
 - one-voice-governance
 - security-audit
 - iam-consent-governance
-- vault-pkm-governance
 
 Read `docs/reference/architecture/private-agent-north-star.md` before judging pod designs. Audit persistent memory, owner key custody and isolation independently of the surrounding cloud operator.
 

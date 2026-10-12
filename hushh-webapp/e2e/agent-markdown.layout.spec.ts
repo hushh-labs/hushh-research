@@ -100,12 +100,12 @@ type Theme = "light" | "dark";
 async function mount(
   page: Page,
   width: number,
-  { theme = "light", accent = "blue" }: { theme?: Theme; accent?: "blue" | "gold" } = {},
+  { theme = "light", accent = "blue", soul = false }: { theme?: Theme; accent?: "blue" | "gold"; soul?: boolean } = {},
 ) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width, height: 900 });
-  await page.route("http://localhost/agent-markdown", (route) =>
+  await page.route("http://localhost/agent-markdown*", (route) =>
     route.fulfill({
       contentType: "text/html",
       body: `<!doctype html><html class="${theme}" data-accent="${accent}"><head><title>Agent answer formatting contract</title><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
@@ -116,11 +116,48 @@ async function mount(
   page.on("request", (request) => {
     if (!request.url().startsWith("http://localhost/")) remoteRequests.push(request.url());
   });
-  await page.goto("http://localhost/agent-markdown");
+  await page.goto(`http://localhost/agent-markdown${soul ? "?document=soul" : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   await expect(page.getByTestId("transcript")).toBeVisible();
   return { errors, remoteRequests };
+}
+
+for (const width of [375, 1440]) {
+  for (const theme of ["light", "dark"] as const) {
+    test(`Soul.md is readable without shell-heading overrides or overflow at ${width}px in ${theme}`, async ({ page }) => {
+      const { errors, remoteRequests } = await mount(page, width, { theme, soul: true });
+      await expect(page.getByRole("heading", { name: "Soul.md" })).toBeVisible();
+      const metrics = await page.locator(".soul-memory-document").evaluate(document => {
+        const style = getComputedStyle(document);
+        const heading = getComputedStyle(document.querySelector("h2")!);
+        const title = getComputedStyle(document.querySelector("h1")!);
+        const bullet = getComputedStyle(document.querySelector("li")!);
+        return { width: document.getBoundingClientRect().width, font: style.fontFamily,
+          bodySize: parseFloat(style.fontSize), lineHeight: parseFloat(style.lineHeight),
+          headingWeight: heading.fontWeight, titleWeight: title.fontWeight,
+          headingSize: parseFloat(heading.fontSize), headingInk: heading.color,
+          bodyInk: style.color, bulletGap: parseFloat(bullet.marginBottom),
+          scrollWidth: window.document.documentElement.scrollWidth };
+      });
+      expect(metrics.font).toContain("InterVariable");
+      expect(metrics.bodySize).toBe(17);
+      expect(metrics.lineHeight).toBeGreaterThanOrEqual(28);
+      expect(metrics.headingSize).toBe(20);
+      expect(metrics.headingWeight).toBe("700");
+      expect(metrics.titleWeight).toBe("700");
+      expect(metrics.headingInk).toBe(metrics.bodyInk);
+      expect(metrics.bulletGap).toBeGreaterThanOrEqual(8);
+      expect(metrics.width).toBeLessThan(800);
+      expect(metrics.scrollWidth).toBeLessThanOrEqual(width);
+      expect(errors).toEqual([]);
+      expect(remoteRequests).toEqual([]);
+      if (process.env.SOUL_FORMATTING_RENDERS_DIR) {
+        fs.mkdirSync(process.env.SOUL_FORMATTING_RENDERS_DIR, { recursive: true });
+        await page.screenshot({ path: path.join(process.env.SOUL_FORMATTING_RENDERS_DIR, `soul-${width}-${theme}.png`), fullPage: true });
+      }
+    });
+  }
 }
 
 type Geometry = {

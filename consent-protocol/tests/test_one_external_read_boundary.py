@@ -28,6 +28,7 @@ from hushh_mcp.one_adk.external_read_boundary import (
 class _Model(BaseLlm):
     _steps: list = PrivateAttr()
     _advertised: list = PrivateAttr(default_factory=list)
+    _instructions: list = PrivateAttr(default_factory=list)
 
     def __init__(self, steps):
         super().__init__(model="fixture")
@@ -35,6 +36,7 @@ class _Model(BaseLlm):
 
     async def generate_content_async(self, llm_request, stream=False):
         self._advertised.append(set(llm_request.tools_dict))
+        self._instructions.append(str(llm_request.config.system_instruction))
         yield LlmResponse(content=types.Content(role="model", parts=self._steps.pop(0)))
 
 
@@ -1128,6 +1130,65 @@ async def test_drive_connection_state_is_relayed_not_reported_as_failed_read(
     assert "WRONG" not in visible and "drive.google.com" not in visible
     assert "PRIVATE_SPECIALIST_TEXT" not in visible
     assert len(model._advertised) == 1  # The model never reinterprets old evidence.
+
+
+async def test_failed_drive_detour_can_answer_authorized_memory_without_reopening_action_authority(
+    monkeypatch,
+):
+    from hushh_mcp.one_adk import external_read_boundary as boundary
+    from hushh_mcp.one_adk.agent_tree import STATE_PKM_CONTEXT
+    from hushh_mcp.one_adk.request_secrets import store_request_secret
+
+    monkeypatch.setattr(boundary, "connector_feature_enabled", lambda *_: True)
+    executed = []
+
+    async def ask_documents_agent(tool_context: ToolContext) -> dict:
+        executed.append("drive")
+        return {
+            "status": "connect_required",
+            "structured": {"connector": "drive", "status": "connect_required"},
+        }
+
+    async def forbidden_action() -> dict:
+        executed.append("forbidden")
+        return {"status": "ok"}
+
+    model = _Model(
+        [[_call("ask_documents_agent")], [types.Part(text="Your minor is the synthetic course.")]]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.tools = [ask_documents_agent, forbidden_action]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="memory")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    events = [
+        event
+        async for event in runner.run_async(
+            user_id="owner",
+            session_id="memory",
+            new_message=types.Content(
+                role="user", parts=[types.Part(text="Which course is my minor?")]
+            ),
+            state_delta={
+                STATE_EXECUTION_SURFACE: "typed_chat",
+                STATE_PKM_CONTEXT: store_request_secret("# Soul.md\n- Minor: synthetic course."),
+            },
+        )
+    ]
+    answer = " ".join(
+        part.text
+        for event in events
+        if event.content
+        for part in event.content.parts or []
+        if part.text and not part.thought
+    )
+    assert "Your minor is the synthetic course." in answer
+    assert "Connect Google Drive" not in answer
+    assert executed == ["drive"]
+    assert model._advertised[1] == set()
+    assert "Minor: synthetic course." in model._instructions[0]
+    assert "CURRENT DRIVE READ DID NOT PROVIDE FILE EVIDENCE" in model._instructions[1]
+    assert "Never claim a fresh file check" in model._instructions[1]
 
 
 async def test_workspace_drive_missing_grant_asks_for_permission_not_retry(monkeypatch):

@@ -243,6 +243,9 @@ class McpTurnResources:
         # What each connector listed this turn, so later model steps reuse it (see
         # RegisteredMcpToolset): connector id -> (its toolset, the provider tools).
         self.catalog_tools: dict[str, tuple[Any, list[Any]]] = {}
+        # Registry definitions are stable for this owner-bound turn. Provider
+        # descriptors have their own generation cache in GovernedMcpToolset.
+        self.registry_definitions: list[Any] | None = None
 
     def vault_catalog(self, owner_id: str) -> list[tuple[str, str]]:
         if self._closed or owner_id != self._owner:
@@ -406,6 +409,7 @@ class McpTurnResources:
         self._configuration_admissions.clear()
         self.unavailable_connectors.clear()
         self.catalog_tools.clear()
+        self.registry_definitions = None
         views, self._catalog_views = self._catalog_views, []
         for view in views:
             view.clear_invocation_catalog()

@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
-import * as AgentPkmAutoSavePolicy from "@/lib/agent/agent-pkm-auto-save-policy";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -38,6 +37,11 @@ vi.mock("@/lib/agent/agent-pkm-memory", async (importOriginal) => {
 });
 
 vi.mock("@/lib/observability/client", () => ({ trackEvent }));
+
+// The document editor has its own persistence/session behavior suite.
+vi.mock("@/components/profile/soul-memory-panel", () => ({
+  SoulMemoryPanel: () => <div>Soul document</div>,
+}));
 
 const push = vi.fn();
 const replace = vi.fn();
@@ -179,18 +183,6 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         affectedExportIds: [],
       }),
     );
-    vi.spyOn(AgentPkmAutoSavePolicy, "loadAgentPkmAutoSavePolicy").mockResolvedValue({
-      enabled: false,
-      version: 1,
-      enabledAt: null,
-    });
-    vi.spyOn(AgentPkmAutoSavePolicy, "saveAgentPkmAutoSavePolicy").mockImplementation(
-      async ({ enabled }) => ({
-        enabled,
-        version: 1,
-        enabledAt: enabled ? NOW : null,
-      }),
-    );
     previewAgentPkmMemory.mockResolvedValue({
       cards: [
         { card_id: "memory-card-1", write_mode: "confirm_first", sharing_impact: { active_recipient_count: 0 } },
@@ -217,6 +209,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       return { snapshots: { location: snapshot } as never, failedDomains: [] };
     });
     const home = render(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     fireEvent.click(within(await screen.findByTestId("memory-category-location")).getByRole("button"));
     expect(push).toHaveBeenLastCalledWith("/one/pkm/location");
     home.unmount();
@@ -304,6 +297,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       return { snapshots: { location: snapshot } as never, failedDomains: [] };
     });
     const rendered = render(<PkmNaturalPanel view={view} />);
+    if (view === "home") fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     if (view === "home") {
       await screen.findByTestId("memory-category-location");
       fireEvent.change(screen.getByRole("searchbox", { name: "Search Memory" }), { target: { value: "Home" } });
@@ -379,8 +373,17 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     if (view === "recent") {
       return screen.findByRole("button", { name: "Open memory: Risk Profile" });
     }
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     return screen.findByTestId("memory-recently-learned-row");
   }
+
+  it("keeps Saved and Add with private-agent memory inside Saved", () => {
+    render(<PkmNaturalPanel />);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map(tab => tab.textContent)).toEqual(["Saved", "Add"]);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Soul document")).toBeVisible();
+  });
 
   it("does not announce an empty Memory while metadata is still loading", async () => {
     let finish!: (value: ReturnType<typeof baseMetadata>) => void;
@@ -388,6 +391,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       () => new Promise(resolve => { finish = resolve; }),
     );
     render(<PkmNaturalPanel view="home" />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByText("Opening Memory…");
     expect(screen.queryByText("One hasn’t saved anything yet.")).toBeNull();
     await act(async () => finish(baseMetadata()));
@@ -733,28 +737,15 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.getByTestId("memory-detail-meta")).toHaveTextContent("Not available");
   });
 
-  it("keeps the automatic-memory preference (on the Add screen, off the Saved list)", async () => {
+  it("does not expose a confirmation or off switch for automatic chat memory", async () => {
     await openMainScreen();
-    // Not cluttering the primary Saved screen.
     const savedPanel = document.querySelector('[data-pkm-saved-panel="true"]') as HTMLElement;
     expect(within(savedPanel).queryByRole("switch")).toBeNull();
     expect(within(savedPanel).queryByTestId("memory-auto-save-row")).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const toggle = await screen.findByRole("switch", {
-      name: "Turn automatic memory saving on",
-    });
-    expect(toggle).toHaveAttribute("aria-checked", "false");
-    fireEvent.click(toggle);
-
-    await waitFor(() =>
-      expect(AgentPkmAutoSavePolicy.saveAgentPkmAutoSavePolicy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          enabled: true,
-          confirmation: expect.objectContaining({ confirmedByUser: true }),
-        }),
-      ),
-    );
+    expect(screen.queryByTestId("memory-auto-save-row")).toBeNull();
+    expect(screen.queryByRole("switch", { name: /automatic memory saving/i })).toBeNull();
   });
 
   it("keeps the review-first Add flow intact", async () => {
@@ -985,6 +976,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     let finish!: (value: unknown) => void;
     previewAgentPkmMemory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByTestId("memory-recently-learned-row");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "Synthetic preference" } });
@@ -1010,6 +1002,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     let finish!: (value: unknown) => void;
     addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByTestId("memory-recently-learned-row");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "Synthetic preference" } });
@@ -1032,6 +1025,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     let finish!: (value: unknown) => void;
     addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByTestId("memory-recently-learned-row");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     const note = await screen.findByRole("textbox", { name: "Memory note" });
@@ -1070,6 +1064,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       .mockImplementationOnce(() => new Promise(resolve => { finishB = resolve; }));
 
     const view = render(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByTestId("memory-recently-learned-row");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     const noteA = await screen.findByRole("textbox", { name: "Memory note" });
@@ -1081,6 +1076,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     authState.user = otherUser;
     publishValidatedAuthSessionOwner(otherUser.uid);
     view.rerender(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByTestId("memory-recently-learned-row");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     const noteB = await screen.findByRole("textbox", { name: "Memory note" });
@@ -1145,6 +1141,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     let finish!: (value: unknown) => void;
     addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByTestId("memory-recently-learned-row");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     const note = await screen.findByRole("textbox", { name: "Memory note" });
@@ -1170,6 +1167,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     let finish!: (value: unknown) => void;
     addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const first = render(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByTestId("memory-recently-learned-row");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     const firstNote = await screen.findByRole("textbox", { name: "Memory note" });
@@ -1180,6 +1178,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
     first.unmount();
     render(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByTestId("memory-recently-learned-row");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(await screen.findByRole("textbox", { name: "Memory note" })).toBeDisabled();

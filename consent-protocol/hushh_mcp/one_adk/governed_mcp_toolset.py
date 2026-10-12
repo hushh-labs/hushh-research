@@ -15,7 +15,9 @@ import json
 import logging
 import os
 import re
+import time
 import warnings
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -100,6 +102,56 @@ warnings.filterwarnings(
 # turn. Process memory only; bounded.
 _LOGGED_DROPPED_TOOLS: dict[str, tuple[str, ...]] = {}
 _LOGGED_DROPPED_TOOLS_LIMIT = 256
+
+# Validated provider schemas only: never headers, credentials, sessions,
+# approvals, arguments, or results. The full owner-scoped connection binding
+# includes connection/policy generation, so a connector change gets a new key.
+_CATALOG_CACHE: OrderedDict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = OrderedDict()
+_CATALOG_CACHE_LIMIT = 256
+
+
+def _catalog_cache_ttl_seconds() -> float:
+    try:
+        value = float(os.getenv("MCP_CATALOG_CACHE_TTL_SECONDS", "300"))
+    except ValueError:
+        return 300.0
+    return value if 30 <= value <= 900 else 300.0
+
+
+def _cached_catalog(
+    key: tuple[Any, ...],
+) -> list[dict[str, Any]] | None:
+    cached = _CATALOG_CACHE.get(key)
+    if cached is None:
+        return None
+    expires_at, catalog = cached
+    if expires_at <= time.monotonic():
+        _CATALOG_CACHE.pop(key, None)
+        return None
+    _CATALOG_CACHE.move_to_end(key)
+    return deepcopy(catalog)
+
+
+def _store_catalog(
+    key: tuple[Any, ...],
+    catalog: list[dict[str, Any]],
+) -> None:
+    _CATALOG_CACHE[key] = (
+        time.monotonic() + _catalog_cache_ttl_seconds(),
+        deepcopy(catalog),
+    )
+    _CATALOG_CACHE.move_to_end(key)
+    while len(_CATALOG_CACHE) > _CATALOG_CACHE_LIMIT:
+        _CATALOG_CACHE.popitem(last=False)
+
+
+def _evict_catalog(key: tuple[Any, ...]) -> None:
+    _CATALOG_CACHE.pop(key, None)
+
+
+def clear_mcp_catalog_cache() -> None:
+    """Drop descriptor-only cache entries (test/operational invalidation seam)."""
+    _CATALOG_CACHE.clear()
 
 
 def mcp_call_timeout_seconds() -> float:
@@ -600,7 +652,19 @@ class GovernedMcpToolset(McpToolset):
             raise TypeError("Unexpected MCP session manager")
         self._mcp_session_manager.__class__ = _GovernedMcpSessionManager
 
+    def _catalog_cache_key(self) -> tuple[Any, ...]:
+        # Review policy is part of the authority that interprets provider
+        # annotations. Keep differently governed views isolated even when a
+        # caller constructs them over the same connection generation.
+        return (
+            self.binding,
+            self.review_policy,
+            tuple(sorted(self.forced_review_tool_ids)),
+            tuple(sorted(self.free_read_tool_ids)),
+        )
+
     def refresh(self) -> None:
+        _evict_catalog(self._catalog_cache_key())
         self.catalog_epoch += 1
         self.stripe_proof = None
 
@@ -643,38 +707,51 @@ class GovernedMcpToolset(McpToolset):
             raise ExternalMcpError("Connector connection changed.", code="MCP_CONNECTION_CHANGED")
         return dict(current.headers)
 
-    async def get_tools(self, readonly_context=None):
+    async def get_tools(self, readonly_context=None, *, force_refresh: bool = False):
         self._discovery_sequence += 1
         sequence = self._discovery_sequence
         epoch = self.catalog_epoch
-        manager = self._mcp_session_manager
+        discovered_remotely = False
         stripe_reads: dict[str, dict[str, Any]] = {}
         try:
             async with asyncio.timeout(self.timeout_seconds):
                 headers = await self._current_headers(readonly_context)
-                session = await manager.create_session(headers=headers)
-                manager._begin_session_use(headers)
-                try:
-                    catalog = await _list_session_tools(session, include_review_hints=True)
-                    discovered = {item["name"]: deepcopy(item) for item in catalog}
-                    if self.catalog_policy is not None:
-                        catalog = self.catalog_policy(deepcopy(catalog))
-                        for item in catalog:
-                            original = discovered.get(item["name"])
-                            if original is None:
-                                raise ExternalMcpError(
-                                    "Invalid connector policy.", code="MCP_CATALOG_CHANGED"
-                                )
-                            # Review hints are only ever the provider's own.
-                            item.pop("annotations", None)
-                            if "annotations" in original:
-                                item["annotations"] = deepcopy(original["annotations"])
-                    if official_stripe_endpoint(self.binding.endpoint):
-                        stripe_reads = closed_stripe_reads(catalog, self.stripe_account_id)
-                    catalog = stripe_catalog(self.binding.endpoint, catalog, stripe_reads)
-                finally:
-                    manager._end_session_use(headers)
-                await self._current_headers(readonly_context)
+                cache_key = self._catalog_cache_key()
+                cached = None if force_refresh else _cached_catalog(cache_key)
+                if cached is not None:
+                    provider_catalog = cached
+                else:
+                    discovered_remotely = True
+                    manager = self._mcp_session_manager
+                    session = await manager.create_session(headers=headers)
+                    manager._begin_session_use(headers)
+                    try:
+                        provider_catalog = await _list_session_tools(
+                            session, include_review_hints=True
+                        )
+                    finally:
+                        manager._end_session_use(headers)
+                    # Discovery can outlive a reconnect/revocation. Recheck
+                    # after the provider response before publishing it.
+                    await self._current_headers(readonly_context)
+                discovered = {item["name"]: deepcopy(item) for item in provider_catalog}
+                catalog = deepcopy(provider_catalog)
+                if self.catalog_policy is not None:
+                    catalog = self.catalog_policy(deepcopy(catalog))
+                    for item in catalog:
+                        original = discovered.get(item["name"])
+                        if original is None:
+                            raise ExternalMcpError(
+                                "Invalid connector policy.", code="MCP_CATALOG_CHANGED"
+                            )
+                        # Review hints are only ever the provider's own.
+                        item.pop("annotations", None)
+                        if "annotations" in original:
+                            item["annotations"] = deepcopy(original["annotations"])
+                if official_stripe_endpoint(self.binding.endpoint):
+                    stripe_reads = closed_stripe_reads(catalog, self.stripe_account_id)
+                catalog = stripe_catalog(self.binding.endpoint, catalog, stripe_reads)
+                revision = _digest({"admitted": catalog, "provider": discovered})
         except ExternalMcpError:
             raise
         except Exception as error:
@@ -686,7 +763,6 @@ class GovernedMcpToolset(McpToolset):
             raise ExternalMcpError(
                 "Connector discovery failed.", code="MCP_DISCOVERY_FAILED"
             ) from None
-        revision = _digest({"admitted": catalog, "provider": discovered})
         if epoch != self.catalog_epoch or (
             sequence != self._discovery_sequence and revision != self._catalog_digest
         ):
@@ -699,6 +775,10 @@ class GovernedMcpToolset(McpToolset):
         self._catalog_digest = revision
         self.stripe_reads = stripe_reads
         epoch = self.catalog_epoch
+        if discovered_remotely:
+            # Publish only after the sequence/epoch acceptance checks above;
+            # an older request that finishes late must not poison later turns.
+            _store_catalog(cache_key, provider_catalog)
         return [
             _GovernedMcpTool(
                 toolset=self,
@@ -774,7 +854,8 @@ class _GovernedMcpTool(McpTool):
         dispatched = False
         try:
             require_stripe_tool(owner.binding.endpoint, self.descriptor, owner.stripe_reads)
-            await owner.get_tools(tool_context)
+            # Calls revalidate the provider schema independently of cached discovery.
+            await owner.get_tools(tool_context, force_refresh=True)
             if self.epoch != owner.catalog_epoch:
                 raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
             # No coercion or dropped constraints; invalid calls never reach
@@ -801,7 +882,7 @@ class _GovernedMcpTool(McpTool):
                 )
                 if pending is not None:
                     return pending
-            await owner.get_tools(tool_context)
+            await owner.get_tools(tool_context, force_refresh=True)
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED"}
             if (

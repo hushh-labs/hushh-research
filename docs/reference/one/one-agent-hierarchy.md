@@ -265,14 +265,15 @@ them. It preserves One's conversation and permits only `list_recent` (the newest
 INBOX page, "my last N emails"), `list_needs_reply`, `search_inbox`, and the body
 reads `read_message` / `read_thread` (size-capped text seen only by the tool-less
 interpreter), each scoped to `inbox`, `sent` or `anywhere` and returning an `unread`
-flag. It also admits `read_receipts`, which answers questions about the owner's
-own receipts, invoices, bills and purchases from their saved receipt memory and
-never from an inbox search: the owner's device decrypts the bounded canonical
-index in `shopping.receipts_memory` (saved only by the owner-confirmed
-`gmail_receipt_memory_save_button`) and sends it beside that one typed turn, the
-Email hop filters, pages and formats it with no model and no Gmail call, and a
-missing or stale memory answers "not ready" with the generated Open Receipts
-action. A request to find emails that mention receipts stays `search_inbox`. See
+flag. High-level receipt and purchase trends use the aggregate observations in
+the supplied Soul.md, not the Email receipt-list tool. New Radar scans save only
+these observations, never individual transactions. The retained `read_receipts`
+compatibility tool can filter/page a bounded legacy canonical index when an
+older admitted client supplies one; current One Chat does not attach that second
+memory channel. An individual-record lookup without an admitted index answers
+"not ready" with the generated Open Receipts action. The receipt list remains
+available in Radar, and a request to find emails that mention receipts stays
+`search_inbox`. See
 the "Email receipts read from saved receipt memory" declaration in
 [Backend Semantic Boundary](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
 Reviewed mailbox changes (archive, labels, read state, Trash) go through One's

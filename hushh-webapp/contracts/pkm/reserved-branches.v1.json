@@ -90,7 +90,6 @@
     "connector_settings": {"feature": "connectors", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
     "connector_oauth_return": {"feature": "connectors", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
     "chat_connector_card": {"feature": "connectors", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
-    "pkm_memory_auto_save_toggle": {"feature": "memory_settings", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "$comment_memory_edits": "The owner's direct edit and delete controls on the Memory screen. A feature writer, but listed on no reserved entry: under memory_screen_policy read_only_reserved the Memory screen never offers them on a reserved item, and the owning app screen edits it instead.",
     "pkm_memory_edited_button": {"feature": "memory_workspace", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
@@ -103,7 +102,6 @@
 
     "agent_chat_owner_request": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "agent_chat_owner_confirmed_card": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
-    "agent_chat_auto_save_policy": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_auto_save_policy"]},
     "agent_chat_product_default_auto_save": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["product_default_auto_save_policy"]},
     "$comment_kyc_auto_save": "Declared in the PkmProductDefaultAutoSaveAuthorization type; no runtime caller uses it today.",
     "kyc_identity_product_default_auto_save": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat", "web"], "authorization_modes": ["product_default_auto_save_policy"]},
