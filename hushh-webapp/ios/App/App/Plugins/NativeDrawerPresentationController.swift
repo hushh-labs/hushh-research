@@ -504,7 +504,10 @@ struct NativeDrawerContent: View {
 }
 
 private struct NativeDrawerRowMenu: UIViewRepresentable {
-    let model: NativeDrawerModel
+    // A reference-only child can retain its old UIAction closures when the
+    // row is unchanged but the applied projection advances. Observe the
+    // presentation so menu bindings refresh without weakening the fence.
+    @ObservedObject var model: NativeDrawerModel
     let row: NativeDrawerRow
     func makeUIView(context: Context) -> NativeDrawerMenuControl {
         let button = NativeDrawerMenuControl(type: .system)

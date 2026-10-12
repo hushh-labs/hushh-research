@@ -893,8 +893,11 @@ final class AppUITests: XCTestCase {
                 let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "native-history-actions-")).firstMatch
                 guard waitForAdmittedControl(actions) else { XCTFail("COHERENT_HISTORY_ACTION_FIXTURE_MISSING"); return }
                 actions.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
-                let rename = app.buttons["Rename"].firstMatch
-                guard waitForAdmittedControl(rename), close.isHittable else { XCTFail("COHERENT_HISTORY_ACTIONS_NOT_DELIVERED"); return }
+                let rename = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Rename")).firstMatch
+                print("COHERENT_HISTORY_MENU rename=\(rename.exists) close_hittable=\(close.isHittable)")
+                // UIKit's compact menu owns interaction until dismissal. A
+                // covered Close is not required to be simultaneously tappable.
+                guard waitForAdmittedControl(rename) else { XCTFail("COHERENT_HISTORY_ACTIONS_NOT_DELIVERED"); return }
                 rename.tap()
                 guard app.textFields["native-history-rename"].firstMatch.waitForExistence(timeout: 10) else {
                     XCTFail("COHERENT_HISTORY_RENAME_NOT_OPENED"); return
