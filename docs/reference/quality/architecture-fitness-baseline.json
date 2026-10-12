@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2404,
+  "finding_count": 2410,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1598,7 +1598,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "MaintenanceAuthorityTest",
-      "value": 642
+      "value": 922
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12389,7 +12389,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
       "symbol": "test_older_target_keeps_release_tooling_but_cannot_enable_drive",
-      "value": 115
+      "value": 117
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12794,7 +12794,7 @@
       "limit": 80,
       "path": "scripts/ops/verify_uat_release.py",
       "symbol": "main",
-      "value": 191
+      "value": 193
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -17825,7 +17825,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 785
+      "value": 804
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21506,7 +21506,7 @@
       "limit": 500,
       "path": "scripts/ci/runtime-capacity-budget.py",
       "symbol": null,
-      "value": 509
+      "value": 529
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21524,7 +21524,7 @@
       "limit": 500,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": null,
-      "value": 985
+      "value": 1265
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21643,6 +21643,60 @@
       "path": "consent-protocol/hushh_mcp/services/profile_research_service.py",
       "symbol": "offer_profile_research",
       "value": 81
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "scripts/ci/test_runtime_capacity_budget.py",
+      "symbol": "RuntimeCapacityBudgetTest",
+      "value": 310
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_cleanup_only_failure_requires_complete_release_proof_before_cloud_auth|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "test_cleanup_only_failure_requires_complete_release_proof_before_cloud_auth",
+      "value": 112
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_post_release_checks_retained_capacity_without_next_candidate|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_runtime_capacity_budget.py",
+      "symbol": "test_post_release_checks_retained_capacity_without_next_candidate",
+      "value": 103
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_cleanup_failure_live_proof_rejects_stale_provenance_and_mutable_images|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "test_cleanup_failure_live_proof_rejects_stale_provenance_and_mutable_images",
+      "value": 99
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/uat-retention-maintenance.py|find_release|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/uat-retention-maintenance.py",
+      "symbol": "find_release",
+      "value": 86
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "scripts/ci/uat-retention-maintenance.py",
+      "symbol": null,
+      "value": 581
     }
   ],
   "inspected_files": 6625,
@@ -32492,6 +32546,128 @@
           "after": 1030,
           "source_sha256": "e675cb2250778d87a5c660f47deee208fbce779aa782cc98cbbfcb2fafab3fe6",
           "reason": "Independently reviewed final main Wallet flag composition: compact three application booleans into one validated Cloud Build entry; 99 env entries, unchanged cap and rollback joins; 33 focused cases pass."
+        }
+      ]
+    },
+    "main_a7a4439_release_controls_20261012": {
+      "parent_revision": "6b3da603c7662979c838ec100a78a0653b43a204",
+      "main_revision": "a7a4439a8e2b0b090d70b1f47f6ced604c0bdac4",
+      "reviewed_source_revision": "69ec6f14bcc45a1d6f19c03f542ad070c2c7e531",
+      "reviewed_at": "2026-10-12",
+      "reviewers": [
+        "sync_migration_ops_review",
+        "parent"
+      ],
+      "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+      "boundary": "Exactly twelve independently reviewed size slots: nine exact incoming-main and three bounded integration spans. Preserve all prior occurrences/reviews, budgets, scanner and exclusions. Existing debt remains visible; this is not deployed or financial acceptance.",
+      "slots": [
+        {
+          "key": "class_size|scripts/ci/test_cloudrun_retention.py|MaintenanceAuthorityTest|class exceeds the advisory operon budget",
+          "path": "scripts/ci/test_cloudrun_retention.py",
+          "before": 642,
+          "after": 922,
+          "source_sha256": "0fbec7b2ed01b4db2c2bf0c289d65964faa4e18140cfb63fd690faba7b6b1f9b",
+          "classification": "exact_incoming_main",
+          "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
+        },
+        {
+          "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+          "path": "scripts/ci/test_runtime_capacity_budget.py",
+          "before": null,
+          "after": 310,
+          "source_sha256": "4d7bd85cf3274957d63501c81bc1c55c3bf94e2fb466d9f992e11b1159cd4cf5",
+          "classification": "exact_incoming_main",
+          "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
+        },
+        {
+          "key": "function_size|scripts/ops/verify_uat_release.py|main|function exceeds the advisory gene budget",
+          "path": "scripts/ops/verify_uat_release.py",
+          "before": 191,
+          "after": 193,
+          "source_sha256": "0591312d4f4fbf3df61a43f9e3a5a225bc7be26b0dc2c601ea5b629f88c70022",
+          "classification": "reviewed_composition",
+          "reason": "Retains current private-runtime refusal, explicit paid live-probe opt-in and exact old-target helper/Drive refusal contracts."
+        },
+        {
+          "key": "function_size|consent-protocol/tests/test_prod_drive_deploy_contract.py|test_older_target_keeps_release_tooling_but_cannot_enable_drive|function exceeds the advisory gene budget",
+          "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+          "before": 115,
+          "after": 117,
+          "source_sha256": "f2a32bd8d02bd534857768bba2b156d0c145c1c5193b8a64faef173507ceb114",
+          "classification": "reviewed_composition",
+          "reason": "Retains current private-runtime refusal, explicit paid live-probe opt-in and exact old-target helper/Drive refusal contracts."
+        },
+        {
+          "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_cleanup_only_failure_requires_complete_release_proof_before_cloud_auth|function exceeds the advisory gene budget",
+          "path": "scripts/ci/test_cloudrun_retention.py",
+          "before": null,
+          "after": 112,
+          "source_sha256": "0fbec7b2ed01b4db2c2bf0c289d65964faa4e18140cfb63fd690faba7b6b1f9b",
+          "classification": "exact_incoming_main",
+          "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
+        },
+        {
+          "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_post_release_checks_retained_capacity_without_next_candidate|function exceeds the advisory gene budget",
+          "path": "scripts/ci/test_runtime_capacity_budget.py",
+          "before": null,
+          "after": 103,
+          "source_sha256": "4d7bd85cf3274957d63501c81bc1c55c3bf94e2fb466d9f992e11b1159cd4cf5",
+          "classification": "exact_incoming_main",
+          "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
+        },
+        {
+          "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_cleanup_failure_live_proof_rejects_stale_provenance_and_mutable_images|function exceeds the advisory gene budget",
+          "path": "scripts/ci/test_cloudrun_retention.py",
+          "before": null,
+          "after": 99,
+          "source_sha256": "0fbec7b2ed01b4db2c2bf0c289d65964faa4e18140cfb63fd690faba7b6b1f9b",
+          "classification": "exact_incoming_main",
+          "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
+        },
+        {
+          "key": "function_size|scripts/ci/uat-retention-maintenance.py|find_release|function exceeds the advisory gene budget",
+          "path": "scripts/ci/uat-retention-maintenance.py",
+          "before": null,
+          "after": 86,
+          "source_sha256": "4ac5b3d1017ded74a4b17911bb29ee9b468689e40821af6a58c698bf31e63732",
+          "classification": "exact_incoming_main",
+          "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
+        },
+        {
+          "key": "module_size|scripts/ci/test_cloudrun_retention.py||module exceeds the advisory operon budget",
+          "path": "scripts/ci/test_cloudrun_retention.py",
+          "before": 985,
+          "after": 1265,
+          "source_sha256": "0fbec7b2ed01b4db2c2bf0c289d65964faa4e18140cfb63fd690faba7b6b1f9b",
+          "classification": "exact_incoming_main",
+          "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+          "before": 785,
+          "after": 804,
+          "source_sha256": "912f61cc62c4266cd6aafca5aaf8cb0b79999c3a9c51def1270f7e385ef4f488",
+          "classification": "reviewed_composition",
+          "reason": "Retains current private-runtime refusal, explicit paid live-probe opt-in and exact old-target helper/Drive refusal contracts."
+        },
+        {
+          "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+          "path": "scripts/ci/uat-retention-maintenance.py",
+          "before": null,
+          "after": 581,
+          "source_sha256": "4ac5b3d1017ded74a4b17911bb29ee9b468689e40821af6a58c698bf31e63732",
+          "classification": "exact_incoming_main",
+          "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
+        },
+        {
+          "key": "module_size|scripts/ci/runtime-capacity-budget.py||module exceeds the advisory operon budget",
+          "path": "scripts/ci/runtime-capacity-budget.py",
+          "before": 509,
+          "after": 529,
+          "source_sha256": "a2e3a91f0693809699defa672af1db6caf7ed94b74d0bf0e6cb2dac77594a943",
+          "classification": "exact_incoming_main",
+          "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
         }
       ]
     }

@@ -2519,3 +2519,35 @@ packing controls. All 438 Back cases and UI generation/verification pass; the
 earlier nine mounted Wallet cases also passed. Schema head remains 320. The final
 core and exact-source hosted CI remain required; no additional provider transaction
 or reviewer payment is implied by these source checks.
+
+The canonical core passed at `6b3da603c7` in 836 seconds, including 18,040 passing
+cases in the main protocol suite. Hosted full CI passed all 23 jobs at application
+source `1516a90f47`. The subsequent differences through `6b3da603c7` were confined
+to documentation and tests; they did not change application behavior.
+
+Main `a7a4439a8e` is integrated through the existing branch's normal merge path,
+preserving the concurrently committed root documentation. No migration SQL,
+archive, manifest or schema-contract content changed: the registered head remains
+320. The combined release controls preserve one verification-plan, PKM and
+reviewer chain per environment, the extracted backend deployment helpers, the
+private-runtime refusal contract and explicit live-model opt-in. The recorded
+older-source production policy-helper dependency gap remains a separate release
+prerequisite. This task does not dispatch production.
+
+Focused qualification on this union passed 129 release/schema cases, all 438 Back
+cases, generated UI parity, 26 revision-retention cases, nine capacity cases and
+the executable change-aware verification checks. Independent operations review
+qualified exactly twelve architecture size slots: nine incoming-main spans and
+three bounded compositions. Their source hashes and both frozen revisions are
+recorded in the existing architecture baseline's review metadata. All prior
+finding occurrences and reviews, size budgets, scanner and exclusions are
+preserved; this records visible inherited debt and does not waive later growth.
+The combined candidate follows the unchanged canonical core and hosted CI gates.
+
+Dev release [38187423540](https://github.com/hushh-labs/hushh-research/actions/runs/38187423540)
+selects exact CI-green application source `1516a90f47` through main-owned release
+controls. Its database migration and predeployment PKM preservation checks passed;
+candidate creation alone does not prove traffic promotion or terminal release
+success. Reviewer payments, private Azure setup, encrypted synthetic fixtures,
+Connect/Checkout journeys and One's separate Stripe OAuth remain acceptance work.
+The confirmed $5 Sandbox Topup is recorded once; do not repeat it while resuming.
