@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { proxy } from "@/proxy";
 
@@ -74,4 +74,25 @@ describe("Next proxy root-entry contract", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
   });
+});
+
+
+afterEach(() => vi.unstubAllEnvs());
+
+it("keeps private responses out of the index without redirecting registered callbacks", () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+  for (const path of ["/one", "/kai", "/profile", "/people", "/c/shared", "/oauth/authorize", "/api/account", "/one/profile/connectors/oauth/return"]) {
+    expect(proxy(request(path)).headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  }
+  const callback = proxy(request("/one/profile/connectors/oauth/return?code=synthetic&state=synthetic"));
+  expect(callback.headers.get("location")).toBeNull();
+  const publicPage = proxy(request("/welcome?tab=research&utm_source=test"));
+  expect(publicPage.headers.get("x-robots-tag")).toBeNull();
+  expect(publicPage.headers.get("link")).toBe('<https://one.hussh.si/welcome?tab=research>; rel="canonical"');
+  expect(callback.headers.get("link")).toBeNull();
+  for (const path of ["/privacy", "/terms", "/delete-account"]) {
+    expect(proxy(request(path)).headers.get("x-robots-tag")).toBeNull();
+  }
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+  expect(proxy(request("/welcome?tab=research")).headers.get("x-robots-tag")).toBe("noindex, nofollow");
 });
