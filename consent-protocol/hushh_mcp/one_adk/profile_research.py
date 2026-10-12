@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, Self, TypeVar
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -65,7 +65,7 @@ class ProfileReport(BaseModel, Generic[SourceT]):
     sections: list[ProfileSection[SourceT]] = Field(max_length=4)
 
     @model_validator(mode="after")
-    def coherent_report(self) -> ProfileReport:
+    def coherent_report(self) -> Self:
         if len({section.kind for section in self.sections}) != len(self.sections):
             raise ValueError("Duplicate sections")
         if (self.match_status == "no_match") != (len(self.sections) == 0):
@@ -216,7 +216,8 @@ async def run_profile_research(
             # rejection if a provider nevertheless emits a third Search call.
             llm_request.config.tool_config = types.ToolConfig(
                 function_calling_config=types.FunctionCallingConfig(
-                    mode="ANY", allowed_function_names=["finish_task"]
+                    mode=types.FunctionCallingConfigMode.ANY,
+                    allowed_function_names=["finish_task"],
                 )
             )
 
@@ -361,7 +362,7 @@ async def run_profile_research(
                 source["url"] = urls_by_ref[ref]
     # Preserve the existing wire shape and public-link validation.
     public_report = ProfileReport.model_validate(public_report).model_dump()
-    result = {"report": public_report, "search_suggestions": suggestions}
+    result: dict[str, Any] = {"report": public_report, "search_suggestions": suggestions}
     if include_evidence:
         result["evidence"] = evidence
     return result
@@ -391,11 +392,11 @@ async def run_profile_discovery(
     deadline = loop.time() + TASK_TIMEOUT_SECONDS
     try:
         async with asyncio.timeout(TASK_TIMEOUT_SECONDS):
-            selected_identity = {
-                key: identity[key]
-                for key in ("full_name", "email", "phone_number")
-                if isinstance(identity.get(key), str) and identity[key].strip()
-            }
+            selected_identity: dict[str, str | None] = {}
+            for key in ("full_name", "email", "phone_number"):
+                value = identity.get(key)
+                if isinstance(value, str) and value.strip():
+                    selected_identity[key] = value
             query = exact_identity_query(selected_identity)
             if on_attempts_start is not None:
                 await on_attempts_start((1,))
