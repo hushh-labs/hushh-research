@@ -2074,6 +2074,7 @@ export default function GmailReceiptsPage({
     <AppPageShell
       as="div"
       width={journeyVariant === "workspace" ? "agent" : "reading"}
+      headerContentSpacing="compact"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]"
       nativeTest={{
         routeId:
