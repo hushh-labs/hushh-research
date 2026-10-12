@@ -32,7 +32,7 @@ from hushh_mcp.services.connection_graph_service import (
     lock_connection_graph_users,
     revoke_circle_origins,
 )
-from hushh_mcp.services.connections_service import ConnectionsService
+from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_MATCH_POLICY_VERSION
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from scripts.backfill_contact_disconnect_actors import (
@@ -282,6 +282,163 @@ async def _drop_schema(schema: str) -> None:
         await connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
     finally:
         await connection.close()
+
+
+@pytest.mark.db
+@pytest.mark.skipif(not POSTGRES_URL, reason="requires disposable PostgreSQL")
+@pytest.mark.parametrize(
+    ("phone_verified", "email_verified", "vault_status", "setup_completed", "evidence", "allowed"),
+    [
+        (True, False, "none", False, None, True),
+        (False, True, "active", False, " OWNER@example.test ", True),
+        (False, True, "none", True, "owner@example.test", True),
+        (False, False, "active", True, "owner@example.test", False),
+        (False, True, "active", True, "other@example.test", False),
+        (False, True, "none", False, "owner@example.test", False),
+        (False, True, "active", True, None, False),
+    ],
+)
+def test_contact_requester_admission_and_mutation_recheck_on_postgres(
+    monkeypatch, phone_verified, email_verified, vault_status, setup_completed, evidence, allowed
+) -> None:
+    """Execute both requester gates and graph writes, including proof revocation.
+
+    Fresh provider evidence is supplied by the separately tested route seam.
+    These transactions prove that vault/setup flags or a stale/mismatched email
+    cannot admit a requester, and that native phone claims retain their path.
+    """
+    import hushh_mcp.services.connections_service as connections_module
+
+    schema = f"contact_admission_{uuid.uuid4().hex}"
+    engine = create_engine(
+        make_url(POSTGRES_URL).set(drivername="postgresql+psycopg2"),
+        connect_args={"options": f"-csearch_path={schema},public"},
+    )
+    try:
+        asyncio.run(_prepare_schema(schema))
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE actor_identity_cache ADD email_verified BOOLEAN DEFAULT FALSE")
+            )
+            connection.execute(
+                text("""
+                CREATE TABLE vault_keys (
+                    user_id TEXT PRIMARY KEY, vault_status TEXT, setup_completed BOOLEAN
+                );
+                CREATE TABLE contact_sync_lookup_budgets (
+                    user_id TEXT, bucket_kind TEXT, bucket_start TIMESTAMPTZ,
+                    lookup_count INTEGER, updated_at TIMESTAMPTZ,
+                    PRIMARY KEY (user_id, bucket_kind, bucket_start)
+                );
+            """)
+            )
+            connection.execute(
+                text("""
+                    UPDATE actor_identity_cache SET email='owner@example.test',
+                    email_verified=:email_verified, phone_verified=:phone_verified,
+                    phone_number=CASE WHEN :phone_verified THEN phone_number ELSE NULL END
+                    WHERE user_id='owner'
+                """),
+                {"email_verified": email_verified, "phone_verified": phone_verified},
+            )
+            connection.execute(
+                text("INSERT INTO vault_keys VALUES ('owner', :status, :completed)"),
+                {"status": vault_status, "completed": setup_completed},
+            )
+        monkeypatch.setattr(connections_module, "get_db", lambda: SimpleNamespace(engine=engine))
+        monkeypatch.setattr(
+            connections_module, "_notify_connection_graph_changed", lambda **_: None
+        )
+        service = ConnectionsService()
+        args = {
+            "phone_lookups": [_lookup("kushal", "+919876500003")],
+            "matches": [{"lookup_id": "kushal", "user_id": "kushal"}],
+            "verified_requester_email": evidence,
+        }
+
+        if not allowed:
+            for operation in (
+                lambda: service.reserve_contact_sync_lookup_budget(
+                    "owner", 1, verified_requester_email=evidence
+                ),
+                lambda: service.sync_contact_matches("owner", **args),
+            ):
+                with pytest.raises(ConnectionsError) as error:
+                    operation()
+                assert error.value.status_code == 403
+            with engine.connect() as connection:
+                assert (
+                    connection.execute(
+                        text("SELECT COUNT(*) FROM contact_sync_lookup_budgets")
+                    ).scalar_one()
+                    == 0
+                )
+                assert (
+                    connection.execute(text("SELECT COUNT(*) FROM connection_origins")).scalar_one()
+                    == 0
+                )
+            return
+
+        service.reserve_contact_sync_lookup_budget("owner", 1, verified_requester_email=evidence)
+        # Verification can be revoked after budget admission but before writes.
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE actor_identity_cache SET phone_verified=FALSE, email_verified=FALSE WHERE user_id='owner'"
+                )
+            )
+        with pytest.raises(ConnectionsError) as error:
+            service.sync_contact_matches("owner", **args)
+        assert error.value.status_code == 403
+        with engine.begin() as connection:
+            assert (
+                connection.execute(text("SELECT COUNT(*) FROM connection_origins")).scalar_one()
+                == 0
+            )
+            connection.execute(
+                text(
+                    "UPDATE actor_identity_cache SET phone_verified=:phone, email_verified=:email WHERE user_id='owner'"
+                ),
+                {"phone": phone_verified, "email": email_verified},
+            )
+        result = service.sync_contact_matches("owner", **args)
+        assert result["autoConnectedCount"] == 1
+        with engine.begin() as connection:
+            identity = (
+                connection.execute(
+                    text(
+                        "SELECT phone_verified, phone_number FROM actor_identity_cache WHERE user_id='owner'"
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert identity["phone_verified"] is phone_verified
+            if not phone_verified:
+                assert identity["phone_number"] is None
+            assert (
+                connection.execute(text("SELECT COUNT(*) FROM connection_origins")).scalar_one()
+                == 1
+            )
+            connection.execute(
+                text(
+                    "UPDATE contact_sync_lookup_budgets SET lookup_count=12000 WHERE bucket_kind='minute'"
+                )
+            )
+        with pytest.raises(ConnectionsError) as error:
+            service.reserve_contact_sync_lookup_budget(
+                "owner", 1, verified_requester_email=evidence
+            )
+        assert error.value.status_code == 429
+        with engine.connect() as connection:
+            assert dict(
+                connection.execute(
+                    text("SELECT bucket_kind, lookup_count FROM contact_sync_lookup_budgets")
+                ).all()
+            ) == {"minute": 12000, "day": 1}
+    finally:
+        engine.dispose()
+        asyncio.run(_drop_schema(schema))
 
 
 @pytest.mark.db

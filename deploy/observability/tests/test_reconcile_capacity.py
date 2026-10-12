@@ -257,6 +257,12 @@ class CapacityObservabilityTest(unittest.TestCase):
         current["metricDescriptor"]["type"] = "logging.googleapis.com/user/obs_one_voice_latency_ms"
         current["metricDescriptor"]["labels"].reverse()
         self.assertTrue(module.same_log_metric(current, desired))
+        for label in current["metricDescriptor"]["labels"]:
+            label.pop("valueType")  # Actual gcloud readback omits default STRING.
+        self.assertTrue(module.same_log_metric(current, desired))
+        current["metricDescriptor"]["labels"][0]["valueType"] = "INT64"
+        self.assertFalse(module.same_log_metric(current, desired))
+        current["metricDescriptor"]["labels"][0].pop("valueType")
         current["labelExtractors"]["phase"] = 'REGEXP_EXTRACT(textPayload, " phase=(.*)")'
         self.assertFalse(module.same_log_metric(current, desired))
 

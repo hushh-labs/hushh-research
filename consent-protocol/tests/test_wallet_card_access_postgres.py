@@ -151,12 +151,42 @@ def test_saved_owner_cards_share_without_extra_verification_but_foreign_cards_do
             service.create_grants("alice", default, str(uuid.uuid4()), refs(db), 10)
 
 
-def test_two_recipients_messages_feed_retry_verification_and_revoke(cards_db):
+@pytest.mark.parametrize("include_number", [False, True])
+def test_two_recipients_messages_feed_retry_verification_and_revoke(cards_db, include_number):
     db, service = cards_db
     card = active_card(db, service)
     request = str(uuid.uuid4())
-    result = service.create_grants("alice", card, request, refs(db), 10)
-    assert service.create_grants("alice", card, request, refs(db), 10) == result
+    encrypted = {}
+    if include_number:
+        key = {
+            "algorithm": "ECDH-P256-AES256-GCM",
+            "recipientKeyId": "test-key",
+            "iv": "A" * 16,
+            "ciphertext": "A" * 64,
+            "senderEphemeralPublicKeyJwk": {
+                "kty": "EC",
+                "crv": "P-256",
+                "x": "A" * 43,
+                "y": "A" * 43,
+            },
+        }
+        encrypted = {
+            "encrypted_cards": {
+                ref: "hushh-wallet-card:v1:"
+                + json.dumps(
+                    {
+                        "shareId": str(uuid.uuid4()),
+                        "cardId": card,
+                        "payload": {"ciphertext": "AAAA", "iv": "A" * 16, "tag": "A" * 22 + "=="},
+                        "senderKey": key,
+                        "recipientKey": key,
+                    }
+                )
+                for ref in refs(db)
+            }
+        }
+    result = service.create_grants("alice", card, request, refs(db), 10, **encrypted)
+    assert service.create_grants("alice", card, request, refs(db), 10, **encrypted) == result
     with pytest.raises(WalletCardAccessError, match="RETRY_CONFLICT"):
         service.create_grants("alice", card, request, refs(db), 15)
     assert len(db.execute_raw("SELECT id FROM messages", {}).data) == 2
@@ -168,6 +198,15 @@ def test_two_recipients_messages_feed_retry_verification_and_revoke(cards_db):
         ).data
     }
     assert service.view_grant("charu", grants["charu"])["card"]["last4"] == "4242"
+    if include_number:
+        assert (
+            service.view_grant("charu", grants["charu"])["encryptedCard"]
+            in encrypted["encrypted_cards"].values()
+        )
+        assert all(
+            "encryptedCard" not in str(row)
+            for row in db.execute_raw("SELECT metadata FROM feed_events", {}).data
+        )
     assert service.view_grant("bob", grants["bob"])["status"] == "verification_required"
     assert (
         service.view_grant(
@@ -187,6 +226,7 @@ def test_two_recipients_messages_feed_retry_verification_and_revoke(cards_db):
         service.revoke("bob", grants["charu"])
     service.revoke("alice", grants["bob"])
     assert service.view_grant("bob", grants["bob"])["status"] == "revoked"
+    assert "encryptedCard" not in service.view_grant("bob", grants["bob"])
     assert service.view_grant("charu", grants["charu"])["status"] == "active"
     from hushh_mcp.services.feed_service import FeedService
 
