@@ -2306,9 +2306,20 @@ body:has(.profile-account-content)
   --app-top-safe-offset: 2px;
 }
 
+/* History is portalled outside the workspace. Its moving Close and the
+ * stationary opener must use the same row and leading inset, not two grids. */
+:root {
+  --agent-chat-header-safe-top: var(--app-safe-area-top-effective, 0px);
+  --agent-chat-header-row-height: 3.75rem;
+  --agent-chat-header-inline-gutter: 1rem;
+  --agent-chat-header-height: calc(var(--agent-chat-header-row-height) + var(--agent-chat-header-safe-top));
+}
+
+html.native-ios {
+  --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective, 0px));
+}
+
 .agent-chat-workspace {
-  --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
-  --agent-chat-header-height: calc(3.75rem + var(--agent-chat-header-safe-top));
   /* Mobile browsers already shrink this full-screen workspace through `dvh`.
    * Capacitor keeps its WebView frame stable, so it opts into the additional
    * keyboard inset below. */
@@ -2324,9 +2335,14 @@ body:has(.profile-account-content)
 }
 
 @media (min-width: 640px) {
-  .agent-chat-workspace {
-    --agent-chat-header-height: calc(4rem + var(--agent-chat-header-safe-top));
+  :root {
+    --agent-chat-header-row-height: 4rem;
+    --agent-chat-header-inline-gutter: 1.25rem;
   }
+}
+
+@media (min-width: 1024px) {
+  :root { --agent-chat-header-inline-gutter: 1.5rem; }
 }
 
 /* A compact 36px control keeps an uncluttered silhouette and a 44px hit area. */
@@ -2350,7 +2366,6 @@ body:has(.profile-account-content)
 .agent-chat-workspace[data-agent-chat-route="root"] {
   /* The workspace owns its single, symmetrical top header below the fixed ambient mask.
    * Safe top respects device notch/island without adding artificial offset on desktop. */
-  --agent-chat-header-safe-top: var(--app-safe-area-top-effective, 0px);
   --agent-chat-composer-bottom: max(
     calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)

@@ -139,7 +139,7 @@ describe("AgentHistorySidebar", () => {
       // focus (founder direction, 2026-09-29), and holds them while the menu is open.
       const age = within(today).getByText("19m");
       const actions = within(today).getByRole("button", { name: "Open actions for What needs a reply today?" });
-      // Keep both widths reserved so hover and focus do not bounce the row.
+      // Opacity preserves inline layout so hover and focus do not bounce it.
       for (const element of [age, actions.parentElement!]) {
         expect(element.className).toContain("opacity-0");
         expect(element.className).toContain("group-hover:opacity-100");
@@ -248,6 +248,13 @@ describe("AgentHistorySidebar", () => {
     expect(screen.getByRole("heading", { name: "Chats" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create new chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close chat history" })).toBeInTheDocument();
+    const close = screen.getByRole("button", { name: "Close chat history" });
+    const heading = screen.getByRole("heading", { name: "Chats" });
+    expect(close.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(close).toHaveClass("rounded-full", "size-11");
+    const age = screen.getByText("now");
+    expect(age.tagName).toBe("TIME");
+    expect(age).toHaveAttribute("datetime", conversations[0].last_message_at);
     expect(screen.getByRole("searchbox", { name: "Search chats" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Collapse chat history" })).not.toBeInTheDocument();
   });

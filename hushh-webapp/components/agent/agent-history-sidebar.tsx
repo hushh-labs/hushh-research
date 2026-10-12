@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { SidePanelMotionBody } from "@/components/app-ui/side-panel-motion";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { parseChatTimestamp } from "@/lib/agent/chat-time-separators";
 import { cn } from "@/lib/utils";
@@ -351,13 +352,13 @@ export function AgentHistorySidebar({
             </Button>
           </form>
         ) : (
-          // Title, time and the actions control sit on one line, as in the
-          // reference: the time stays put and the dots appear beside it.
+          // Age follows the title in its text flow, not a second trailing
+          // column. Only the action target reserves space at the row edge.
           <div className="relative flex min-w-0 items-center pr-1">
             <button
               type="button"
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
+                "block min-w-0 flex-1 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
                 // Keep the touch target while allowing complete labels to wrap.
                 isMobileMode ? "min-h-11 py-2" : "min-h-9 py-2",
                 active ? "font-medium text-foreground" : "font-normal text-foreground/85 group-hover:text-foreground"
@@ -367,22 +368,22 @@ export function AgentHistorySidebar({
               aria-current={active ? "page" : undefined}
               title={title}
             >
-              <span className={cn("min-w-0 flex-1 whitespace-normal break-words leading-tight", isMobileMode ? "text-[15px]" : "text-[14px]")}>
+              <span className={cn("whitespace-normal break-words leading-tight", isMobileMode ? "text-[15px]" : "text-[14px]")}>
                 {title}
               </span>
 
               {timeLabel ? (
-                <span
+                <time
+                  dateTime={new Date(conversationTimestamp(conversation)).toISOString()}
                   className={cn(
-                    "shrink-0 text-[12.5px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
-                    // Reserve the timestamp width even when visually hidden.
-                    // Inserting it only on hover made the title jump sideways.
+                    "ml-2 inline-block whitespace-nowrap align-baseline text-[11px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
+                    // Opacity preserves inline geometry on hover and focus.
                     !isMobileMode &&
                       "opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 group-has-[[data-state=open]]:opacity-100",
                   )}
                 >
                   {timeLabel}
-                </span>
+                </time>
               ) : null}
             </button>
 
@@ -504,7 +505,7 @@ export function AgentHistorySidebar({
           // and the surface pads the safe areas itself: under the status bar and
           // home indicator it is panel, never a gap.
           isMobileMode
-            ? "rounded-r-[24px] border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)] pt-[var(--app-safe-area-top-effective,0px)] pb-[var(--app-safe-area-bottom-effective,0px)] shadow-[0_24px_56px_-16px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_24px_56px_-16px_rgba(0,0,0,0.7)]"
+            ? "rounded-r-[24px] border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)] pt-[var(--agent-chat-header-safe-top)] pb-[var(--app-safe-area-bottom-effective,0px)] shadow-[0_24px_56px_-16px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_24px_56px_-16px_rgba(0,0,0,0.7)]"
             // Persistent desktop column (Muse-style two-column layout): one
             // surface with the chat, separated by a hairline, never a scrim.
             : "border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)]",
@@ -516,8 +517,13 @@ export function AgentHistorySidebar({
         data-agent-history-sidebar={isMobileMode ? "drawer" : "persistent"}
       >
         {isMobileMode ? (
-          <div data-stationary-panel-chrome className="px-4 pb-1 pt-4">
-            <div className="flex items-center justify-between gap-3">
+          <div data-stationary-panel-chrome className="flex h-[var(--agent-chat-header-row-height)] shrink-0 items-center gap-3 px-[var(--agent-chat-header-inline-gutter)]">
+              {onClose && !hideCloseButton ? (
+                closeControl ?? <ShellActionSurface
+                  variant="icon" className="size-11" onClick={onClose}
+                  aria-label="Close chat history" title="Close chat history"
+                ><AnimatedMenuCrossIcon isOpen /></ShellActionSurface>
+              ) : null}
               <div className="flex min-w-0 items-center gap-2">
                 <h2 className="truncate text-[22px] font-bold leading-7 tracking-[-0.022em] text-foreground">
                   {listTitle}
@@ -528,21 +534,6 @@ export function AgentHistorySidebar({
                   </span>
                 ) : null}
               </div>
-              {onClose && !hideCloseButton ? (
-                closeControl ?? <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  // 32px glyph well, 44px hit area (the ::after extends it 6px each side).
-                  className="relative h-8 w-8 rounded-lg text-muted-foreground after:absolute after:-inset-1.5 hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground"
-                  onClick={onClose}
-                  aria-label="Close chat history"
-                  title="Close chats"
-                >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              ) : null}
-            </div>
           </div>
         ) : null}
         <SidePanelMotionBody>

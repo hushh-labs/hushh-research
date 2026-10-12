@@ -8620,9 +8620,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       className={sidebarClassName}
       collapsed={collapsed}
       mode={mode}
-      // The drawer now runs full height over the chat header (2026-09-28), so the
-      // header's hamburger-to-cross sits under the panel; the panel carries its
-      // own close control instead of leaving a modal with no visible way out.
+      // The full-height drawer owns Close at the same leading header slot as
+      // the underlying opener. It translates with the panel, never the Chat.
       hideCloseButton={false}
       closeControl={isHistoryDrawerOpen && onClose ? <NativeHistoryClose owner={renderedWorkspaceOwnerId}
         context={`${chatChromeContext}:${agentSurface}`} onClose={onClose} stationary /> : undefined}
@@ -8870,8 +8869,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         >
           <div
             className={cn(
-              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-4 pt-[var(--agent-chat-header-safe-top)] sm:px-5",
-              "h-[var(--agent-chat-header-height)] lg:px-6",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-[var(--agent-chat-header-inline-gutter)] pt-[var(--agent-chat-header-safe-top)]",
+              "h-[var(--agent-chat-header-height)]",
             )}
           >
             {/*

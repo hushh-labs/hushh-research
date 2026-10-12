@@ -229,10 +229,17 @@ for (const width of [390, 1440])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
-for (const width of [390, 768])
-  test(`chat sidebar keeps Connectors in a visible footer at ${width}px`, async ({ page }) => {
+for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, native: false })), { width: 390, native: true }])
+  test(`chat sidebar keeps Connectors in a visible footer at ${width}px${native ? " with iOS safe area" : ""}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 640 });
-    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    if (native) await page.evaluate(() => {
+      document.documentElement.classList.add("native-ios");
+      document.documentElement.style.setProperty("--app-safe-area-top-effective", "59px");
+    });
+    // Exercise the production opener and injected Close, not fixture buttons.
+    const opener = page.getByRole("button", { name: "Open chat history", exact: true });
+    const openBox = (await opener.boundingBox())!;
+    await opener.click();
     const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
     const search = chats.getByRole("searchbox", { name: "Search chats" });
     const connectors = chats.getByRole("button", { name: "Open Connectors" });
@@ -251,6 +258,22 @@ for (const width of [390, 768])
       return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius];
     });
     expect(corners).toEqual(["0px", "24px", "24px", "0px"]);
+    const close = chats.getByRole("button", { name: "Close chat history", exact: true });
+    await expect.poll(async () => Math.abs((await close.boundingBox())!.x - openBox.x)).toBeLessThanOrEqual(1);
+    const closeBox = (await close.boundingBox())!;
+    for (const key of ["x", "y", "width", "height"] as const) {
+      expect(Math.abs(closeBox[key] - openBox[key]), `same-position ${key}`).toBeLessThanOrEqual(1);
+    }
+    // Layout width, not WebKit's fractional translated DOMRect rounding.
+    expect(await close.evaluate(element => (element as HTMLElement).offsetWidth)).toBeGreaterThanOrEqual(44);
+    expect(await close.evaluate(element => parseFloat(getComputedStyle(element).borderRadius))).toBeGreaterThanOrEqual(closeBox.width / 2);
+    const title = chats.getByText("A weekend idea", { exact: true });
+    const age = chats.locator("time");
+    const titleBox = (await title.boundingBox())!, ageBox = (await age.boundingBox())!;
+    expect(ageBox.x - (titleBox.x + titleBox.width)).toBeLessThanOrEqual(9);
+    await page.screenshot({ path: testInfo.outputPath("public-history-leading-slot.png") });
+    await close.click();
+    await expect(opener).toBeFocused();
   });
 
 /**
@@ -354,7 +377,7 @@ function hitAt(page: import("@playwright/test").Page, x: number, y: number) {
     if (element.closest("[data-agent-history-scrim]")) return "scrim";
     if (element.closest("[data-agent-history-drawer]")) return "panel";
     if (element.closest("[data-fixture-bottom-bar]")) return "bottom-bar";
-    if (element.closest("button")?.textContent === "Open drawer") return "header";
+    if (element.closest("header.agent-chat-header")) return "header";
     return element.tagName.toLowerCase();
   }, [x, y] as const);
 }
@@ -368,10 +391,12 @@ for (const width of [390, 1440])
     const result = await page.evaluate(async () => {
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
       const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
-      const panel = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;
+      const panel = frame;
+      const header = panel.querySelector<HTMLElement>("[data-stationary-panel-chrome]")!;
       const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
       const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
-      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x, frame: frame.getBoundingClientRect().x };
+      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x,
+        header: header.getBoundingClientRect().x - panel.getBoundingClientRect().x };
       const closed = panel.getBoundingClientRect().x;
       let time = 0;
       function finger(type: string, dx: number) {
@@ -383,24 +408,26 @@ for (const width of [390, 1440])
         body.dispatchEvent(event);
       }
       finger("touchstart", 0);
-      const samples: { offset: number; expected: number; opacity: number; visible: boolean }[] = [];
+      const samples: { offset: number; expected: number; opacity: number; visible: boolean; headerInset: number }[] = [];
       for (const dx of [24, 48, 72, 96, 120]) {
         finger("touchmove", dx);
         await new Promise(requestAnimationFrame);
         samples.push({ offset: panel.getBoundingClientRect().x, expected: closed + dx,
-          opacity: Number(getComputedStyle(scrim).opacity), visible: getComputedStyle(scrim).visibility === "visible" });
+          opacity: Number(getComputedStyle(scrim).opacity), visible: getComputedStyle(scrim).visibility === "visible",
+          headerInset: header.getBoundingClientRect().x - panel.getBoundingClientRect().x });
       }
-      const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar && frame.getBoundingClientRect().x === before.frame;
+      const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar;
       const filter = getComputedStyle(scrim).backdropFilter || getComputedStyle(scrim).webkitBackdropFilter;
       const inertDuringPull = frame.inert;
       finger("touchend", 120);
-      return { samples, stationary, filter, inertDuringPull };
+      return { samples, stationary, filter, inertDuringPull, headerInset: before.header };
     });
     for (const sample of result.samples) {
       expect(sample.offset).toBeCloseTo(sample.expected, 0);
       expect(sample.visible).toBe(true);
       expect(sample.opacity).toBeGreaterThan(0);
       expect(sample.opacity).toBeLessThan(1);
+      expect(sample.headerInset).toBeCloseTo(result.headerInset, 0);
     }
     expect(result.stationary).toBe(true);
     expect(result.inertDuringPull).toBe(true);
@@ -409,17 +436,17 @@ for (const width of [390, 1440])
     await expect(drawer).toBeVisible();
     // Let the opening settle, then exercise the same owner in the other
     // direction. WebKit and Chromium must follow the finger, not wait for up.
-    await expect(page.locator('[data-side-panel-body="left"]')).not.toHaveAttribute("style", /will-change/);
+    await expect(page.locator('[data-agent-history-drawer]')).not.toHaveAttribute("style", /will-change/);
     // Removing the gesture hint is not a rendered-position receipt. WebKit
     // can still be completing the CSS handoff; that is a valid interrupted
     // re-grab, tested separately, not this fully-open closing contract.
     await expect.poll(async () => {
-      const bounds = await page.locator('[data-side-panel-body="left"]').boundingBox();
+      const bounds = await page.locator('[data-agent-history-drawer]').boundingBox();
       return bounds?.x;
     }).toBeCloseTo(0, 0);
     const closing = await page.evaluate(async () => {
       const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
-      const panel = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;
+      const panel = frame;
       const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
       const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
@@ -534,17 +561,17 @@ for (const width of [390, 768, 1440])
     // A tap on the scrim beside the panel closes it.
     await page.mouse.click(beside, height / 2);
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toHaveCount(0);
-    // The semantic header/frame stays stationary for retained native controls.
-    // Closed, it is hidden/inert and its motion body clears the viewport.
-    await expect(page.locator("[data-stationary-history-frame]")).toHaveAttribute("inert", "");
-    await expect.poll(() => page.locator("[data-stationary-history-frame]")
+    // Header and body translate as one full-height panel. Closed, the whole
+    // presentation is hidden/inert and clears the viewport, not a split body.
+    await expect(page.locator("[data-agent-history-drawer]")).toHaveAttribute("inert", "");
+    await expect.poll(() => page.locator("[data-agent-history-drawer]")
       .evaluate(element => getComputedStyle(element).visibility)).toBe("hidden");
     await expect
       .poll(async () => {
-        const closed = await page.locator("[data-side-panel-body='left']").boundingBox();
+        const closed = await page.locator("[data-agent-history-drawer]").boundingBox();
         return closed ? closed.x + closed.width : 0;
       })
-      .toBeLessThanOrEqual(-24);
+      .toBeLessThanOrEqual(1);
     // Closed, the scrim fades out and leaves no live backdrop filter behind.
     await expect.poll(async () => (await readScrim()).visibility).toBe("hidden");
     expect((await readScrim()).opacity).toBe("0");
@@ -596,7 +623,7 @@ for (const width of [390, 768])
 
 test("chat sidebar closes from its own control and returns focus to the trigger", async ({ page }) => {
   // Full height, the panel covers the header's hamburger-to-cross, so it carries
-  // its own close control (a 44px hit area around a 32px well).
+  // its own matching circular 44px control.
   await page.setViewportSize({ width: 390, height: 720 });
   const trigger = page.getByRole("button", { name: "Open drawer", exact: true });
   await trigger.click();
@@ -604,13 +631,12 @@ test("chat sidebar closes from its own control and returns focus to the trigger"
   const close = chats.getByRole("button", { name: "Close chat history" });
   await expect(close).toBeVisible();
   const hit = await close.evaluate((element) => {
-    const after = getComputedStyle(element, "::after");
     const rect = element.getBoundingClientRect();
-    return { width: rect.width - parseFloat(after.left) - parseFloat(after.right), position: after.position };
+    return { width: rect.width, height: rect.height };
   });
-  expect(hit.position).toBe("absolute");
   expect(hit.width).toBeGreaterThanOrEqual(44);
-  await close.click();
+  expect(hit.height).toBeGreaterThanOrEqual(44);
+  await close.click({ position: { x: 8, y: 22 } });
   await expect(chats).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });

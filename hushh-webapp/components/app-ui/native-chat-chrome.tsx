@@ -6,7 +6,6 @@ import { customNativePresentationEnabled } from "@/lib/capacitor/native-presenta
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
-import { XIcon } from "@/components/icons";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
@@ -700,7 +699,7 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
       onClick={(event) => { appHaptic("light"); onActivate(event.detail > 0, event.currentTarget); }}
       aria-label={`${label}${pendingAttention > 0 && !open
         ? `, ${pendingAttention} Drive ${pendingAttention === 1 ? "review needs" : "reviews need"} you` : ""}`}
-      title={label} aria-expanded={open} className="relative z-[540]">
+      title={label} aria-expanded={open} className="relative z-[540] size-11">
       <AnimatedMenuCrossIcon isOpen={open} />
       {pendingAttention > 0 && !open && showAttentionDot
         ? <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
@@ -714,9 +713,9 @@ export function NativeHistoryClose({ onClose }: {
   owner: string | null; context: string; onClose: () => void; stationary?: boolean;
 }) {
   return <span className="relative flex size-11 shrink-0 items-center justify-center">
-    <button type="button" aria-label="Close chat history" onClick={() => { appHaptic("light"); onClose(); }}
-      className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted">
-      <XIcon className="size-4" aria-hidden />
-    </button>
+    <ShellActionSurface variant="icon" aria-label="Close chat history" title="Close chat history"
+      onClick={() => { appHaptic("light"); onClose(); }} className="size-11">
+      <AnimatedMenuCrossIcon isOpen />
+    </ShellActionSurface>
   </span>;
 }
