@@ -947,7 +947,7 @@ deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-
 if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   [[ "${_CLOUD_RUN_MEMORY}" != "1Gi" ]] || _CLOUD_RUN_MEMORY="4Gi"
   [[ "${_CLOUD_RUN_CPU}" != "1" ]] || _CLOUD_RUN_CPU="2"
-  [[ "${_CLOUD_RUN_CONCURRENCY}" != "80" ]] || _CLOUD_RUN_CONCURRENCY="20"
+  [[ "${_CLOUD_RUN_CONCURRENCY}" != "80" ]] || _CLOUD_RUN_CONCURRENCY="40"
 fi
 # END DEV HUB CAPACITY DEFAULTS
 

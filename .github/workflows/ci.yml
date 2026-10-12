@@ -731,6 +731,7 @@ jobs:
           xcodebuild -resolvePackageDependencies \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
+            -packageCachePath "${RUNNER_TEMP}/spm-cache" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
       - name: Compile app and run native iOS unit tests
@@ -745,6 +746,7 @@ jobs:
             -configuration Debug \
             -destination "platform=iOS Simulator,id=${SIMULATOR_ID}" \
             -derivedDataPath "${RUNNER_TEMP}/derived-data" \
+            -packageCachePath "${RUNNER_TEMP}/spm-cache" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -resultBundlePath "${RUNNER_TEMP}/AppTests.xcresult" \
             -skipMacroValidation \

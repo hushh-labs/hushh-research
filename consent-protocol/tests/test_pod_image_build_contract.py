@@ -62,7 +62,7 @@ def test_dev_hub_capacity_preserves_other_lanes_and_explicit_overrides(environme
         # database ceiling (test_database_connection_ceiling.py) budgets the
         # lane's declared value.
         expected = (
-            "4Gi 2 20 3"
+            "4Gi 2 40 3"
             if environment == "dev" and memory == "1Gi"
             else f"{memory} {cpu} {concurrency} 3"
         )

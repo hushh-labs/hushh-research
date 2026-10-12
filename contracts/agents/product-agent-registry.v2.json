@@ -4869,7 +4869,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "581ce402170b3a0cfe12d7434adbd3f2d2c39ddee65cc12962be24727118ad2f",
+      "system_instruction_sha256": "1e8fbe8f0b45efba86edb13b4755357c224289791855859364d8887a18a4f596",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

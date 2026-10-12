@@ -28,6 +28,16 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
+- Final interface polish removes zero-value Account detail and the empty Memory
+  earnings group; Saved retains a quiet Account link until earnings or costs
+  exist. Expired onboarding advisories bind to the current owner and vault
+  session, including query/event returns and account rotation. All 16 focused
+  interface cases and typecheck pass. Main `1056ed5652` integration passes 237
+  deployment/runtime, 26 lazy-pod/conversation and 25 real specialist-turn cases,
+  plus 447 Back cases before this final polish. Independent review fixes a shared
+  specialist's legacy-client selection while preserving injected owner models.
+  These changes still require final generated parity, complete core, hosted CI
+  and governed Dev promotion; they are not deployed acceptance.
 - Continuation source simplifies Account into balance/earnings followed by Add
   funds, Payouts, Refund unused balance and History disclosures. Saved/Add stay
   unchanged; Saved contains its sharing settings and prices. Consent keeps exact

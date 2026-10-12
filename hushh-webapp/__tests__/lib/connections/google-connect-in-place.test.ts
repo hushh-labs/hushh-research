@@ -52,7 +52,7 @@ import {
 const GMAIL_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_v1";
 const GOOGLE_ATTEMPT_KEY = "one_google_oauth_popup_attempt_v1";
 const GMAIL_SETTLEMENT_KEY = "one_gmail_oauth_popup_settlement_v1";
-const AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1";
+const AUTHORIZE = `https://accounts.google.com/o/oauth2/v2/auth?synthetic=1&redirect_uri=${encodeURIComponent(`${window.location.origin}/api/gmail/oauth/callback`)}`;
 
 type FakeWindow = Window & {
   close: ReturnType<typeof vi.fn>;

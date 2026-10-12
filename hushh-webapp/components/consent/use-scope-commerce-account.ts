@@ -7,22 +7,35 @@ import { COMMERCE_RETURN_EVENT, commerceReturnAction } from "@/lib/services/scop
 import { useCommerceRead } from "@/components/consent/use-commerce-session";
 import { useCommerceAction } from "@/components/consent/use-commerce-action";
 import { useCommerceHostedFlow } from "@/components/consent/use-commerce-hosted-flow";
+import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 type TransferReview = { kind: "withdraw" | "refund"; lotId?: string; preview: CommerceTransferPreview; key: string };
 
-function useOnboardingRefresh(refresh: () => Promise<void>) {
+function useOnboardingRefresh({ user, capture, refresh }: ReturnType<typeof useCommerceRead<CommerceAccount>>) {
   const searchParams = useSearchParams();
-  const [returnedRefresh, setReturnedRefresh] = useState(false);
-  const queryRefresh = commerceReturnAction(`/one/profile/account?${searchParams.toString()}`) === "onboarding_refresh";
+  type Hint = { user: typeof user; current: () => boolean; query?: string };
+  const [returnedRefresh, setReturnedRefresh] = useState<Hint | null>(null);
+  const [queryRefresh, setQueryRefresh] = useState<Hint | null>(null);
+  const query = searchParams.toString();
+  const refreshQuery = commerceReturnAction(`/one/profile/account?${query}`) === "onboarding_refresh" ? query : "";
+  useEffect(() => {
+    setQueryRefresh(previous => !refreshQuery ? null : previous?.query === refreshQuery ? previous :
+      user ? { user, current: capture(), query: refreshQuery } : null);
+  }, [refreshQuery, user, capture]);
+  useEffect(() => subscribeVaultSessionEpoch(() => {
+    setReturnedRefresh(null);
+    setQueryRefresh(previous => previous ? { ...previous, current: () => false } : null);
+  }), []);
   useEffect(() => {
     const onReturn = (event: Event) => {
-      setReturnedRefresh((event as CustomEvent<{ action?: string }>).detail?.action === "onboarding_refresh");
+      setReturnedRefresh(user && (event as CustomEvent<{ action?: string }>).detail?.action === "onboarding_refresh" ?
+        { user, current: capture() } : null);
       void refresh();
     };
     window.addEventListener(COMMERCE_RETURN_EVENT, onReturn);
     return () => window.removeEventListener(COMMERCE_RETURN_EVENT, onReturn);
-  }, [refresh]);
-  return queryRefresh || returnedRefresh;
+  }, [user, capture, refresh]);
+  return Boolean([queryRefresh, returnedRefresh].some(hint => hint && hint.user === user && hint.current()));
 }
 
 export function useScopeCommerceAccount() {
@@ -45,7 +58,7 @@ export function useScopeCommerceAccount() {
   const [country, setCountry] = useState("US");
   const [review, setReview] = useState<TransferReview | null>(null);
   const fundingKey = useRef<string | null>(null);
-  const onboardingRefresh = useOnboardingRefresh(refresh);
+  const onboardingRefresh = useOnboardingRefresh(resource);
   useEffect(() => { setReview(null); fundingKey.current = null; }, [user]);
   const changeAmount = (value: string) => { setAmount(value); fundingKey.current = null; };
   const hosted = useCommerceHostedFlow(resource, actions, async (token, purpose) => {

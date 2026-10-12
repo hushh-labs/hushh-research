@@ -39,6 +39,7 @@ import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { COMMERCE_RETURN_EVENT } from "@/lib/services/scope-commerce-browser";
 import { commerceMoneyButtonName } from "../../../.codex/skills/reviewer-app-testing/scripts/scope-commerce-rehearsal-contract.mjs";
 
 function deferred<T>() {
@@ -251,7 +252,7 @@ describe("existing Account payment history", () => {
     view.unmount();
   });
 
-  it("presents a warm expired onboarding return and creates a fresh authenticated link only on click", async () => {
+  it.each(["query", "event"])("binds a warm expired onboarding %s return to its owner and creates a fresh link only on click", async source => {
     const popup = { close: vi.fn() };
     const session = { url: "https://connect.stripe.com/setup/new", returnUrl: "https://example.test/one/profile/account", attemptId: "opaque_attempt_12345" };
     mocks.openWindow.mockReturnValue(popup);
@@ -259,8 +260,10 @@ describe("existing Account payment history", () => {
     const view = render(<ScopeCommerceAccountPanel />);
     await screen.findByRole("button", { name: "Payouts" });
     expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
-    mocks.search = "commerceReturn=1&commerceAttemptId=opaque_attempt_12345&commerceAction=onboarding_refresh";
-    view.rerender(<ScopeCommerceAccountPanel />);
+    if (source === "query") {
+      mocks.search = "commerceReturn=1&commerceAttemptId=opaque_attempt_12345&commerceAction=onboarding_refresh";
+      view.rerender(<ScopeCommerceAccountPanel />);
+    } else act(() => window.dispatchEvent(new CustomEvent(COMMERCE_RETURN_EVENT, { detail: { action: "onboarding_refresh" } })));
     await screen.findByRole("button", { name: "Get a new payout setup link" });
     expect(mocks.onboarding).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Get a new payout setup link" }));
@@ -272,6 +275,20 @@ describe("existing Account payment history", () => {
     fireEvent.click(screen.getByRole("button", { name: "Get a new payout setup link" }));
     await waitFor(() => expect(mocks.onboarding).toHaveBeenCalledTimes(2));
     expect(mocks.onboarding.mock.calls[1][2]).not.toBe(firstKey);
+    const original = mocks.user;
+    mocks.user = { uid: "counterpart", getIdToken: vi.fn(async () => "counterpart-token") };
+    view.rerender(<ScopeCommerceAccountPanel />);
+    await screen.findByRole("button", { name: "Payouts" });
+    expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Payouts" }));
+    await screen.findByRole("button", { name: "Set up payouts with Stripe" });
+    expect(screen.queryByText(/Your payout setup link expired/)).toBeNull();
+    expect(mocks.onboarding).toHaveBeenCalledTimes(2);
+    mocks.user = original;
+    view.rerender(<ScopeCommerceAccountPanel />);
+    act(() => advanceVaultSessionEpoch());
+    expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
+    expect(mocks.onboarding).toHaveBeenCalledTimes(2);
   });
 });
 
