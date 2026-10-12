@@ -1,4 +1,4 @@
-"""Private manual-card access routes. No credential-bearing responses are cacheable."""
+"""Private eligible-card access routes. Protected responses are never cacheable."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ class PrivateWalletAccessRoute(APIRoute):
                     async with asyncio.timeout(15):
                         async for chunk in request.stream():
                             size += len(chunk)
-                            if size > 16384:
+                            if size > (98304 if request.url.path.endswith("/grants") else 16384):
                                 raise HTTPException(413, {"code": "WALLET_CARD_REQUEST_TOO_LARGE"})
                             chunks.append(chunk)
                     request._body = b"".join(chunks)
@@ -87,6 +87,59 @@ class ShareBody(RegistrationBody):
         alias="recipientPersonRefs", min_length=1, max_length=20
     )
     duration_minutes: Literal[5, 10, 15] = Field(alias="durationMinutes")
+    encrypted_cards: dict[UUID, str] | None = Field(
+        default=None, alias="encryptedCards", max_length=20
+    )
+
+
+class SharingActivity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event: Literal[
+        "SHARE_CREATED",
+        "SHARE_DELIVERED",
+        "SHARE_OPENED",
+        "SHARE_EXPIRED",
+        "SHARE_REVOKED",
+        "ACCESS_VERIFIED",
+        "ACCESS_DENIED",
+    ]
+    at: str
+    actor: Literal["owner", "recipient"]
+    outcome: Literal["recorded", "denied"]
+
+
+class SharingHistoryItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    cardId: str
+    cardType: Literal["payment", "profile"]
+    source: Literal["owner_manual", "owner_profile"]
+    displayLabel: str
+    last4: str | None
+    senderName: str
+    recipientName: str
+    senderPersonRef: UUID | None
+    recipientPersonRef: UUID | None
+    createdAt: str
+    expiresAt: str
+    durationMinutes: Literal[5, 10, 15]
+    trustedCircle: bool | None
+    method: Literal["trusted_circle", "standard_connection", "legacy_unspecified"]
+    verificationMethod: Literal["identity_reauthentication", "trusted_circle", "legacy_unspecified"]
+    verifiedAt: str | None
+    status: Literal["active", "expired", "revoked"]
+    revokedAt: str | None
+    lastAccessedAt: str | None
+    permittedFields: list[str]
+    activity: list[SharingActivity]
+
+
+class SharingHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[SharingHistoryItem]
+    hasMore: bool
+    nextCursor: str | None
+    serverNow: str
 
 
 async def owner_identity(
@@ -130,6 +183,43 @@ async def card_access(
     )
 
 
+@router.get("/profile")
+async def profile_access(owner: str = Depends(owner_identity)):
+    return await run_in_threadpool(service().profile_access, owner)
+
+
+@router.get("/history", response_model=SharingHistory)
+async def sharing_history(
+    direction: Literal["outgoing", "received"] = "outgoing",
+    card_type: Literal["payment", "profile"] | None = Query(default=None, alias="cardType"),
+    cursor: str | None = Query(default=None, max_length=60),
+    limit: int = Query(default=20, ge=1, le=100),
+    owner: str = Depends(owner_identity),
+):
+    return await run_in_threadpool(
+        service().history,
+        owner,
+        direction=direction,
+        card_type=card_type,
+        cursor=cursor,
+        limit=limit,
+    )
+
+
+@router.get("/history/{grant_id}", response_model=SharingHistoryItem)
+async def sharing_details(grant_id: UUID, viewer: str = Depends(owner_identity)):
+    # One participant-scoped ledger, independent of the card's current eligibility.
+    try:
+        result = await run_in_threadpool(service().history, viewer, grant_id=str(grant_id))
+    except WalletCardAccessError as exc:
+        if exc.status_code != 404:
+            raise
+        result = await run_in_threadpool(
+            service().history, viewer, direction="received", grant_id=str(grant_id)
+        )
+    return result["items"][0]
+
+
 @router.post("/cards/{card_id}/grants")
 async def create_grants(card_id: str, body: ShareBody, owner: str = Depends(owner_identity)):
     if len(card_id) > 64:
@@ -141,6 +231,11 @@ async def create_grants(card_id: str, body: ShareBody, owner: str = Depends(owne
         str(body.request_id),
         [str(v) for v in body.recipient_person_refs],
         body.duration_minutes,
+        **(
+            {"encrypted_cards": {str(k): v for k, v in body.encrypted_cards.items()}}
+            if body.encrypted_cards is not None
+            else {}
+        ),
     )
 
 

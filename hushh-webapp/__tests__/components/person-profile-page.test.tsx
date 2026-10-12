@@ -6,10 +6,13 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode, TextareaHTMLAttributes } from "react";
+import type { ComponentProps, ReactNode, TextareaHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  realDialogs: false,
+  answerGates: vi.fn(),
+  answerCreate: vi.fn(),
   search: "",
   vaultKey: null as string | null,
   vaultOwnerToken: null as string | null,
@@ -154,24 +157,19 @@ vi.mock("@/lib/morphy-ux/button", () => ({
   }) => (asChild ? <>{children}</> : <button {...props}>{children}</button>),
 }));
 
-vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ children, open }: { children: ReactNode; open?: boolean }) =>
-    open === false ? null : <>{children}</>,
-  DialogTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-  DialogContent: ({ children }: { children: ReactNode }) => (
-    <section>{children}</section>
-  ),
-  DialogDescription: ({ children }: { children: ReactNode }) => (
-    <p>{children}</p>
-  ),
-  DialogFooter: ({ children }: { children: ReactNode }) => (
-    <footer>{children}</footer>
-  ),
-  DialogHeader: ({ children }: { children: ReactNode }) => (
-    <header>{children}</header>
-  ),
-  DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-}));
+vi.mock("@/components/ui/dialog", async (original) => {
+  const actual = await original<typeof import("@/components/ui/dialog")>();
+  return {
+    ...actual,
+    Dialog: (props: ComponentProps<typeof actual.Dialog>) => mocks.realDialogs ? <actual.Dialog {...props} /> : props.open === false ? null : <>{props.children}</>,
+    DialogTrigger: (props: ComponentProps<typeof actual.DialogTrigger>) => mocks.realDialogs ? <actual.DialogTrigger {...props} /> : <>{props.children}</>,
+    DialogContent: (props: ComponentProps<typeof actual.DialogContent>) => mocks.realDialogs ? <actual.DialogContent {...props} /> : <section>{props.children}</section>,
+    DialogDescription: (props: ComponentProps<typeof actual.DialogDescription>) => mocks.realDialogs ? <actual.DialogDescription {...props} /> : <p>{props.children}</p>,
+    DialogFooter: (props: ComponentProps<typeof actual.DialogFooter>) => mocks.realDialogs ? <actual.DialogFooter {...props} /> : <footer>{props.children}</footer>,
+    DialogHeader: (props: ComponentProps<typeof actual.DialogHeader>) => mocks.realDialogs ? <actual.DialogHeader {...props} /> : <header>{props.children}</header>,
+    DialogTitle: (props: ComponentProps<typeof actual.DialogTitle>) => mocks.realDialogs ? <actual.DialogTitle {...props} /> : <h2>{props.children}</h2>,
+  };
+});
 
 vi.mock("@/components/ui/textarea", () => ({
   Textarea: (props: TextareaHTMLAttributes<HTMLTextAreaElement>) => (
@@ -208,6 +206,21 @@ vi.mock("sonner", () => ({
   },
 }));
 
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: { getIdToken: async () => mocks.user?.getIdToken() ?? null },
+}));
+vi.mock("@/lib/services/answer-request-service", async (original) => ({
+  ...(await original<typeof import("@/lib/services/answer-request-service")>()),
+  AnswerRequestService: { gates: mocks.answerGates, create: mocks.answerCreate },
+}));
+
+beforeEach(() => {
+  mocks.realDialogs = false;
+  mocks.answerGates.mockReset().mockResolvedValue({ requests: false, payments: false, payouts: false });
+  mocks.answerCreate.mockReset();
+});
+
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { PersonProfilePage } from "@/components/connections/person-profile-page";
 import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
 
@@ -1615,4 +1628,117 @@ describe("PersonProfilePage request catalog tools", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(screen.queryByTestId("person-profile-bundle-details")).toBeNull();
   });
+});
+
+
+describe("Request scope during profile authority refresh", () => {
+  const requestId = "33333333-3333-4333-8333-333333333333";
+  const initialProfile = { personRef: "actual-public-ref", displayName: "Actual Person", photoUrl: null, verifiedRole: null };
+  beforeEach(() => {
+    mocks.realDialogs = true;
+    mocks.native = false;
+    mocks.platform = "web";
+    mocks.user = { uid: "viewer", getIdToken: async () => "viewer-token" };
+    mocks.authLoading = false;
+    mocks.getViewer.mockReset().mockResolvedValue(viewerProfile());
+    mocks.getRequestHistory.mockResolvedValue({ bundles: [], hasMore: false, nextCursor: null });
+    mocks.answerGates.mockResolvedValue({ requests: true, payments: false, payouts: false });
+    mocks.answerCreate.mockReset();
+  });
+  afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.realDialogs = false; });
+
+  async function openQuestion() {
+    const rendered = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Request scope", exact: true }));
+    fireEvent.change(await screen.findByLabelText("Question"), { target: { value: "What are your food preferences?" } });
+    return rendered;
+  }
+  function answerDoorbell() {
+    dispatchConsentStateChanged({ userId: "viewer", source: "answer_request_changed", requestId: `answer_request:${requestId}`, messageId: `pkm_answer_requests:${requestId}:awaiting_owner:synthetic-timestamp` });
+  }
+
+  it.each(["connected", "disconnected", "failed"])("retains accepted confirmation through a %s connection refresh", async (outcome) => {
+    let accept!: (value: { requestId: string }) => void;
+    let refresh!: (value: ReturnType<typeof viewerProfile>) => void;
+    let rejectRefresh!: (error: Error) => void;
+    mocks.answerCreate.mockReturnValue(new Promise((resolve) => { accept = resolve; }));
+    await openQuestion();
+    fireEvent.click(screen.getByRole("button", { name: "Send request", exact: true }));
+    await waitFor(() => expect(mocks.answerCreate).toHaveBeenCalledWith("viewer-token", "actual-public-ref", { question: "What are your food preferences?" }));
+    mocks.getViewer.mockReturnValueOnce(new Promise((resolve, reject) => { refresh = resolve; rejectRefresh = reject; }));
+    act(answerDoorbell);
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("button", { name: "Request scope", exact: true })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+    await act(async () => { accept({ requestId }); });
+    expect(await screen.findByText(/Request sent\./)).toBeVisible();
+    expect(screen.getByRole("link", { name: "View request" })).toHaveAttribute("href", expect.stringContaining(requestId));
+    expect(screen.getByRole("button", { name: "Ask another question" })).toBeDisabled();
+    await act(async () => {
+      if (outcome === "failed") rejectRefresh(new Error("Connection refresh unavailable"));
+      else refresh(viewerProfile(outcome === "disconnected" ? { relationship: { status: "none" } } : {}));
+    });
+    const another = screen.getByRole("button", { name: "Ask another question" });
+    if (outcome === "connected") expect(another).toBeEnabled();
+    else expect(another).toBeDisabled();
+    expect(screen.getByText(/Request sent\./)).toBeVisible();
+    expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks a new submission while connection authority is unknown or removed", async () => {
+    await openQuestion();
+    let refresh!: (value: ReturnType<typeof viewerProfile>) => void;
+    mocks.getViewer.mockReturnValueOnce(new Promise((resolve) => { refresh = resolve; }));
+    act(answerDoorbell);
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
+    const send = screen.getByRole("button", { name: "Send request", exact: true });
+    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    expect(send).toBeDisabled();
+    fireEvent.submit(send.closest("form")!);
+    expect(mocks.answerCreate).not.toHaveBeenCalled();
+    await act(async () => { refresh(viewerProfile({ relationship: { status: "none" } })); });
+    expect(send).toBeDisabled();
+    fireEvent.submit(send.closest("form")!);
+    expect(mocks.answerCreate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Request scope", exact: true })).toBeNull();
+    expect(screen.getByRole("button", { name: "Share profile" })).toHaveFocus();
+  });
+
+  it("returns focus to the stable profile action when dismissed during a refresh", async () => {
+    await openQuestion();
+    mocks.getViewer.mockReturnValueOnce(new Promise(() => {}));
+    act(answerDoorbell);
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("button", { name: "Share profile" })).toHaveFocus();
+  });
+
+  it.each(["account", "person"])(
+    "discards the accepted request dialog when its %s changes",
+    async (change) => {
+      mocks.answerCreate.mockResolvedValue({ requestId });
+      const rendered = await openQuestion();
+      fireEvent.click(screen.getByRole("button", { name: "Send request", exact: true }));
+      await screen.findByText(/Request sent\./);
+
+      if (change === "account") {
+        mocks.user = { uid: "another-viewer", getIdToken: async () => "another-token" };
+      }
+      const personRef = change === "person" ? "other-public-ref" : "actual-public-ref";
+      const nextProfile = { ...initialProfile, personRef };
+      mocks.getPublic.mockResolvedValue(nextProfile);
+      mocks.getViewer.mockResolvedValue(viewerProfile({ personRef }));
+      rendered.rerender(<PersonProfilePage personRef={personRef} initialProfile={nextProfile} />);
+
+      await waitFor(() => expect(screen.queryByText(/Request sent\./)).toBeNull());
+      expect(screen.queryByRole("link", { name: "View request" })).toBeNull();
+      fireEvent.click(await screen.findByRole("button", { name: "Request scope", exact: true }));
+      expect(await screen.findByLabelText("Question")).toHaveValue("");
+      expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
+    },
+  );
 });

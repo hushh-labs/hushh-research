@@ -39,12 +39,21 @@ import {
   type AnswerableWork,
 } from "@/lib/services/answer-request-service";
 import { encryptSliceForRecipient } from "@/lib/one-marketplace/encryption";
-import { buildConsentExportForScope } from "@/lib/consent/export-builder";
+import { buildConsentExportForScope, createConsentExportReadSession } from "@/lib/consent/export-builder";
 import {
   projectApprovedAnswer,
   type ScopeProjection,
 } from "@/lib/answers/answer-projection";
 import { buildAnswerMemorySlice } from "@/lib/answers/answer-memory-slice";
+import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
+
+/**
+ * Scope exports in flight at once while preparing one answer.
+ *
+ * Each builds an encrypted export on the owner's device, so this is the same
+ * trade the grouped-Allow path already makes: a small bound, not everything.
+ */
+const ANSWER_SCOPE_READ_CONCURRENCY = 4;
 
 export interface AnswerSweepParams {
   userId: string;
@@ -54,6 +63,21 @@ export interface AnswerSweepParams {
   firebaseIdToken: string;
   /** Explicit owner action may fulfil only the selected request. */
   requestId?: string;
+  /**
+   * The owner's own public identity, as the requester already sees it on the
+   * profile they asked from. Passing null left every answer written from a
+   * bag of fields with no one attached: the slice supports an account block
+   * and the sweep never filled it, so a question like "what is your name"
+   * had no name to answer from even with Identity information approved.
+   *
+   * Nothing here is new to the requester, and nothing here is PKM: it is the
+   * account's display name, photo and email.
+   */
+  ownerIdentity?: {
+    displayName?: string | null;
+    email?: string | null;
+    photoUrl?: string | null;
+  } | null;
 }
 
 export interface AnswerSweepResult {
@@ -104,34 +128,70 @@ export interface AnswerPayload {
  */
 export async function buildAnswerPayload(
   work: AnswerableWork,
-  params: Pick<AnswerSweepParams, "userId" | "vaultKey" | "vaultOwnerToken">,
+  params: Pick<
+    AnswerSweepParams,
+    "userId" | "vaultKey" | "vaultOwnerToken" | "ownerIdentity"
+  >,
   firebaseIdToken?: string,
   epoch = snapshotVaultSessionEpoch(),
 ): Promise<{ payload: AnswerPayload; hasContent: boolean }> {
   const projections: ScopeProjection[] = [];
   const unavailableScopes: string[] = [];
+  const sourceManifestRevisions: Record<string, number | null> = {};
+  const readSession = createConsentExportReadSession({ ...params, scopes: work.approvedScopes });
 
-  for (const scope of work.approvedScopes) {
-    if (!isVaultSessionEpochCurrent(epoch))
-      throw new Error("Vault session changed");
-    try {
-      const built = await buildConsentExportForScope({
-        userId: params.userId,
-        scope,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-      });
-      projections.push({
-        scope,
-        payload: built.payload,
-        contentRevision: built.sourceContentRevision ?? null,
-      });
-    } catch {
-      // A scope that cannot be exported is named, never silently omitted: a
-      // partial answer that reads complete is the failure mode to avoid.
-      unavailableScopes.push(scope);
-    }
-  }
+  // Each scope remains its own consent projection. The read session deduplicates
+  // domain ciphertext/manifest reads without exposing unapproved siblings.
+  // What changes is the waiting. Awaiting them one after another made the
+  // owner's preparation take the SUM of every scope's manifest read, blob
+  // fetch and decrypt, on a phone, while they watched. A small bound runs
+  // them together without building several encrypted exports at once.
+  //
+  // Order is restored by index, not arrival, so the document a requester is
+  // shown does not depend on which read happened to finish first.
+  const ordered: (ScopeProjection | null)[] = new Array(
+    work.approvedScopes.length,
+  ).fill(null);
+  const failed: (string | null)[] = new Array(work.approvedScopes.length).fill(
+    null,
+  );
+  if (!isVaultSessionEpochCurrent(epoch))
+    throw new Error("Vault session changed");
+  await settleWithConcurrency(
+    work.approvedScopes.map((scope, index) => ({ scope, index })),
+    ANSWER_SCOPE_READ_CONCURRENCY,
+    async ({ scope, index }) => {
+      // Re-checked per scope: a lock mid-sweep must stop the reads it can.
+      if (!isVaultSessionEpochCurrent(epoch)) {
+        failed[index] = scope;
+        return;
+      }
+      try {
+        const built = await buildConsentExportForScope({
+          userId: params.userId,
+          scope,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+          readSession,
+        });
+        ordered[index] = {
+          scope,
+          payload: built.payload,
+          contentRevision: built.sourceContentRevision ?? null,
+        };
+        sourceManifestRevisions[scope] = built.sourceManifestRevision ?? null;
+      } catch {
+        // A scope that cannot be exported is named, never silently omitted: a
+        // partial answer that reads complete is the failure mode to avoid,
+        // and the caller refuses to call this an absent answer.
+        failed[index] = scope;
+      }
+    },
+  );
+  for (const projection of ordered) if (projection) projections.push(projection);
+  for (const scope of failed) if (scope) unavailableScopes.push(scope);
+  if (!isVaultSessionEpochCurrent(epoch))
+    throw new Error("Vault session changed");
 
   const period =
     work.periodStart && work.periodEnd
@@ -149,7 +209,8 @@ export async function buildAnswerPayload(
   const memorySlice = buildAnswerMemorySlice({
     byScope: projected.byScope,
     sourceRevisions: projected.sourceRevisions,
-    ownerIdentity: null,
+    sourceManifestRevisions,
+    ownerIdentity: work.ownerIdentity ?? params.ownerIdentity ?? null,
     builtAt: new Date().toISOString(),
   });
 
@@ -166,7 +227,10 @@ export async function buildAnswerPayload(
   };
   if (!isVaultSessionEpochCurrent(epoch))
     throw new Error("Vault session changed");
-  if (firebaseIdToken && projected.hasContent) {
+  const identity = work.ownerIdentity ?? params.ownerIdentity;
+  const hasContent = projected.hasContent || Boolean(identity &&
+    [identity.displayName, identity.email, identity.photoUrl].some(value => value?.trim()));
+  if (firebaseIdToken && hasContent && !unavailableScopes.length && memorySlice.complete) {
     written = await AnswerRequestService.compose(
       firebaseIdToken,
       work.requestId,
@@ -197,7 +261,7 @@ export async function buildAnswerPayload(
       unavailableScopes,
       builtAt: new Date().toISOString(),
     },
-    hasContent: projected.hasContent,
+    hasContent,
   };
 }
 
@@ -247,12 +311,22 @@ export async function runAnswerDeliverySweep(
       //
       // An empty answer is different and still delivers: there is genuinely
       // nothing to say, the delivery records that, and it refunds itself.
-      if (
-        hasContent &&
-        (payload.answerMode !== "agent" ||
-          !payload.memoryComplete ||
-          payload.unavailableScopes.length > 0)
-      ) {
+      // "Answer not found" is a claim about what this person's memory holds,
+      // so it may only be made from a complete read. A scope that failed to
+      // export -- locked vault, stale manifest, a network blip -- is not an
+      // absent fact, and neither is a document that reports itself truncated.
+      // Delivering empty here told the requester the answer does not exist,
+      // refused their payment for good, and did it on evidence that was never
+      // gathered. Leave it queued: the next attempt retries and the row keeps
+      // saying the memory is still being checked.
+      if (payload.unavailableScopes.length > 0 || !payload.memoryComplete) {
+        result.retry += 1;
+        continue;
+      }
+
+      // A question the owner's information CAN answer, but which the writer
+      // failed to answer, is not finished work either.
+      if (hasContent && (payload.answerMode !== "agent" || !payload.answer?.trim())) {
         result.retry += 1;
         continue;
       }

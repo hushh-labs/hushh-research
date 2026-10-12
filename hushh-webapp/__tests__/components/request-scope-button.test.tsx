@@ -145,3 +145,24 @@ it("distinguishes a failed check from a disabled lane and retries", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByLabelText("Question")).toBeVisible();
 });
+
+
+it("retains the pending question and blocks form submission while connection authority is unavailable", async () => {
+  mocks.gates.mockResolvedValue({ requests: true, payments: false });
+  const view = render(<RequestScopeButton personRef="connected-person" personName="Asha" canRequest />);
+  fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
+  const field = await screen.findByLabelText("Question");
+  fireEvent.change(field, { target: { value: "What are your food preferences?" } });
+  const send = screen.getByRole("button", { name: "Send request" });
+  expect(send).toBeEnabled();
+  view.rerender(<RequestScopeButton personRef="connected-person" personName="Asha" canRequest={false} />);
+  expect(field).toHaveValue("What are your food preferences?");
+  expect(screen.getByRole("dialog")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Request scope", exact: true })).toBeNull();
+  expect(send).toBeDisabled();
+  fireEvent.submit(send.closest("form")!);
+  expect(mocks.create).not.toHaveBeenCalled();
+  view.rerender(<RequestScopeButton personRef="connected-person" personName="Asha" canRequest />);
+  expect(field).toHaveValue("What are your food preferences?");
+  expect(send).toBeEnabled();
+});

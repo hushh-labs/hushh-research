@@ -135,7 +135,19 @@ export class OneLocationService {
 }
 
 export const findCardShareRecipients = () => OneLocationService.listRecipientsPage();
+export class CardRecipientKeyUnavailableError extends Error {}
+export const prepareTemporaryCardShares = async () => { throw new Error("No delivery from the layout fixture."); };
 export const shareSavedCard = async () => { throw new Error("No delivery from the layout fixture."); };
+export class CardRecipientKeyUnavailableError extends Error {
+  constructor() { super("Ask each recipient to unlock Hushh once before sharing card details."); }
+}
+export const prepareTemporaryCardShares = async (
+  _context: CardShareContext,
+  _cardId: string,
+  _personRefs: string[],
+): Promise<Record<string, string>> => {
+  throw new Error("No delivery from the layout fixture.");
+};
 export const prepareSavedCardFile = async (context: CardShareContext, cardId: string, password: string) => {
   const saved = await WalletService.getCard({ cardId });
   if (!saved || !context.isCurrent()) throw new Error("Fixture card unavailable.");
@@ -213,7 +225,9 @@ export const ApiService = {
   apiFetch: async (requestPath: string) => {
     // Production profile/referral views keep their rendering; only network
     // responses are synthetic. No live profile, visitor, or payment is touched.
-    const payload = requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
+    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? { items: [], nextCursor: null }
+      : requestPath.startsWith("/api/one/wallet/card-access/profile") ? { eligible: false, cardId: null }
+      : requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
       items: [
         { personRef: "11111111-1111-4111-8111-111111111111", displayName: "Test Recipient", photoUrl: null, trusted: false },
         { personRef: "22222222-2222-4222-8222-222222222222", displayName: "Trusted Recipient", photoUrl: null, trusted: true },

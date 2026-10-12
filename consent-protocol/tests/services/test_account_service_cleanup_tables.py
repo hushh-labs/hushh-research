@@ -21,6 +21,21 @@ def _db(conn):
     yield conn
 
 
+def _assert_wallet_grants_erased_before_sources(conn):
+    statements = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    for table in (
+        "wallet_profile_access_grants",
+        "wallet_card_access_grants",
+        "wallet_profile_share_requests",
+        "wallet_card_share_requests",
+        "wallet_card_registrations",
+    ):
+        fragment = "DELETE FROM " + table
+        assert fragment in statements
+        assert statements.index(fragment) < statements.index("DELETE FROM messages")
+        assert statements.index(fragment) < statements.index("DELETE FROM one_wallet_cards")
+
+
 def test_delete_user_rows_if_table_exists_supports_pkm_data(monkeypatch):
     service = AccountService()
     conn = MagicMock()
@@ -192,6 +207,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         assert result["details"][table] is True
     assert result["details"]["account_deletion_tombstone"] is True
     assert result["details"]["firebase_cleanup_intent_count"] == 1
+
+    _assert_wallet_grants_erased_before_sources(conn)
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     assert "INSERT INTO account_deletion_tombstones" in executed_sql
@@ -844,6 +861,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     # A reset keeps vault_keys, so the send ledger's ON DELETE CASCADE never
     # fires: a scheduled email must be deleted here or it sends after the reset.
     assert result["details"]["gmail_owner_send_actions"] is True
+
+    _assert_wallet_grants_erased_before_sources(conn)
 
     first_sql = str(conn.execute.call_args_list[0].args[0])
     assert "pg_advisory_xact_lock" in first_sql

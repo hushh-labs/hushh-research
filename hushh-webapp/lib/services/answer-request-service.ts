@@ -65,6 +65,8 @@ export interface AnswerPaymentView {
   paidAt: string | null;
   refundedAt: string | null;
   refundReason: string | null;
+  preparationStatus: "preparing" | "ready" | "empty";
+  reconciliationRequired: boolean;
   /** Quoted BEFORE checkout: the answer is produced on the owner's device. */
   fulfilment: "owner_device";
   answerDeadlineAt: string | null;
@@ -509,6 +511,20 @@ export class AnswerRequestService {
       value.amountCents !== null &&
       !isValidAnswerPriceCents(value.amountCents)
     ) {
+      throw new Error("Invalid payment response");
+    }
+    const statuses = new Set(["pending_resolution", "awaiting_owner", "approved", "declined", "answering", "answered", "expired", "cancelled"]);
+    const orders = new Set(["awaiting_payment", "checkout_open", "paid", "refunded", "expired"]);
+    if (!statuses.has(String(value.requestStatus)) ||
+        (value.orderStatus !== null && !orders.has(String(value.orderStatus)))) {
+      throw new Error("Invalid payment response");
+    }
+    // Older deployments cannot prove preparation; never offer checkout from an absent field.
+    value.preparationStatus = ["preparing", "ready", "empty"].includes(String(value.preparationStatus))
+      ? value.preparationStatus : "preparing";
+    value.reconciliationRequired = value.reconciliationRequired !== false;
+    if (["paid", "refunded"].includes(String(value.orderStatus)) &&
+        (typeof value.paidAt !== "string" || !Number.isFinite(Date.parse(value.paidAt)))) {
       throw new Error("Invalid payment response");
     }
     return value as unknown as AnswerPaymentView;
