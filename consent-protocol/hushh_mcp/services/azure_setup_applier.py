@@ -7,7 +7,8 @@ The plan says WHAT; this module says how each step is safely repeated:
   under or the secret its receipts are signed with;
 * role assignments are idempotent by name (``RoleAssignmentExists`` is success) and
   retry ``PrincipalNotFound`` while a just-created identity replicates;
-* provider registration waits for ``Registered``;
+* provider registration admits ``Registered`` or ``Registering``; resource-level
+  ARM calls remain authoritative for regional availability and authorization;
 * an ``optional`` (model) refusal is a typed outcome: the remaining stages are
   rebuilt without the model and the agent serves the owner's own key instead;
 * a step that still carries a ``${placeholder}`` is never sent;
@@ -194,7 +195,10 @@ class SetupApplier:
     def _await_registration(self, provider_path: str, api: str) -> None:
         for _ in range(_PROVIDER_POLL_LIMIT):
             state = self._arm.get(provider_path, api_version=api, op="registering_providers")
-            if str(state.get("registrationState") or "") == "Registered":
+            # Registration completes region by region. Do not require global
+            # completion; subsequent ARM resource calls still enforce admission.
+            # https://learn.microsoft.com/azure/azure-resource-manager/management/resource-providers-and-types
+            if state.get("registrationState") in ("Registered", "Registering"):
                 return
             self._sleep(_PROVIDER_POLL_SECONDS)
         raise AzureSetupRefused(

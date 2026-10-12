@@ -90,7 +90,11 @@ refusal instead of forwarding OAuth parameters through login; completion retains
 server Firebase identity, original owner/state and PKCE checks. The primary owner callback completed with authenticated HTTP 200 and the
 approved subscription. Provisioning then stopped at
 `PROVIDER_REGISTRATION_PENDING`; the canonical six Azure provider registrations
-were requested in that subscription. Private provisioning and vault initialization
+were requested in that subscription. Source inspection identified a false global
+registration wait: Microsoft's regional registration contract permits
+`Registering`, while subsequent ARM resource calls still verify availability and
+authorization. The applier now follows that contract and retains bounded refusal
+for unregistered or unverifiable providers. Private provisioning and vault initialization
 remain acceptance requirements.
 
 The remaining lifecycle is both reviewer roles, one-cent reservation/preparation/

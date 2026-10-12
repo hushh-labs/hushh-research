@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from hushh_mcp.services.azure_arm_client import ArmClient, ArmError
+from hushh_mcp.services.azure_setup_applier import AzureSetupRefused, SetupApplier
 from hushh_mcp.services.azure_subscription_limits import environment_limit_refusal
 
 SUB = "22222222-2222-2222-2222-222222222222"
@@ -122,3 +123,34 @@ def test_an_unreadable_listing_still_explains_the_limit() -> None:
 def test_any_other_refusal_is_left_alone_negative_control() -> None:
     other = ArmError("bad_request", status=400, code="InvalidParameter", message="", op="x")
     assert environment_limit_refusal(other, _Arm([]), SUB) is None  # type: ignore[arg-type]
+
+
+class _RegistrationArm:
+    def __init__(self, state: str | None) -> None:
+        self.state = state
+        self.reads = 0
+
+    def get(self, path: str, *, api_version: str, op: str) -> dict[str, Any]:
+        self.reads += 1
+        assert path == f"/subscriptions/{SUB}/providers/Microsoft.App"
+        assert op == "registering_providers"
+        return {"registrationState": self.state}
+
+
+@pytest.mark.parametrize("state", ["Registered", "Registering"])
+def test_regional_registration_does_not_wait_for_every_region(state: str) -> None:
+    arm = _RegistrationArm(state)
+    slept: list[float] = []
+    applier = SetupApplier(arm, advance=lambda _: None, sleep=slept.append)  # type: ignore[arg-type]
+    applier._await_registration(f"/subscriptions/{SUB}/providers/Microsoft.App", "2021-04-01")
+    assert arm.reads == 1 and slept == []
+
+
+@pytest.mark.parametrize("state", ["NotRegistered", "Unregistering", None])
+def test_unregistered_or_unverifiable_provider_remains_refused(state: str | None) -> None:
+    arm = _RegistrationArm(state)
+    applier = SetupApplier(arm, advance=lambda _: None, sleep=lambda _: None)  # type: ignore[arg-type]
+    with pytest.raises(AzureSetupRefused) as refusal:
+        applier._await_registration(f"/subscriptions/{SUB}/providers/Microsoft.App", "2021-04-01")
+    assert refusal.value.code == "PROVIDER_REGISTRATION_PENDING"
+    assert arm.reads == 60
