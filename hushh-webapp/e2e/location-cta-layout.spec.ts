@@ -287,10 +287,8 @@ test.describe("One Location compact CTA layout", () => {
         0,
       );
       expect(result.publicCta.height).toBeCloseTo(48, 0);
-      expect(result.publicCta.width).toBeCloseTo(
-        result.publicDuration.width,
-        0,
-      );
+      expect(result.publicCta.width).toBeLessThan(result.publicDuration.width);
+      expect(result.publicCta.width).toBeLessThanOrEqual(244);
       expect(
         Math.abs(result.publicCta.left - result.publicDuration.left),
       ).toBeLessThanOrEqual(1);

@@ -79,7 +79,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(ctaLayout).toContain(
       "flex w-full max-w-[420px] flex-col items-stretch gap-4 px-4",
     );
-    expect(ctaLayout).toContain("h-12 min-h-12 w-full rounded-full");
+    expect(ctaLayout).toContain("h-12 min-h-12 w-auto max-w-full self-start rounded-full");
     expect(ctaLayout).not.toContain("min-[380px]:pl-16");
   });
 

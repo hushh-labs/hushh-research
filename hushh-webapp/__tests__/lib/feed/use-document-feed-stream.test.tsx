@@ -249,9 +249,12 @@ describe("document Feed stream", () => {
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
     const body = stream("event: feed_reset\ndata: {}\n\n");
     const cancel = vi.spyOn(body, "cancel");
+    // A wall-clock-aligned fallback may reconcile while the first response is
+    // pending. The late response itself must not dispatch another change.
+    const dispatchesBeforeLateResponse = mocks.dispatchConsentStateChanged.mock.calls.length;
     await act(async () => finish({ ok: true, status: 200, body }));
     expect(cancel).toHaveBeenCalledOnce();
-    expect(mocks.dispatchConsentStateChanged).not.toHaveBeenCalled();
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledTimes(dispatchesBeforeLateResponse);
     view.unmount();
   });
 

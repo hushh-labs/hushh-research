@@ -35,6 +35,7 @@ const MARKUP = `
   <button data-id="ask-about-files">Ask about files</button>
   <button class="requestScope" data-id="request-scope">Request scope</button>
   <button class="manage" data-id="manage">Manage access</button>
+  <button class="relationship primary" data-id="connect" data-voice-control-id="person-profile-connect">Connect</button>
 </div>`;
 
 test.beforeAll(async () => {
@@ -44,7 +45,7 @@ test.beforeAll(async () => {
     res.end(
       `<!doctype html><meta charset="utf-8">` +
         `<meta name="viewport" content="width=device-width,initial-scale=1">` +
-        `<style>body{margin:0;padding:16px;font-family:system-ui}${css}</style>` +
+        `<style>body{margin:0;padding:16px;font-family:system-ui;--foreground:#141414;--app-accent:#007aff;--app-accent-fg:#fff}.primary{background:var(--app-accent);color:var(--app-accent-fg)}${css}</style>` +
         MARKUP,
     );
   });
@@ -129,4 +130,9 @@ test("the cluster stays within the phone column with no horizontal overflow", as
       document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("Connect retains the primary CTA's white text", async ({ page }) => {
+  await page.goto(origin);
+  expect(await page.getByRole("button", { name: "Connect", exact: true }).evaluate(node => getComputedStyle(node).color)).toBe("rgb(255, 255, 255)");
 });
