@@ -1,0 +1,79 @@
+.firstLine,
+.secondLine {
+  transform-origin: 11px 9px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :global(button:is(:hover, :focus-visible)) .backPage {
+    animation: page-reveal 150ms ease-out;
+  }
+
+  :global(button:is(:hover, :focus-visible)) .firstLine {
+    animation: note-write 150ms ease-out;
+  }
+
+  :global(button:is(:hover, :focus-visible)) .secondLine {
+    animation: note-write 150ms ease-out 100ms backwards;
+  }
+
+  :global(button:is(:hover, :focus-visible)) .downloadArrow {
+    animation: arrow-download 150ms ease-in-out;
+  }
+
+  :global(button:is(:hover, :focus-visible)) .downloadDot {
+    animation: download-land 150ms ease-out 100ms both;
+  }
+
+  :global(button:is(:hover, :focus-visible)) .plugLeft {
+    animation: plug-connect-left 150ms ease-out;
+  }
+
+  :global(button:is(:hover, :focus-visible)) .plugRight {
+    animation: plug-connect-right 150ms ease-out;
+  }
+
+  :global(button:is(:hover, :focus-visible)) .connectionPulse {
+    animation: connection-confirm 150ms ease-out 100ms both;
+  }
+}
+
+.downloadDot,
+.connectionPulse {
+  opacity: 0;
+}
+
+@keyframes page-reveal {
+  from { transform: translateX(2px); }
+  to { transform: translateX(0); }
+}
+
+@keyframes note-write {
+  from { transform: scaleX(0); opacity: 0; }
+  to { transform: scaleX(1); opacity: 1; }
+}
+
+@keyframes arrow-download {
+  0% { transform: translateY(-3px); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes download-land {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+@keyframes plug-connect-left {
+  from { transform: translate(-16px, 16px); }
+  to { transform: translate(0, 0); }
+}
+
+@keyframes plug-connect-right {
+  from { transform: translate(16px, -16px); }
+  to { transform: translate(0, 0); }
+}
+
+@keyframes connection-confirm {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}

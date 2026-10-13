@@ -184,6 +184,11 @@ The law, which holds for every signed-in route:
    visible body heading suppresses that fallback chip, so its title remains in
    one place below the back-only bar. Nested pages whose trail already names
    the screen pass `titleVisuallyHidden` and draw the title once, in the bar.
+8. Browser Back dismisses a Reset/Delete confirmation above Profile before
+   moving the pane underneath. `useWebHistoryBack` registers during layout,
+   delegates dismissal to the owning alert, and restores the original pane
+   entry by history traversal. Cancel, Escape, and popup dismissal preserve
+   the pane's metadata and existing Forward history.
 
 `PkmSettingsShell` is not a second shell. It is a composition of exactly these
 primitives, and surfaces that use it are conformant.
@@ -886,6 +891,10 @@ Rules:
    - do not use generic `Sparkles` as a fallback for AI, optimize, onboarding, or premium semantics
 3. For application-owned surfaces, import icons from `@/components/icons`. The registry owns official Phosphor geometry, native viewBoxes, and default weight so that shell, route, and Profile treatments stay visually aligned. Do not use dynamic icon loading for normal page chrome.
 4. Icon emphasis must match text emphasis in active and highlighted states.
+   Chat's To-do, Get the app, and Connectors shortcuts use foreground ink.
+   Their registry-owned outline artwork animates internal parts on hover or
+   keyboard focus while the glyph stays anchored. Reduced motion disables
+   those animations; dark mode uses the corresponding foreground token.
 5. Prefer relative icons that describe the section or action directly.
 6. When building custom icon wells or icon-bearing surfaces, preserve the canonical Phosphor assumptions:
    - native `viewBox="0 0 256 256"` and the registry's duotone geometry

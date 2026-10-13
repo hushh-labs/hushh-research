@@ -304,23 +304,23 @@ export function DisplayNameEditor({
         </Field>
       </FieldGroup>
 
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+      <div data-display-name-actions className="flex flex-row justify-end gap-2">
         {onCancel ? (
           <Button
             type="button"
             variant="outline"
+            size="compact"
             disabled={saving}
             onClick={onCancel}
-            className="sm:min-w-[7.5rem]"
           >
             Cancel
           </Button>
         ) : null}
         <Button
           type="submit"
+          size="compact"
           disabled={!canSave}
           aria-busy={saving || undefined}
-          className="sm:min-w-[7.5rem]"
           data-testid="display-name-save"
         >
           {saving ? (

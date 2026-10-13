@@ -1075,7 +1075,7 @@ export function WalletWorkspace() {
             onOpenChange={setUnlockOpen}
             onSuccess={() => setUnlockOpen(false)}
             title="Unlock your wallet"
-            description="Enter your vault passphrase to see your cards."
+            description="Enter your vault password to see your cards."
             allowVaultCreation={false}
           />
         ) : null}

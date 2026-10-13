@@ -277,6 +277,15 @@
     font-size: 12px !important;
   }
 
+  .paneEditor :global([data-display-name-actions] > button) {
+    width: auto !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    padding: 0 16px !important;
+    font-size: 12px !important;
+    line-height: 16px !important;
+  }
+
   /* These management panes reuse the account rows above. Supporting copy,
      disclosure details and fields follow the same scale; no pane-local fonts. */
   :global(.profile-pane-scroll-root) .managedContent :global(.ui-text-helper-text),

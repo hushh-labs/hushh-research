@@ -89,7 +89,7 @@
         }
       ],
       "kind": "root",
-      "reason": "Agents dashboard is an application root."
+      "reason": "Agents dashboard is an application root. Query-backed Profile panes own their internal history; Reset/Delete confirmations dismiss before that pane history moves, verified by e2e/profile-confirmation-back.spec.ts."
     }
   },
   {

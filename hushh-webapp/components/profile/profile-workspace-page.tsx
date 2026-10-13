@@ -539,7 +539,7 @@ function readableMethod(method: VaultMethod | null): string {
     return "Device biometric";
   if (method === "generated_default_native_passkey_prf") return "Passkey";
   if (method === "generated_default_web_prf") return "Passkey";
-  if (method === "passphrase") return "Passphrase";
+  if (method === "passphrase") return "Password";
   return "Unknown";
 }
 
@@ -2105,10 +2105,10 @@ function ProfilePageContent({
         vaultOwnerToken ?? undefined,
       );
       setVaultMethod("passphrase");
-      toast.success("Primary unlock updated to passphrase.");
+      toast.success("Primary unlock updated to password.");
       await refreshVaultMethodState(user.uid);
     } catch (error) {
-      console.error("[ProfilePage] Failed to prefer passphrase unlock:", error);
+      console.error("[ProfilePage] Failed to prefer password unlock:", error);
       toast.error(
         error instanceof Error
           ? error.message
@@ -2145,7 +2145,7 @@ function ProfilePageContent({
         fallbackPrimaryWrapperId: "default",
       });
       setVaultMethod(result.primaryMethod);
-      toast.success("Passkey removed. Passphrase unlock is still available.");
+      toast.success("Passkey removed. Password unlock is still available.");
       setPasskeyRemovalTarget(null);
       await refreshVaultMethodState(user.uid);
     } catch (error) {
@@ -2164,7 +2164,7 @@ function ProfilePageContent({
     if (!user?.uid) return;
 
     if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change passphrase.");
+      toast.info("Unlock your vault to change password.");
       requestVaultUnlock("profile_data");
       return;
     }
@@ -2178,17 +2178,17 @@ function ProfilePageContent({
         keepPrimaryMethod: true,
       });
       setVaultMethod(result.primaryMethod);
-      toast.success("Passphrase updated successfully.");
+      toast.success("Password updated successfully.");
       await refreshVaultMethodState(user.uid);
       setPassphraseDialogOpen(false);
       setNewPassphrase("");
       setConfirmPassphrase("");
     } catch (error) {
-      console.error("[ProfilePage] Failed to update passphrase:", error);
+      console.error("[ProfilePage] Failed to update password:", error);
       toast.error(
         error instanceof Error
           ? error.message
-          : "We could not update your passphrase.",
+          : "We could not update your password.",
       );
     } finally {
       setSwitchingVaultMethod(false);
@@ -2547,7 +2547,7 @@ function ProfilePageContent({
                         vaultAccess.needsVaultCreation
                           ? "Create your vault"
                           : "Unlock vault",
-                        "Change passphrase",
+                        "Change password",
                         "Delete account",
                       ]
                     : [
@@ -3812,7 +3812,7 @@ function ProfilePageContent({
           }
           iconTone="capability"
           title="Vault methods"
-          description="Passphrase, passkey, and unlock method."
+          description="Password, passkey, and unlock method."
           chevron
           onClick={() =>
             updateProfileView({ panel: "security", detail: "vault" }, "push")
@@ -4102,7 +4102,7 @@ function ProfilePageContent({
                         disabled={switchingVaultMethod}
                         onClick={() => void preferPassphraseUnlock()}
                       >
-                        Passphrase
+                        Password
                       </Button>
                     ) : null}
                     {canSwitchDefaultToQuick &&
@@ -4135,7 +4135,7 @@ function ProfilePageContent({
                 }
                 iconTone="capability"
                 title="Unlock vault"
-                description="Change methods or passphrase."
+                description="Change methods or password."
                 chevron
                 onClick={() => requestVaultUnlock("profile_data")}
               />
@@ -4240,7 +4240,7 @@ function ProfilePageContent({
                     : PassphraseRowIcon
                 }
                 iconTone="capability"
-                title="Change passphrase"
+                title="Change password"
                 disabled={switchingVaultMethod}
                 chevron
                 onClick={() => setPassphraseDialogOpen(true)}
@@ -5099,7 +5099,7 @@ function ProfilePageContent({
           open={showVaultCreation}
           onOpenChange={handleVaultCreationOpenChange}
           title="Create your vault"
-          description="Set up a passphrase to secure your saved details."
+          description="Set up a password to secure your saved details."
           onSuccess={() => {
             vaultCreationCompletingRef.current = true;
             setShowVaultCreation(false);
@@ -5133,22 +5133,22 @@ function ProfilePageContent({
         onOpenChange={setPassphraseDialogOpen}
       >
         <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
-          <DialogTitle>Change passphrase</DialogTitle>
+          <DialogTitle>Change password</DialogTitle>
           <DialogDescription>
-            Set a new passphrase for Vault unlock. Your passkey and biometric
+            Set a new password for Vault unlock. Your passkey and biometric
             methods stay active.
           </DialogDescription>
           <div className="space-y-3 pt-2">
             <Input
               type="password"
-              placeholder="New passphrase (min 8 characters)"
+              placeholder="New password (min 8 characters)"
               autoComplete="new-password"
               value={newPassphrase}
               onChange={(event) => setNewPassphrase(event.target.value)}
             />
             <Input
               type="password"
-              placeholder="Confirm passphrase"
+              placeholder="Confirm password"
               autoComplete="new-password"
               value={confirmPassphrase}
               onChange={(event) => setConfirmPassphrase(event.target.value)}
@@ -5174,7 +5174,7 @@ function ProfilePageContent({
                 }
                 onClick={() => void changePassphrase()}
               >
-                {switchingVaultMethod ? "Saving..." : "Save new passphrase"}
+                {switchingVaultMethod ? "Saving..." : "Save new password"}
               </Button>
             </div>
           </div>
@@ -5192,7 +5192,7 @@ function ProfilePageContent({
             <AlertDialogTitle>Remove passkey?</AlertDialogTitle>
             <AlertDialogDescription>
               This removes the saved passkey from One. It may still remain in
-              your password manager, and passphrase unlock will stay available.
+              your password manager, and password unlock will stay available.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {passkeyRemovalTarget ? (

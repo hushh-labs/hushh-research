@@ -174,6 +174,7 @@ export default defineConfig({
         /direct-chat\.layout\.spec\.ts/,
         /one-location-live-share\.layout\.spec\.ts/,
         /profile-sign-out\.spec\.ts/,
+        /profile-confirmation-back\.spec\.ts/,
         /ai-selection\.layout\.spec\.ts/,
         /setup-hub\.layout\.spec\.ts/,
         /phone-entry\.layout\.spec\.ts/,

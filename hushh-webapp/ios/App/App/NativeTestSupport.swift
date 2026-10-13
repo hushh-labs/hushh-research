@@ -411,7 +411,7 @@ struct NativeTestConfiguration {
                     if (!fallbackButton) {
                       fallbackButton = buttons.find(function(button) {
                         var text = (button.textContent || "").trim().toLowerCase();
-                        return text === "use passphrase instead";
+                        return text === "use password instead";
                       });
                     }
                     if (fallbackButton && !fallbackButton.disabled) {
@@ -430,7 +430,7 @@ struct NativeTestConfiguration {
                   passphraseInput.dispatchEvent(new Event("change", { bubbles: true }));
                   var unlockButton = buttons.find(function(button) {
                     var text = (button.textContent || "").trim().toLowerCase();
-                    return text === "unlock with passphrase";
+                    return text === "unlock with password";
                   });
                   if (unlockButton && !unlockButton.disabled && bridge._vaultUnlockSubmitted !== true) {
                     bridge._vaultUnlockSubmitted = true;
