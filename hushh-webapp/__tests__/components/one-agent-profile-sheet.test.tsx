@@ -107,6 +107,7 @@ describe("One agent profile feed preview", () => {
     });
     expect(memory).toHaveAttribute("href", "/one/pkm");
     expect(screen.getByText("Identity preview")).toBeInTheDocument();
+    expect(screen.queryByText("soul.md")).not.toBeInTheDocument();
     const calls = mocks.list.mock.calls.length;
     fireEvent.focus(window);
     await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(calls));
