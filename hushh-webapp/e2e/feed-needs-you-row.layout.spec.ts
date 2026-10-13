@@ -42,7 +42,16 @@ async function buildFixture(dark: boolean): Promise<string> {
   );
   const used = new Set<string>();
   for (const match of markup.matchAll(/class="([^"]*)"/g)) {
-    for (const token of match[1].split(/\s+/)) if (token) used.add(token);
+    // React escapes arbitrary selector utilities in static HTML. Tailwind
+    // needs the original token, for example `[&>a]:min-h-[52px]`, otherwise
+    // the browser fixture silently falls back to SettingsRow's 48px minimum.
+    const classNames = match[1]
+      .replaceAll("&amp;", "&")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&#x27;", "'")
+      .replaceAll("&quot;", '"');
+    for (const token of classNames.split(/\s+/)) if (token) used.add(token);
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "feed-person-layout-"));
   fs.writeFileSync(
@@ -90,7 +99,7 @@ test("compact person typography survives a portal outside the page shell", async
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
     test(
-      "person rows remain aligned at " +
+      "feed rows remain aligned at " +
         width +
         "px " +
         (dark ? "dark" : "light"),
@@ -99,9 +108,16 @@ for (const dark of [false, true]) {
         await page.goto(await buildFixture(dark));
         await awaitProductFont(page);
         const rows = page.locator('[data-row-layout="person"]');
-        // A missing selector used to silently pass this entire suite.
-        // Seven existing person/actionable rows plus five real agent outcomes.
-        await expect(rows).toHaveCount(12);
+        const compactActionables = page.locator(
+          '[data-row-layout="settings"][data-testid^="feed-actionable-"]',
+        );
+        const historyRows = page.locator('[data-testid="feed-row"]');
+        // The generated fixture has three decision rows, one compact live row,
+        // and eight compact historical events. Assert every class so a missing
+        // selector cannot silently pass the geometry checks below.
+        await expect(rows).toHaveCount(3);
+        await expect(compactActionables).toHaveCount(1);
+        await expect(historyRows).toHaveCount(8);
         for (const heading of await page
           .locator('[data-slot="settings-group-heading"]')
           .all()) {
@@ -204,12 +220,92 @@ for (const dark of [false, true]) {
             expect.soft(third.left).toBeGreaterThanOrEqual(second.left + second.width - 1);
           }
         }
+        const compactMeasurements = await page
+          .locator(
+            '[data-row-layout="settings"][data-testid^="feed-actionable-"], [data-testid="feed-row"]',
+          )
+          .evaluateAll((elements) =>
+            elements.map((row) => {
+              const box = row.getBoundingClientRect();
+              const surface = row.querySelector(":scope > a, :scope > button")!;
+              const title = row.querySelector(
+                '[data-slot="settings-row-title"]',
+              )!;
+              const description = row.querySelector(
+                '[data-slot="feed-event-description"]',
+              )!;
+              const leading = row.querySelector(
+                '[data-slot="avatar"],[data-slot="feed-domain-icon"]',
+              )!;
+              const time = row.querySelector('[data-slot="feed-event-time"]');
+              const titleBox = title.getBoundingClientRect();
+              const leadingBox = leading.getBoundingClientRect();
+              const surfaceBox = surface.getBoundingClientRect();
+              return {
+                kind: row.getAttribute("data-row-layout") === "settings"
+                  ? "actionable"
+                  : "history",
+                title: title.textContent,
+                inset: titleBox.left - box.left,
+                separator: parseFloat(getComputedStyle(row, "::after").left),
+                leadingWidth: leadingBox.width,
+                leadingHeight: leadingBox.height,
+                titleFontSize: parseFloat(getComputedStyle(title).fontSize),
+                descriptionFontSize: parseFloat(getComputedStyle(description).fontSize),
+                timeFontSize: time
+                  ? parseFloat(getComputedStyle(time).fontSize)
+                  : null,
+                timeVisible: time
+                  ? time.getBoundingClientRect().width > 0
+                  : false,
+                height: box.height,
+                tapHeight: surfaceBox.height,
+                tapWidth: surfaceBox.width,
+                width: box.width,
+                overflow: [...row.querySelectorAll("*")].some((node) => {
+                  if ((node as HTMLElement).classList.contains("sr-only"))
+                    return false;
+                  const bounds = node.getBoundingClientRect();
+                  return (
+                    bounds.width > 0 &&
+                    (bounds.left < box.left - 1 || bounds.right > box.right + 1)
+                  );
+                }),
+              };
+            }),
+          );
+        expect(compactMeasurements).toHaveLength(9);
+        for (const row of compactMeasurements) {
+          const expectedInset = row.kind === "history" && width <= 360 ? 46 : 50;
+          expect.soft(row.inset, row.title ?? "").toBeCloseTo(expectedInset, 0);
+          expect.soft(row.separator).toBeCloseTo(
+            row.kind === "history" ? 44 : 50,
+            0,
+          );
+          expect.soft(row.leadingWidth).toBeGreaterThanOrEqual(22);
+          expect.soft(row.leadingWidth).toBeLessThanOrEqual(26);
+          expect.soft(row.leadingHeight).toBeGreaterThanOrEqual(22);
+          expect.soft(row.leadingHeight).toBeLessThanOrEqual(26);
+          expect.soft(row.titleFontSize).toBeGreaterThanOrEqual(12.5);
+          expect.soft(row.titleFontSize).toBeLessThanOrEqual(13);
+          expect.soft(row.descriptionFontSize).toBeGreaterThanOrEqual(10);
+          expect.soft(row.descriptionFontSize).toBeLessThanOrEqual(11);
+          if (row.timeFontSize !== null) {
+            expect.soft(row.timeFontSize).toBe(10);
+            expect.soft(row.timeVisible).toBe(width > 520);
+          }
+          expect.soft(row.height, `${row.kind}: ${row.title}`).toBeGreaterThanOrEqual(52);
+          expect.soft(row.height).toBeLessThanOrEqual(90);
+          expect.soft(row.tapHeight, `${row.kind}: ${row.title}`).toBeGreaterThanOrEqual(52);
+          expect.soft(row.tapWidth).toBeGreaterThanOrEqual(row.width - 1);
+          expect.soft(row.overflow, row.title ?? "").toBe(false);
+        }
         await expect(
           page.locator("button button, button a, a button"),
         ).toHaveCount(0);
         if (width === 393 || width === 1280) {
           await page.screenshot({
-            path: testInfo.outputPath("feed-person-rows.png"),
+            path: testInfo.outputPath("feed-rows.png"),
             fullPage: true,
           });
         }
