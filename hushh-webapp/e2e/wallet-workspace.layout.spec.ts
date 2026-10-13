@@ -922,3 +922,41 @@ test("Wallet sharp onboarding and stacked detail links", async ({ page }) => {
   await expect(page.getByTestId("wallet-sharing-content").locator('figure [data-agent-card="profile"]')).toBeVisible();
   await expect(page.getByTestId("wallet-sharing-content").locator("figure")).toBeInViewport();
 });
+
+for (const width of [320, 393, 1024]) {
+  test(`Visitor preview keeps photo, details and QR readable at ${width}px`, async ({ page }, testInfo) => {
+    const consoleErrors: string[] = [];
+    page.on("console", message => { if (["error", "warning"].includes(message.type())) consoleErrors.push(message.text()); });
+    const errors = await open(page, width, "light", {}, { secure: true });
+    const photo = `data:image/webp;base64,${fs.readFileSync(path.join(process.cwd(), "public/ria/onboarding/adv1f.webp")).toString("base64")}`;
+    await page.addScriptTag({ content: `window.__visitorPreview = ${JSON.stringify({ photo, long: width === 320 })};` });
+    await mount(page, false);
+    const card = page.getByTestId("visitor-profile-card");
+    await expect(card).toBeVisible();
+    await expect(card.locator('[data-slot="avatar-image"]')).toBeVisible();
+    await expect(card.getByRole("img", { name: "Hushh profile badge" })).toBeVisible();
+    await expect(card.getByRole("img", { name: "Profile QR code", exact: true })).toBeVisible();
+    const email = card.locator('a[href^="mailto:"]');
+    await email.focus();
+    await expect(email).toBeFocused();
+    await expect(card.getByRole("link", { name: /Website/ })).toHaveAttribute("rel", "noopener noreferrer");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const overflowing = await card.locator('h1, p, a, figure').evaluateAll(nodes => nodes.filter(node => node.scrollWidth > node.clientWidth + 1).length);
+    expect(overflowing).toBe(0);
+    const typography = await card.locator('h1').evaluate(node => {
+      const reference = document.createElement("h1");
+      reference.className = "break-words text-[26px] font-medium leading-[1.15] tracking-tight sm:text-[30px]";
+      document.body.append(reference);
+      const original = getComputedStyle(reference);
+      const current = getComputedStyle(node);
+      const result = { current: [current.fontSize, current.fontFamily, current.fontWeight], original: [original.fontSize, original.fontFamily, original.fontWeight] };
+      reference.remove();
+      return result;
+    });
+    expect(typography.current).toEqual(typography.original);
+    expect(errors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+    await email.blur();
+    await page.screenshot({ path: testInfo.outputPath(`visitor-${width}.png`), fullPage: true });
+  });
+}

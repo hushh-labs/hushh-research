@@ -31,6 +31,9 @@ describe("payout freshness line", () => {
     // monotonic so distinct tests cannot tick to an identical old snapshot.
     NOW += 24 * 60 * 60_000;
     vi.useFakeTimers();
+    // The shared coarse clock retains its snapshot between mounts. Keep test
+    // time moving forward so a tick cannot equal a previous test's snapshot.
+    NOW += 24 * 60 * 60_000;
     vi.setSystemTime(NOW);
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       setTimeout(() => callback(performance.now()), 16);
