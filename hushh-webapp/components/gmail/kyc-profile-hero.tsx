@@ -38,8 +38,7 @@ export function KycProfileHero({ onPasteDetails }: { onPasteDetails: () => void 
             Build your{" "}<br />KYC profile
           </h2>
           <p className="mt-3 max-w-md text-[15px] leading-[22px] text-muted-foreground">
-            Paste your profile details to automate future KYC responses. Securely
-            parsed and pre-filled by One.
+            Paste your profile details to automate future KYC responses.
           </p>
         </div>
 
