@@ -56,6 +56,7 @@ def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
         "--no-candidates",
         'cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"',
         'cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json"',
+        'cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"',
     )
     require(
         ".github/workflows/deploy-uat-one-chat.yml",

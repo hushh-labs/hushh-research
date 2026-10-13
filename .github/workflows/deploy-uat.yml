@@ -183,6 +183,8 @@ jobs:
             "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
           cp config/runtime-capacity.json \
             "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          cp scripts/ops/verify_passkey_domain_associations.py \
+            "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
           cp scripts/ops/verify_uat_release.py \
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
 
@@ -198,6 +200,8 @@ jobs:
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
             config/runtime-capacity.json
+          cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py" \
+            scripts/ops/verify_passkey_domain_associations.py
 
       - name: Validate Google Cloud workload identity configuration
         shell: bash
@@ -1668,19 +1672,10 @@ jobs:
           set -euo pipefail
           # Validate UAT OAuth app links and retain shared production RP credentials.
           # Production OAuth routes are verified by its own deployment.
-          for attempt in 1 2; do
-            if python3 scripts/ops/verify_passkey_domain_associations.py \
-              --project "${{ env.GCP_PROJECT_ID }}" \
-              --origin "${{ env.APP_FRONTEND_ORIGIN }}" \
-              --credentials-only-origin "https://one.hushh.ai"; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 2 ]; then
-              echo "UAT passkey association verification failed after two attempts." >&2
-              exit 1
-            fi
-            sleep 3
-          done
+          python3 scripts/ops/verify_passkey_domain_associations.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --origin "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --credentials-only-origin "https://one.hushh.ai"
 
       - name: Post-deploy UAT schema contract gate
         id: postdeploy-db-gate
