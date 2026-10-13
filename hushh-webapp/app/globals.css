@@ -8178,6 +8178,27 @@ body[data-persona-surface="ria"] {
    precedence is intentionally reversed). Keep this override narrow to the
    drawer instead of changing heading scale across unrelated product screens. */
 @layer base {
+  /* Onboarding consumes the shared type scale. Base heading locks otherwise
+     outrank the semantic utilities because important layer order is reversed. */
+  [data-one-onboarding-design] .ui-text-page-title {
+    font-size: var(--type-page-title-size) !important;
+    line-height: var(--type-page-title-line) !important;
+    font-weight: var(--type-page-title-weight) !important;
+    letter-spacing: var(--type-page-title-tracking) !important;
+  }
+
+  [data-one-feature-card] [data-one-use-case-tag] {
+    color: var(--app-label) !important;
+    letter-spacing: normal !important;
+    font-weight: var(--type-eyebrow-weight) !important;
+  }
+
+  [data-testid="saved-places-banner"] .ui-text-headline {
+    font-size: var(--type-row-label-size) !important;
+    line-height: var(--type-row-label-line) !important;
+    font-weight: var(--type-row-label-emphasis-weight) !important;
+  }
+
   .check-in-drawer-title.check-in-drawer-title {
     font-family: var(--font-app-display) !important;
     font-size: var(--type-page-title-size) !important;
