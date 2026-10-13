@@ -13,6 +13,10 @@ const payoutsSource = readFileSync(
   join(process.cwd(), "components/consent/document-hashcoins.tsx"),
   "utf8",
 );
+const paymentsSource = readFileSync(
+  join(process.cwd(), "components/consent/payments-and-earnings.tsx"),
+  "utf8",
+);
 
 /** Every mounted bank control that turns on Stripe-return handling, one entry per mount. */
 function returnHandlingBankControls(): string[] {
@@ -82,12 +86,15 @@ describe("profile workspace duplication contract", () => {
     expect(memory).not.toContain("DocumentHashcoinPayouts");
     expect(profilePageSource).toContain('activePanel === "payouts"');
     expect(profilePageSource).toContain('activePanel === "request-pricing"');
-    expect(profilePageSource).toContain("<DocumentHashcoinPayouts />");
+    expect(profilePageSource).toContain("<PaymentsAndEarnings key={user?.uid} />");
     // One bank control on Payouts: the bank rows in "Your money", the only
     // control that takes Stripe's return. A second would start setup again.
     const payoutsPanel = profilePageSource.split('activePanel === "payouts") {')[1]?.split("} else if (")[0] ?? "";
-    expect(payoutsPanel).toContain("<DocumentHashcoinPayouts />");
+    expect(payoutsPanel).toContain("<PaymentsAndEarnings key={user?.uid} />");
     expect(payoutsPanel).not.toContain("AnswerPayoutAccount");
+    expect(paymentsSource).toContain("<ScopeCommerceAccountPanel />");
+    expect(paymentsSource.match(/<DocumentHashcoinPayouts\b/g)).toEqual(["<DocumentHashcoinPayouts"]);
+    expect(paymentsSource).toMatch(/arrival\?\.source === "answers" \? <section[^>]*><AnswerPayoutAccount \/><\/section> : null/);
     expect(payoutsSource.match(/<(?:PayoutBankRows|DocumentPayoutAccountCard)\b/g)).toEqual(["<PayoutBankRows"]);
     expect(payoutsSource).toContain("<PayoutBankRows handleReturn onAccountChange={setBank} actionsRef={bankActions} />");
     expect(returnHandlingBankControls()).toEqual(["components/consent/document-hashcoins.tsx"]);

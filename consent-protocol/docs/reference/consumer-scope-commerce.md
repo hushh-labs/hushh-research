@@ -74,6 +74,28 @@ scope labels without granting information access. The nearest ingress and
 inventory/resolver checks pass 63 and 36 cases respectively. Required full core
 and hosted CI must pass on the corrected candidate before deployment.
 
+The full core bundle passes on `42f90f3cb47c` (540 seconds), including 18,675
+parallel protocol cases, 1,028 PostgreSQL cases and the selected PKM upgrade gate.
+Its hosted browser jobs expose an obsolete inline History anchor after the
+imported native opener changed. The corrected fixture reads the authored opener
+and fails on missing or ambiguous anchors; all 40 affected Chromium/WebKit cases
+pass, including the existing geometry negative controls.
+The combined Profile contract follows the canonical Payments and earnings
+composition while retaining one bank-return owner and source-specific answer
+returns. Circle chat lifecycle assertions wait for initialization and retirement
+effects; their connection-count guarantees are unchanged. Both nearest files
+pass all 11 cases. Required gates are retained.
+
+Dev's owner-authorized private model diagnostic reports a relay `ReadTimeout`.
+The relay's five-second status budget was shorter than uncached identity
+acquisition (10 seconds) followed by the provider probe (20 seconds). Diagnostics
+now use a 35-second network-phase budget; ordinary status reads retain five
+seconds, registry-selected addresses, authentication and redirect refusal.
+All 23 nearest relay/diagnostic/timeout cases pass, and restoring the short
+diagnostic budget fails the regression. This source correction still requires
+exact-candidate core/CI and deployed provider verification; a later healthy Azure
+replica does not establish request-time model access.
+
 Normal integration of main `1d691714135e` retains the existing infrastructure
 branch, prepared-answer settlement ownership and timed scope-access authority.
 The combined interface continues to use one Payments and earnings destination;

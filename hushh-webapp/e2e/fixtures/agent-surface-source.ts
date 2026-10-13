@@ -4,31 +4,14 @@ import path from "node:path";
 /**
  * The Agent Chat header, read out of the shipped source rather than retyped.
  *
- * `agent-chat-workspace.tsx` is 6,200 lines behind One's sign-in, wired to
- * Firebase auth, the vault, the AG-UI stream and a dozen services. A Playwright
- * spec cannot mount it, and a spec that navigates to `/one` without reviewer
- * credentials proves only that the welcome screen renders.
+ * The workspace depends on Firebase, the vault and AG-UI; an unauthenticated
+ * visit proves only the welcome screen. This fixture instead extracts shipped
+ * classes, copy and conditional expressions, including imported header controls.
+ * It executes plain guards with fixture state so removed gates or moved controls
+ * change the measured screen. Every anchor must match exactly once.
  *
- * So the header is REBUILT as a standalone fixture, the way
- * `gemini-endpoint-fields.layout.spec.ts` rebuilds the endpoint fields: every
- * value that decides what appears on screen is extracted from the shipped file,
- * not copied into the test. Two kinds of value are lifted here:
- *
- *   1. Class strings and copy, so the fixture lays out and reads like the real
- *      header and a stale copy of either cannot pass.
- *   2. The CONDITIONAL EXPRESSIONS themselves. `gateExpression` is the literal
- *      source text of the guard that decides whether One's cloud model picker
- *      renders, and the fixture EXECUTES it with `isPuppySurface` bound. Delete
- *      the guard, invert it, or reorder the actions around it, and the
- *      fixture's screen changes with the product's.
- *
- * Every extraction is anchored and asserted. A rename this file cannot follow
- * throws here, at build time, instead of quietly rendering an empty header that
- * satisfies every assertion downstream.
- *
- * What this CANNOT do is exercise the real component: state, effects, focus
- * handling and Radix internals are not in the fixture. The spec's own header
- * comment records that boundary and stays inside it.
+ * This proves source-derived presentation, not real React state, focus effects
+ * or Radix behavior. The owning spec records those separate acceptance limits.
  */
 
 const WEBAPP_ROOT = process.cwd();
@@ -115,6 +98,7 @@ if (headerStart < 0 || headerEnd < headerStart) {
   fail("the header region", WORKSPACE_PATH);
 }
 const header = workspace.slice(headerStart, headerEnd);
+one(header, /<NativeHistoryOpener\b/, "authored history opener", WORKSPACE_PATH);
 
 const headerContainerClass = one(
   header,
@@ -476,10 +460,15 @@ export const AGENT_SURFACE_SOURCE = {
             )[1],
           },
       historyClass: one(
-        header,
+        one(
+          read("components/app-ui/native-chat-chrome.tsx"),
+          /export function NativeHistoryOpener\b([\s\S]*?)<ShellActionSurface/,
+          "authored history opener",
+          "components/app-ui/native-chat-chrome.tsx",
+        )[1],
         /<NativeChatChrome kind="history"[\s\S]*?className="([^"]+)"/,
         "native history slot",
-        WORKSPACE_PATH,
+        "components/app-ui/native-chat-chrome.tsx",
       )[1],
       surfaceClass: one(
         header,

@@ -116,31 +116,47 @@ class _Registry:
 
 @pytest.mark.asyncio
 async def test_the_relay_uses_the_same_owner_door_and_forwards_the_query(monkeypatch) -> None:
+    from requests.exceptions import ReadTimeout
+
+    from hushh_mcp.runtime_providers.azure_openai import _PROBE_TIMEOUT_SECONDS
+    from hushh_mcp.services.pod_workload_identity import _TIMEOUT_SECONDS
+
     monkeypatch.setattr(pod_relay, "_require_enabled", lambda: None)
-    monkeypatch.setattr(pod_relay, "_pod_url", lambda row: "https://pod.example")
-    seen: dict = {}
+    monkeypatch.setattr(pod_relay, "_identity_token", lambda _: _TOKEN)
+    provider_budget = _TIMEOUT_SECONDS + _PROBE_TIMEOUT_SECONDS
+    calls: list[tuple[str, dict]] = []
 
-    async def _proxy(url, path, *, session=None):
-        seen["url"], seen["path"] = url, path
-        return 200, {"reachable": True}
+    class SlowPod:
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs))
+            if kwargs["timeout"] <= provider_budget:
+                raise ReadTimeout("scripted token acquisition and provider probe")
+            return _Resp(200, {"reachable": True})
 
-    monkeypatch.setattr(pod_relay, "_proxy_get", _proxy)
     auditor = _Auditor()
+    row = {"backend_metadata": {"url": "https://pod.example"}}
     out = await pod_relay.relay_pod_model_diagnostic(
         hushh_id="ha1_x",
         user_id="uid",
         model="gemini-live-2.5-flash-native-audio",
         location="us-central1",
-        registry=_Registry({"external_agent_id": "one-pod-x"}),
+        registry=_Registry(row),
         audit=auditor,
+        session=SlowPod(),
     )
     assert out["diagnostic"] == {"reachable": True}
     assert (
-        seen["path"]
-        == "/pod/diagnostics/model?model=gemini-live-2.5-flash-native-audio&location=us-central1"
+        calls[0][0]
+        == "https://pod.example/pod/diagnostics/model?model=gemini-live-2.5-flash-native-audio&location=us-central1"
     )
+    assert calls[0][1]["headers"] == {"Authorization": f"Bearer {_TOKEN}"}
+    assert calls[0][1]["allow_redirects"] is False
     assert auditor.calls[0]["hushh_id"] == "ha1_x"
     assert auditor.calls[0]["request_id"] == "relay-diag-model:ha1_x"
+    # The ordinary status path retains its short budget; no global increase.
+    status, _ = await pod_relay._proxy_get("https://pod.example", "/pod/info", session=SlowPod())
+    assert status == 503
+    assert calls[1][1]["timeout"] == 5.0
 
 
 @pytest.mark.asyncio

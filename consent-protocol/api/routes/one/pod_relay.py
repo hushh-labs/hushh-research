@@ -42,13 +42,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/one/u", tags=["personal-agent"])
 
 _INFO_TIMEOUT_SECONDS = 5.0
-# A turn waits on a model, not a status read. Real questions routinely take tens of
-# seconds, and a 5s bound would turn every genuine answer into "your agent is not
-# answering right now" -- a false fault report, in the person's own language.
-#
-# One rung above the pod route's own 155 s bound (`pod_turn.POD_TURN_ROUTE_TIMEOUT_SECONDS`),
-# so the pod's typed 504 always reaches the person before this proxy gives up and
-# reports a vaguer failure. `tests/test_timeout_ladder.py` pins the order.
+# Allow uncached identity acquisition (10s), provider probing (20s) and margin.
+_MODEL_DIAGNOSTIC_TIMEOUT_SECONDS = 35.0
+# Model turns exceed status-read latency. Keep the relay above the pod's 155s
+# route bound so its typed 504 arrives first; test_timeout_ladder pins this order.
 _TURN_TIMEOUT_SECONDS = 160.0
 # The names are the single wire contract shared by text and Live pod relays.
 # Each value is a short-lived, owner-scoped consent grant; no caller may add a
@@ -96,7 +93,9 @@ def _identity_token(audience: str) -> Optional[str]:
         return None
 
 
-async def _proxy_get(url: str, path: str, *, session: Any = None) -> tuple[int, Any]:
+async def _proxy_get(
+    url: str, path: str, *, session: Any = None, timeout: float = _INFO_TIMEOUT_SECONDS
+) -> tuple[int, Any]:
     client: Any = session
     if client is None:
         import requests  # type: ignore[import-untyped]  # noqa: PLC0415 - deferred so tests can inject
@@ -111,7 +110,7 @@ async def _proxy_get(url: str, path: str, *, session: Any = None) -> tuple[int, 
             lambda: client.get(
                 f"{url}{path}",
                 headers=headers,
-                timeout=_INFO_TIMEOUT_SECONDS,
+                timeout=timeout,
                 allow_redirects=False,
             )
         )
@@ -263,12 +262,8 @@ async def relay_pod_model_diagnostic(
     audit: Optional[PodAccessAuditService] = None,
     session: Any = None,
 ) -> dict:
-    """Owner-authorized proxy to a pod's read-only model reachability check.
-
-    The same door as ``relay_pod_info`` -- same ownership proof, same audit, same
-    address resolution -- so a person can ask their own pod "can you reach this
-    model?" and nobody else can. It exists because that question can only be
-    answered by the pod's own identity (see ``pod_server.probe_model_reachability``).
+    """Read-only model probe through info's owner, audit and registry authority.
+    Only the pod's own identity can establish its provider reachability.
     """
     from urllib.parse import urlencode  # noqa: PLC0415
 
@@ -297,7 +292,12 @@ async def relay_pod_model_diagnostic(
     if url is None:
         raise HTTPException(status_code=409, detail="pod is not reachable yet")
     query = urlencode({"model": model, **({"location": location} if location else {})})
-    status, body = await _proxy_get(url, f"/pod/diagnostics/model?{query}", session=session)
+    status, body = await _proxy_get(
+        url,
+        f"/pod/diagnostics/model?{query}",
+        session=session,
+        timeout=_MODEL_DIAGNOSTIC_TIMEOUT_SECONDS,
+    )
     if status == 503:
         raise HTTPException(status_code=503, detail="pod unreachable")
     return {"hushhId": hushh_id, "podStatus": status, "diagnostic": body}
