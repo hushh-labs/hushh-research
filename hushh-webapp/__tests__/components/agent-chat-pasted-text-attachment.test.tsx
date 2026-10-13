@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 
 import {
@@ -12,6 +12,7 @@ import {
 import { AgentMessageAttachments } from "@/components/agent/agent-message-attachments";
 import {
   AgentComposerTextAttachment,
+  AgentTextAttachmentEditor,
   findTextOffsets,
 } from "@/components/agent/agent-text-attachment-editor";
 import {
@@ -24,6 +25,9 @@ import {
 } from "@/lib/agent/large-text-attachment";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import * as clipboard from "@/lib/utils/clipboard";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: vi.fn(() => false) }));
+beforeEach(() => vi.mocked(customNativePresentationEnabled).mockReturnValue(false));
 
 /**
  * Founder report: a long paste became a "Pasted text" chip in the composer,
@@ -308,6 +312,77 @@ describe("memory capture input", () => {
  * turn. The text stays in memory: nothing reaches web storage.
  */
 describe("pasted text editor", () => {
+  it("uses one bounded page and the same dirty-edit guard for native Back", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
+    render(<ComposerHarness />);
+    const { editor, textarea } = await openComposerEditor();
+    expect(editor.dataset.presentation).toBe("page");
+    expect(editor.classList.contains("native-feature-page")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Drag down to close" })).toBeNull();
+    expect(document.activeElement).toBe(editor);
+    typeInto(textarea, "changed synthetic copy");
+    fireEvent.click(within(editor).getByRole("button", { name: "Back to Chat" }));
+    expect(within(editor).getByRole("alert")).toHaveTextContent("Discard changes?");
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(within(editor).queryByRole("alert")).toBeNull();
+    expect(within(editor).getByLabelText("Pasted text, editable text")).toBe(textarea);
+    expect(textarea.value).toBe("changed synthetic copy");
+    fireEvent.click(within(editor).getByRole("button", { name: "Back to Chat" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByTestId("text-attachment-editor")).toBeNull());
+    expect(screen.getByTestId("agent-chat-text-attachment-size")).toHaveTextContent("30 lines");
+  });
+
+  it("retains a refused asynchronous resend and consumes repeated Send only once", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
+    const sent = [createAgentTextAttachment(PASTE)] as const;
+    let resolve!: (accepted: boolean) => void;
+    const onResend = vi.fn(() => new Promise<boolean>(done => { resolve = done; }));
+    render(<AgentMessageAttachments attachments={sent} onResend={onResend} />);
+    fireEvent.click(screen.getByRole("button", { name: /Pasted text/ }));
+    const viewer = await screen.findByTestId("text-attachment-viewer");
+    expect(viewer.dataset.presentation).toBe("page");
+    fireEvent.click(within(viewer).getByRole("button", { name: "Edit and send again" }));
+    const editor = await screen.findByTestId("text-attachment-editor");
+    const textarea = within(editor).getByLabelText("Pasted text, editable text") as HTMLTextAreaElement;
+    typeInto(textarea, "synthetic edited copy");
+    const send = within(editor).getByRole("button", { name: "Send" });
+    fireEvent.click(send);
+    fireEvent.click(send);
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    expect(onResend).toHaveBeenCalledExactlyOnceWith(0, "synthetic edited copy");
+    expect(send).toBeDisabled();
+    expect(editor).toBeVisible();
+    await act(async () => resolve(false));
+    expect(editor).toBeVisible();
+    expect(textarea).toHaveValue("synthetic edited copy");
+    expect(send).not.toBeDisabled();
+    expect(sent[0].text).toBe(PASTE);
+    onResend.mockResolvedValueOnce(true);
+    fireEvent.click(send);
+    await waitFor(() => expect(screen.queryByTestId("text-attachment-editor")).toBeNull());
+    expect(onResend).toHaveBeenCalledTimes(2);
+    expect(sent[0].text).toBe(PASTE);
+  });
+
+  it("cannot dismiss a reopened editor with an older accepted result", async () => {
+    let resolve!: (accepted: boolean) => void;
+    const onCommit = vi.fn(() => new Promise<boolean>(done => { resolve = done; }));
+    const onOpenChange = vi.fn();
+    const focus = { current: null };
+    const view = render(<AgentTextAttachmentEditor open name="Notes" initialText="older synthetic copy" purpose="resend"
+      onCommit={onCommit} onOpenChange={onOpenChange} returnFocusRef={focus} />);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    view.rerender(<AgentTextAttachmentEditor open={false} name="Notes" initialText="older synthetic copy" purpose="resend"
+      onCommit={onCommit} onOpenChange={onOpenChange} returnFocusRef={focus} />);
+    view.rerender(<AgentTextAttachmentEditor open name="Notes" initialText="newer synthetic copy" purpose="resend"
+      onCommit={onCommit} onOpenChange={onOpenChange} returnFocusRef={focus} />);
+    await act(async () => resolve(true));
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Notes, editable text")).toHaveValue("newer synthetic copy");
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
+  });
+
   it("opens the authored editor from a native chip without replacing the companion draft", async () => {
     function NativeChipHarness() {
       const [attachment, setAttachment] = useState(createPendingTextAttachment(PASTE));

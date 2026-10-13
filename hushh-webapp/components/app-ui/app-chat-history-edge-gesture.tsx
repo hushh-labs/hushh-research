@@ -1,5 +1,6 @@
 "use client";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
@@ -67,7 +68,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
     const semantic = drawerRef.current;
     const panel = motionRef.current;
     const scrim = scrimRef.current;
-    if (!enabled || !surface || !semantic || !panel || !scrim) return;
+    if (!enabled || customNativePresentationEnabled() || !surface || !semantic || !panel || !scrim) return;
     let gesture: Gesture | null = null;
     let settling: Gesture | null = null;
     let settlingOpen = false;

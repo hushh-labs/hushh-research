@@ -48,8 +48,8 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
     if (!active) { setMode("all"); setAgentCardId(null); }
   }, [active]);
   const content = useRef<HTMLDivElement>(null);
-  const automaticScrollUntil = useRef(0);
   const gesture = useRef<{ x: number; y: number } | null>(null);
+  const automaticScrollUntil = useRef(0);
   useEffect(() => {
     const root = content.current?.closest<HTMLElement>("[data-app-scroll-root]");
     if (!active || !root || !dockHost) return;

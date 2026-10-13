@@ -28,6 +28,10 @@ import { formatTextAttachmentSize } from "@/lib/agent/large-text-attachment";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import { cn } from "@/lib/utils";
+import { NativeFeatureBack, NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 /**
  * A long pasted text, read in place without leaving the chat.
@@ -271,6 +275,7 @@ function TextAttachmentViewerBody({
   findInputRef,
   scrollerRef,
   onEditAndResend,
+  leadingControl,
 }: {
   name: string;
   text: string;
@@ -279,6 +284,7 @@ function TextAttachmentViewerBody({
   findInputRef: RefObject<HTMLInputElement | null>;
   scrollerRef: RefObject<HTMLDivElement | null>;
   onEditAndResend?: () => void;
+  leadingControl?: ReactNode;
 }) {
   const lines = useMemo(() => splitTextLines(text), [text]);
   const code = useMemo(() => looksLikeCodeText(text), [text]);
@@ -375,7 +381,9 @@ function TextAttachmentViewerBody({
 
   return (
     <>
-      <div className="shrink-0 px-4 pt-4 pr-14 sm:pt-5">
+      <div className={leadingControl ? "flex shrink-0 items-center gap-2 px-4 pt-2" : "shrink-0 px-4 pt-4 pr-14 sm:pt-5"}>
+        {leadingControl}
+        <div className="min-w-0">
         <SheetTitle className="truncate text-[17px] leading-6">{name}</SheetTitle>
         <SheetDescription
           data-testid="text-attachment-viewer-summary"
@@ -383,6 +391,7 @@ function TextAttachmentViewerBody({
         >
           {summary}
         </SheetDescription>
+        </div>
       </div>
       <div
         data-testid="text-attachment-viewer-toolbar"
@@ -543,6 +552,24 @@ export function AgentTextAttachmentViewer({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);
+  const nativePage = customNativePresentationEnabled();
+  const owner = snapshotValidatedAuthSessionOwner();
+  const context = JSON.stringify([owner?.generation, snapshotVaultSessionEpoch(), "attachment-viewer"]);
+  const body = <div ref={contentRef} className="flex min-h-0 flex-1 flex-col">
+    <TextAttachmentViewerBody name={name} text={text} sheet={isMobile && !nativePage} findInputRef={findInputRef}
+      scrollerRef={scrollerRef} onEditAndResend={onEditAndResend}
+      leadingControl={nativePage ? <NativeFeatureBack owner={owner?.userId ?? null} context={context} layer="chat-attachment"
+        onBack={() => onOpenChange(false)} /> : undefined} />
+  </div>;
+
+  if (nativePage) return <NativeFeaturePage open={open} title={name} owner={owner?.userId ?? null} context={context}
+    layer="chat-attachment" authoredHeader bodyClassName="flex flex-1 flex-col overflow-hidden"
+    data-testid="text-attachment-viewer" data-presentation="page" onBack={() => onOpenChange(false)}
+    onOpenAutoFocus={() => scrollerRef.current?.focus({ preventScroll: true })}
+    onCloseAutoFocus={() => returnFocusRef.current?.focus({ preventScroll: true })}
+    onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+      event.preventDefault(); findInputRef.current?.focus(); findInputRef.current?.select();
+    } }}>{body}</NativeFeaturePage>;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal={isMobile}>
@@ -600,16 +627,7 @@ export function AgentTextAttachmentViewer({
       >
         {/* Radix unmounts the content once closed, so the body (and its line
           * split and find index) exists only while the viewer is on screen. */}
-        <div ref={contentRef} className="flex min-h-0 flex-1 flex-col">
-          <TextAttachmentViewerBody
-            name={name}
-            text={text}
-            sheet={isMobile}
-            findInputRef={findInputRef}
-            scrollerRef={scrollerRef}
-            onEditAndResend={onEditAndResend}
-          />
-        </div>
+        {body}
       </SheetContent>
     </Sheet>
   );

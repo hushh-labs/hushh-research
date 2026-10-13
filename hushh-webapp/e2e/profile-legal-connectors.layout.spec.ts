@@ -223,19 +223,12 @@ function query(page: Page) {
 }
 
 test("Profile root and nested screens share one gutter", async ({ page }) => {
-  const cases: {
-    width: number;
-    rightInset: number;
-    regions?: { top: number; bottom: number; fullWindow?: boolean };
-  }[] = [
-    { width: 320, rightInset: 12 },
-    { width: 393, rightInset: 12 },
-    { width: 768, rightInset: 18 },
-    { width: 393, rightInset: 12, regions: { top: 120, bottom: 280 } },
-    { width: 393, rightInset: 12, regions: { top: 120, bottom: 280, fullWindow: true } },
-  ];
-  for (const { width, rightInset, regions } of cases) {
-    await mount(page, { width, regions, at: "/one?profile_pane=1" });
+  for (const options of [{ width: 320 }, { width: 393 }, { width: 768 },
+    { width: 393, regions: { top: 120, bottom: 280 } },
+    { width: 393, regions: { top: 120, bottom: 280, fullWindow: true } }]) {
+    const { width, regions } = options;
+    const rightInset = regions?.fullWindow ? 0 : width < 640 ? 12 : 18;
+    await mount(page, { ...options, at: "/one?profile_pane=1" });
     // A visible sheet can still be travelling in from the right. Measure
     // only its settled grid, not the opening animation's translated frame.
     // The floating Profile pane keeps a 12–18px viewport gutter; it is not

@@ -124,7 +124,7 @@ export function beginRouteTransition(
     transitionMode,
     start: (intent) => {
       const commit = () => {
-        if (feedback && (source === "tap" || source === "native_back") &&
+        if (feedback && (source === "tap" || source === "native_back" || source === "search") &&
             new URL(targetHref, window.location.href).href !== window.location.href) appHaptic(feedback, intent.id);
         navigate();
       };

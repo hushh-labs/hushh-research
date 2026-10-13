@@ -1434,10 +1434,7 @@ export default function GmailReceiptsPage({
       );
       if (loaded === null || !isCurrent()) return;
       if (!loaded && receiptConnectionLostRef.current) {
-        setReceiptSyncFeedback({
-          message: "Reconnect Mail to continue syncing your receipts.",
-          tone: "error",
-        });
+        setReceiptSyncFeedback({ message: "Reconnect Mail to continue syncing your receipts.", tone: "error" });
         return;
       }
       if (!loaded) throw new Error("Receipt scan did not complete.");

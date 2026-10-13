@@ -11,6 +11,7 @@ import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
+import { NativeHistoryClose, NativeHistoryOpener } from "../../components/app-ui/native-chat-chrome";
 import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
 import {
   readGoogleOAuthPopupAttempt,
@@ -212,11 +213,16 @@ function Fixture() {
   return (
     <main
       className="relative flex h-dvh flex-col overflow-hidden bg-background text-foreground"
-      style={{ "--agent-chat-header-height": "56px" } as React.CSSProperties}
     >
+      <header className="agent-chat-header flex h-[var(--agent-chat-header-height)] shrink-0 items-center gap-3 px-[var(--agent-chat-header-inline-gutter)] pt-[var(--agent-chat-header-safe-top)]">
+      <NativeHistoryOpener owner="fixture-owner" context="public-layout" eligible open={open}
+        pendingAttention={0} showAttentionDot={false} focusRef={triggerRef}
+        onActivate={(_, trigger) => {
+          if (trigger) triggerRef.current = trigger;
+          changeOpen(!open);
+        }} />
       <button
-        ref={triggerRef}
-        className="h-14 shrink-0"
+        className="h-11 shrink-0"
         onClick={(event) => {
           triggerRef.current = event.currentTarget;
           const next = transitionConnectionsDrawer(
@@ -229,6 +235,7 @@ function Fixture() {
         Open drawer
       </button>
       {new URLSearchParams(window.location.search).has("one-profile") ? <button ref={oneProfileTrigger} onClick={() => setOneProfileOpen(true)}>Open One profile</button> : null}
+      </header>
       <OneAgentProfileSheet open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
       <AgentConnectionsDrawer
         gestureSurfaceRef={transcriptRef}
@@ -240,13 +247,15 @@ function Fixture() {
         externalModalOpen={external}
         chats={
           <AgentHistorySidebar
-            conversations={[]}
+            conversations={[{ id: "public-layout-chat", title: "A weekend idea", status: "active", message_count: 0,
+              created_at: null, updated_at: null, last_message_at: (Date.now() - 5 * 60_000) / 1000 }]}
             activeConversationId={null}
             onCreateNew={() => {}}
             onSelectConversation={() => {}}
             onRenameConversation={() => {}}
             onDeleteConversation={() => {}}
             onClose={() => changeOpen(false)}
+            closeControl={<NativeHistoryClose owner="fixture-owner" context="public-layout" onClose={() => changeOpen(false)} />}
             hideCloseButton={false}
             mode="mobile"
             className="h-full w-full"

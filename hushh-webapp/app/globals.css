@@ -2009,15 +2009,15 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   box-shadow: none;
 }
 
-.profile-home-content [data-testid="settings-row"] {
+.profile-home-content [data-row-layout] {
   background: var(--ios-account-card-background);
   min-height: 56px;
 }
 
-.profile-home-content [data-testid="settings-row"]::after {
+.profile-home-content [data-row-layout]::after {
   background: var(--ios-account-separator);
   height: var(--ios-account-separator-thickness);
-  left: var(--ios-account-separator-leading);
+  left: calc(var(--settings-row-px) + 32px + var(--settings-row-gap));
 }
 
 .profile-home-content
@@ -2430,7 +2430,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   gap: 8px;
 }
 
-.profile-pane-header--inner > div:first-child > button {
+.profile-pane-header--inner > div:first-child > :is(button, [data-native-chrome-slot]) {
   width: 44px !important;
   height: 44px !important;
   margin-left: 0 !important;
@@ -2477,6 +2477,23 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   background: var(--profile-pane-surface-strong) !important;
   color: var(--ios-account-label) !important;
   transform: rotate(5deg);
+}
+
+/* History's authored opener/Close share a leading slot, not a trailing pill.
+ * Keep the common typography and rows without moving that slot on open. */
+[data-agent-history-drawer] [data-agent-history-header-layout="aligned"] {
+  padding: 0 var(--agent-chat-header-inline-gutter) !important;
+  gap: 12px !important;
+}
+[data-agent-history-drawer] [data-agent-history-header-layout="aligned"] [data-agent-history-close] {
+  position: static;
+  display: flex;
+  flex: 0 0 44px;
+  top: auto !important;
+  right: auto;
+  border: 0 !important;
+  background: transparent !important;
+  transform: none !important;
 }
 
 .profile-pane-scroll-root {
@@ -2985,9 +3002,55 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   --app-top-safe-offset: 2px;
 }
 
+/* History is portalled outside the workspace. Its moving Close and the
+ * stationary opener must use the same row and leading inset, not two grids. */
+:root {
+  --agent-chat-header-safe-top: var(--app-safe-area-top-effective, 0px);
+  --agent-chat-header-row-height: 3.75rem;
+  --agent-chat-header-inline-gutter: 1rem;
+  --agent-chat-header-height: calc(var(--agent-chat-header-row-height) + var(--agent-chat-header-safe-top));
+}
+
+/* Qualification-only feature pages occupy the existing WebView content band.
+ * Native header/dock reservations remain outside; no new global geometry.
+ * The element overrides Dialog's centering utilities with translate-x/y-0.
+ * A CSS `translate: none` beside `transform: none` is dropped by production
+ * optimization, leaving the utility's -50% translation and an offscreen Back. */
+.native-feature-page[data-slot="dialog-content"] {
+  inset: var(--agent-chat-header-height, var(--top-shell-reserved-height)) 0 var(--app-bottom-content-clearance, 8rem);
+  transform: none;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  gap: 0;
+  animation: none;
+  box-shadow: none;
+  overflow: hidden;
+}
+.native-feature-page-overlay[data-slot="dialog-overlay"] {
+  inset: var(--agent-chat-header-height, var(--top-shell-reserved-height)) 0 var(--app-bottom-content-clearance, 8rem);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+.native-feature-page-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem var(--page-inline-gutter-standard);
+  flex-shrink: 0;
+}
+.native-feature-page-body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+
+html.native-ios {
+  --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective, 0px));
+}
+
 .agent-chat-workspace {
-  --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
-  --agent-chat-header-height: calc(3.75rem + var(--agent-chat-header-safe-top));
   /* Mobile browsers already shrink this full-screen workspace through `dvh`.
    * Capacitor keeps its WebView frame stable, so it opts into the additional
    * keyboard inset below. */
@@ -3003,9 +3066,14 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
 }
 
 @media (min-width: 640px) {
-  .agent-chat-workspace {
-    --agent-chat-header-height: calc(4rem + var(--agent-chat-header-safe-top));
+  :root {
+    --agent-chat-header-row-height: 4rem;
+    --agent-chat-header-inline-gutter: 1.25rem;
   }
+}
+
+@media (min-width: 1024px) {
+  :root { --agent-chat-header-inline-gutter: 1.5rem; }
 }
 
 /* A compact 36px control keeps an uncluttered silhouette and a 44px hit area. */
@@ -3029,7 +3097,6 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
 .agent-chat-workspace[data-agent-chat-route="root"] {
   /* The workspace owns its single, symmetrical top header below the fixed ambient mask.
    * Safe top respects device notch/island without adding artificial offset on desktop. */
-  --agent-chat-header-safe-top: var(--app-safe-area-top-effective, 0px);
   --agent-chat-composer-bottom: max(
     calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
@@ -3163,7 +3230,7 @@ html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
    This max-height replaces the base rule's, so it repeats the top safe-area
    subtraction; otherwise a dialog with a search field (e.g. Connect's scopes
    modal) would lose Dynamic Island clearance the moment its keyboard opened. */
-html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
+html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]):not(.native-feature-page) {
   max-height: calc(
     100dvh - 2rem - var(--kb-height, 0px) -
       var(--app-safe-area-top-effective, 0px)
@@ -7794,6 +7861,12 @@ html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-c
   top: var(--native-overlay-top, 0px);
   max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
 }
+/* The shared inset-pane recipe uses important geometry. Reconcile its inputs
+ * with acknowledged native seats instead of competing with those declarations. */
+html.native-reserved-chrome:not([data-session-check-active]) [data-app-side-pane] {
+  --app-side-pane-top-inset: max(var(--native-overlay-top, 0px), var(--app-side-pane-gutter), var(--app-safe-area-top-effective, 0px));
+  --app-side-pane-bottom-inset: max(var(--native-overlay-bottom, 0px), var(--app-side-pane-gutter), env(safe-area-inset-bottom, 0px));
+}
 html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) [data-testid="profile-pane"] > [data-slot="sheet-header"] {
   padding-top: 1rem;
 }
@@ -7814,9 +7887,21 @@ html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-
 html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) :is(
   [data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]
 ) {
-  top: 0;
-  bottom: 0;
-  height: auto;
+  /* Do not let the web card's geometry defeat negotiated full-window coverage. */
+  top: 0 !important;
+  bottom: 0 !important;
+  height: 100dvh !important;
+}
+html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-testid="profile-pane"] {
+  right: 0 !important;
+  width: min(430px, 100vw) !important;
+  border-radius: 24px 0 0 24px !important;
+}
+html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-agent-history-drawer] {
+  left: 0 !important;
+  right: auto !important;
+  width: min(430px, 100vw) !important;
+  border-radius: 0 24px 24px 0 !important;
 }
 html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   [data-profile-preview], [data-profile-preview-scrim],

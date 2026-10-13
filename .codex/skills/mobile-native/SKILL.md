@@ -51,7 +51,7 @@ Non-owned surfaces:
 1. Decide whether the task is plugin-contract work or parity/audit work.
 2. Keep native registration and service-layer contracts aligned across web, iOS, and Android.
 3. Route trust and consent boundary questions into `security-audit` when native is only one part of the problem.
-4. For native chrome, follow the adoption reference's presentation qualification rules: establish feasible layer composition and one renderer per control lifetime before expanding families.
+4. For native chrome, follow the adoption reference's presentation qualification rules: establish feasible complete composition and one renderer per control lifetime before expanding families. A successful isolated study does not qualify the product's draft, operation or overlapping-presentation owners.
 
 ## Handoff Rules
 

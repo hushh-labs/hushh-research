@@ -197,8 +197,8 @@ function renderScreen(mode: Mode, variant: Variant): string {
        ><span class="truncate">${escapeHtml(cloudChipLabel())}</span></button>`
     : "";
 
-  const toggle = `<div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
-             class="${SRC.toggle.containerClass} w-auto shrink-0">${segments}</div>`;
+  const toggle = `<div class="${SRC.toggle.frameClass}"><div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
+             class="${SRC.toggle.containerClass}">${segments}</div></div>`;
   const profile = `<button type="button" data-testid="profile-open-button" aria-label="Open Profile"
              class="inline-flex shrink-0 items-center justify-center rounded-full ${SRC.header.profileClass}"><span data-testid="profile-photo" class="${SRC.header.profilePhotoClass}"></span></button>`;
   // Rendered in the shipped source order, so the toggle's anchor is whatever

@@ -16,6 +16,7 @@ const tsPluginFiles = [
   "lib/capacitor/native-navigation.ts",
   "lib/capacitor/native-chrome.ts",
   "lib/capacitor/native-dock.ts",
+  "lib/capacitor/native-drawers.ts",
   "lib/capacitor/stream.ts",
   "lib/capacitor/oauth-return.ts",
   "lib/capacitor/google-connector-auth.ts",
@@ -50,7 +51,7 @@ const webOnlyPlugins = new Set();
 // (HushhPlaidLink is implemented on both platforms: LinkKit on iOS, Plaid's
 // Link SDK on Android, so it is held to full parity like every other plugin.)
 // Card scanning uses Apple Vision on iOS and the existing web worker elsewhere.
-const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock", "HushhCardScanner"]);
+const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock", "HushhNativeDrawers", "HushhCardScanner"]);
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
   "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",
@@ -68,6 +69,7 @@ const ignoredTsMethodsByPlugin = new Map([
   ["HushhNativeNavigation", new Set(["addListener"])],
   ["HushhNativeChrome", new Set(["addListener"])],
   ["HushhNativeDock", new Set(["addListener"])],
+  ["HushhNativeDrawers", new Set(["addListener"])],
   ["HushhStream", new Set(["addListener"])],
   ["HushhPlaidLink", new Set(["addListener"])],
 ]);
@@ -117,7 +119,7 @@ function extractInterfaceMethods(source, interfaceName) {
   if (closeIndex < 0) return null;
   const body = source.slice(openIndex + 1, closeIndex);
   return new Set(
-    [...body.matchAll(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/gm)].map(
+    [...body.matchAll(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\??\s*\(/gm)].map(
       (methodMatch) => methodMatch[1]
     )
   );

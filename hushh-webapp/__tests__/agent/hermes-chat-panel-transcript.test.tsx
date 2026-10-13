@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -49,9 +50,11 @@ vi.mock("@/components/agent/puppy-resource-monitor", () => ({
   PuppyMachineSheet: () => null,
 }));
 import type { PuppyStatus } from "@/lib/services/puppy-one-service";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
 import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
+import { NativeDockPortProvider, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
+import type { DockEvent } from "@/lib/capacitor/native-dock";
 
 /**
  * What the connected panel promises, how it says it, and how it reads.
@@ -292,6 +295,40 @@ describe("HermesChatPanel transcript", () => {
 });
 
 describe("HermesChatPanel secrets", () => {
+  it("routes the actual native Puppy port through the same secret guard and preserves its draft when hidden", async () => {
+    let port: NativeDockPort | undefined;
+    function Observe() {
+      const observed = useNativeDockPorts()?.get("text");
+      useEffect(() => { port = observed; }, [observed]);
+      return null;
+    }
+    function Shell({ active }: { active: boolean }) {
+      return <NativeDockPortProvider><AgentDockProvider><HermesChatPanel active={active} sharedDock /><Observe /></AgentDockProvider></NativeDockPortProvider>;
+    }
+    mocks.fetchPuppyStatus.mockResolvedValue(CONNECTED);
+    mocks.link.current = null;
+    const view = render(<Shell active />);
+    await waitFor(() => expect(port?.projection.editable).toBe(true));
+    expect(port!.projection.editorLabel).toBe("Message Puppy");
+    const context = port!.projection.context;
+    const text = `my github token ${["gh", "p_", "fakefake0000fakefake0000fakefake0000"].join("")}`;
+    act(() => port!.onEdit?.(text));
+    await waitFor(() => expect(port?.projection.text).toBe(text));
+    const event = (): DockEvent => ({ documentId: "synthetic", ownerEpoch: "synthetic", revision: 1, updateSequence: 1,
+      sequence: 1, editRevision: 1, editorRevision: port!.projection.editorRevision, privacyGeneration: 0,
+      context, kind: "action", action: "send", text: port!.projection.text, selectionStart: 0, selectionEnd: 0 });
+    await act(async () => port!.onAction(event()));
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(port!.projection.text).toBe(text);
+    view.rerender(<Shell active={false} />);
+    expect(port).toBeUndefined();
+    view.rerender(<Shell active />);
+    await waitFor(() => expect(port?.projection.text).toBe(text));
+    expect(port!.projection.context).toBe(context);
+    act(() => port!.onEdit?.("Hello 世界\nA synthetic nonsecret request"));
+    await act(async () => port!.onAction(event()));
+    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledOnce());
+  });
   it("never sends a raw secret to Puppy, keeps the draft and says why (negative control)", async () => {
     await mount();
     const secret = ["gh", "p_", "fakefake0000fakefake0000fakefake0000"].join("");

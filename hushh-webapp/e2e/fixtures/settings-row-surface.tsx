@@ -366,6 +366,14 @@ function Fixture() {
       <DetailTarget />
       <UniformNavigation />
       <UniformNavigation uniform={false} />
+      <div className="profile-home-content" data-testid="profile-menu-sizing">
+        <SettingsGroup rowSizing="uniform" density="compact" testId="profile-menu-settings">
+          <SettingsRow icon={User} iconTone="capability" title="Your account" chevron onClick={() => record("profile:account")} />
+        </SettingsGroup>
+        <SettingsGroup rowSizing="uniform" density="compact" testId="profile-menu-legal">
+          <ProfileLegalRows onOpen={(document) => record(`legal:${document}`)} />
+        </SettingsGroup>
+      </div>
       <SettingsGroup rowSizing="uniform" density="compact" testId="uniform-title-only-navigation">
         <ProfileLegalRows onOpen={(document) => record(`legal:${document}`)} />
       </SettingsGroup>

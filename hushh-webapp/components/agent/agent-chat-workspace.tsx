@@ -15,7 +15,9 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useNativeHistoryPresentation } from "@/components/agent/native-history-presentation";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, resumedAgentPkmCaptureMessageId, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
@@ -1926,7 +1928,7 @@ export function AgentBubble({
   gmailInformationRequestAttachment?: ReactNode;
   driveMemoryReview?: ReactNode;
   /** "Edit and send again" on a sent paste: a new turn, never an edit of this one. */
-  onResendAttachment?: (index: number, editedText: string) => boolean | void;
+  onResendAttachment?: (index: number, editedText: string) => boolean | void | Promise<boolean | void>;
   onConfirmMemoryNeedsOwner?: (reviewedCards: readonly AgentPkmPreviewCard[]) => Promise<void>;
   /** Continue a paused or gapped memory save job for this message. */
   onRetryMemorySave?: () => Promise<void>;
@@ -2699,6 +2701,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
+  const historyListOwner = useRef<{ auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null>(null);
   const puppyHistory = usePuppyConversations(user?.uid ?? null);
   const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
@@ -2958,6 +2961,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [user?.uid, vaultSessionEpoch]);
   const driveReviewsPending = user && isVaultUnlocked && driveReviewSignal.ownerId === user.uid &&
     driveReviewSignal.epoch === vaultSessionEpoch ? driveReviewSignal.count : 0;
+  const [driveActivityPage, setDriveActivityPage] = useState<{ owner: string | null; epoch: number; open: boolean }>({ owner: null, epoch: -1, open: false });
+  const driveActivityPageOpen = driveActivityPage.open && driveActivityPage.owner === user?.uid &&
+    driveActivityPage.epoch === vaultSessionEpoch && isVaultUnlocked && !isPuppySurface;
   const [getAppOpen, setGetAppOpen] = useState(false);
   const getAppReturnFocusRef = useRef<HTMLElement | null>(null);
   // The installed app never offers to download itself.
@@ -3778,6 +3784,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setWalletWidgets([]);
     updateConversationId(null, false);
     setConversations([]);
+    historyListOwner.current = null;
     setHistoryActionPendingId(null);
     setMessages([createGreetingMessage()]);
     setPendingAppAction(null);
@@ -4754,11 +4761,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     if (historyLoadKeyRef.current === loadKey) return;
     const restoreEpoch = historyRestoreEpochRef.current;
+    const historyOwner = snapshotValidatedAuthSessionOwner();
+    const historyVaultEpoch = snapshotVaultSessionEpoch();
     let cancelled = false;
     const cached = peekAgentChatHistoryCache(user.uid);
 
     const applySnapshot = async (snapshot: NonNullable<typeof cached>) => {
-      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
+      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current || !historyOwner || historyOwner.userId !== user.uid ||
+          !isValidatedAuthSessionOwnerCurrent(historyOwner) || !isVaultSessionEpochCurrent(historyVaultEpoch)) return;
+      historyListOwner.current = { auth: historyOwner, epoch: historyVaultEpoch };
       setConversations(snapshot.conversations);
       const selectedId = selectedInAppChat(user.uid);
       // A first turn the person left may not be in a cached list yet; its
@@ -5125,6 +5136,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           force,
         });
         if (!stillCurrent()) return [];
+        historyListOwner.current = { auth: owner, epoch };
         setConversations(next.conversations);
         return next.conversations;
       } finally {
@@ -6546,6 +6558,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 // name its product ("Checking Google Drive access…").
                 setActiveToolCalls(current => current.map(item => item.id === toolEvent.callId
                   ? { ...item, label: toolEvent.label, activity: toolEvent.activity,
+                    icon: agentActivityIconForTool(toolEvent.raw?.toolName),
                       brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) } : item));
               }
               upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("waiting", toolEvent));
@@ -8133,7 +8146,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const kept = await keepSecretsFromTurn([typedText, ...attachments.map((item) => item.text)]);
     if (!kept) {
       onRefused?.();
-      return;
+      return false;
     }
     const [submittedText = "", ...attachmentTexts] = kept;
     const submittedAttachments = attachments.map((item, index) =>
@@ -8144,16 +8157,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       driveSearchSelection,
       attachments: submittedAttachments,
     });
+    return true;
   };
 
   /** A sent message stays as it was; its edited paste goes out as a new turn. */
-  const resendTextAttachment = (message: AgentMessage, index: number, editedText: string) => {
+  const resendTextAttachment = async (message: AgentMessage, index: number, editedText: string) => {
     if (isVoiceConnecting || voiceActive) return false;
     const attachments = replaceTextAttachmentForResend(message.attachments ?? [], index, editedText);
     if (!attachments) return false;
+    const accepted = await enqueueGuardedTurn({ typedText: message.text, attachments, fromPaste: true });
+    if (!accepted) return false;
     transcriptUserScrollRef.current = false;
     scrollToSubmittedTurnRef.current = true;
-    void enqueueGuardedTurn({ typedText: message.text, attachments, fromPaste: true });
     return true;
   };
 
@@ -8809,9 +8824,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       className={sidebarClassName}
       collapsed={collapsed}
       mode={mode}
-      // The drawer now runs full height over the chat header (2026-09-28), so the
-      // header's hamburger-to-cross sits under the panel; the panel carries its
-      // own close control instead of leaving a modal with no visible way out.
+      // The full-height drawer owns Close at the same leading header slot as
+      // the underlying opener. It translates with the panel, never the Chat.
       hideCloseButton={false}
       closeControl={isHistoryDrawerOpen && onClose ? <NativeHistoryClose owner={renderedWorkspaceOwnerId}
         context={`${chatChromeContext}:${agentSurface}`} onClose={onClose} stationary /> : undefined}
@@ -8824,7 +8838,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onOpenTodoList={!isPuppySurface ? () => router.push(ROUTES.ONE_TODOS) : undefined}
       onGetApp={offerGetApp ? openGetApp : undefined}
       getAppOpen={getAppOpen}
-      driveActivity={!isPuppySurface
+      driveActivity={!isPuppySurface && !customNativePresentationEnabled()
         ? <DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} /> : null}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
@@ -8832,6 +8846,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onDeleteConversation={isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation}
     />
   );
+  const nativeHistoryRenderer = useNativeHistoryPresentation({
+    owner: renderedWorkspaceOwnerId, vaultEpoch: vaultSessionEpoch,
+    ready: isCanonicalChatRoute && hasChatAccess && !authLoading && !sessionVerificationRequired && isVaultUnlocked,
+    disabled: !isPuppySurface && historyInteractionDisabled,
+    open: isHistoryDrawerOpen, surface: agentSurface,
+    conversations: isPuppySurface ? puppyConversations : historyListOwner.current &&
+      isValidatedAuthSessionOwnerCurrent(historyListOwner.current.auth) && isVaultSessionEpochCurrent(historyListOwner.current.epoch)
+      ? conversations : [],
+    selected: isPuppySurface ? puppyConversationId : conversationId,
+    pending: historyActionPendingId,
+    loading: !isPuppySurface && isLoadingHistory && conversations.length === 0,
+    create: handleSidebarCreateNewChat, select: handleSidebarSelectConversation,
+    rename: isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation,
+    remove: isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation,
+    setOpen: handleHistoryDrawerOpenChange,
+    openConnectors: () => { handleHistoryDrawerOpenChange(false); openConnectorSurface(); },
+    openDriveReview: () => { setDriveActivityPage({ owner: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch, open: true }); },
+    openTodoList: () => { handleHistoryDrawerOpenChange(false); router.push(ROUTES.ONE_TODOS); },
+  });
   const getEmailDeliveryAuth = async (scope = emailScopeRef.current) => {
     const isCurrent = () => emailScopeRef.current === scope &&
       workspaceOwnerIdRef.current === scope.ownerId && isVaultSessionEpochCurrent(scope.epoch);
@@ -8951,6 +8984,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       context: conversationId ?? composerDraft.context,
       mode: "text", text: input,
       placeholder: chatOnboarding.composerPlaceholder ?? "Message One…",
+      editorLabel: "Message One",
       expanded: composerExpanded,
       editable: !recoveryInspectionPending && !isVoiceConnecting && !isHistoryDrawerOpen,
       sendEnabled: canSend,
@@ -9111,6 +9145,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         )}
       >
         <AgentConnectionsDrawer
+          historyRenderer={nativeHistoryRenderer}
           presentationKey={`${pathname}:${renderedWorkspaceOwnerId}:${agentSurface}:${isVaultUnlocked}`}
           gestureSurfaceRef={transcriptRef}
           gestureEnabled={isCanonicalChatRoute && hasChatAccess && !isPuppySurface}
@@ -9132,6 +9167,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // this drawer only ever holds chat history.
           connections={null}
         />
+        {customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing
+          active={isHistoryDrawerOpen || driveActivityPageOpen} onNeedsReviewChange={onDriveNeedsReviewChange}
+          page={{ open: driveActivityPageOpen,
+            // Stage the bounded page while History still owns presentation.
+            // Its applied Back receipt, not a timer, releases the native menu.
+            onReady: () => { if (driveActivityPageOpen) handleHistoryDrawerOpenChange(false); },
+            onBack: () => {
+              setDriveActivityPage({ owner: null, epoch: -1, open: false });
+              handleHistoryDrawerOpenChange(true);
+            } }} /> : null}
 
         <section
           className={cn(
@@ -9141,8 +9186,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <div
             data-one-centered-header={!isPuppySurface ? "true" : undefined}
             className={cn(
-              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-4 pt-[var(--agent-chat-header-safe-top)] sm:px-5",
-              "h-[var(--agent-chat-header-height)] lg:px-6",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-[var(--agent-chat-header-inline-gutter)] pt-[var(--agent-chat-header-safe-top)]",
+              "h-[var(--agent-chat-header-height)]",
             )}
           >
             {/* One centers its stacked identity between balanced controls;
@@ -9288,7 +9333,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   compact paint and full 44px targets. Icons keep their names. */}
               <NativeChatChrome kind="agent-surface" owner={renderedWorkspaceOwnerId}
                 context={chatChromeContext}
-                eligible={isCanonicalChatRoute && hasChatAccess && !isHistoryDrawerOpen}
+                eligible={isCanonicalChatRoute && hasChatAccess && (customNativePresentationEnabled() || !isHistoryDrawerOpen)}
                 value={agentSurface} onValueChange={(next) => {
                   if (next === "puppy") enterPuppySurface();
                   else setAgentSurface(next);

@@ -176,8 +176,7 @@ elif args[:2] == ["logging", "read"]:
     try:
         timestamp_valid = (timestamp_value.startswith('"')
                            and timestamp_value.endswith('"')
-                           and datetime.strptime(timestamp_value[1:-1],
-                                                 "%Y-%m-%dT%H:%M:%SZ").strftime(
+                           and datetime.fromisoformat(timestamp_value[1:-1]).strftime(
                                "%Y-%m-%dT%H:%M:%SZ") == timestamp_value[1:-1])
     except ValueError:
         timestamp_valid = False
@@ -234,6 +233,9 @@ if count == 2 and os.environ.get("MOCK_TERMINATE_AFTER_SETUP", "true") == "true"
         (True, '"2026-09-23T00:00:00Z"', True, True),
         (True, "2026-09-23T00:00:00Z", True, False),
         (True, '"not-a-time"', True, False),
+        (True, '"2026-02-30T00:00:00Z"', True, False),
+        (True, '"2026-09-23T00:00:00+00:00"', True, False),
+        (True, '"2026-09-23T00:00:00.123Z"', True, False),
         (False, '"2026-09-23T00:00:00Z"', True, False),
         (True, '"2026-09-23T00:00:00Z"', False, False),
     ],

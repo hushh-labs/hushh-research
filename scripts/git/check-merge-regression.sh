@@ -78,6 +78,18 @@ read_target_file() {
   fi
 }
 
+# BSD grep can exhaust memory compiling a long literal as a pattern during a
+# wide merge. Count matching lines with literal substring operations instead;
+# the uniqueness and resurrection rules below remain identical. Neither input
+# is a command argument, so a long authored line also cannot exceed ARG_MAX.
+fixed_line_count() {
+  { printf '%s\n' "$1"; printf '%s\n' "$2"; } | python3 -c '
+import sys
+needle = sys.stdin.readline().removesuffix("\n")
+print(sum(needle in line for line in sys.stdin))
+'
+}
+
 CHANGED_FILES="$(git diff --name-only --diff-filter=M "$BASE" "$UPSTREAM" | grep -Ev "$EXCLUDE_RE" || true)"
 
 # Optional narrowing to the files a specific diff range touches. Used by the
@@ -145,7 +157,8 @@ while IFS= read -r f; do
   # macOS's stock bash 3.2, which has no mapfile/associative arrays.)
   added_lines=()
   while IFS= read -r line; do
-    [ "$(grep -cF -- "$line" <<<"$upstream_content")" -eq 1 ] && added_lines+=("$line")
+    count=$(fixed_line_count "$line" "$upstream_content") || exit 2
+    [ "$count" -eq 1 ] && added_lines+=("$line")
   done < <(
     git diff "$BASE" "$UPSTREAM" -- "$f" \
       | grep -E '^\+[^+]' \
@@ -163,7 +176,8 @@ while IFS= read -r f; do
   # is mostly "stop doing X" shows up here, not in added_lines).
   deleted_lines=()
   while IFS= read -r line; do
-    [ "$(grep -cF -- "$line" <<<"$base_content")" -eq 1 ] && deleted_lines+=("$line")
+    count=$(fixed_line_count "$line" "$base_content") || exit 2
+    [ "$count" -eq 1 ] && deleted_lines+=("$line")
   done < <(
     git diff "$BASE" "$UPSTREAM" -- "$f" \
       | grep -E '^-[^-]' \
@@ -181,7 +195,8 @@ while IFS= read -r f; do
   # `${arr[@]+"${arr[@]}"}`, not `"${arr[@]}"` — bash 3.2 (macOS stock) treats
   # expanding a zero-element array as an unbound variable under `set -u`.
   for line in "${added_lines[@]+"${added_lines[@]}"}"; do
-    if [ -z "$target_content" ] || ! grep -qF -- "$line" <<<"$target_content"; then
+    count=$(fixed_line_count "$line" "$target_content") || exit 2
+    if [ "$count" -eq 0 ]; then
       missing=$((missing + 1))
       missing_lines+=("$line")
     fi
@@ -190,7 +205,8 @@ while IFS= read -r f; do
   resurrected=0
   resurrected_lines=()
   for line in "${deleted_lines[@]+"${deleted_lines[@]}"}"; do
-    if [ -n "$target_content" ] && grep -qF -- "$line" <<<"$target_content"; then
+    count=$(fixed_line_count "$line" "$target_content") || exit 2
+    if [ "$count" -gt 0 ]; then
       resurrected=$((resurrected + 1))
       resurrected_lines+=("$line")
     fi

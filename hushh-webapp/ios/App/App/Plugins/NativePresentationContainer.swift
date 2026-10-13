@@ -1,6 +1,23 @@
 import UIKit
 import WebKit
 
+/// Capacitor resizes only WK for the keyboard. Stationary native chrome stays
+/// in host coordinates; only an actual WK-sized keyboard viewport may inherit
+/// the host height. Arbitrary/stale geometry is never normalized.
+enum NativeChromeViewport {
+    static func resolve(authored: CGSize, host: CGSize, web: CGSize, coherent: Bool, keyboard: Bool) -> CGSize? {
+        guard [authored.width, authored.height, host.width, host.height, web.width, web.height]
+            .allSatisfy({ $0.isFinite && $0 > 0 }) else { return nil }
+        func matches(_ left: CGSize, _ right: CGSize) -> Bool {
+            abs(left.width - right.width) < 1 && abs(left.height - right.height) < 1
+        }
+        if matches(authored, host) { return host }
+        guard coherent, keyboard, matches(authored, web), abs(web.width - host.width) < 1,
+              web.height <= host.height else { return nil }
+        return host
+    }
+}
+
 /// Presentation metadata only; never routes, account identifiers or editor content.
 struct NativePanelPose: Equatable {
     let document: String
@@ -67,10 +84,16 @@ private enum NativeRegionRefusal: Int {
 /// One WebView, retained native base plane, bounded overlay groups. The outer
 /// container routes only explicitly admitted hits; Maps keeps its WK hit path.
 final class NativePresentationContainer: UIView {
-    enum BasePresentation { case underlay, contentBacked }
+    static let isolationDidChange = Notification.Name("HushhNativeDrawerIsolationDidChange")
+    enum BasePresentation { case underlay, contentBacked, coherentDrawers }
     let webView: WKWebView
     let basePresentation: BasePresentation
-    var contentBackedPresentation: Bool { basePresentation == .contentBacked }
+    var contentBackedPresentation: Bool { basePresentation != .underlay }
+    var legacyRegionPresentation: Bool { basePresentation == .contentBacked }
+    var wholeNativeDrawers: Bool { basePresentation == .coherentDrawers }
+    private var ownedDrawerIsolation = false
+    var interactionIsolated: Bool { overlayIsolated || ownedDrawerIsolation }
+    private(set) var isolationGeneration = 0
     let drawerClipping: Bool
     private let baseViewport = UIView()
     // Retain the legacy name for the independently reversible underlay pilot.
@@ -108,6 +131,8 @@ final class NativePresentationContainer: UIView {
     }
 
     func setRegions(document: String, revision: Int, viewport: CGSize, top: CGFloat, bottom: CGFloat, isolated: Bool, covered: Bool = false, privacyGeneration: Int? = nil, drawer: String? = nil, initialPose: NativePanelPose? = nil) -> Bool {
+        // The coherent owner has no React/native pose or clipping path.
+        guard !wholeNativeDrawers else { return rejectRegion(.coverage) }
         guard contentBackedPresentation, viewport == bounds.size else { return rejectRegion(.viewport) }
         guard revision >= 0, regionDocument != document || revision > regionRevision else { return rejectRegion(.revision) }
         guard top.isFinite, bottom.isFinite, top >= 0, bottom >= 0,
@@ -168,7 +193,12 @@ final class NativePresentationContainer: UIView {
     }
 
     func containsStationaryControl(_ frame: CGRect, document: String) -> Bool {
-        guard contentBackedPresentation, regionDocument == document, bounds.contains(frame) else { return false }
+        guard contentBackedPresentation, bounds.contains(frame) else { return false }
+        // Complete native drawers share this hierarchy; no React pose or
+        // reserved-region receipt exists in that mode. Document/privacy and
+        // authored-family fences remain in the plugin admission owner.
+        if wholeNativeDrawers { return true }
+        guard regionDocument == document else { return false }
         return frame.maxY <= overlayTop || frame.minY >= bounds.height - overlayBottom
     }
     func acceptsPresentationRevision(_ revision: Int?, privacyGeneration: Int?) -> Bool {
@@ -238,7 +268,7 @@ final class NativePresentationContainer: UIView {
     func setAdmission(_ id: String, admitted: Bool, presentationRegionRevision: Int? = nil, privacyGeneration: Int? = nil) {
         guard var control = controls[id] else { return }
         let currentRegion = acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration)
-        let admitted = admitted && currentRegion && !privacyConcealed && !(contentBackedPresentation && overlayIsolated)
+        let admitted = admitted && currentRegion && !privacyConcealed && !ownedDrawerIsolation && !(contentBackedPresentation && overlayIsolated)
         control.admitted = admitted
         controls[id] = control
         control.view.isUserInteractionEnabled = admitted
@@ -246,6 +276,38 @@ final class NativePresentationContainer: UIView {
     }
 
     func remove(_ id: String) { controls.removeValue(forKey: id)?.view.removeFromSuperview() }
+
+    /// Geometry only, from the existing authored installation. A drawer may
+    /// align its own Close with its opener without a second CSS inset constant
+    /// or per-frame bridge synchronization. This grants no action admission.
+    func installedFrame(_ id: String) -> CGRect? {
+        guard let control = controls[id], control.view.superview != nil,
+              control.view.window != nil else { return nil }
+        return control.view.convert(control.view.bounds, to: self)
+    }
+
+    /// Called synchronously by the complete native drawer owner. Covering a
+    /// base surface changes eligibility, never its paint or retained identity.
+    func isolateForOwnedDrawer(_ covered: Bool) {
+        guard wholeNativeDrawers, ownedDrawerIsolation != covered else { return }
+        ownedDrawerIsolation = covered
+        isolationGeneration += 1
+        webView.isUserInteractionEnabled = !covered
+        webView.accessibilityElementsHidden = covered
+        underlay.isUserInteractionEnabled = !covered
+        underlay.accessibilityElementsHidden = covered
+        if covered {
+            // Touch/AX exclusion does not resign a retained first responder.
+            // Complete IME editing through UIKit before the modal owns input;
+            // never let hardware keys continue into the covered composer.
+            webView.endEditing(true)
+            underlay.endEditing(true)
+            for id in Array(controls.keys) { setAdmission(id, admitted: false) }
+        }
+        NotificationCenter.default.post(name: Self.isolationDidChange, object: self)
+        // Uncovering does not restore captured permissions. The current feature
+        // bindings must explicitly re-admit their actions after settlement.
+    }
 
     func groupPose(_ id: String) -> NativePanelPose? { fences[id]?.pose }
 

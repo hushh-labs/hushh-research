@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppChatHistoryEdgeGesture } from "@/components/app-ui/app-chat-history-edge-gesture";
 
-const native = vi.hoisted(() => ({ blocked: false, dragging: false }));
+const native = vi.hoisted(() => ({ blocked: false, dragging: false, coherent: false }));
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
+  customNativePresentationEnabled: () => native.coherent,
+}));
 vi.mock("@/lib/capacitor/native-navigation", () => ({
   nativeShellOverlayBlocked: () => native.blocked,
   useNativeNavigationBlocked: (dragging: boolean) => { native.dragging = dragging; },
@@ -58,10 +61,22 @@ describe("chat history body gesture", () => {
   afterEach(() => {
     cleanup();
     native.blocked = false;
+    native.coherent = false;
     document.documentElement.classList.remove("kb-open");
     document.body.innerHTML = "";
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it("does not start a competing React gesture when the complete native family owns History", () => {
+    native.coherent = true;
+    const { drawer, transcript, onOpen } = mountGesture();
+    touch("touchstart", 80, 300, transcript);
+    touch("touchmove", 180, 302, transcript);
+    touch("touchend", 220, 303, transcript);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(drawer.style.transform).toBe("");
+    expect(drawer.style.visibility).toBe("hidden");
   });
 
   it("re-grabs a button-driven opening transition at its rendered position rather than its endpoint", () => {

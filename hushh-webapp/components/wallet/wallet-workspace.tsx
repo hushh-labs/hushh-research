@@ -237,8 +237,7 @@ export function WalletWorkspace() {
     profile: WalletDemoProfile;
   } | null>(null);
   const fallbackName = user?.displayName?.trim() || null;
-  // Fence rendering as well as settlement: an A → B → A visit or a lock
-  // must not expose the old profile while the next read is still pending.
+  // A lock or A → B → A visit must not expose a previous protected snapshot.
   const demoProfile = profileVisit.authorized && loadedProfile?.visit === profileVisit
     ? loadedProfile.profile
     : { ownerId: renderedOwnerId ?? undefined, displayName: fallbackName, shareUrl: null, cardPayload: null };
@@ -400,34 +399,40 @@ export function WalletWorkspace() {
         const state = await WalletCardService.getCard({ userId: ownerId, vaultOwnerToken: token });
         if (!isCurrent()) return;
         const payloadName = state.card?.cardPayload.full_name?.trim() || null;
-        setLoadedProfile({ visit: profileVisit, profile: {
-          ownerId,
-          displayName: payloadName || state.card?.displayName?.trim() || fallbackName,
-          shareUrl: state.card?.status === "active" ? state.shareUrl : null,
-          cardPayload: state.card?.cardPayload ?? null,
-          memberSince: user?.metadata?.creationTime,
-          walletId: state.card?.passSerial,
-          shareToken: WalletCardService.readShareLink(ownerId, state.card)?.shareToken ?? null,
-        } });
+        setLoadedProfile({
+          visit: profileVisit,
+          profile: {
+            ownerId,
+            displayName: payloadName || state.card?.displayName?.trim() || fallbackName,
+            shareUrl: state.card?.status === "active" ? state.shareUrl : null,
+            cardPayload: state.card?.cardPayload ?? null,
+            memberSince: user?.metadata?.creationTime,
+            walletId: state.card?.passSerial,
+            shareToken: WalletCardService.readShareLink(ownerId, state.card)?.shareToken ?? null,
+          },
+        });
         if (state.card && state.card.status !== "revoked" && !WalletCardService.readShareLink(ownerId, state.card)) {
           const version = state.card.shareTokenVersion ?? null;
-          if (!recoveryAttempts.has(version)) {
+          if (!recoveryAttempts.has(version) && isCurrent()) {
             recoveryAttempts.add(version);
             const recovered = await WalletCardService.ensureCard({ userId: ownerId, vaultOwnerToken: token });
             if (!isCurrent()) return;
             const link = WalletCardService.readShareLink(ownerId, recovered.card);
-            setLoadedProfile({ visit: profileVisit, profile: {
-          ownerId,
-              displayName: recovered.card.cardPayload.full_name?.trim() || recovered.card.displayName?.trim() || fallbackName,
-              shareUrl: recovered.card.status === "active" ? link?.shareUrl ?? null : null,
-              cardPayload: recovered.card.cardPayload,
-              memberSince: user?.metadata?.creationTime,
-              walletId: recovered.card.passSerial,
-              shareToken: link?.shareToken ?? null,
-            } });
+            setLoadedProfile({
+              visit: profileVisit,
+              profile: {
+                ownerId,
+                displayName: recovered.card.cardPayload.full_name?.trim() || recovered.card.displayName?.trim() || fallbackName,
+                shareUrl: recovered.card.status === "active" ? link?.shareUrl ?? null : null,
+                cardPayload: recovered.card.cardPayload,
+                memberSince: user?.metadata?.creationTime,
+                walletId: recovered.card.passSerial,
+                shareToken: link?.shareToken ?? null,
+              },
+            });
           }
         }
-      } catch { /* Preserve the last authorized snapshot on transient failure. */ }
+      } catch { /* Retain this visit's confirmed snapshot during a transient outage. */ }
       finally { loading = false; }
     };
     void load();
@@ -444,21 +449,26 @@ export function WalletWorkspace() {
       document.removeEventListener("visibilitychange", refreshVisible);
     };
   }, [profileVisit, fallbackName, user?.metadata?.creationTime]);
-  const [referralState, setReferralState] = useState<{ ownerId: string; summary: ReferralSummary } | null>(null);
-  const [referralErrorOwnerId, setReferralErrorOwnerId] = useState<string | null>(null);
+  const [referralState, setReferralState] = useState<{ visit: typeof profileVisit; summary: ReferralSummary } | null>(null);
+  const [referralErrorVisit, setReferralErrorVisit] = useState<typeof profileVisit | null>(null);
+  const referralReadRevision = useRef(0);
   const loadReferral = useCallback(async () => {
     if (!user) return;
-    const ownerId = user.uid;
-    setReferralErrorOwnerId(null);
+    const visit = profileVisit;
+    const revision = ++referralReadRevision.current;
+    const isCurrent = () => profileVisitRef.current === visit &&
+      activeOwnerIdRef.current === user.uid && revision === referralReadRevision.current;
+    if (!isCurrent()) return;
+    setReferralErrorVisit(null);
     try {
       const idToken = await user.getIdToken();
+      if (!isCurrent()) return;
       const summary = await ReferralService.getSummary({ idToken });
-      if (activeOwnerIdRef.current === ownerId) setReferralState({ ownerId, summary });
+      if (isCurrent()) setReferralState({ visit, summary });
     } catch {
-      // Preserve a confirmed summary, but make a failed first load actionable.
-      if (activeOwnerIdRef.current === ownerId) setReferralErrorOwnerId(ownerId);
+      if (isCurrent()) setReferralErrorVisit(visit);
     }
-  }, [user]);
+  }, [user, profileVisit]);
   useEffect(() => { void loadReferral(); }, [loadReferral]);
   const { connected: referralConnected } = useReferralStream(user, loadReferral);
   useEffect(() => {
@@ -468,7 +478,7 @@ export function WalletWorkspace() {
     window.addEventListener("focus", visible);
     return () => { window.clearInterval(timer); window.removeEventListener("focus", visible); };
   }, [user, referralConnected, loadReferral]);
-  const referralSummary = referralState?.ownerId === renderedOwnerId ? referralState.summary : null;
+  const referralSummary = referralState?.visit === profileVisit ? referralState.summary : null;
   const walletIdentity = demoProfile ? { ...demoProfile, referralUrl: referralSummary?.link ?? null } : null;
   // Decryption is asynchronous; whether the vault is still open is re-read
   // from the latest render when it settles, never from the tap that began it.
@@ -975,7 +985,7 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser dockHost={cardDockHost} demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
+            <WalletCardBrowser dockHost={cardDockHost} demoProfile={walletIdentity} referralSummary={referralSummary} referralError={referralErrorVisit === profileVisit} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
               key={renderedOwnerId}
               cards={cards}
               cardholderNames={cardholderNames}
@@ -1117,6 +1127,7 @@ export function WalletWorkspace() {
         ) : null}
         <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto h-0 w-full max-w-[820px] overflow-hidden bg-transparent p-0")} data-testid="wallet-card-dock-host" />
       </AppPageContentRegion>
+      <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto h-0 w-full max-w-[820px] overflow-hidden bg-transparent p-0")} data-testid="wallet-card-dock-host" />
     </AppPageShell>
   );
 }

@@ -92,8 +92,8 @@ final class AppUITests: XCTestCase {
     private var activeUiFlowRunId = ""
 
     private func printNativeControlStatuses(_ web: XCUIElement) {
-        for control in ["chat-history-toggle", "chat-history-close", "profile-close"] {
-            let status = web.staticTexts["native-control-status-\(control)"].firstMatch
+        for control in ["chat-history-toggle", "chat-history-close", "profile-close", "profile-back", "chat-agent-surface"] {
+            let status = web.descendants(matching: .any).matching(identifier: control == "chat-agent-surface" ? "native-selector-rehearsal-status" : "native-control-status-\(control)").firstMatch
             guard status.exists, status.label.hasPrefix("NATIVE_SELECTOR_STATUS ") else { continue }
             let raw = String(status.label.dropFirst("NATIVE_SELECTOR_STATUS ".count))
             guard raw.utf8.count <= 1024, let data = raw.data(using: .utf8),
@@ -105,11 +105,62 @@ final class AppUITests: XCTestCase {
                 "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_PREPARE_REFUSED",
                 "NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE", "NATIVE_CHROME_OVERLAPPING_CONTROLS",
                 "NATIVE_CHROME_OPTIONS_INVALID", "NATIVE_CHROME_LAYOUT_UNCONFIRMED", "NATIVE_CHROME_LAYOUT_RETIRED",
-                "NATIVE_CHROME_ACTIVATE_REFUSED", "NATIVE_CHROME_ACTIVATE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_UNCONFIRMED",
-                "NATIVE_CHROME_UPDATE_INVALID", "NATIVE_CHROME_UPDATE_UNCONFIRMED"]
+                "NATIVE_CHROME_ACTIVATE_REFUSED", "NATIVE_CHROME_ACTIVATE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_STALE",
+                "NATIVE_CHROME_UPDATE_INVALID", "NATIVE_CHROME_UPDATE_UNCONFIRMED", "NATIVE_CHROME_SUSPEND_REFUSED", "NATIVE_CHROME_SUSPEND_UNCONFIRMED"]
             let code = fields["code"] as? String ?? "other"
             guard knownCodes.contains(code) else { continue }
             print("NATIVE_CONTROL_STAGE control=\(control.replacingOccurrences(of: "-", with: "_")) stage=\(stage) outcome=\(outcome) code=\(code) eligible=\(fields["eligible"] as? Bool ?? false) allowed=\(fields["allowed"] as? Bool ?? false) focused=\(fields["focusInside"] as? Bool ?? false) held=\(fields["heldFocus"] as? Bool ?? false) in_viewport=\(fields["inViewport"] as? Bool ?? false)")
+            if let choice = fields["choice"] as? String,
+               ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale", "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"].contains(choice) {
+                print("NATIVE_CONTROL_CHOICE control=\(control.replacingOccurrences(of: "-", with: "_")) outcome=\(choice)")
+            }
+        }
+    }
+
+    private func printCoherentPresentationAdmission(_ app: XCUIApplication) {
+        // Fixed authored identifiers/labels only. Never serialize a hierarchy,
+        // profile identity, row label, draft or private presentation payload.
+        for (name, label) in [("profile_close", "Close Profile"), ("profile_back", "Back in Profile"),
+            ("history_close", "Close chat history"), ("profile_open", "Open Profile")] {
+            let control = app.buttons[label].firstMatch
+            print("COHERENT_CONTROL_ADMISSION control=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled)")
+        }
+        for family in ["history", "profile"] {
+            let body = app.otherElements["native-\(family)-drawer-body"].firstMatch
+            print("COHERENT_DRAWER_ADMISSION family=\(family) present=\(body.exists) hittable=\(body.exists && body.isHittable)")
+        }
+        for (name, control) in [("editor", app.textViews["native-dock-editor"].firstMatch),
+            ("history", app.buttons["chat-history-toggle"].firstMatch),
+            ("selector", app.segmentedControls["chat-agent-surface"].firstMatch),
+            ("chat_tab", app.buttons["one-native-tab-chat"].firstMatch)] {
+            print("COHERENT_SHELL_ADMISSION control=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled)")
+        }
+        print("COHERENT_SHELL_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists) software_keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
+        let probe = app.buttons["native-profile-back-admission"].firstMatch
+        if let raw = probe.exists ? probe.value as? String : nil, raw.utf8.count <= 1024 {
+            let fields = Dictionary(raw.split(separator: ";").compactMap { item -> (String, String)? in
+                let pair = item.split(separator: "=", maxSplits: 1)
+                return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
+            }, uniquingKeysWith: { _, newest in newest })
+            let stage = fields["stage"] ?? "none", outcome = fields["outcome"] ?? "none", code = fields["code"] ?? "none"
+            guard ["none", "skip", "retire", "prepare", "activate", "update"].contains(stage),
+                  ["none", "pending", "acknowledged", "rejected"].contains(outcome),
+                  ["none", "other", "not-admitted", "focused", "geometry"].contains(code) || code.hasPrefix("NATIVE_CHROME_") && code.allSatisfy({ $0.isUppercase || $0 == "_" }),
+                  ["present", "focused", "inert"].allSatisfy({ ["true", "false"].contains(fields[$0] ?? "") }),
+                  let width = Int(fields["width"] ?? ""), let height = Int(fields["height"] ?? ""), let top = Int(fields["top"] ?? ""),
+                  [width, height, top].allSatisfy({ abs($0) <= 10_000 }) else { return }
+            print("COHERENT_BACK_ADMISSION stage=\(stage) outcome=\(outcome) code=\(code) present=\(fields["present"]!) focused=\(fields["focused"]!) inert=\(fields["inert"]!) width=\(width) height=\(height) top=\(top)")
+            let historyStage = fields["historyStage"] ?? "none", historyOutcome = fields["historyOutcome"] ?? "none"
+            let historyCode = fields["historyCode"] ?? "none"
+            let historyChoice = fields["historyChoice"] ?? "none", historyNative = fields["historyNative"] ?? "none"
+            if ["none", "skip", "retire", "prepare", "activate", "update"].contains(historyStage),
+               ["none", "pending", "acknowledged", "rejected"].contains(historyOutcome),
+               ["none", "other", "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_RETIRE_STALE", "NATIVE_CHROME_RETIRE_UNCONFIRMED", "NATIVE_CHROME_SUSPEND_REFUSED", "NATIVE_CHROME_SUSPEND_UNCONFIRMED"].contains(historyCode),
+               ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale", "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"].contains(historyChoice),
+               ["none", "tap", "refused", "emitted", "confirmed", "confirmation-refused"].contains(historyNative),
+               ["historyAllowed", "historyPresent", "historyInert"].allSatisfy({ ["true", "false"].contains(fields[$0] ?? "") }) {
+                print("COHERENT_HISTORY_TRACE stage=\(historyStage) outcome=\(historyOutcome) code=\(historyCode) choice=\(historyChoice) native=\(historyNative) allowed=\(fields["historyAllowed"]!) present=\(fields["historyPresent"]!) inert=\(fields["historyInert"]!)")
+            }
         }
     }
 
@@ -136,6 +187,231 @@ final class AppUITests: XCTestCase {
         vaultUnlockSubmitted = false
     }
 
+    /// Public fixture only. Installation/launch is preparation; this journey
+    /// attaches without resetting, authenticating or navigating the WebView.
+    func testLocalNativeHistoryCompositionQualification() throws {
+        guard let (app, fixture) = try attachPublicNativeHistoryQualification() else { return }
+        let open = app.buttons["qualification-history-open"].firstMatch
+        let close = app.buttons["qualification-history-close"].firstMatch
+        let dock = app.descendants(matching: .any).matching(identifier: "qualification-dock").firstMatch
+        let exit = app.buttons["qualification-exit"].firstMatch
+        guard waitForAdmittedControl(open), waitForAdmittedControl(exit), dock.exists else {
+            XCTFail("QUALIFICATION_BASE_INCOMPLETE"); return
+        }
+        app.buttons["qualification-reset"].tap()
+        let initialOpen = open.frame, initialDock = dock.frame
+        XCTAssertGreaterThanOrEqual(initialOpen.width, 44)
+        XCTAssertGreaterThanOrEqual(initialOpen.height, 44)
+        XCTAssertEqual(app.buttons.matching(identifier: "qualification-history-open").count, 1)
+        XCTAssertEqual(app.textViews.matching(identifier: "native-dock-editor").count, 1,
+            "The study reuses one retained editor, not another implementation")
+        XCTAssertFalse(app.webViews.textFields["Message One"].firstMatch.isHittable,
+            "The underlying product composer cannot be interactive in a public study")
+
+        let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let exerciseDrawers = { [self] (cycles: Int) in
+            for cycle in 0..<cycles {
+                guard waitForAdmittedControl(open) else {
+                    XCTFail("QUALIFICATION_OPEN_NOT_RESTORED"); return
+                }
+                // Alternate center and edges. A retained control must remain usable,
+                // not merely exist after an earlier successful center tap.
+                // A system banner can cover this header despite AX reporting it
+                // hittable. Wait for retirement rather than replay an uncertain tap.
+                guard system.otherElements["NotificationShortLookView"].firstMatch.waitForNonExistence(timeout: 10) else {
+                    XCTFail("QUALIFICATION_INTERRUPTED_BY_SYSTEM_BANNER"); return
+                }
+                let x: CGFloat = cycle % 2 == 0 ? 0.5 : 0.15
+                open.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5)).tap()
+                guard waitForAdmittedControl(close) else {
+                    XCTFail("QUALIFICATION_DRAWER_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(close.frame.minX, initialOpen.minX, accuracy: 1,
+                    "History Close must occupy the opener's leading slot")
+                XCTAssertEqual(close.frame.minY, initialOpen.minY, accuracy: 1)
+                XCTAssertEqual(close.frame.width, initialOpen.width, accuracy: 1)
+                XCTAssertEqual(close.frame.height, initialOpen.height, accuracy: 1)
+                XCTAssertFalse(open.isHittable, "Covered base navigation must not receive touches")
+                XCTAssertTrue(app.staticTexts["Synthetic conversations"].isHittable)
+                if cycle % 2 == 0 {
+                    // Hold a partial closing drag before releasing to spring back;
+                    // this covers the reported failure, not only settled taps.
+                    let start = fixture.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.55))
+                    let middle = fixture.coordinate(withNormalizedOffset: CGVector(dx: 0.40, dy: 0.55))
+                    start.press(forDuration: 0.05, thenDragTo: middle,
+                        withVelocity: .slow, thenHoldForDuration: 0.3)
+                    guard waitForAdmittedControl(close) else {
+                        XCTFail("QUALIFICATION_SHORT_DRAG_LOST_DRAWER"); return
+                    }
+                }
+                close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: cycle % 2 == 0 ? 0.5 : 0.2)).tap()
+                guard waitForAdmittedControl(open) else {
+                    XCTFail("QUALIFICATION_CLOSE_LOST_BASE"); return
+                }
+                XCTAssertFalse(close.isHittable)
+                XCTAssertEqual(open.frame.minX, initialOpen.minX, accuracy: 1)
+                XCTAssertEqual(open.frame.minY, initialOpen.minY, accuracy: 1)
+                XCTAssertEqual(dock.frame, initialDock)
+                print("NATIVE_HISTORY_PUBLIC_CYCLE completed=\(cycle + 1)")
+            }
+        }
+        // Functional repetition and rendered performance are separate evidence:
+        // ten warm cycles, then three short measured gesture runs. AX queries
+        // occur outside each signposted animation, never on its frame path.
+        exerciseDrawers(10)
+        if ProcessInfo.processInfo.environment["HUSHH_MEASURE_PUBLIC_QUALIFICATION"] == "true" {
+            guard #available(iOS 26.0, *) else { throw XCTSkip("Native hitch measurement requires iOS 26") }
+            let options = XCTMeasureOptions()
+            options.iterationCount = 3
+            measure(metrics: [XCTOSSignpostMetric(subsystem: "ai.hushh.native-study",
+                category: "PointsOfInterest", name: "PublicDrawerMotion"), XCTHitchMetric(application: app)], options: options) {
+                app.buttons["qualification-reset"].tap()
+                exerciseDrawers(3)
+            }
+        }
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        let emptySample = (editor.value as? String ?? "")
+        guard waitForAdmittedControl(editor), emptySample.isEmpty || emptySample == "Message One" else {
+            XCTFail("PUBLIC_EDITOR_REQUIRES_EMPTY_SAMPLE"); return
+        }
+        let sample = "Public sample 😀\nSecond line\nThird line\nFourth line\nFifth line\nSixth line\nSeventh line\nEighth line"
+        editor.tap()
+        editor.typeText(sample)
+        XCTAssertTrue((editor.value as? String) == sample, "Unicode and newlines must survive one input operation")
+        XCTAssertLessThanOrEqual(editor.frame.height, 144)
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.exists)
+        XCTAssertLessThanOrEqual(editor.frame.maxY, keyboard.frame.minY,
+            "The retained native editor must remain above the system keyboard")
+        app.buttons["Talk"].firstMatch.tap()
+        XCTAssertFalse(editor.isHittable)
+        app.buttons["Message"].firstMatch.tap()
+        guard waitForAdmittedControl(editor) else {
+            XCTFail("PUBLIC_EDITOR_MODE_NOT_RESTORED"); return
+        }
+        XCTAssertTrue((editor.value as? String) == sample, "Mode changes must not erase the retained draft")
+        open.tap()
+        guard waitForAdmittedControl(close) else { XCTFail("PUBLIC_EDITING_DRAWER_NOT_ADMITTED"); return }
+        XCTAssertFalse(editor.isHittable)
+        close.tap()
+        guard waitForAdmittedControl(editor) else { XCTFail("PUBLIC_EDITING_BASE_NOT_RESTORED"); return }
+        XCTAssertTrue((editor.value as? String) == sample, "Drawer settlement must not replace the editor")
+        XCTAssertFalse(app.buttons["Send message"].firstMatch.isEnabled,
+            "A public study must not install product submission authority")
+        guard let json = fixture.value as? String, let data = json.data(using: .utf8),
+              let timings = try? JSONSerialization.jsonObject(with: data) as? [String: Double],
+              let frames = timings["frames"], let over50 = timings["over50"],
+              let maxFrame = timings["maxFrameMs"], let duration = timings["measuredMs"],
+              frames > 0, duration > 0, [frames, over50, maxFrame, duration].allSatisfy({ $0.isFinite && $0 >= 0 }) else {
+            XCTFail("PUBLIC_MOTION_MEASUREMENT_MISSING"); return
+        }
+        print("NATIVE_HISTORY_PUBLIC_FRAMES samples=\(Int(frames)) over50=\(Int(over50)) max_ms=\(maxFrame) measured_ms=\(duration)")
+        XCTAssertEqual(over50, 0, "PUBLIC_MOTION_FRAME_OVER_50_MS")
+        if ProcessInfo.processInfo.environment["HUSHH_CAPTURE_PUBLIC_QUALIFICATION"] == "true" {
+            try auditPublicNativeHistoryAppearance(app, fixture: fixture)
+        }
+        // Keep the public fixture present for separate visual/performance review.
+        // No automatic Exit can expose private Chat in a public recording.
+    }
+
+    /// A separate warm family journey keeps selector acceptance independent of
+    /// drawer measurement. Neither ten-cycle gate is reduced or skipped.
+    func testLocalNativeHistoryAgentSelectorQualification() throws {
+        guard let (app, fixture) = try attachPublicNativeHistoryQualification() else { return }
+        guard waitForAdmittedControl(fixture.buttons["qualification-reset"]) else {
+            XCTFail("PUBLIC_AGENT_SELECTOR_RESET_UNAVAILABLE"); return
+        }
+        fixture.buttons["qualification-reset"].tap()
+        let editor = fixture.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else { XCTFail("PUBLIC_AGENT_EDITOR_NOT_ADMITTED"); return }
+        let sample = "Public One/Puppy sample 😀"
+        editor.tap()
+        editor.typeText(sample)
+        XCTAssertEqual(editor.value as? String, sample, "PUBLIC_AGENT_EDITOR_INPUT_NOT_RETAINED")
+        let selector = fixture.segmentedControls["chat-agent-surface"].firstMatch
+        let cloud = selector.buttons["One, your cloud agent"].firstMatch
+        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
+        guard waitForAdmittedControl(cloud), waitForAdmittedControl(puppy) else {
+            XCTFail("PUBLIC_AGENT_SELECTOR_NOT_ADMITTED"); return
+        }
+        for cycle in 0..<10 {
+            puppy.tap()
+            XCTAssertTrue(puppy.isSelected, "PUBLIC_AGENT_PUPPY_SELECTION_NOT_COMMITTED")
+            cloud.tap()
+            XCTAssertTrue(cloud.isSelected, "PUBLIC_AGENT_ONE_SELECTION_NOT_COMMITTED")
+            XCTAssertEqual(app.textViews.matching(identifier: "native-dock-editor").count, 1,
+                "PUBLIC_AGENT_DUPLICATE_EDITOR")
+            XCTAssertEqual(editor.value as? String, sample, "PUBLIC_AGENT_SELECTOR_REPLACED_DRAFT")
+            print("NATIVE_HISTORY_PUBLIC_SELECTOR_CYCLE completed=\(cycle + 1)")
+        }
+        XCTAssertFalse(fixture.buttons["Send message"].firstMatch.isEnabled,
+            "PUBLIC_AGENT_STUDY_SUBMISSION_MUST_BE_DISABLED")
+    }
+
+    private func attachPublicNativeHistoryQualification() throws -> (XCUIApplication, XCUIElement)? {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_HISTORY_QUALIFICATION"] == "true" else {
+            throw XCTSkip("Explicit public native composition qualification")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("QUALIFICATION_REQUIRES_PREPARED_RUNNING_APP"); return nil
+        }
+        // XCTest preparation can background the already installed application.
+        // Activate that same process; never relaunch or reset its session here.
+        app.activate()
+        let fixture = app.otherElements["native-history-qualification"].firstMatch
+        let launcher = app.buttons["native-history-qualification-launcher"].firstMatch
+        // Runner preparation can interrupt the app and legitimately retire its
+        // owned presentation. Re-entry is an explicit authored action, not a
+        // privacy bypass, relaunch, or automatic resurrection.
+        if !fixture.exists, waitForAdmittedControl(launcher) { launcher.tap() }
+        guard fixture.waitForExistence(timeout: 10) else {
+            XCTFail("QUALIFICATION_FIXTURE_NOT_ADMITTED"); return nil
+        }
+        return (app, fixture)
+    }
+
+    /// The actual contrast regression has its own bounded evidence path; a
+    /// visual correction need not repeat already verified gesture/editor work.
+    func testLocalNativeHistoryAppearanceAccessibilityQualification() throws {
+        guard let (app, fixture) = try attachPublicNativeHistoryQualification() else { return }
+        guard waitForAdmittedControl(fixture.buttons["qualification-reset"]) else {
+            XCTFail("QUALIFICATION_PUBLIC_APPEARANCE_NOT_ADMITTED"); return
+        }
+        fixture.buttons["qualification-reset"].tap()
+        let value = fixture.textViews["native-dock-editor"].firstMatch.value as? String ?? ""
+        guard value.isEmpty || value == "Message One" else {
+            XCTFail("PUBLIC_APPEARANCE_REQUIRES_EMPTY_SAMPLE"); return
+        }
+        try auditPublicNativeHistoryAppearance(app, fixture: fixture)
+        print("NATIVE_HISTORY_PUBLIC_APPEARANCE states=4")
+    }
+
+    private func auditPublicNativeHistoryAppearance(_ app: XCUIApplication, fixture: XCUIElement) throws {
+        // Collect the complete public matrix. Every audit issue still fails the
+        // test; none is ignored or expected. This does not certify motion.
+        continueAfterFailure = true
+        defer { continueAfterFailure = false }
+        for (theme, accent) in [("Light", "Blue"), ("Light", "Molten Gold"), ("Dark", "Blue"), ("Dark", "Molten Gold")] {
+            fixture.buttons[theme].firstMatch.tap()
+            fixture.buttons[accent].firstMatch.tap()
+            guard fixture.exists, fixture.buttons["qualification-history-open"].isHittable,
+                  fixture.descendants(matching: .any).matching(identifier: "qualification-dock").firstMatch.isHittable else {
+                XCTFail("PUBLIC_CAPTURE_NOT_ISOLATED"); return
+            }
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "public-native-study-\(theme)-\(accent)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            if ProcessInfo.processInfo.environment["HUSHH_AUDIT_PUBLIC_QUALIFICATION"] == "true", #available(iOS 17.0, *) {
+                try app.performAccessibilityAudit(for: [.contrast, .hitRegion,
+                    .sufficientElementDescription, .trait, .textClipped, .dynamicType])
+            }
+        }
+        fixture.buttons["Light"].firstMatch.tap()
+        fixture.buttons["Blue"].firstMatch.tap()
+    }
+
     func testLocalSessionAutomationAdmissionOnly() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in credential-free attach-only runner admission")
@@ -146,10 +422,10 @@ final class AppUITests: XCTestCase {
             XCTFail("NATIVE_ADMISSION_REQUIRES_RUNNING_APP"); return
         }
         app.activate()
-        let hosts = app.webViews.matching(identifier: "native-webview")
-        XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
-        XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
-        let web = hosts.firstMatch
+        // A valid native modal excludes the underlying WebView from AX.
+        // Settle only authored recovery/dismissal layers before asking for
+        // the host; its absence while covered is not a transport failure.
+        print("NATIVE_ADMISSION_GATE privacy_cover=\(app.otherElements["session-privacy-shield"].exists) native_drawer=\(app.otherElements["native-private-drawer"].exists)")
         if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETRY_PRIVACY"] == "true" {
             // An automatic authenticator prompt can keep the app inactive and
             // cover its fallback. Cancel only a recognized system prompt;
@@ -182,7 +458,15 @@ final class AppUITests: XCTestCase {
             }
             print("NATIVE_PRIVACY_RECOVERY_COMPLETED")
         }
+        if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETURN_CHAT"] == "true" {
+            returnToRehearsalChat(app)
+        }
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
+        XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
+        let web = hosts.firstMatch
         printNativeControlStatuses(web)
+        printCoherentPresentationAdmission(app)
         for identifier in ["native-dock-editor", "chat-history-toggle", "chat-history-close", "profile-close"] {
             let control = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
             print("NATIVE_CONTROL_ADMISSION control=\(identifier.replacingOccurrences(of: "-", with: "_")) present=\(control.exists) hittable=\(control.exists && control.isHittable)")
@@ -215,9 +499,6 @@ final class AppUITests: XCTestCase {
         if let email = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_EMAIL"], !email.isEmpty {
             let ownerLabel = NSPredicate(format: "label == %@", email)
             print("NATIVE_REVIEWER_ADMISSION configured=true static_matches=\(web.staticTexts.matching(ownerLabel).count) exact_matches=\(web.descendants(matching: .any).matching(ownerLabel).count)")
-        }
-        if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETURN_CHAT"] == "true" {
-            returnToRehearsalChat(app)
         }
         let unlock = web.buttons["Unlock"].firstMatch
         let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
@@ -279,6 +560,48 @@ final class AppUITests: XCTestCase {
         }
         reportNativeDockAdmission(app)
         print("NATIVE_AUTOMATION_ADMISSION_CONFIRMED")
+    }
+
+    func testLocalSessionVaultWholeValueEntryOnly() throws {
+        let app = XCUIApplication()
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true",
+              [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state)
+        else { throw XCTSkip("Requires the existing app session") }
+        app.activate()
+        returnToRehearsalChat(app)
+        let field = app.webViews.secureTextFields.matching(NSPredicate(
+            format: "label == %@ OR identifier == %@", "Vault passphrase", "unlock-passphrase"
+        )).firstMatch
+        let unlock = app.buttons.matching(NSPredicate(format: "label == %@", "Unlock"))
+        guard waitForAdmittedControl(field), unlock.count == 1,
+              !app.otherElements["session-privacy-shield"].exists else {
+            XCTFail("SECURE_PUBLIC_PROBE_NOT_ADMITTED"); return
+        }
+        // Public synthetic input only; normal Unlock is never submitted. The
+        // actual credential test reuses this same focus/clear acknowledgement.
+        for fixture in ["fixture7", "probe#42"] {
+            guard prepareEmptySecureEntry(field, app: app, unlockControls: unlock) else {
+                XCTFail("SECURE_PUBLIC_PROBE_CLEAR_FAILED"); return
+            }
+            app.typeText(fixture)
+            let inserted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                (field.value as? String)?.utf16.count == fixture.utf16.count &&
+                    unlock.count == 1 && unlock.firstMatch.isEnabled
+            }, object: field)
+            guard XCTWaiter.wait(for: [inserted], timeout: 3) == .completed else {
+                print("SECURE_PUBLIC_PROBE complete=false keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)) enabled=\(unlock.firstMatch.isEnabled)")
+                // Counts are permitted only for this known public fixture,
+                // never the reviewer credential or a previous entry.
+                print("SECURE_PUBLIC_SAMPLE observed=\((field.value as? String)?.utf16.count ?? -1) expected=\(fixture.utf16.count)")
+                let cleanup = prepareEmptySecureEntry(field, app: app, unlockControls: unlock)
+                print("SECURE_PUBLIC_CLEANUP confirmed=\(cleanup)")
+                XCTFail("SECURE_PUBLIC_PROBE_INSERTION_INCOMPLETE"); return
+            }
+        }
+        guard prepareEmptySecureEntry(field, app: app, unlockControls: unlock) else {
+            XCTFail("SECURE_PUBLIC_PROBE_CLEANUP_FAILED"); return
+        }
+        print("SECURE_PUBLIC_PROBE length_acknowledged=true samples=2 cleared=true submitted=false")
     }
 
     func testLocalSessionVaultUnlockOnly() throws {
@@ -532,6 +855,280 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(entry.isHittable, "VAULT_LAYOUT_RESUME_ENTRY_CLIPPED")
         assertFieldHitRegions()
         XCTAssertNotNil(resumed)
+    }
+
+
+    /// Actual product port, not the synthetic study. Read-only, attach-only and
+    /// credential-free after normal unlock; private labels never enter artifacts.
+    func testLocalSessionCoherentNativeShellKeepsWarmChat() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Installed coherent qualification candidate only")
+        }
+        let app = XCUIApplication()
+        let agentSwitchOnly = ProcessInfo.processInfo.environment["HUSHH_COHERENT_AGENT_SWITCH_ONLY"] == "true"
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("Attach only; installation and unlock are separate")
+        }
+        app.activate()
+        dismissRehearsalChatKeyboard(app)
+        returnToRehearsalChat(app)
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        guard web.waitForExistence(timeout: 15), !web.buttons["Unlock"].exists else {
+            XCTFail("COHERENT_SHELL_REQUIRES_UNLOCKED_CHAT"); return
+        }
+        for label in ["Close Profile", "Close chat history"] {
+            let close = app.buttons[label].firstMatch
+            if close.exists && close.isHittable { close.tap() }
+        }
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        let history = app.buttons["chat-history-toggle"].firstMatch
+        let profile = app.buttons["Open Profile"].firstMatch
+        let selector = app.segmentedControls["chat-agent-surface"].firstMatch
+        guard waitForAdmittedControl(editor), waitForAdmittedControl(history), waitForAdmittedControl(profile), selector.exists else {
+            printCoherentPresentationAdmission(app)
+            printNativeControlStatuses(web)
+            XCTFail("COHERENT_SHELL_COMPOSITION_NOT_ADMITTED"); return
+        }
+        let initialDraft = editor.value as? String // Process-only; never an assertion operand or artifact.
+        let cloud = selector.buttons["One, your cloud agent"].firstMatch
+        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
+        guard cloud.isSelected else { XCTFail("COHERENT_SHELL_REQUIRES_ONE_CONTEXT"); return }
+        var initialPuppyDraft: String?
+        var puppyDraftObserved = false
+        func waitForAppliedPort(_ choice: XCUIElement, label: String) -> Bool {
+            let applied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                choice.exists && choice.isSelected && editor.exists && editor.isHittable && editor.label == label
+            }, object: app)
+            return XCTWaiter.wait(for: [applied], timeout: 10) == .completed
+        }
+        func continuity() {
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            XCTAssertTrue((editor.value as? String) == initialDraft, "COHERENT_SHELL_DRAFT_CHANGED")
+            XCTAssertFalse(web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch.isHittable)
+        }
+        for cycle in 0..<10 {
+            if !agentSwitchOnly {
+                let openerFrame = history.frame
+                history.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.5 : 0.2, dy: 0.5)).tap()
+                let close = app.buttons["Close chat history"].firstMatch
+                guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
+                    printCoherentPresentationAdmission(app)
+                    printNativeControlStatuses(web)
+                    let search = app.textFields["native-history-search"].firstMatch
+                    print("COHERENT_HISTORY_ADMISSION search_present=\(search.exists) search_hittable=\(search.exists && search.isHittable) opener_hittable=\(history.exists && history.isHittable)")
+                    XCTFail("COHERENT_HISTORY_NOT_ADMITTED"); return
+                }
+                print("NATIVE_HISTORY_LEADING_SLOT opener_x=\(Int(openerFrame.minX)) opener_y=\(Int(openerFrame.minY)) close_x=\(Int(close.frame.minX)) close_y=\(Int(close.frame.minY))")
+                XCTAssertEqual(close.frame.minX, openerFrame.minX, accuracy: 1, "COHERENT_HISTORY_CLOSE_HORIZONTAL_ALIGNMENT")
+                XCTAssertEqual(close.frame.minY, openerFrame.minY, accuracy: 1, "COHERENT_HISTORY_CLOSE_VERTICAL_ALIGNMENT")
+                if cycle == 0 {
+                    let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "native-history-actions-")).firstMatch
+                    guard waitForAdmittedControl(actions) else { XCTFail("COHERENT_HISTORY_ACTION_FIXTURE_MISSING"); return }
+                    let rowIdentifier = actions.identifier.replacingOccurrences(of: "native-history-actions-", with: "native-history-row-")
+                    let row = app.buttons[rowIdentifier].firstMatch
+                    guard waitForAdmittedControl(row) else { XCTFail("COHERENT_HISTORY_ROW_GEOMETRY_UNAVAILABLE"); return }
+                    // SwiftUI combines this label into the Button's AX node.
+                    // Actual text centering and inline age are measured on the
+                    // same shared renderer in NativeSupportTests, not inferred
+                    // from inaccessible text descendants or the hit rectangle.
+                    XCTAssertGreaterThanOrEqual(row.frame.height, 44)
+                    XCTAssertEqual(row.frame.midY, actions.frame.midY, accuracy: 1)
+                    XCTAssertLessThanOrEqual(row.frame.maxX, actions.frame.minX + 1, "History selection must not collide with More")
+                    XCTAssertEqual(actions.frame.width, 44, accuracy: 1)
+                    XCTAssertEqual(actions.frame.height, 44, accuracy: 1)
+                    print("COHERENT_HISTORY_ROW_HIT_REGIONS independent=true aligned=true minimum=true")
+                    actions.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+                    let rename = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Rename")).firstMatch
+                    print("COHERENT_HISTORY_MENU rename=\(rename.exists) close_hittable=\(close.isHittable)")
+                    // UIKit's compact menu owns interaction until dismissal. A
+                    // covered Close is not required to be simultaneously tappable.
+                    guard waitForAdmittedControl(rename) else { XCTFail("COHERENT_HISTORY_ACTIONS_NOT_DELIVERED"); return }
+                    rename.tap()
+                    guard app.textFields["native-history-rename"].firstMatch.waitForExistence(timeout: 10) else {
+                        XCTFail("COHERENT_HISTORY_RENAME_NOT_OPENED"); return
+                    }
+                    app.buttons["Cancel"].firstMatch.tap() // No rename/delete mutation.
+                    guard app.textFields["native-history-search"].firstMatch.waitForExistence(timeout: 10) else {
+                        XCTFail("COHERENT_HISTORY_ACTION_RETURN_FAILED"); return
+                    }
+                }
+                XCTAssertFalse(editor.isHittable)
+                let drawer = app.otherElements["native-history-drawer-body"].firstMatch
+                XCTAssertEqual(drawer.frame.minY, app.frame.minY, accuracy: 1)
+                XCTAssertEqual(drawer.frame.maxY, app.frame.maxY, accuracy: 1)
+                if cycle % 2 == 0 {
+                    let start = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.85))
+                    let held = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.85))
+                    start.press(forDuration: 0.05, thenDragTo: held, withVelocity: .slow, thenHoldForDuration: 0.25)
+                    guard waitForAdmittedControl(close) else { XCTFail("COHERENT_HISTORY_CANCEL_LOST_CLOSE"); return }
+                }
+                close.tap()
+                guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_HISTORY_RETURN_FAILED"); return }
+                continuity()
+                profile.tap()
+                let profileClose = app.buttons["Close Profile"].firstMatch
+                let preferences = app.buttons["native-profile-row-preferences"].firstMatch
+                // Profile intentionally resumes its prior query-owned position.
+                // A previous failed rehearsal can leave a nested page; unwind it
+                // through the real native Back, never reset/cold-navigate the app.
+                let resumedBack = app.buttons["profile-back"].firstMatch
+                for _ in 0..<3 {
+                    let entry = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                        profileClose.exists && profileClose.isHittable && profileClose.isEnabled ||
+                            resumedBack.exists && resumedBack.isHittable && resumedBack.isEnabled
+                    }, object: app)
+                    guard XCTWaiter.wait(for: [entry], timeout: 10) == .completed else { break }
+                    if profileClose.exists && profileClose.isHittable && profileClose.isEnabled { break }
+                    resumedBack.tap()
+                }
+                guard waitForAdmittedControl(profileClose) else {
+                    printCoherentPresentationAdmission(app)
+                    printNativeControlStatuses(web)
+                    XCTFail("COHERENT_PROFILE_NOT_ADMITTED"); return
+                }
+                guard waitForAdmittedControl(preferences) else { XCTFail("COHERENT_PROFILE_PREFERENCES_NOT_ADMITTED"); return }
+                XCTAssertFalse(editor.isHittable)
+                preferences.tap()
+                let back = app.buttons["profile-back"].firstMatch
+                guard waitForAdmittedControl(back) else {
+                    printCoherentPresentationAdmission(app)
+                    printNativeControlStatuses(web)
+                    XCTFail("COHERENT_DETAIL_BACK_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+                back.tap()
+                guard waitForAdmittedControl(profileClose) else { XCTFail("COHERENT_DETAIL_MENU_RETURN_FAILED"); return }
+                profileClose.tap()
+                guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_PROFILE_RETURN_FAILED"); return }
+                continuity()
+            }
+            guard waitForAdmittedControl(puppy) else { XCTFail("COHERENT_PUPPY_SELECTOR_UNAVAILABLE"); return }
+            puppy.tap()
+            let puppySelected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                puppy.exists && puppy.isSelected
+            }, object: app)
+            guard XCTWaiter.wait(for: [puppySelected], timeout: 10) == .completed else {
+                printCoherentPresentationAdmission(app)
+                printNativeControlStatuses(web)
+                print("COHERENT_AGENT_SELECTION one_selected=\(cloud.isSelected) puppy_selected=\(puppy.isSelected)")
+                XCTFail("COHERENT_PUPPY_SELECTION_NOT_APPLIED"); return
+            }
+            // The actual product deliberately requires New chat when Puppy
+            // has no conversation. Use that authored entry once; no provider
+            // call or turn submission is involved, and existing chats remain.
+            let startPuppy = web.buttons["Start a Puppy chat"].firstMatch
+            if startPuppy.exists {
+                guard waitForAdmittedControl(startPuppy) else { XCTFail("COHERENT_PUPPY_ENTRY_UNAVAILABLE"); return }
+                startPuppy.tap()
+            }
+            guard waitForAppliedPort(puppy, label: "Message Puppy") else { XCTFail("COHERENT_PUPPY_PORT_NOT_ADMITTED"); return }
+            if !puppyDraftObserved {
+                initialPuppyDraft = editor.value as? String
+                puppyDraftObserved = true
+            }
+            XCTAssertTrue((editor.value as? String) == initialPuppyDraft, "COHERENT_PUPPY_DRAFT_CHANGED")
+            XCTAssertEqual(app.textViews.matching(identifier: "native-dock-editor").count, 1)
+            cloud.tap()
+            guard waitForAppliedPort(cloud, label: "Message One") else { XCTFail("COHERENT_ONE_PORT_RETURN_FAILED"); return }
+            continuity()
+            print("\(agentSwitchOnly ? "COHERENT_AGENT_SWITCH" : "COHERENT_NATIVE_SHELL")_CYCLE completed=\(cycle + 1) warm=true submitted=false")
+        }
+        if agentSwitchOnly {
+            // Focused diagnosis is not the full drawer/route/keyboard receipt.
+            print("COHERENT_AGENT_SWITCH_CONTINUITY cycles=10 warm=true submitted=false")
+            return
+        }
+        let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+        let historyProbe = app.buttons["native-history-continuity"].firstMatch
+        for destination in ["One", "Connect", "Feed"] {
+            let tab = bar.buttons[destination].firstMatch
+            guard waitForAdmittedControl(tab) else { XCTFail("COHERENT_ROUTE_TAB_UNAVAILABLE"); return }
+            tab.tap()
+            // AX withdrawal alone would pass on the broken suspend path. The
+            // native installation/removal ledger also proves the host retired.
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard historyProbe.exists, let json = historyProbe.value as? String,
+                      let data = json.data(using: .utf8),
+                      let counters = try? JSONSerialization.jsonObject(with: data) as? [String: Int] else { return false }
+                return counters["installs", default: 0] > 0 && counters["installs"] == counters["removals"] &&
+                    !history.exists && !selector.exists && tab.isSelected
+            }, object: app)
+            guard XCTWaiter.wait(for: [retired], timeout: 15) == .completed else {
+                XCTFail("COHERENT_CHAT_CHROME_LEAKED_ON_ROUTE"); return
+            }
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            let chat = bar.buttons["Chat"].firstMatch
+            guard waitForAdmittedControl(chat) else { XCTFail("COHERENT_CHAT_TAB_RETURN_UNAVAILABLE"); return }
+            chat.tap()
+            guard waitForAdmittedControl(history), waitForAppliedPort(cloud, label: "Message One") else {
+                XCTFail("COHERENT_CHAT_CHROME_ROUTE_RETURN_FAILED"); return
+            }
+            continuity()
+        }
+        editor.tap()
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 10) else { XCTFail("COHERENT_EDITOR_KEYBOARD_MISSING"); return }
+        XCTAssertTrue(history.isHittable, "COHERENT_HEADER_DISABLED_DURING_EDITING")
+        history.tap()
+        let close = app.buttons["Close chat history"].firstMatch
+        guard waitForAdmittedControl(close) else { XCTFail("COHERENT_KEYBOARD_DRAWER_FAILED"); return }
+        close.tap()
+        guard waitForAdmittedControl(editor) else { XCTFail("COHERENT_KEYBOARD_RETURN_FAILED"); return }
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "Closing a menu must not summon editing")
+        continuity()
+        print("COHERENT_NATIVE_SHELL_CONTINUITY cycles=10 keyboard=true single_composer=true warm=true")
+    }
+
+    func testLocalSessionNativeProductHistoryKeepsOwnerAndSingleHost() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_PRODUCT_HISTORY"] == "true" else {
+            throw XCTSkip("Explicit native product History qualification")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("PRODUCT_HISTORY_REQUIRES_RUNNING_APP"); return
+        }
+        app.activate()
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let open = app.buttons["Open chat history"].firstMatch
+        let close = app.buttons["Close chat history"].firstMatch
+        let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+        guard waitForAdmittedControl(open), waitForAdmittedControl(composer), !web.buttons["Unlock"].exists else {
+            XCTFail("PRODUCT_HISTORY_REQUIRES_UNLOCKED_CHAT"); return
+        }
+        let initialFrame = web.frame
+        let initialDraft = composer.value as? String
+        for cycle in 0..<10 {
+            open.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.5 : 0.2, dy: 0.5)).tap()
+            guard waitForAdmittedControl(close) else { XCTFail("PRODUCT_HISTORY_CLOSE_NOT_ADMITTED"); return }
+            let native = app.otherElements["native-private-drawer"].firstMatch
+            let search = app.textFields["native-history-search"].firstMatch
+            guard native.exists, search.exists, search.isHittable else {
+                XCTFail("PRODUCT_HISTORY_NATIVE_RENDERER_MISSING"); return
+            }
+            XCTAssertFalse(web.buttons["Search chats"].firstMatch.isHittable)
+            XCTAssertFalse(composer.isHittable, "The covered React editor must be isolated")
+            let frame = native.frame
+            XCTAssertEqual(frame.minY, app.frame.minY, accuracy: 1)
+            XCTAssertEqual(frame.maxY, app.frame.maxY, accuracy: 1, "History must remain full-height")
+            if cycle % 2 == 0 {
+                let start = native.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.85))
+                let hold = native.coordinate(withNormalizedOffset: CGVector(dx: 0.40, dy: 0.85))
+                start.press(forDuration: 0.05, thenDragTo: hold, withVelocity: .slow, thenHoldForDuration: 0.25)
+                guard waitForAdmittedControl(close) else { XCTFail("PRODUCT_HISTORY_HELD_DRAG_LOST_CONTROL"); return }
+            }
+            close.tap()
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !close.isHittable && !search.isHittable }, object: app)
+            XCTAssertEqual(XCTWaiter.wait(for: [retired], timeout: 10), .completed)
+            guard waitForAdmittedControl(open), waitForAdmittedControl(composer) else {
+                XCTFail("PRODUCT_HISTORY_BASE_NOT_RESTORED"); return
+            }
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertEqual(web.frame, initialFrame)
+            XCTAssertTrue((composer.value as? String) == initialDraft, "Draft continuity failed")
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            print("NATIVE_PRODUCT_HISTORY_CYCLE completed=\(cycle + 1)")
+        }
     }
 
     func testLocalSessionSharedChatDockKeepsDraftThroughTabsProfileAndKeyboard() throws {
@@ -2094,10 +2691,11 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(profileClose.exists && profileClose.isHittable)
         // Drag the unoccupied middle of the owned Profile header, not a row
         // action, field, photo, horizontal rail or an inferred DOM control.
-        let origin = webView.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
-        let headerY = profileClose.frame.midY - webView.frame.minY
-        let pullStart = origin.withOffset(CGVector(dx: webView.frame.width * 0.40, dy: headerY))
-        let pullEnd = origin.withOffset(CGVector(dx: webView.frame.width * 0.86, dy: headerY + 2))
+        let pane = try admittedProfilePaneFrame(app, web: webView, close: profileClose)
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let headerY = profileClose.frame.midY - app.frame.minY
+        let pullStart = origin.withOffset(CGVector(dx: pane.minX + pane.width * 0.35 - app.frame.minX, dy: headerY))
+        let pullEnd = origin.withOffset(CGVector(dx: pane.maxX - 8 - app.frame.minX, dy: headerY + 2))
         let hostFrame = webView.frame
         pullStart.press(forDuration: 0.05, thenDragTo: pullEnd)
         let retired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: profileClose)
@@ -2621,6 +3219,29 @@ final class AppUITests: XCTestCase {
         }
     }
 
+    private func admittedProfilePaneFrame(_ app: XCUIApplication, web: XCUIElement, close: XCUIElement) throws -> CGRect {
+        // A tablet sheet occupies only the right-hand portion of the WebView.
+        // Its authored dialog, not the viewport, owns gestures and scrolling.
+        let closeCenter = CGPoint(x: close.frame.midX, y: close.frame.midY)
+        // WebKit exposes the Profile heading but can omit the dialog's name.
+        // Locate its actual container by both authored root controls, then
+        // require bounds containing Close. A heading, header-only container,
+        // application/window or entire tablet WebView cannot substitute for it.
+        let candidates = app.descendants(matching: .any).containing(.button, identifier: "Close Profile")
+        _ = candidates.firstMatch.waitForExistence(timeout: 10)
+        let frames = candidates.allElementsBoundByIndex.filter { element in
+            guard ![XCUIElement.ElementType.application, .window, .webView].contains(element.elementType) else { return false }
+            return element.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Your account")).firstMatch.exists
+        }.map { $0.frame.intersection(web.frame).intersection(app.frame) }
+            .filter { !$0.isNull && $0.width >= 200 && $0.height > 100 && $0.contains(closeCenter) }
+            .filter { web.frame.width < 600 || $0.width < web.frame.width - 1 }
+        guard let frame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
+            print("PROFILE_PANE_PUBLIC_GEOMETRY candidates=\(candidates.count) admitted=\(frames.count) close_x=\(Int(close.frame.minX)) close_y=\(Int(close.frame.minY)) web_width=\(Int(web.frame.width)) web_height=\(Int(web.frame.height))")
+            XCTFail("PROFILE_PANE_FRAME_UNAVAILABLE"); throw NSError(domain: "ProfilePaneFixture", code: 1)
+        }
+        return frame
+    }
+
     func testLocalSessionProfileBackAcrossTheSettingsStack() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in shared Profile Back and fallback regression")
@@ -2632,6 +3253,10 @@ final class AppUITests: XCTestCase {
         app.activate()
         dismissRehearsalChatKeyboard(app)
         returnToRehearsalChat(app)
+        if app.segmentedControls["chat-agent-surface"].firstMatch.exists {
+            try verifyCoherentProfileDestinations(app)
+            return
+        }
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
         let close = app.buttons["Close Profile"].firstMatch
@@ -2654,6 +3279,7 @@ final class AppUITests: XCTestCase {
             open.tap()
         }
         XCTAssertTrue(close.waitForExistence(timeout: 10), "PROFILE_CLOSE_NOT_ADMITTED")
+        let paneFrame = try admittedProfilePaneFrame(app, web: web, close: close)
         func row(_ label: String) -> XCUIElement {
             web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
         }
@@ -2662,7 +3288,7 @@ final class AppUITests: XCTestCase {
             // intentionally isolated native seat in the compositor. Keep the
             // whole gesture in the Profile reading region below its header.
             let origin = app.coordinate(withNormalizedOffset: .zero)
-            let x = web.frame.midX - app.frame.minX
+            let x = paneFrame.midX - app.frame.minX
             let lower = origin.withOffset(CGVector(dx: x, dy: app.frame.midY - app.frame.minY))
             let upper = origin.withOffset(CGVector(dx: x, dy: close.frame.maxY + 44 - app.frame.minY))
             (up ? lower : upper).press(forDuration: 0.01, thenDragTo: up ? upper : lower)
@@ -2788,6 +3414,124 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(hosts.count, 1)
         }
         print("PROFILE_STACK_CONTINUITY screens=\(families.count) warm=true single_host=true")
+    }
+
+    /// Batch the actual authored menu and nested query parents. No account,
+    /// connector, vault or support operation is submitted by this read journey.
+    private func verifyCoherentProfileDestinations(_ app: XCUIApplication) throws {
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        let initialDraft = editor.value as? String // Process memory only.
+        let opener = app.buttons["Open Profile"].firstMatch
+        let close = app.buttons["Close Profile"].firstMatch
+        let back = app.buttons["Back in Profile"].firstMatch
+        let destinations = ["account", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
+        func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
+        func row(_ title: String) -> XCUIElement {
+            web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+        }
+        func admittedBack() -> Bool {
+            guard waitForAdmittedControl(back) else { return false }
+            XCTAssertEqual(back.frame.width, 44, accuracy: 1)
+            XCTAssertEqual(back.frame.height, 44, accuracy: 1)
+            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Back in Profile")).count, 1)
+            return true
+        }
+        defer {
+            for _ in 0..<4 {
+                if root("account").exists && root("account").isHittable { break }
+                if back.exists && back.isHittable { back.tap() }
+            }
+            if close.exists && close.isHittable { close.tap() }
+        }
+        if !root("account").exists {
+            guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
+            opener.tap()
+        }
+        let menu = app.scrollViews["native-profile-menu-scroll"].firstMatch
+        guard menu.waitForExistence(timeout: 10) else { XCTFail("PROFILE_SHARED_MENU_UNAVAILABLE"); return }
+        for group in ["settings", "legal", "account-access"] {
+            XCTAssertTrue(app.staticTexts["native-profile-group-\(group)"].firstMatch.exists,
+                "PROFILE_SHARED_GROUP_MISSING")
+        }
+        for _ in 0..<5 {
+            if root("account").isHittable { break }
+            menu.swipeDown()
+        }
+        guard waitForAdmittedControl(root("account")) else { XCTFail("PROFILE_SHARED_ROW_UNAVAILABLE"); return }
+        XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
+        XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
+        XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
+        for id in destinations {
+            let destination = root(id)
+            for _ in 0..<5 {
+                if destination.exists && destination.isHittable { break }
+                app.otherElements["native-profile-drawer-body"].firstMatch.swipeUp()
+            }
+            guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
+            destination.tap()
+            if id == "invite" {
+                // Invite now opens the authored Referrals route, not a nested
+                // Profile detail. Its route parent is One; use those real
+                // controls before restoring the originating Chat menu.
+                let routeBack = app.buttons["Go back"].firstMatch
+                // Attach-only qualification does not launch -UITestMode and
+                // has no cold-audit native-test-status overlay. Observe the
+                // actual destination and parent, without restarting the app.
+                guard web.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 15),
+                      waitForAdmittedControl(routeBack) else {
+                    XCTFail("PROFILE_BATCH_REFERRALS_ROUTE_UNAVAILABLE"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+                XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
+                routeBack.tap()
+                guard web.links["Open Memory"].firstMatch.waitForExistence(timeout: 15) else {
+                    XCTFail("PROFILE_BATCH_REFERRALS_PARENT_NOT_RESTORED"); return
+                }
+                perfTapNav(app, label: "Chat")
+                guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else {
+                    XCTFail("PROFILE_BATCH_CHAT_NOT_RESTORED"); return
+                }
+                XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
+                opener.tap()
+                XCTAssertTrue(waitForAdmittedControl(root("account")), "PROFILE_BATCH_MENU_NOT_RESTORED")
+                XCTAssertFalse(web.buttons["Unlock"].exists)
+                print("PROFILE_NATIVE_DESTINATION family=invite warm=true single_host=true")
+                continue
+            }
+            guard admittedBack() else { XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
+            // Native menu isolation deliberately removes the covered WebView
+            // from AX. Count it while its authored content layer is active,
+            // not while the menu owns accessibility.
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            // A complex detail is the only active layer. The native root must
+            // be withdrawn, not left hit-testable through its content.
+            XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
+            if id == "security" || id == "preferences" {
+                let nestedTitles = id == "security" ? ["Vault methods"] : ["Gemini", "Voice"]
+                for title in nestedTitles {
+                    let nested = row(title)
+                    print("PROFILE_NESTED_ROW kind=\(title == "Vault methods" ? "vault" : title == "Gemini" ? "gemini" : "voice") exists=\(nested.exists) hittable=\(nested.isHittable)")
+                    guard waitForAdmittedControl(nested) else { XCTFail("PROFILE_BATCH_SECURITY_ROW_UNAVAILABLE"); return }
+                    nested.tap()
+                    guard admittedBack() else { XCTFail("PROFILE_BATCH_NESTED_BACK_UNAVAILABLE"); return }
+                    back.tap()
+                    XCTAssertTrue(waitForAdmittedControl(row(title)), "PROFILE_BATCH_QUERY_PARENT_NOT_RESTORED")
+                }
+            }
+            back.tap()
+            // Back must restore the originating row and menu scroll position,
+            // not force Your account into view after a lower Legal destination.
+            XCTAssertTrue(waitForAdmittedControl(destination), "PROFILE_BATCH_MENU_NOT_RESTORED")
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            print("PROFILE_NATIVE_DESTINATION family=\(id) warm=true single_host=true")
+        }
+        XCTAssertTrue(waitForAdmittedControl(close))
+        close.tap()
+        XCTAssertTrue(waitForAdmittedControl(editor))
+        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+        XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
+        print("PROFILE_STACK_CONTINUITY screens=9 warm=true single_host=true")
     }
 
     func testLocalSessionWorkspaceFamiliesKeepDraftAndAuthoritativeSelection() throws {
@@ -2934,7 +3678,7 @@ final class AppUITests: XCTestCase {
                     }
                 }) else { return }
                 select("Cards")
-                let cardsActions = ["All cards", "Add your first card", "Add another card"].map { web.buttons[$0].firstMatch }
+                let cardsActions = ["All cards", "Add a payment card", "Add another card"].map { web.buttons[$0].firstMatch }
                 for _ in 0..<4 {
                     if cardsActions.contains(where: { $0.exists && $0.isHittable }) { break }
                     web.swipeUp()
@@ -3606,6 +4350,45 @@ final class AppUITests: XCTestCase {
         field.typeText(value)
     }
 
+    /// A hittable WebKit field does not establish keyboard admission. On the
+    /// phone wait for the real onscreen keyboard; a tablet hardware keyboard
+    /// remains valid. Clear in one normal editing operation, then acknowledge
+    /// both the empty field and React's disabled Unlock before whole-value entry.
+    private func prepareEmptySecureEntry(_ field: XCUIElement, app: XCUIApplication,
+                                         unlockControls: XCUIElementQuery) -> Bool {
+        guard field.exists, field.isHittable,
+              !app.otherElements["session-privacy-shield"].exists else {
+            print("VAULT_ENTRY_ADMISSION stage=authored_field_unavailable"); return false
+        }
+        field.tap()
+        guard UIDevice.current.userInterfaceIdiom != .phone || waitForSoftwareKeyboard(app) else {
+            print("VAULT_ENTRY_ADMISSION stage=keyboard_unavailable"); return false
+        }
+        let existing = field.value as? String ?? ""
+        if !existing.isEmpty && existing != field.placeholderValue {
+            // Secure fields do not reliably expose Select All, especially
+            // after XCTest switches to the symbols keyboard. Use normal
+            // deletion instead, never a value setter or authentication hook.
+            let deletes = [app.keyboards.keys["delete"], app.keyboards.keys["Delete"],
+                           app.keyboards.buttons["delete"], app.keyboards.buttons["Delete"]]
+            if let delete = deletes.first(where: { $0.exists && $0.isHittable }) {
+                field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+                delete.press(forDuration: 2)
+            } else {
+                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.utf16.count))
+            }
+        }
+        let cleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard let value = field.value as? String else { return false }
+            return (value.isEmpty || value == field.placeholderValue) &&
+                unlockControls.count == 1 && !unlockControls.firstMatch.isEnabled
+        }, object: field)
+        guard XCTWaiter.wait(for: [cleared], timeout: 3) == .completed else {
+            print("VAULT_ENTRY_ADMISSION stage=empty_acknowledgement_timeout"); return false
+        }
+        return true
+    }
+
     /// Explicit physical-run alternative to typeText, characterized with public
     /// mixed input. Stay on the named secure field and visible reviewer; never
     /// reveal entry, bootstrap authentication, or retry an unacknowledged key.
@@ -3662,11 +4445,14 @@ final class AppUITests: XCTestCase {
         let unlockControls = app.buttons.matching(NSPredicate(
             format: "label IN %@", ["Unlock", "Unlock with passphrase"]
         ))
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        guard hosts.count == 1 else {
+            print("VAULT_ENTRY_ADMISSION stage=authored_field_unavailable"); return false
+        }
+        let owningWebView = hosts.firstMatch
         let fieldQueries: [XCUIElementQuery] = [
-            app.webViews.secureTextFields,
-            app.secureTextFields,
-            app.webViews.textFields,
-            app.textFields,
+            owningWebView.secureTextFields,
+            owningWebView.textFields,
         ]
         let authoredField = NSPredicate(
             format: "label IN %@ OR placeholderValue IN %@ OR identifier IN %@",
@@ -3680,7 +4466,6 @@ final class AppUITests: XCTestCase {
         // A device-first vault has no text field until its authored fallback
         // is chosen. Existing passphrase entry must not trigger another choice.
         if !hasAuthoredField() {
-            let hosts = app.webViews.matching(identifier: "native-webview")
             let methods = hosts.firstMatch.buttons.matching(NSPredicate(
                 format: "label IN %@", ["Passphrase", "Use passphrase instead", "Vault Key"]
             ))
@@ -3709,6 +4494,13 @@ final class AppUITests: XCTestCase {
             return false
         }
         let passphrase = reviewerVaultPassphrase()
+        let reviewerEmail = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_EMAIL"] ?? ""
+        let reviewerLabel = NSPredicate(format: "label == %@", reviewerEmail)
+        let privateEntryAdmitted = { (field: XCUIElement) -> Bool in
+            let account = owningWebView.staticTexts.matching(reviewerLabel).firstMatch
+            return !reviewerEmail.isEmpty && hosts.count == 1 &&
+                field.exists && field.isHittable && !privacyCover.exists && account.exists && account.isHittable
+        }
         let softwareKeyEntry = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_SOFTWARE_KEY_ENTRY"] == "true"
 
         for query in fieldQueries {
@@ -3718,35 +4510,27 @@ final class AppUITests: XCTestCase {
             let field = query.matching(authoredField).firstMatch
             guard field.exists, field.isHittable else { continue }
             print("VAULT_ENTRY_ADMISSION stage=authored_field_ready")
-            field.tap()
-            // Whole-value XCTest entry requires focus, not a visible software
-            // keyboard. iPad can use a hardware keyboard; only the explicit
-            // visible-key rehearsal requires its keys to be accessible.
+            guard prepareEmptySecureEntry(field, app: app, unlockControls: unlockControls) else {
+                XCTFail("Vault secure entry preparation was not acknowledged; unlock was not submitted")
+                return false
+            }
+            // iPad can retain a hardware keyboard. Only the explicit visible-
+            // key rehearsal also requires individual software keys there.
             guard !softwareKeyEntry || app.keyboards.firstMatch.waitForExistence(timeout: 5) else {
                 print("VAULT_ENTRY_ADMISSION stage=keyboard_unavailable")
                 return false
-            }
-            let existing = field.value as? String ?? ""
-            if existing != field.placeholderValue && !existing.isEmpty {
-                field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-                let keys = [app.keyboards.keys["delete"], app.keyboards.keys["Delete"], app.keyboards.buttons["delete"], app.keyboards.buttons["Delete"]]
-                guard let delete = keys.first(where: { $0.exists && $0.isHittable }) else { return false }
-                delete.press(forDuration: 2)
             }
             let entryLength = { () -> Int? in
                 guard let value = field.value as? String else { return nil }
                 return value == field.placeholderValue ? 0 : value.utf16.count
             }
-            let cleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                entryLength() == 0 && unlockControls.count == 1 && !unlockControls.firstMatch.isEnabled
-            }, object: field)
-            guard XCTWaiter.wait(for: [cleared], timeout: 3) == .completed else {
-                XCTFail("Vault secure entry could not be cleared; unlock was not submitted")
-                return false
-            }
             // Whole-value entry is the default. An explicit physical run can
             // use the publicly characterized software-key path instead; never
             // switch modes after failure or replay a partial credential.
+            guard privateEntryAdmitted(field) else {
+                print("VAULT_ENTRY_ADMISSION stage=reviewer_unavailable"); return false
+            }
+            print("VAULT_ENTRY_MODE mode=\(softwareKeyEntry ? "software_keys" : "whole_value")")
             if softwareKeyEntry {
                 guard enterSecureValueWithSoftwareKeyboard(passphrase, field: field, app: app) else {
                     XCTFail("Vault software-key entry was not acknowledged; unlock was not submitted")
@@ -3772,7 +4556,7 @@ final class AppUITests: XCTestCase {
             guard XCTWaiter.wait(for: [ready], timeout: 5) == .completed,
                   unlockControls.count == 1,
                   unlockControls.firstMatch.isEnabled,
-                  unlockControls.firstMatch.isHittable else {
+                  unlockControls.firstMatch.isHittable, privateEntryAdmitted(field) else {
                 print("VAULT_SUBMISSION_RECEIPT stage=readiness_timeout_no_tap")
                 XCTFail("Vault Unlock readiness was not acknowledged; unlock was not submitted")
                 return false
@@ -5920,6 +6704,13 @@ final class AppUITests: XCTestCase {
         // where the dock is absent. Use the authored Back, not a cold route or
         // a test bootstrap, before returning through the normal Chat tab.
         for _ in 0..<3 {
+            let profileBack = app.buttons["profile-back"].firstMatch
+            if profileBack.exists && profileBack.isHittable {
+                profileBack.tap()
+                let profileClose = app.buttons["Close Profile"].firstMatch
+                if waitForAdmittedControl(profileClose) { profileClose.tap() }
+                continue
+            }
             let chat = app.buttons["one-native-tab-chat"].firstMatch
             let webChat = app.webViews.buttons["Chat"].firstMatch
             if chat.exists && chat.isHittable || webChat.exists && webChat.isHittable {

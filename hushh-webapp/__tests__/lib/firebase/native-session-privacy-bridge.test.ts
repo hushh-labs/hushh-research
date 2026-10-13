@@ -2,21 +2,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getState: vi.fn(), completeSessionValidation: vi.fn(), addListener: vi.fn(),
+  getFeedbackCapabilities: vi.fn(), interactionFeedback: vi.fn(), platform: "ios",
 }));
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => true },
+  Capacitor: { isNativePlatform: () => mocks.platform !== "web", getPlatform: () => mocks.platform },
   registerPlugin: () => mocks,
 }));
 import {
   completeNativeSessionPrivacyValidation,
   getNativeSessionPrivacyState,
   subscribeNativeSessionPrivacy,
+  nativePrivacyObservation,
 } from "@/lib/capacitor/session-privacy";
+import { appHaptic, usesNativeHapticPreference } from "@/lib/capacitor/app-haptics";
 
 const active = { shielded: true, generation: 3, cause: "background", appIsActive: true };
 
 describe("native privacy bridge state validation", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); mocks.platform = "ios"; });
 
   it.each([
     {}, { ...active, generation: 0 }, { ...active, cause: "unknown" },
@@ -54,5 +57,81 @@ describe("native privacy bridge state validation", () => {
     const callback = mocks.addListener.mock.calls[0][1];
     callback({ ...active, action: "retry" });
     expect(listener).toHaveBeenCalledWith({ ...active, action: "retry" });
+  });
+
+  it("rejects feedback interrupted during capability discovery and cannot overwrite that lifecycle with an older read", async () => {
+    const unshielded = { ...active, shielded: false, appIsActive: true };
+    mocks.getState.mockResolvedValue(unshielded);
+    await getNativeSessionPrivacyState();
+    await subscribeNativeSessionPrivacy(vi.fn());
+    let resolveCapability!: (value: { interactionFeedback: boolean }) => void;
+    mocks.getFeedbackCapabilities.mockReturnValue(new Promise(resolve => { resolveCapability = resolve; }));
+    appHaptic("selection", "interrupted");
+    let resolveRead!: (value: typeof active) => void;
+    mocks.getState.mockReturnValueOnce(new Promise(resolve => { resolveRead = resolve; }));
+    const oldRead = getNativeSessionPrivacyState();
+    const interrupted = { ...active, generation: 4, action: "state" };
+    mocks.addListener.mock.calls.at(-1)![1](interrupted);
+    resolveRead(unshielded);
+    await oldRead;
+    expect(nativePrivacyObservation().state).toEqual(interrupted);
+    resolveCapability({ interactionFeedback: true });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mocks.interactionFeedback).not.toHaveBeenCalled();
+  });
+
+  it.each(["ios", "android"])("uses one accepted Settings feedback transport on %s and never retries an uncertain result", async platform => {
+    mocks.platform = platform;
+    mocks.getState.mockResolvedValue({ ...active, shielded: false });
+    await getNativeSessionPrivacyState();
+    mocks.interactionFeedback.mockRejectedValue(new Error("UNCERTAIN"));
+    appHaptic("selection", "accepted-choice");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(usesNativeHapticPreference()).toBe(true);
+    expect(mocks.interactionFeedback).toHaveBeenCalledTimes(1);
+    expect(mocks.interactionFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      documentId: expect.any(String), privacyGeneration: 3, intentId: "accepted-choice", kind: "selection",
+    }));
+  });
+
+  it.each(["ios", "android"])("admits a new %s interaction after confirmed release without a native event, fencing earlier reads", async platform => {
+    mocks.platform = platform;
+    mocks.getState.mockResolvedValue(active);
+    await getNativeSessionPrivacyState();
+    let resolveRead!: (value: typeof active) => void;
+    mocks.getState.mockReturnValueOnce(new Promise(resolve => { resolveRead = resolve; }));
+    const earlierRead = getNativeSessionPrivacyState();
+    const released = { ...active, shielded: false, released: true };
+    mocks.completeSessionValidation.mockResolvedValue(released);
+    await completeNativeSessionPrivacyValidation(active.generation);
+    resolveRead(active);
+    await earlierRead;
+    expect(nativePrivacyObservation().state).toEqual(released);
+
+    mocks.getState.mockResolvedValue(released);
+    mocks.interactionFeedback.mockResolvedValue({ accepted: true });
+    appHaptic("selection", "post-release-choice");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mocks.interactionFeedback).toHaveBeenCalledTimes(1);
+    expect(mocks.interactionFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      privacyGeneration: active.generation, intentId: "post-release-choice",
+    }));
+  });
+
+  it("does not let a delayed release replace a newer inactive lifecycle observation", async () => {
+    mocks.getState.mockResolvedValue(active);
+    await getNativeSessionPrivacyState();
+    await subscribeNativeSessionPrivacy(vi.fn());
+    let resolveCompletion!: (value: typeof active & { released: boolean }) => void;
+    mocks.completeSessionValidation.mockReturnValueOnce(new Promise(resolve => { resolveCompletion = resolve; }));
+    const pendingRelease = completeNativeSessionPrivacyValidation(active.generation);
+    const interrupted = { ...active, generation: 4, appIsActive: false, action: "state" };
+    mocks.addListener.mock.calls.at(-1)![1](interrupted);
+    resolveCompletion({ ...active, shielded: false, released: true });
+    await pendingRelease;
+    expect(nativePrivacyObservation().state).toEqual(interrupted);
+    appHaptic("selection", "covered-choice");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mocks.interactionFeedback).not.toHaveBeenCalled();
   });
 });

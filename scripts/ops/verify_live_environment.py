@@ -30,16 +30,15 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 
 ENVIRONMENTS: dict[str, dict[str, str]] = {
     "production": {
         "api": "https://api.hushh.ai",
-        "app": "https://one.hushh.ai",
+        "app": "https://one.hussh.ai",
     },
     "uat": {
         "api": "https://api.uat.hushh.ai",
-        "app": "https://uat.one.hushh.ai",
+        "app": "https://uat.one.hussh.ai",
     },
 }
 

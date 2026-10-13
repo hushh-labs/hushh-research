@@ -53,6 +53,13 @@ const WEB_STATE: NativeSessionPrivacyState = Object.freeze({
   appIsActive: true,
 });
 
+// Nonsecret admission metadata, not session validation or credential state.
+let observedPrivacy: NativeSessionPrivacyState | undefined;
+let lifecycleEpoch = 0;
+export function nativePrivacyObservation() {
+  return { state: observedPrivacy, epoch: lifecycleEpoch };
+}
+
 function checkedState<T extends NativeSessionPrivacyState>(state: T): T {
   if (
     typeof state?.shielded !== "boolean" ||
@@ -71,7 +78,12 @@ export async function subscribeNativeSessionPrivacy(
 ): Promise<PluginListenerHandle> {
   if (!Capacitor.isNativePlatform()) return { remove: async () => undefined };
   return sessionPrivacy().addListener("privacyStateChanged", (event) => {
-    try { listener(checkedState(event)); } catch { /* getState catch-up owns recovery */ }
+    try {
+      const state = checkedState(event);
+      lifecycleEpoch += 1;
+      observedPrivacy = state;
+      listener(state);
+    } catch { /* getState catch-up owns recovery */ }
   });
 }
 
@@ -82,7 +94,10 @@ export async function subscribeNativeSessionPrivacy(
  */
 export async function getNativeSessionPrivacyState(): Promise<NativeSessionPrivacyState> {
   if (!Capacitor.isNativePlatform()) return WEB_STATE;
-  return checkedState(await sessionPrivacy().getState({ documentId: privacyDocumentId() }));
+  const epoch = lifecycleEpoch;
+  const state = checkedState(await sessionPrivacy().getState({ documentId: privacyDocumentId() }));
+  if (epoch === lifecycleEpoch) observedPrivacy = state;
+  return state;
 }
 
 /**
@@ -99,11 +114,19 @@ export async function completeNativeSessionPrivacyValidation(
   if (!Number.isSafeInteger(generation) || generation <= 0) {
     return { ...WEB_STATE, released: false };
   }
+  const epoch = lifecycleEpoch;
   const result = checkedState(await sessionPrivacy().completeSessionValidation({
     generation, documentId: privacyDocumentId(),
   }));
   if (typeof result.released !== "boolean") {
     throw new Error("Native session privacy completion is unavailable.");
+  }
+  // Both native hosts return the release state without requiring a listener
+  // event. Observe that authoritative result, but never replace a newer cycle.
+  // Advancing the epoch also fences reads started before this completion.
+  if (epoch === lifecycleEpoch) {
+    lifecycleEpoch += 1;
+    observedPrivacy = result;
   }
   return result;
 }
