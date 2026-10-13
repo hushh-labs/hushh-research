@@ -23,7 +23,6 @@ import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
-import { DirectMessageVoiceRecorder } from "./direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "./direct-message-voice-player";
 import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
@@ -53,10 +52,8 @@ import {
   CheckCheck,
   Loader2,
   MessageCircle,
-  Mic,
   ChevronDown,
   Pencil,
-  PhoneCall,
   Quote,
   RefreshCw,
   Search,
@@ -86,7 +83,6 @@ import {
 import {
   ROUTES,
 } from "@/lib/navigation/routes";
-import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
@@ -148,6 +144,27 @@ function MessageAttachment({ message, getIdToken }: {
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => () => { if (mediaUrl) URL.revokeObjectURL(mediaUrl); }, [mediaUrl]);
   const attachment = message.attachment;
+  const tokenGetter = useRef(getIdToken);
+  tokenGetter.current = getIdToken;
+  useEffect(() => {
+    if (attachment?.kind !== "photo") return;
+    let current = true;
+    let url: string | null = null;
+    setOpening(true);
+    void (async () => {
+      const idToken = await tokenGetter.current();
+      if (!current) return;
+      const blob = await DirectMessagesService.getAttachment({ idToken,
+        conversationId: message.conversationId, messageId: message.id,
+        isEffectCurrent: () => current });
+      if (!current) return;
+      url = URL.createObjectURL(blob);
+      setMediaUrl(url);
+    })().catch(() => {
+      // The existing Open control remains available for an explicit retry.
+    }).finally(() => { if (current) setOpening(false); });
+    return () => { current = false; if (url) URL.revokeObjectURL(url); };
+  }, [attachment?.kind, message.conversationId, message.id]);
   if (!attachment) return null;
   const typeLabel = ({ "application/pdf": "PDF", "text/plain": "Text file",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word document",
@@ -353,7 +370,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [unconfirmedDraft, setUnconfirmedDraft] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [recordingVoice, setRecordingVoice] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [jumpTarget, setJumpTarget] = useState<string | null>(null);
@@ -476,7 +492,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   useLayoutEffect(() => {
     ownerRef.current = user?.uid; invalidateSelection();
     selectionRef.current = routeSelection;
-    acknowledged.current.clear(); setContactInfoOpen(false); setJumpTarget(null); setRecordingVoice(false); jumping.current = false;
+    acknowledged.current.clear(); setContactInfoOpen(false); setJumpTarget(null); jumping.current = false;
     readThrough.current = null; reading.current = false; visibleBottom.current = false;
     atBottomRef.current = true; prependPosition.current = null; setAtBottom(true);
     const previousAttempt = sendAttempts.current.get(routeSelection);
@@ -1496,15 +1512,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                         </button>
                       </label>
                     ) : null}
-                    <button
-                      type="button"
-                      className={styles.headerAction}
-                      aria-label="Start voice call"
-                      title="Calls are not available yet"
-                      disabled
-                    >
-                      <PhoneCall className="h-4 w-4" aria-hidden="true" />
-                    </button>
                     <button type="button" className={styles.headerAction} aria-label="Contact info" onClick={() => setContactInfoOpen(true)}>
                       <Info className="h-5 w-5" aria-hidden="true" />
                     </button>
@@ -1852,7 +1859,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button type="button" className={styles.attachButton} aria-label="Add attachment"
-                          disabled={sending || recordingVoice || !canCompose || Boolean(unconfirmedDraft)}>
+                          disabled={sending || !canCompose || Boolean(unconfirmedDraft)}>
                           <Plus className="h-5 w-5" aria-hidden="true" />
                         </button>
                       </DropdownMenuTrigger>
@@ -1880,7 +1887,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       }}
                       placeholder={hasRouteSelection ? `Message ${selectedLabel}...` : "Message"}
                       maxLength={DIRECT_MESSAGE_MAX_LENGTH}
-                      disabled={!canCompose || recordingVoice}
+                      disabled={!canCompose}
                       readOnly={sending || Boolean(unconfirmedDraft)}
                       rows={1}
                       className={styles.composerInput}
@@ -1904,7 +1911,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       }}
                     />
                     <DirectMessageEmojiPicker
-                      disabled={sending || recordingVoice || !canCompose || Boolean(unconfirmedDraft)}
+                      disabled={sending || !canCompose || Boolean(unconfirmedDraft)}
                       onEmojiSelect={(emoji) => {
                         const input = composerRef.current;
                         const start = input?.selectionStart ?? draft.length;
@@ -1920,11 +1927,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       }}
                     />
                     <div className={styles.composerActions}>
-                      {!draft.trim() && !attachment && !sending ? hasRouteSelection ? <DirectMessageVoiceRecorder
-                        key={`${user?.uid}:${routeSelection}`} disabled={!canCompose || Boolean(unconfirmedDraft)} onRecorded={chooseAttachment} onRecordingChange={setRecordingVoice}
-                      /> : <button type="button" className={styles.voiceButton} aria-label="Talk to One" onClick={() => {
-                        requestAgentConversationAfterRoute(ROUTES.HOME); router.push(ROUTES.HOME);
-                      }}><Mic className="h-5 w-5" aria-hidden="true" /></button> : <button
+                      <button
                         type="submit"
                         className={styles.sendButton}
                         disabled={sending || !canCompose || (!draft.trim() && !attachment)}
@@ -1935,7 +1938,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                         ) : (
                           <Send className="h-5 w-5" aria-hidden="true" />
                         )}
-                      </button>}
+                      </button>
                     </div>
                     <span className="sr-only" aria-live="polite">
                       {draft.length}/{DIRECT_MESSAGE_MAX_LENGTH}
