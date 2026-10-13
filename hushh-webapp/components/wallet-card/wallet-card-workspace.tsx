@@ -192,6 +192,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
    */
   const adoptCard = useCallback(
     (next: WalletCardRecord | null) => {
+      const currentLink = userId ? WalletCardService.readShareLink(userId) : null;
+      if (next?.shareTokenVersion != null && currentLink?.version != null && currentLink.version > next.shareTokenVersion) return;
       setCard(next);
       setShareLink(
         userId ? WalletCardService.readShareLink(userId, next) : null,
