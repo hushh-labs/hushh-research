@@ -1,5 +1,7 @@
 "use client";
 
+import { answerStageTiming } from "@/lib/answers/answer-stage-timing";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { isOwnProfileNameScope } from "@/lib/pkm/identity-memory-facts";
 import { answerProfilePhotoUrl, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
 
@@ -87,6 +89,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   const [unlockOpen, setUnlockOpen] = useState(false);
 
   const load = useCallback(async () => {
+    const projectionStarted = performance.now();
     const sequence = ++loadSequence.current;
     const owner = user?.uid;
     const epoch = snapshotVaultSessionEpoch();
@@ -95,7 +98,6 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       ownerRef.current === owner &&
       requestRef.current === requestId &&
       isVaultSessionEpochCurrent(epoch);
-    setError(null);
     try {
       const token = await AuthService.getIdToken();
       if (!token) throw new Error("Sign in to open this request.");
@@ -110,6 +112,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         AnswerRequestService.gates(token).catch(() => null),
       ]);
       if (!valid()) return;
+      if (requestState.role === "owner") answerStageTiming(requestId, "owner_projection", projectionStarted);
       setState(requestState);
       setLoadedIdentity(`${owner ?? ""}:${requestId}`);
       setPending(inbox.find((entry) => entry.requestId === requestId) ?? null);
@@ -158,7 +161,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   }, [load, vaultOwnerToken]);
 
   useEffect(() => {
-    if (state?.role !== "requester" || ["answered", "cancelled", "declined", "expired"].includes(payment?.requestStatus ?? state.requestStatus)) return;
+    if (!state?.role || ["answered", "cancelled", "declined", "expired"].includes(payment?.requestStatus ?? state.requestStatus)) return;
     let polls = 0;
     const timer = window.setInterval(() => {
       if (++polls >= 40) window.clearInterval(timer);
@@ -183,6 +186,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         throw new Error("Session changed. Open this request again.");
       await action(token, epoch);
       if (!valid()) return;
+      if (user?.uid) CacheSyncService.onConsentMutated(user.uid);
       dispatchConsentStateChanged({
         userId: user?.uid,
         requestId: `answer_request:${requestId}`,
@@ -196,6 +200,13 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       if (valid()) setBusy(false);
     }
   }, [load, requestId, user?.uid]);
+
+  const prepare = () => run(async (token, epoch) => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) throw new Error("Unlock your memory to prepare this answer.");
+    const result = await runAnswerDeliverySweep({ userId: user.uid, vaultKey, vaultOwnerToken,
+      firebaseIdToken: token, requestId, ownerIdentity: { displayName: user.displayName, photoUrl: user.photoURL } }, epoch);
+    if (!result.delivered && !result.empty) throw new Error("Preparation could not finish. Keep your memory unlocked and retry preparation.");
+  });
 
   const openCheckout = () =>
     run(async (token, epoch) => {
@@ -266,43 +277,10 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         request={pending}
         requesterLabel="The requester"
         onResolved={() => {
-          // Prepare the answer now, while this device is unlocked and the
-          // owner is here. Nobody is asked to pay for an answer that turns
-          // out not to exist, and a verified payment later releases the
-          // prepared one without bringing the owner back to unlock again.
-          //
-          // Best effort: the request is approved either way, and the sweep
-          // retries. The requester's row says the answer is being checked
-          // until this reports, so a failure here never reads as "not found".
-          void (async () => {
-            try {
-              const token = await AuthService.getIdToken();
-              if (token && user?.uid && vaultKey && vaultOwnerToken)
-                await runAnswerDeliverySweep(
-                  {
-                    userId: user.uid,
-                    vaultKey,
-                    vaultOwnerToken,
-                    firebaseIdToken: token,
-                    requestId,
-                    // What the requester already sees on the profile they
-                    // asked from, so the answer is a record of a person
-                    // rather than a bag of fields.
-                    ownerIdentity: {
-                      displayName: user.displayName ?? null,
-                      email: user.email ?? null,
-                      photoUrl: user.photoURL ?? null,
-                    },
-                  },
-                  snapshotVaultSessionEpoch(),
-                );
-            } catch {
-              /* The staged answer is retried; approval already stands. */
-            } finally {
-              await load();
-            }
-          })();
+          dispatchConsentStateChanged({ userId: user?.uid, requestId: `answer_request:${requestId}` });
+          void load();
         }}
+        onApproved={() => void prepare()}
       />
     );
   }
@@ -314,41 +292,14 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         <HelperText as="p" role="status">
           {state.requestStatus === "answering"
             ? "Payment verified. Unlock and choose Write answer. Failed attempts can be retried until the 72-hour deadline; then a full refund is due."
-            : `Request ${state.requestStatus}.`}
+            : state.requestStatus === "approved" ? "Your device prepares the approved answer while your memory is unlocked. If preparation stops, retry here." : `Request ${state.requestStatus}.`}
         </HelperText>
-        {state.requestStatus === "answering" ? (
+        {["approved", "answering"].includes(state.requestStatus) ? (
           <Button
             disabled={busy || !isVaultUnlocked}
-            onClick={() =>
-              void run(async (token, epoch) => {
-                if (!user?.uid || !vaultKey || !vaultOwnerToken)
-                  throw new Error("Unlock to write this answer.");
-                const result = await runAnswerDeliverySweep(
-                  {
-                    userId: user.uid,
-                    vaultKey,
-                    vaultOwnerToken,
-                    firebaseIdToken: token,
-                    requestId,
-                    // What the requester already sees on the profile they
-                    // asked from, so the answer is a record of a person
-                    // rather than a bag of fields.
-                    ownerIdentity: {
-                      displayName: user.displayName ?? null,
-                      email: user.email ?? null,
-                      photoUrl: user.photoURL ?? null,
-                    },
-                  },
-                  epoch,
-                );
-                if (!result.delivered && !result.empty)
-                  throw new Error(
-                    "Answer not delivered. Retry while unlocked; the deadline worker refunds unresolved requests.",
-                  );
-              })
-            }
+            onClick={() => void prepare()}
           >
-            Write answer
+            {busy ? "Preparing your answer…" : state.requestStatus === "approved" ? "Retry preparation" : "Write answer"}
           </Button>
         ) : null}
         {error ? <HelperText role="alert">{error}</HelperText> : null}
@@ -391,7 +342,9 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
               // The price stands and the request is intact; only paying is
               // unavailable. No Pay control, because checkout would 503.
               <HelperText as="p" role="status">
-                {payment.preparationStatus === "empty"
+                {payment.preparationStatus === "retry_required"
+                  ? "Preparation needs another attempt. Ask them to open this request, unlock their memory, and retry. You have not been charged."
+                  : payment.preparationStatus === "empty"
                   ? "Answer not found. You have not been charged."
                   : payments === "on"
                     ? "Their answer is being prepared. Payment opens when it is ready."

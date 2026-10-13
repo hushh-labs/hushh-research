@@ -9142,8 +9142,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   --referral-medal-light: #d4a574;
 }
 
-/* Equal outer tracks center One with the controls on wide screens;
-   narrow phones keep a separate control row to prevent overlap. */
+/* Equal outer tracks center One with the controls on wide screens.
+   The phone override below keeps the primary controls on one compact row. */
 .agent-chat-header[data-one-centered-header="true"] {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
@@ -9223,4 +9223,140 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   border-radius: 999px;
   background: var(--app-card-surface-default);
   box-shadow: var(--app-card-shadow-standard);
+}
+
+/* One's desktop identity retains its existing vertical adjustment. */
+@media (min-width: 768px) {
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+    transform: translateY(-4px);
+  }
+}
+
+/* One's phone header keeps every control in one row. Equal outer tracks
+   center the identity on the screen, independently of the side controls. */
+@media (max-width: 767px) {
+  .agent-chat-header[data-one-centered-header="true"] {
+    --one-phone-control-gap: clamp(0px, calc((100vw - 360px) / 4), 8px);
+    grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
+    grid-template-rows: 44px;
+    gap: 0;
+    height: calc(86px + var(--agent-chat-header-safe-top));
+    padding: calc(8px + var(--agent-chat-header-safe-top)) clamp(6px, calc(5vw - 10px), 16px) 34px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] > .agent-chat-history-control {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+  }
+  .agent-chat-header[data-one-centered-header="true"] > .agent-chat-history-control button {
+    width: 44px;
+    height: 44px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+    grid-column: 2;
+    grid-row: 1;
+    position: relative;
+    width: 44px;
+    height: 44px;
+    flex-direction: row;
+    justify-content: center;
+    gap: 0;
+    overflow: visible;
+    text-align: center;
+    transform: none;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+    width: 44px;
+    height: 44px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] {
+    width: 44px !important;
+    height: 44px !important;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] > span:first-child > :first-child,
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] img {
+    width: 36px !important;
+    height: 36px !important;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 50%;
+    width: max-content;
+    min-width: 0;
+    transform: translateX(-50%);
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child > div {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    margin-inline: 0;
+    padding: 2px 6px;
+    font-size: 14px;
+    line-height: 20px;
+  }
+  /* Keep live status available to assistive technology without squeezing the
+     One label. The transcript's activity panel carries the visible progress. */
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="actions"] {
+    display: contents;
+  }
+  .agent-chat-header[data-one-centered-header="true"] .agent-chat-surface-control {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    margin-inline-end: calc(44px + var(--one-phone-control-gap));
+    width: 88px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] .agent-chat-surface-control [role="radiogroup"] {
+    width: 88px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    gap: 0;
+  }
+  .agent-chat-header[data-one-centered-header="true"] .agent-chat-surface-control [role="radio"] {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  .agent-chat-header[data-one-centered-header="true"] .agent-chat-surface-control [role="radio"] svg {
+    display: block;
+  }
+  .agent-chat-header[data-one-centered-header="true"] .agent-chat-surface-control [role="radio"] > span.whitespace-nowrap {
+    display: none;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="actions"] > span:last-child {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-testid="agent-chat-model-picker"] {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    margin-inline-start: calc(44px + var(--one-phone-control-gap));
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-testid="agent-chat-model-picker"] > span.truncate,
+  .agent-chat-header[data-one-centered-header="true"] [data-testid="agent-chat-model-picker"] > svg:not(.agent-chat-model-icon) {
+    display: none;
+  }
+  .agent-chat-header[data-one-centered-header="true"] .agent-chat-model-icon {
+    display: block;
+    width: 18px;
+    height: 18px;
+  }
 }

@@ -401,7 +401,7 @@ function shouldPrioritizeConsentHydration(pathname: string): boolean {
 class ConsentSseError extends Error {
   readonly status: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, readonly disabled = false) {
     super(message);
     this.name = "ConsentSseError";
     this.status = status;
@@ -411,11 +411,11 @@ class ConsentSseError extends Error {
 /**
  * Statuses that will not change on their own.
  *
- * 410 is the live one: consent SSE is deliberately off in production and the
- * backend answers `CONSENT_SSE_DISABLED` every single time. 401 is absent on
- * purpose -- a token can refresh -- as are 408, 429 and every 5xx.
+ * 410 is handled separately: only CONSENT_SSE_DISABLED is permanent. An
+ * expired stream can reconnect with refreshed authentication. 401 is absent
+ * because a token can refresh, as are 408, 429 and every 5xx.
  */
-const PERMANENT_SSE_STATUSES = new Set([400, 403, 404, 410, 501]);
+const PERMANENT_SSE_STATUSES = new Set([400, 403, 404, 501]);
 
 function isPermanentSseStatus(status: number): boolean {
   return PERMANENT_SSE_STATUSES.has(status);
@@ -670,6 +670,7 @@ export function ConsentNotificationProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const disabledSseUser = useRef<string | null>(null);
   const isNativePlatform = Capacitor.isNativePlatform();
   const router = useRouter();
   const pathname = usePathname();
@@ -1329,7 +1330,8 @@ export function ConsentNotificationProvider({
   }, [user]);
 
   useEffect(() => {
-    if (!user || Capacitor.isNativePlatform()) return;
+    if (!user) { disabledSseUser.current = null; return; }
+    if (Capacitor.isNativePlatform() || disabledSseUser.current === user.uid) return;
     const initStatus = fcmInitStatus;
     if (!initStatus || initStatus === "push_active") return;
 
@@ -1351,8 +1353,7 @@ export function ConsentNotificationProvider({
     const connect = async () => {
       let connectedAt: number | null = null;
       try {
-        const idToken = await user.getIdToken();
-        console.info("[NotificationProvider] Opening consent SSE fallback...");
+        const idToken = await user.getIdToken(reconnectAttempt > 0);
         const response = await ApiService.apiFetchStream(
           `/api/consent/events/${encodeURIComponent(user.uid)}`,
           {
@@ -1366,15 +1367,14 @@ export function ConsentNotificationProvider({
         );
 
         if (!response.ok || !response.body) {
-          // Do not expose a server response body in UI state or diagnostics.
-          // Keep the status. It is the only thing that distinguishes "try
-          // again in a moment" from "this endpoint is switched off". The body
-          // is always non-empty here, so the `consent_sse_${status}` fallback
-          // never fired and the status was being thrown away entirely.
-          throw new ConsentSseError(
-            `consent_sse_${response.status}`,
-            response.status,
-          );
+          let disabled = false;
+          if (response.status === 410) {
+            try {
+              const body = JSON.parse(await response.text());
+              disabled = body?.detail?.error_code === "CONSENT_SSE_DISABLED";
+            } catch { /* An expired or unrecognized stream gets bounded recovery. */ }
+          }
+          throw new ConsentSseError(`consent_sse_${response.status}`, response.status, disabled);
         }
 
         if (cancelled) return;
@@ -1449,10 +1449,6 @@ export function ConsentNotificationProvider({
         }
       } catch (error) {
         if (cancelled || abortController.signal.aborted) return;
-        console.warn(
-          "[NotificationProvider] Consent SSE fallback failed:",
-          error instanceof ConsentSseError ? error.status : "unavailable",
-        );
         setDeliveryMode("inbox_only");
         setDeliveryDetail(
           error instanceof ConsentSseError
@@ -1470,11 +1466,9 @@ export function ConsentNotificationProvider({
         // three seconds, per open tab, for as long as the tab stayed open.
         if (
           error instanceof ConsentSseError &&
-          isPermanentSseStatus(error.status)
+          (error.disabled || isPermanentSseStatus(error.status))
         ) {
-          console.info(
-            `[NotificationProvider] Consent SSE unavailable (${error.status}); staying on inbox delivery.`,
-          );
+          if (error.disabled) disabledSseUser.current = user.uid;
           return;
         }
 

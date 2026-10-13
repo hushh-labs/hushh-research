@@ -155,9 +155,9 @@ class TestAgentTreeShape:
         # call that is not made.
         callbacks = agent.canonical_before_model_callbacks
         assert callbacks[0].__name__ == "_one_consent_before_model"
-        assert callbacks[1] is timed_one_before_model
+        assert timed_one_before_model in callbacks
         assert callbacks[-1] is club_queued_input
-        assert agent.after_model_callback is timed_one_after_model
+        assert timed_one_after_model in agent.canonical_after_model_callbacks
         tool_names = {
             getattr(t, "name", getattr(t, "__name__", type(t).__name__)) for t in agent.tools
         }
@@ -6101,12 +6101,8 @@ async def test_route_admits_the_receipt_memory_only_for_an_unlocked_owner_turn(
     # Popped before the bridge can copy it; state only ever holds a reference.
     assert "receiptMemory" not in run.forwarded_props
     assert "Supabase" not in str(state) and "ZSUQHV" not in str(state)
-    if unlocked:
-        assert state[STATE_RECEIPT_MEMORY].startswith("one_secret_ref:")
-        assert resolve_receipt_memory(state.get)["transactions"][0]["merchant"] == "Supabase"
-    else:
-        assert state[STATE_RECEIPT_MEMORY] == ""
-        assert resolve_receipt_memory(state.get) is None
+    assert state[STATE_RECEIPT_MEMORY] == ""
+    assert resolve_receipt_memory(state.get) is None
 
 
 def test_a_malformed_receipt_index_is_absent_and_never_logged(caplog):
@@ -6298,7 +6294,7 @@ async def test_an_email_proposal_for_any_other_action_is_refused_and_not_execute
     assert not any(key.startswith(_STATE_PENDING_DIRECTIVE) for key in context.state)
 
 
-def test_one_routes_receipt_questions_to_the_email_specialist_and_keeps_inbox_search_for_mail():
+def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_search_for_mail():
     enabled = _one_runtime_instruction(
         SimpleNamespace(
             state={
@@ -6309,12 +6305,10 @@ def test_one_routes_receipt_questions_to_the_email_specialist_and_keeps_inbox_se
         )
     )
     assert "MAIL READ ADMISSION: enabled" in enabled
-    assert "saved receipt memory" in enabled
-    assert "High-level receipt or purchase trends use the supplied Soul.md observations" in enabled
-    assert "not the Email receipt-list tool" in enabled
-    assert "For individual receipts, invoices or bills" in enabled
-    assert "do not search the inbox for receipts yourself" in enabled
-    assert "Only a request to find emails that mention receipts is an inbox search" in enabled
+    assert "list_recent_receipts" in enabled and "receipt_spending" in enabled
+    assert "Never calculate money from memory" in enabled
+    assert "never inbox fallback" in enabled
+    assert "Explicit requests to find emails mentioning receipts" in enabled
     assert "never receipts or attachments" not in enabled
     # With Mail chat reads off (voice, signed out), nothing about receipts is promised.
     disabled = _one_runtime_instruction(
@@ -6322,4 +6316,4 @@ def test_one_routes_receipt_questions_to_the_email_specialist_and_keeps_inbox_se
     )
     assert "MAIL READ ADMISSION: disabled" in disabled
     assert "saved receipt memory" not in disabled
-    assert "answered from the person's saved receipt memory" in _tree.ask_email_agent.__doc__
+    assert "dedicated owner-authorized receipt functions" in _tree.ask_email_agent.__doc__

@@ -3,15 +3,9 @@
 /**
  * Owner review for one paid-answer request.
  *
- * Two decisions, in the order the owner actually makes them:
- *
- *   1. What may this answer use? The resolver's proposal is shown as
- *      checkboxes so the owner can narrow it. They can only narrow: the server
- *      refuses a scope that was never offered, and deterministic validation
- *      has already dropped anything another person may never request.
- *   2. What is it worth? That reuses Drive's own price sheet unchanged, so the
- *      whole-dollar rule, the preset chips and the "Allow · $N" affordance are
- *      literally the same control, not a copy of it.
+ * The semantic resolver proposes the exact memory; the owner reviews it and
+ * confirms a price with explicit Gemini processing consent. Failed resolution
+ * permits retry or decline only.
  *
  * Approval binds the question, the chosen scopes, both people and the quote
  * into one terms digest. Changing any of them afterwards invalidates a payment
@@ -36,31 +30,23 @@ export interface AnswerRequestReviewProps {
   request: PendingAnswerRequest;
   requesterLabel: string;
   onResolved?: (requestId: string) => void;
+  onApproved?: () => void;
 }
 
 export function AnswerRequestReview({
   request,
   requesterLabel,
   onResolved,
+  onApproved,
 }: AnswerRequestReviewProps) {
-  const [chosen, setChosen] = useState<string[]>(() =>
-    request.resolutionMode === "skipped"
-      ? []
-      : request.proposedScopes.map((entry) => entry.scope),
-  );
+  const matched = request.resolutionMode === "agent" && request.proposedScopes.length > 0;
+  const chosen = matched ? request.proposedScopes.map(entry => entry.scope) : [];
   const [consented, setConsented] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const toggle = (scope: string) =>
-    setChosen((current) =>
-      current.includes(scope)
-        ? current.filter((entry) => entry !== scope)
-        : [...current, scope],
-    );
-
-  const run = async (action: (token: string) => Promise<unknown>) => {
+  const run = async (action: (token: string) => Promise<unknown>, approved = false) => {
     setBusy(true);
     setError(null);
     try {
@@ -69,6 +55,7 @@ export function AnswerRequestReview({
       await action(token);
       setPriceOpen(false);
       onResolved?.(request.requestId);
+      if (approved) onApproved?.();
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "This could not be saved.",
@@ -80,6 +67,7 @@ export function AnswerRequestReview({
 
   const approve = (amountCents: number | null) => {
     if (amountCents === null) return;
+    if (!consented || !matched) { setError("Agree to Gemini processing of the matched memory before confirming."); return; }
     void run((token) =>
       AnswerRequestService.approve(
         token,
@@ -87,14 +75,15 @@ export function AnswerRequestReview({
         chosen,
         amountCents,
         consented,
-      ),
+      ), true,
     );
   };
 
   return (
     <div className="min-w-0 space-y-4">
       <div className="space-y-1">
-        <HelperText as="p">{requesterLabel} asked</HelperText>
+        <HelperText as="p">Request scope · Memory</HelperText>
+        <HelperText as="p">The requester asked</HelperText>
         <BodyText className="break-words">“{request.question}”</BodyText>
         {request.periodStart && request.periodEnd ? (
           <HelperText as="p">
@@ -103,65 +92,23 @@ export function AnswerRequestReview({
         ) : null}
       </div>
 
-      {/* A skipped resolver is stated, not hidden. Approving a hand-picked set
-          after a skip is a different act from approving a judged resolution,
-          and the owner is entitled to know which one they are doing. */}
-      {request.resolutionMode === "skipped" ? (
-        <HelperText as="p" role="status">
-          This question was not matched to your information automatically.
-          Choose what it may use yourself.
-        </HelperText>
-      ) : null}
-
-      <fieldset className="min-w-0 space-y-2" disabled={busy}>
-        <legend className="mb-2">What this answer may use</legend>
-        {request.proposedScopes.length === 0 ? (
-          <HelperText as="p" role="status">
-            Nothing of yours matched this question. Decline it, or answer in a
-            message instead.
-          </HelperText>
-        ) : (
-          request.proposedScopes.map((entry) => (
-            <Label
-              key={entry.scope}
-              htmlFor={`answer-scope-${entry.scope}`}
-              className="flex items-center gap-2"
-            >
-              <input
-                id={`answer-scope-${entry.scope}`}
-                type="checkbox"
-                checked={chosen.includes(entry.scope)}
-                onChange={() => toggle(entry.scope)}
-              />
-              {entry.label || entry.scope}
-            </Label>
-          ))
-        )}
-      </fieldset>
-
-      {/* Staging changed what this step promises. It used to describe a
-          "Write answer" the owner came back to after payment, and a 72-hour
-          refund clock for not coming back. Their device prepares the answer
-          here instead, so the old sentences described a flow that no longer
-          runs. Google Vertex AI writing it is a real disclosure and stays. */}
-      <HelperText as="p">
-        After you approve, Google Gemini on Vertex AI writes the answer from
-        what you tick. Your device encrypts it for them and holds it until
-        verified payment. The
-        ticked information reaches that provider under its retention and
-        caching policies. Nothing is sent if nothing you tick answers them.
-      </HelperText>
-
-      <Label className="flex items-start gap-2">
-        <input
-          type="checkbox"
-          checked={consented}
-          disabled={busy}
-          onChange={(event) => setConsented(event.target.checked)}
-        />
-        I agree to this question and the ticked information being used by
-        Google Gemini to write the answer.
-      </Label>
+      <HelperText as="p">One will look in your memory for the information needed to answer this question.</HelperText>
+      {matched ? (
+        <HelperText as="p">Uses: {request.proposedScopes.map(entry => {
+          const labels: Record<string, string> = {
+            "attr.identity.identity_profile.full_name": "Name",
+            "attr.identity.identity_profile.declared_age": "Age",
+            "attr.identity.identity_profile.sex": "Sex",
+            "attr.identity.identity_profile.profile_photo_url": "Profile photo",
+          };
+          return labels[entry.scope] || entry.label || "Matched memory";
+        }).join(", ")}</HelperText>
+      ) : (
+        <div role="status" className="space-y-2">
+          <HelperText as="p">{request.resolutionMode === null ? "Matching this question to your memory…" : "We couldn’t match this question to your memory."}</HelperText>
+          {request.resolutionMode !== null && <Button type="button" disabled={busy} onClick={() => void run(token => AnswerRequestService.retryResolution(token, request.requestId))}>Retry matching</Button>}
+        </div>
+      )}
 
       {error ? (
         <HelperText as="p" role="alert">
@@ -174,7 +121,7 @@ export function AnswerRequestReview({
           <Button
             type="button"
             size="prominent"
-            disabled={busy || chosen.length === 0 || !consented}
+            disabled={busy || !matched}
             onClick={() => setPriceOpen(true)}
           >
             Set a price
@@ -211,7 +158,11 @@ export function AnswerRequestReview({
         periodStart={request.periodStart}
         periodEnd={request.periodEnd}
         paymentRequired
-        settlement={<AnswerPayoutAccount />}
+        settlement={<>
+          <HelperText as="p">Google Gemini on Vertex AI receives this question and only the matched memory to write the answer, under its retention and caching policies. Your device encrypts the answer for the requester before payment.</HelperText>
+          <Label className="flex items-start gap-2"><input type="checkbox" checked={consented} disabled={busy} onChange={event => setConsented(event.target.checked)} />I agree to Google Gemini processing this question and the matched information at this price.</Label>
+          <AnswerPayoutAccount />
+        </>}
         busy={busy}
         error={error}
         onSubmit={approve}

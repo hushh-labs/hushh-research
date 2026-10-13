@@ -803,6 +803,7 @@ class TestOnePaymentBuysOneAnswer:
             owner_user_id=OWNER,
             question="And what about last December specifically?",
         )
+        await service.resolve_pending(request_id=second["requestId"])
         second_id = second["requestId"]
 
         with answer_engine.begin() as connection:

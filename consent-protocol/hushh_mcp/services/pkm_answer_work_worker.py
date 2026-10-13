@@ -126,7 +126,17 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
             raise ValueError("invalid answer work stage")
         max_jobs = STAGE_MAX_JOBS[stage]
         if stage == "timeouts":
-            return await self.run_timeouts(max_jobs=max_jobs)
+            result = await self.run_timeouts(max_jobs=max_jobs)
+            from hushh_mcp.services.pkm_answer_config import answer_requests_enabled
+
+            if answer_requests_enabled():
+                from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
+                from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+                await PkmAnswerRequestService(
+                    self.db, resolver=AnswerScopeResolver()
+                ).resolve_pending(max_jobs=1)
+            return result
         if stage == "refunds":
             return await self.run_refunds(max_jobs=max_jobs)
         return await self.run_payouts(max_jobs=max_jobs)

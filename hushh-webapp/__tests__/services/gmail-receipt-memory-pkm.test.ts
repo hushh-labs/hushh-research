@@ -171,6 +171,17 @@ describe("gmail-receipt-memory-pkm", () => {
     ).toBe(true);
   });
 
+  it.each(["invalid legacy highlights", { amount: 12 }, [{ amount: 12 }]])(
+    "refuses unarchived legacy highlight data in the artifact compatibility builder (%j)",
+    (recentHighlights) => {
+      expect(() => buildShoppingReceiptMemoryPreparedDomain({
+        currentDomainData: { receipts_memory: { observed_facts: { recent_highlights: recentHighlights } } },
+        currentManifest: null,
+        artifact: buildArtifact(),
+      })).toThrow(/encrypted Mail snapshot/);
+    }
+  );
+
   it("detects matching receipt-memory provenance hashes", () => {
     const artifact = buildArtifact();
 
@@ -254,8 +265,9 @@ describe("gmail-receipt-memory-pkm canonical index", () => {
     });
     const memory = prepared.domainData.receipts_memory as Record<string, unknown>;
     expect(prepared.domainData.wishlists).toEqual(currentDomainData.wishlists);
-    expect(memory.readable_summary).toEqual(currentDomainData.receipts_memory.readable_summary);
-    expect((memory[RECEIPT_INDEX_BRANCH] as ReceiptCanonicalIndex).transactions).toHaveLength(3);
+    expect(memory.readable_summary).toMatchObject({ text: "Saved 3 receipts from your Mail." });
+    expect(memory).not.toHaveProperty(RECEIPT_INDEX_BRANCH);
+    expect(JSON.stringify(memory)).not.toMatch(/transactions|transaction_date|identifiers|amount/);
     // The canonical index, like every receipts_memory path, can never be shared.
     const receiptPaths = prepared.manifest.paths.filter((path) =>
       path.json_path.startsWith("receipts_memory"),
@@ -267,10 +279,15 @@ describe("gmail-receipt-memory-pkm canonical index", () => {
     ).toBe(false);
     expect(prepared.structureDecision.source_agent).toBe(RECEIPT_MEMORY_SAVE_WRITER);
     expect(prepared.summary).toMatchObject({
-      readable_summary: "Kai sees strong receipt signals around Amazon.",
+      readable_summary: "Saved 3 receipts from your Mail.",
       receipt_memory_projection_hash: "digest-1",
       source: RECEIPT_MEMORY_SAVE_WRITER,
     });
+  });
+
+  it("requires verified archival before replacing nonempty legacy highlights", () => {
+    expect(() => buildShoppingReceiptCanonicalIndexPreparedDomain({ currentDomainData: { ...currentDomainData, receipts_memory: { ...currentDomainData.receipts_memory,
+      observed_facts: { ...currentDomainData.receipts_memory.observed_facts, recent_highlights: [{ merchant_label: "Amazon", amount: 12, purchased_at: "2026-10-01" }] } } }, currentManifest: null, index: indexOf(3), digest: "digest-1", now })).toThrow(/Verify/);
   });
 
   it("declares only the registered writer, so the reserved-branch guard accepts the save", () => {

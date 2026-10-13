@@ -43,7 +43,10 @@ describe("paid-answer rows reach the card that owns the decision", () => {
 
   it("tells the requester the price step and the owner the review step", () => {
     expect(presentFeedItem(item("answer_request_received")).description).toContain("set a price");
-    expect(presentFeedItem(item("answer_request_payment_ready")).description).toContain("Pay");
+    expect(presentFeedItem(item("answer_request_payment_ready")).description).toContain("preparation");
+    const staged = item("answer_request_payment_ready");
+    staged.metadata = { ...staged.metadata, status: "staged" };
+    expect(presentFeedItem(staged).description).toContain("price and pay");
     expect(presentFeedItem(item("answer_request_declined")).description).toContain(
       "refunded in full",
     );
