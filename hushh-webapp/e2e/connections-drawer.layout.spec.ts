@@ -47,7 +47,6 @@ test.beforeAll(async () => {
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
           "./api-service",
-          "@/lib/services/auth-service",
           "./auth-service",
           "./agent-chat-client",
           "@/lib/cache/cache-sync-service",

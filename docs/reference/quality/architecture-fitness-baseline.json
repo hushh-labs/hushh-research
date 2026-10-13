@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2519,
+  "finding_count": 2564,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -203,7 +203,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/actor_identity_service.py",
       "symbol": "ActorIdentityService",
-      "value": 1738
+      "value": 1767
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -401,7 +401,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": "DriveIngestionStore",
-      "value": 263
+      "value": 389
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -455,7 +455,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "DriveOwnerSearchService",
-      "value": 929
+      "value": 1260
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -464,7 +464,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_store.py",
       "symbol": "DriveOwnerSearchStore",
-      "value": 1004
+      "value": 1057
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -500,7 +500,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "DriveRequestPaymentService",
-      "value": 753
+      "value": 800
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -509,7 +509,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
       "symbol": "DriveRequestPaymentStore",
-      "value": 632
+      "value": 724
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -554,7 +554,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "DriveSharingStore",
-      "value": 2781
+      "value": 2871
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -734,7 +734,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "GoogleDriveAdapter",
-      "value": 588
+      "value": 716
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -752,7 +752,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_rest_transport.py",
       "symbol": "GoogleDriveRestTransport",
-      "value": 384
+      "value": 386
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4280,7 +4280,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/actor_identity_service.py",
       "symbol": "claim_verified_phone",
-      "value": 111
+      "value": 119
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4307,7 +4307,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/actor_identity_service.py",
       "symbol": "upsert_identity",
-      "value": 106
+      "value": 108
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5576,7 +5576,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "_page",
-      "value": 230
+      "value": 235
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5603,7 +5603,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "create_for_request",
-      "value": 113
+      "value": 153
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5612,7 +5612,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "run_one",
-      "value": 165
+      "value": 167
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5729,7 +5729,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "checkout",
-      "value": 300
+      "value": 333
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5747,7 +5747,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "reserve",
-      "value": 106
+      "value": 109
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5783,7 +5783,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
       "symbol": "operation",
-      "value": 176
+      "value": 206
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5792,7 +5792,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
       "symbol": "payment_state",
-      "value": 179
+      "value": 209
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5873,7 +5873,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "allow_request",
-      "value": 147
+      "value": 148
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5891,7 +5891,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "create_request",
-      "value": 248
+      "value": 327
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5900,7 +5900,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "defer_trusted_search",
-      "value": 113
+      "value": 120
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5909,7 +5909,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 97
+      "value": 102
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5918,7 +5918,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 123
+      "value": 124
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5945,7 +5945,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 194
+      "value": 266
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6278,7 +6278,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": "_validated_projection",
-      "value": 242
+      "value": 245
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6494,7 +6494,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "_get_private",
-      "value": 159
+      "value": 214
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13532,7 +13532,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/drive_sharing.py",
       "symbol": null,
-      "value": 1323
+      "value": 1396
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13577,7 +13577,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/kai/gmail.py",
       "symbol": null,
-      "value": 932
+      "value": 938
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14243,7 +14243,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/actor_identity_service.py",
       "symbol": null,
-      "value": 1846
+      "value": 1879
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14540,7 +14540,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": null,
-      "value": 1556
+      "value": 1890
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14549,7 +14549,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_store.py",
       "symbol": null,
-      "value": 1081
+      "value": 1155
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14576,7 +14576,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": null,
-      "value": 849
+      "value": 897
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14585,7 +14585,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
       "symbol": null,
-      "value": 741
+      "value": 834
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14594,7 +14594,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
       "symbol": null,
-      "value": 1039
+      "value": 1040
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14603,7 +14603,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": null,
-      "value": 2852
+      "value": 2943
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14720,7 +14720,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": null,
-      "value": 1930
+      "value": 1933
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14792,7 +14792,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": null,
-      "value": 828
+      "value": 972
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16043,7 +16043,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_actor_identity_service.py",
       "symbol": null,
-      "value": 1355
+      "value": 1403
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16088,7 +16088,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_curated_connector_manifest.py",
       "symbol": null,
-      "value": 910
+      "value": 913
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16115,7 +16115,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_ingestion.py",
       "symbol": null,
-      "value": 538
+      "value": 819
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16196,7 +16196,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_payment.py",
       "symbol": null,
-      "value": 3400
+      "value": 3403
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16232,7 +16232,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_sharing_store.py",
       "symbol": null,
-      "value": 1585
+      "value": 1586
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16250,7 +16250,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_trusted_auto.py",
       "symbol": null,
-      "value": 1447
+      "value": 1508
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16277,7 +16277,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_external_connector_lifecycle_postgres.py",
       "symbol": null,
-      "value": 1032
+      "value": 1036
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16340,7 +16340,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_receipt_live_service.py",
       "symbol": null,
-      "value": 1499
+      "value": 1574
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16394,7 +16394,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_drive_rest_transport.py",
       "symbol": null,
-      "value": 825
+      "value": 826
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16655,7 +16655,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_routes.py",
       "symbol": null,
-      "value": 1926
+      "value": 2032
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16835,7 +16835,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_contact_sync_postgres_integration.py",
       "symbol": null,
-      "value": 1229
+      "value": 1297
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16907,7 +16907,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_drive_sharing_routes.py",
       "symbol": null,
-      "value": 1031
+      "value": 1102
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16943,7 +16943,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_external_connector_oauth_routes.py",
       "symbol": null,
-      "value": 1529
+      "value": 1560
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17969,7 +17969,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/agent-scope-discovery.test.tsx",
       "symbol": null,
-      "value": 699
+      "value": 720
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18068,7 +18068,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-share-review.test.tsx",
       "symbol": null,
-      "value": 2113
+      "value": 2134
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18203,7 +18203,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/phone-verification-flow-interaction.test.tsx",
       "symbol": null,
-      "value": 719
+      "value": 758
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18365,7 +18365,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/feed/feed-actionables-connection-dedup.test.tsx",
       "symbol": null,
-      "value": 1551
+      "value": 1666
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18383,7 +18383,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/firebase/auth-context-native-privacy-generation.test.tsx",
       "symbol": null,
-      "value": 569
+      "value": 767
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18392,7 +18392,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx",
       "symbol": null,
-      "value": 1228
+      "value": 1353
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18572,7 +18572,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/api-service-fetch.test.ts",
       "symbol": null,
-      "value": 1628
+      "value": 1646
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18581,7 +18581,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/auth-service.test.ts",
       "symbol": null,
-      "value": 1427
+      "value": 1445
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18617,7 +18617,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/drive-sharing-service.test.ts",
       "symbol": null,
-      "value": 1520
+      "value": 1538
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18707,7 +18707,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-write-coordinator.test.ts",
       "symbol": null,
-      "value": 880
+      "value": 884
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18941,7 +18941,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-structured-experience.tsx",
       "symbol": null,
-      "value": 975
+      "value": 979
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18977,7 +18977,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/connectors-panel.tsx",
       "symbol": null,
-      "value": 2888
+      "value": 2890
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19103,7 +19103,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/auth/phone-verification-flow.tsx",
       "symbol": null,
-      "value": 1384
+      "value": 1407
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19211,7 +19211,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/person-profile-page.tsx",
       "symbol": null,
-      "value": 1138
+      "value": 1152
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19229,7 +19229,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/document-share-review.tsx",
       "symbol": null,
-      "value": 2253
+      "value": 2267
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19247,7 +19247,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/notification-provider.tsx",
       "symbol": null,
-      "value": 2569
+      "value": 2585
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19274,7 +19274,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 2202
+      "value": 2203
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20174,7 +20174,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1624
+      "value": 1625
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20435,7 +20435,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/use-feed-actionables.ts",
       "symbol": null,
-      "value": 2301
+      "value": 2335
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20444,7 +20444,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/firebase/auth-context.tsx",
       "symbol": null,
-      "value": 1976
+      "value": 2171
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20975,7 +20975,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/api-service.ts",
       "symbol": null,
-      "value": 5969
+      "value": 5977
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21047,7 +21047,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/drive-sharing-service.ts",
       "symbol": null,
-      "value": 2185
+      "value": 2196
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21885,7 +21885,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_view.py",
       "symbol": "requester_payment_view",
-      "value": 117
+      "value": 128
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -22254,7 +22254,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_contact_sync_postgres_integration.py",
       "symbol": "test_signup_phone_survives_ria_deletion_and_passive_provider_conflict",
-      "value": 83
+      "value": 148
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -22389,7 +22389,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_store.py",
       "symbol": "_view",
-      "value": 83
+      "value": 89
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -22398,7 +22398,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_trusted_auto_service.py",
       "symbol": "share_available",
-      "value": 97
+      "value": 120
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -22524,7 +22524,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_package_store.py",
       "symbol": "DriveRequestPackageStore",
-      "value": 602
+      "value": 690
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -22533,7 +22533,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_trusted_auto_service.py",
       "symbol": "DriveTrustedAutoService",
-      "value": 290
+      "value": 345
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -22605,7 +22605,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_package_service.py",
       "symbol": "_read_batch",
-      "value": 93
+      "value": 145
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -22641,7 +22641,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_package_store.py",
       "symbol": null,
-      "value": 681
+      "value": 769
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22678,6 +22678,411 @@
       "path": "hushh-webapp/e2e/receipt-sync-hero.layout.spec.ts",
       "symbol": null,
       "value": 608
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|DrivePacketStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
+      "symbol": "DrivePacketStore",
+      "value": 771
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|DriveCollectionStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
+      "symbol": "DriveCollectionStore",
+      "value": 614
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py|DriveDocumentFactsStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
+      "symbol": "DriveDocumentFactsStore",
+      "value": 514
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|DriveRequestPackageService|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_package_service.py",
+      "symbol": "DriveRequestPackageService",
+      "value": 329
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py|DriveRequestBulkService|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_bulk_service.py",
+      "symbol": "DriveRequestBulkService",
+      "value": 261
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_package_existing_access_store.py|complete|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_package_existing_access_store.py",
+      "symbol": "complete",
+      "value": 211
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_package_existing_access_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_package_existing_access_store.py",
+      "symbol": "operation",
+      "value": 198
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|commit_page|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
+      "symbol": "commit_page",
+      "value": 174
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_packet_payment_postgres.py|test_undated_catalog_allow_freeze_and_checkout_is_idempotent|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_packet_payment_postgres.py",
+      "symbol": "test_undated_catalog_allow_freeze_and_checkout_is_idempotent",
+      "value": 171
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_sync.py|run_one|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_collection_sync.py",
+      "symbol": "run_one",
+      "value": 164
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
+      "symbol": "operation",
+      "value": 159
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
+      "symbol": "operation",
+      "value": 97
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_pipeline_evaluation.py|build_report|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_pipeline_evaluation.py",
+      "symbol": "build_report",
+      "value": 151
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/scripts/drive_pipeline_model_adapter.py|evaluate|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/scripts/drive_pipeline_model_adapter.py",
+      "symbol": "evaluate",
+      "value": 145
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_contact_sync_postgres_integration.py|exercise|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_contact_sync_postgres_integration.py",
+      "symbol": "exercise",
+      "value": 140
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_match_canonical_packet|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
+      "symbol": "_match_canonical_packet",
+      "value": 125
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/fixtures/drive_pipeline_eval/generate_dev_v2.py|main|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/fixtures/drive_pipeline_eval/generate_dev_v2.py",
+      "symbol": "main",
+      "value": 124
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_packet_one|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
+      "symbol": "run_packet_one",
+      "value": 119
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_worker.py|run|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_document_worker.py",
+      "symbol": "run",
+      "value": 107
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|finalize_packet|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
+      "symbol": "finalize_packet",
+      "value": 106
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|status|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
+      "symbol": "status",
+      "value": 104
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
+      "symbol": "operation",
+      "value": 100
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
+      "symbol": "operation",
+      "value": 90
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|list_packets|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
+      "symbol": "list_packets",
+      "value": 99
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_indexed_page|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
+      "symbol": "_indexed_page",
+      "value": 98
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|read|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_package_service.py",
+      "symbol": "read",
+      "value": 98
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_service.py|run_one|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_ingestion_service.py",
+      "symbol": "run_one",
+      "value": 93
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|_assemble|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_package_service.py",
+      "symbol": "_assemble",
+      "value": 92
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|_current_checkout_authority|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
+      "symbol": "_current_checkout_authority",
+      "value": 90
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_processor.py|_private_process|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_document_processor.py",
+      "symbol": "_private_process",
+      "value": 86
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_request_index_reuse_postgres.py|test_equivalent_request_reuses_unlisted_packet_with_owner_approval_still_required|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_request_index_reuse_postgres.py",
+      "symbol": "test_equivalent_request_reuses_unlisted_packet_with_owner_approval_still_required",
+      "value": 86
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_pages.py|extract_pages|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_document_pages.py",
+      "symbol": "extract_pages",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py|start_search|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_bulk_service.py",
+      "symbol": "start_search",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|get_file_facts|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
+      "symbol": "get_file_facts",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_actor_identity_service.py|test_upsert_identity_ensures_actor_profile_spine_row|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_actor_identity_service.py",
+      "symbol": "test_upsert_identity_ensures_actor_profile_spine_row",
+      "value": 82
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py|_current_index_status|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
+      "symbol": "_current_index_status",
+      "value": 81
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_pipeline_evaluation.py|grade_attempt|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_pipeline_evaluation.py",
+      "symbol": "grade_attempt",
+      "value": 81
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_package_store.py|claim_evaluation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_package_store.py",
+      "symbol": "claim_evaluation",
+      "value": 81
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
+      "symbol": null,
+      "value": 802
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_collection_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
+      "symbol": null,
+      "value": 640
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
+      "symbol": null,
+      "value": 577
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
+      "symbol": null,
+      "value": 568
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_document_processor.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_document_processor.py",
+      "symbol": null,
+      "value": 566
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_google_drive_adapter.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_google_drive_adapter.py",
+      "symbol": null,
+      "value": 545
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/e2e/guest-preview.layout.spec.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/e2e/guest-preview.layout.spec.ts",
+      "symbol": null,
+      "value": 509
     }
   ],
   "inspected_files": 6625,
@@ -38805,6 +39210,1044 @@
     "incoming_main": "be71618d997b2950386e8c01af930d9d028429fc",
     "retained_parent": "a455fba787990ff8cadbfd603f859f2066ffdf7f",
     "review": "Independent ci_registry_review qualifies exactly four inherited incoming spans after values-preserving fidelity correction and cohesive fixture reuse. All remain below incoming source bounds. Exact-scope denial, structured precedence and wildcard retention guards replace unsafe incoming behavior. Preserve all other baseline entries, multiplicities, budgets, scanner and future-growth enforcement. Source qualification is not deployed acceptance."
+  },
+  "scope_commerce_private_drive_main_union_20261013": {
+    "classification_counts": {
+      "bounded_union_of_preserved_parent_spans": 29,
+      "bounded_union_with_formatting_only_adjustment": 1,
+      "exact_inherited_main_span": 92,
+      "new_task_growth_boundary_correction": 3
+    },
+    "detector_sha256": "e30239423c7473d86893b35c795bae618732fc1b1fd6f82bd54aa9607870581c",
+    "findings": [
+      {
+        "after": 2871,
+        "before": 2781,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "after": 1767,
+        "before": 1738,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "class_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|ActorIdentityService|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "4c71882c0e06b6eed265d3e7199a89d746a6b08d6c2bf1f7e5634a57d390ce91"
+      },
+      {
+        "after": 1260,
+        "before": 929,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|DriveOwnerSearchService|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "after": 1057,
+        "before": 1004,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_search_store.py|DriveOwnerSearchStore|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "89d16da7a804a69274288ac08b856060db4d536d07efad1b62fc1d6aeeedcbc7"
+      },
+      {
+        "after": 800,
+        "before": 753,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|DriveRequestPaymentService|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "450d9ccf64e228b5930ce074e54490ad58ca1ea01d4f4ad7601b98ec6179b103"
+      },
+      {
+        "after": 771,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|DrivePacketStore|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "e6d9aca247defd3c7133c71911327e22f32a16a1d90212ef2ae3bc0e66c3070b"
+      },
+      {
+        "after": 724,
+        "before": 632,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|DriveRequestPaymentStore|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "575042ac478065818313a5aceaa2f2b2dd13d4e3499fc13525b0069fad386f81"
+      },
+      {
+        "after": 716,
+        "before": 588,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|GoogleDriveAdapter|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "7d0ca410ee34074f9a88943c5f86cd4b46ec4c711f00e90dea00ff4b18a448d9"
+      },
+      {
+        "after": 690,
+        "before": 602,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_package_store.py|DriveRequestPackageStore|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "8e99b06757586d40173308c2c4e23e8772490d231d968409b2318103821d3c5b"
+      },
+      {
+        "after": 614,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|DriveCollectionStore|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "e5abcc20dcc7cdd068fddad5021ec5302424bcb2996306d8d896736c4a48288a"
+      },
+      {
+        "after": 514,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py|DriveDocumentFactsStore|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "55fc9a34e4c13fc336eea6d97e7ce37a3c98781d7c34191d040b6080561ef876"
+      },
+      {
+        "after": 389,
+        "before": 263,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|DriveIngestionStore|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "761ed050a848bc69fa2297ae61f014907b0f6bee31e91af8b3aa575b8ab114a7"
+      },
+      {
+        "after": 386,
+        "before": 384,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py|GoogleDriveRestTransport|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "81c753c7cfe4523e379a9a4f9a1fa63d650cec041a7a1afea4cc08703e6ecd7d"
+      },
+      {
+        "after": 345,
+        "before": 290,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_trusted_auto_service.py|DriveTrustedAutoService|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "7de583a12dd6a7978bebd689531a927c46486af914e6ad113a44466a2dd5a3e4"
+      },
+      {
+        "after": 329,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|DriveRequestPackageService|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "c7203d825bea09a87fde1d21d291b773c39223f78c2e01e2632e62011f9241ba"
+      },
+      {
+        "after": 261,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py|DriveRequestBulkService|class exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "5b07c9a8230afe4f7e2b4fb8846a998b56618747adc1376fe3c909f780be36e3"
+      },
+      {
+        "after": 333,
+        "before": 300,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|checkout|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "450d9ccf64e228b5930ce074e54490ad58ca1ea01d4f4ad7601b98ec6179b103"
+      },
+      {
+        "after": 327,
+        "before": 248,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|create_request|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "after": 266,
+        "before": 194,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "after": 124,
+        "before": 123,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence": 4,
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "after": 102,
+        "before": 97,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence": 5,
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "after": 245,
+        "before": 242,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|_validated_projection|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "1d5861abe2e30d180725595c86903b90851a5d712fd1ab7f0498f4039e38e7b0"
+      },
+      {
+        "after": 235,
+        "before": 230,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_page|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "after": 214,
+        "before": 159,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|_get_private|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "7d0ca410ee34074f9a88943c5f86cd4b46ec4c711f00e90dea00ff4b18a448d9"
+      },
+      {
+        "after": 211,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_package_existing_access_store.py|complete|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "0c2e1de98eb3ad51dbe806288476a73c5f316a0ccd9377bcbb23d9454cd31b95"
+      },
+      {
+        "after": 209,
+        "before": 179,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|payment_state|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "575042ac478065818313a5aceaa2f2b2dd13d4e3499fc13525b0069fad386f81"
+      },
+      {
+        "after": 206,
+        "before": 176,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "575042ac478065818313a5aceaa2f2b2dd13d4e3499fc13525b0069fad386f81"
+      },
+      {
+        "after": 198,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_package_existing_access_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "0c2e1de98eb3ad51dbe806288476a73c5f316a0ccd9377bcbb23d9454cd31b95"
+      },
+      {
+        "after": 174,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|commit_page|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "e5abcc20dcc7cdd068fddad5021ec5302424bcb2996306d8d896736c4a48288a"
+      },
+      {
+        "after": 171,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/tests/services/test_drive_packet_payment_postgres.py|test_undated_catalog_allow_freeze_and_checkout_is_idempotent|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "ac5d130a33fe1745d3cc2df90119a235913d454b99ec399d74b3a81c735f4cc1"
+      },
+      {
+        "after": 167,
+        "before": 165,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|run_one|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "after": 164,
+        "before": null,
+        "classification": "new_task_growth_boundary_correction",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_sync.py|run_one|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "311b132ae5676a93b686dbe91b08f4af2a6b917b8f28d902053a9f78a35ee68f"
+      },
+      {
+        "after": 159,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "e5abcc20dcc7cdd068fddad5021ec5302424bcb2996306d8d896736c4a48288a"
+      },
+      {
+        "after": 97,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence": 1,
+        "source_sha256": "e5abcc20dcc7cdd068fddad5021ec5302424bcb2996306d8d896736c4a48288a"
+      },
+      {
+        "after": 153,
+        "before": 113,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|create_for_request|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "after": 151,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_pipeline_evaluation.py|build_report|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "fa74bd5eafb325c7311e6997af3e40b59ad1832ae566c50ee081198af9377337"
+      },
+      {
+        "after": 148,
+        "before": 147,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|allow_request|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "after": 148,
+        "before": 83,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/tests/test_contact_sync_postgres_integration.py|test_signup_phone_survives_ria_deletion_and_passive_provider_conflict|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "e66c68e287747c880aaf5f10eddd2811ed292622a9ed46bb681f6e34c43d6440"
+      },
+      {
+        "after": 145,
+        "before": 93,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|_read_batch|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "c7203d825bea09a87fde1d21d291b773c39223f78c2e01e2632e62011f9241ba"
+      },
+      {
+        "after": 145,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/scripts/drive_pipeline_model_adapter.py|evaluate|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "20dbc3c2dc14049b3f79c63190c65865b633cb43d40a591acb9db53ae32d5370"
+      },
+      {
+        "after": 140,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/tests/test_contact_sync_postgres_integration.py|exercise|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "e66c68e287747c880aaf5f10eddd2811ed292622a9ed46bb681f6e34c43d6440"
+      },
+      {
+        "after": 128,
+        "before": 117,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_view.py|requester_payment_view|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "77b641009635e443b2b2bf122a2a25fa2d203eab181b5652a85227a47d568732"
+      },
+      {
+        "after": 125,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_match_canonical_packet|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "after": 124,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/tests/fixtures/drive_pipeline_eval/generate_dev_v2.py|main|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "173e1d03e9f1f136c795f6475852f09268920556ed59522fb5a7567dc169a224"
+      },
+      {
+        "after": 120,
+        "before": 113,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|defer_trusted_search|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "after": 120,
+        "before": 97,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_trusted_auto_service.py|share_available|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "7de583a12dd6a7978bebd689531a927c46486af914e6ad113a44466a2dd5a3e4"
+      },
+      {
+        "after": 119,
+        "before": 111,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "function_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|claim_verified_phone|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "4c71882c0e06b6eed265d3e7199a89d746a6b08d6c2bf1f7e5634a57d390ce91"
+      },
+      {
+        "after": 119,
+        "before": null,
+        "classification": "new_task_growth_boundary_correction",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_packet_one|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "3b92a9373ab9ea50db202749d6c4fceeaf7cbe4e6ad6ec947f96749eabb0fc2b"
+      },
+      {
+        "after": 109,
+        "before": 106,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|reserve|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "450d9ccf64e228b5930ce074e54490ad58ca1ea01d4f4ad7601b98ec6179b103"
+      },
+      {
+        "after": 108,
+        "before": 106,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|upsert_identity|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "4c71882c0e06b6eed265d3e7199a89d746a6b08d6c2bf1f7e5634a57d390ce91"
+      },
+      {
+        "after": 107,
+        "before": null,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_worker.py|run|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "8cf11740caf2276ef4b5b41583380be43e52ab13fcf5e05d5fac2dc25eac7bcc"
+      },
+      {
+        "after": 106,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|finalize_packet|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "e6d9aca247defd3c7133c71911327e22f32a16a1d90212ef2ae3bc0e66c3070b"
+      },
+      {
+        "after": 104,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|status|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "e5abcc20dcc7cdd068fddad5021ec5302424bcb2996306d8d896736c4a48288a"
+      },
+      {
+        "after": 100,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "e6d9aca247defd3c7133c71911327e22f32a16a1d90212ef2ae3bc0e66c3070b"
+      },
+      {
+        "after": 90,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence": 1,
+        "source_sha256": "e6d9aca247defd3c7133c71911327e22f32a16a1d90212ef2ae3bc0e66c3070b"
+      },
+      {
+        "after": 99,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|list_packets|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "e6d9aca247defd3c7133c71911327e22f32a16a1d90212ef2ae3bc0e66c3070b"
+      },
+      {
+        "after": 98,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_indexed_page|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "after": 98,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|read|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "c7203d825bea09a87fde1d21d291b773c39223f78c2e01e2632e62011f9241ba"
+      },
+      {
+        "after": 93,
+        "before": null,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_service.py|run_one|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "4fc51ac90b01a72f3b04784ce178df3cd405cde49419d5404a2304b8cf793ca2"
+      },
+      {
+        "after": 92,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|_assemble|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "c7203d825bea09a87fde1d21d291b773c39223f78c2e01e2632e62011f9241ba"
+      },
+      {
+        "after": 90,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|_current_checkout_authority|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "450d9ccf64e228b5930ce074e54490ad58ca1ea01d4f4ad7601b98ec6179b103"
+      },
+      {
+        "after": 89,
+        "before": 83,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_store.py|_view|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "89d16da7a804a69274288ac08b856060db4d536d07efad1b62fc1d6aeeedcbc7"
+      },
+      {
+        "after": 86,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_processor.py|_private_process|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "b9b9363e3443b0070ce88f7f917b29db703a42be2e02d23c3a3447c69ae32e6c"
+      },
+      {
+        "after": 86,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/tests/services/test_drive_request_index_reuse_postgres.py|test_equivalent_request_reuses_unlisted_packet_with_owner_approval_still_required|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "44cad8c97caa1cf7c02921dea1ee458f7541a6ba643035f2453b9103cae14d58"
+      },
+      {
+        "after": 85,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_pages.py|extract_pages|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "754c267a943c3901d3f989038cd667405ba55181a2a11fe7d9d3208fa11a511e"
+      },
+      {
+        "after": 85,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py|start_search|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "5b07c9a8230afe4f7e2b4fb8846a998b56618747adc1376fe3c909f780be36e3"
+      },
+      {
+        "after": 85,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|get_file_facts|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "7d0ca410ee34074f9a88943c5f86cd4b46ec4c711f00e90dea00ff4b18a448d9"
+      },
+      {
+        "after": 82,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/tests/services/test_actor_identity_service.py|test_upsert_identity_ensures_actor_profile_spine_row|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "07586e7bb8457267e1b1cd10f354eaed5006df52ca164d9f19e8bb98a713461e"
+      },
+      {
+        "after": 81,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py|_current_index_status|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "55fc9a34e4c13fc336eea6d97e7ce37a3c98781d7c34191d040b6080561ef876"
+      },
+      {
+        "after": 81,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_pipeline_evaluation.py|grade_attempt|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "fa74bd5eafb325c7311e6997af3e40b59ad1832ae566c50ee081198af9377337"
+      },
+      {
+        "after": 81,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_package_store.py|claim_evaluation|function exceeds the advisory gene budget",
+        "occurrence": 0,
+        "source_sha256": "8e99b06757586d40173308c2c4e23e8772490d231d968409b2318103821d3c5b"
+      },
+      {
+        "after": 5977,
+        "before": 5969,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "1cff7438fe9880bdaef93e209c637c6d93b642ae4db586bc881248fa515f3349"
+      },
+      {
+        "after": 3403,
+        "before": 3400,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_payment.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "dcf065cb653845d4b1b9102fda5f55498c660c530731676803b6ecefbb76b756"
+      },
+      {
+        "after": 2943,
+        "before": 2852,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "after": 2890,
+        "before": 2888,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/components/agent/connectors-panel.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "5f473b0ac883df081b84408af45fe7918e1357731655a1eaf75260d590bfe77b"
+      },
+      {
+        "after": 2585,
+        "before": 2569,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/components/consent/notification-provider.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "eb992ef02057c47a39c8b8739677fdf68dbf73c55d6f35a96af6032131f4f958"
+      },
+      {
+        "after": 2335,
+        "before": 2301,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/lib/feed/use-feed-actionables.ts||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "8e61688a47660fc8e089c93c05c4212b36dd65a57998c4ce05761cfff7aa2701"
+      },
+      {
+        "after": 2267,
+        "before": 2253,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/components/consent/document-share-review.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "b072e91114f301db10f265c2acd14c2868c11889a3abf28f9d274c9b6b91436a"
+      },
+      {
+        "after": 2203,
+        "before": 2202,
+        "classification": "new_task_growth_boundary_correction",
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "d74a3dfacdd24cb7976488a359b79299f222d4910a00e6b4cfeb086a6f839b0a"
+      },
+      {
+        "after": 2196,
+        "before": 2185,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/lib/services/drive-sharing-service.ts||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "e262f9d18d7dee3e396d559c61abbd5a9ff27362badca84d2cbe44ad6753bbf6"
+      },
+      {
+        "after": 2171,
+        "before": 1976,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/lib/firebase/auth-context.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "e82c6786afc9acaec51512f6606951ca370c8784b2cf130509508c5b11e70101"
+      },
+      {
+        "after": 2134,
+        "before": 2113,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/__tests__/components/document-share-review.test.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "7cbd67055904d4589481590021f2f050bea243a4f4144c8460bef4db86e8ceec"
+      },
+      {
+        "after": 2032,
+        "before": 1926,
+        "classification": "bounded_union_with_formatting_only_adjustment",
+        "key": "module_size|consent-protocol/tests/test_account_routes.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "258c8e780afcf60c260a61ed42517a9441aab83199c95f594d35626d9bc17171"
+      },
+      {
+        "after": 1933,
+        "before": 1930,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "1d5861abe2e30d180725595c86903b90851a5d712fd1ab7f0498f4039e38e7b0"
+      },
+      {
+        "after": 1890,
+        "before": 1556,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "after": 1879,
+        "before": 1846,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/hushh_mcp/services/actor_identity_service.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "4c71882c0e06b6eed265d3e7199a89d746a6b08d6c2bf1f7e5634a57d390ce91"
+      },
+      {
+        "after": 1666,
+        "before": 1551,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/feed-actionables-connection-dedup.test.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "16f993f9f76f3742cde998236507a61d29fcd26e97abc77fcb469591335fdab3"
+      },
+      {
+        "after": 1646,
+        "before": 1628,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/__tests__/services/api-service-fetch.test.ts||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "4b0a5e026389e0a444b69ed68da78634250c26f169ccdc8171faa9cf82ac7c68"
+      },
+      {
+        "after": 1625,
+        "before": 1624,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "13c1181946807e697fb14489859b7757dd3bc63cec7a21be61b4a0bc9e13d099"
+      },
+      {
+        "after": 1586,
+        "before": 1585,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/tests/services/test_drive_sharing_store.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "bd72838b32253f1ddd802d5829ccf2b94c4e249afb7ddf601c4c5242825211e5"
+      },
+      {
+        "after": 1574,
+        "before": 1499,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/tests/services/test_gmail_receipt_live_service.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "c41a9fe77393eaa985b1fe6ac187dc7e8822998c4a7c0e5fbcc696eb36889022"
+      },
+      {
+        "after": 1560,
+        "before": 1529,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/tests/test_external_connector_oauth_routes.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "4971a1f9cb85adbd68a70fe2679d71130b81adbf284b766fd6b0daa4f7c886d7"
+      },
+      {
+        "after": 1538,
+        "before": 1520,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/__tests__/services/drive-sharing-service.test.ts||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "006f08939ad5622bb6b8d9ae592a29e2c95709f99d1015c6a36e336f7d99f591"
+      },
+      {
+        "after": 1508,
+        "before": 1447,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/tests/services/test_drive_trusted_auto.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "24b8c59dee6b8fe1feebc5dc0a76443cd79b7d64c5da5e154fc8e566cd532d59"
+      },
+      {
+        "after": 1445,
+        "before": 1427,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/__tests__/services/auth-service.test.ts||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "e9fec74f9144641c201d8f9a5a10eef1ccca0332231cb75d9f11e1fa89df53a9"
+      },
+      {
+        "after": 1407,
+        "before": 1384,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/components/auth/phone-verification-flow.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "1f3730e4a120df0780c2690e3e1c71d8df8879838d6834a3ca38727daecb5ce2"
+      },
+      {
+        "after": 1403,
+        "before": 1355,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/tests/services/test_actor_identity_service.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "07586e7bb8457267e1b1cd10f354eaed5006df52ca164d9f19e8bb98a713461e"
+      },
+      {
+        "after": 1396,
+        "before": 1323,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/api/routes/drive_sharing.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "f14c890e4da136e0814df8ae67faf97835f2120edbfc2e4e34df1b044a91f5b2"
+      },
+      {
+        "after": 1353,
+        "before": 1228,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "5824e462c22fccf3c631a8759284bee146dc76682dd5a620c2d5916587534e44"
+      },
+      {
+        "after": 1297,
+        "before": 1229,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/tests/test_contact_sync_postgres_integration.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "e66c68e287747c880aaf5f10eddd2811ed292622a9ed46bb681f6e34c43d6440"
+      },
+      {
+        "after": 1155,
+        "before": 1081,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_store.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "89d16da7a804a69274288ac08b856060db4d536d07efad1b62fc1d6aeeedcbc7"
+      },
+      {
+        "after": 1152,
+        "before": 1138,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/components/connections/person-profile-page.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "71a813527bf1bcdee3c70546e3aed177d6ffd339b0170eab85e85f74bf34a0f0"
+      },
+      {
+        "after": 1102,
+        "before": 1031,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/tests/test_drive_sharing_routes.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "9a25f8e438199a1c1867bb90c4f7bca4efa4125cea5027a00c7ca0f2f71ea5d5"
+      },
+      {
+        "after": 1040,
+        "before": 1039,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "440aff17b496a9733e22c3edfc70869ce8fd6fc2c9795aa8b9816bf9a3ef0175"
+      },
+      {
+        "after": 1036,
+        "before": 1032,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/tests/services/test_external_connector_lifecycle_postgres.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "3d3ab73eade00bed4dc2ca58293e80db7c924fd599f7390dc97e97a3008307b4"
+      },
+      {
+        "after": 979,
+        "before": 975,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/components/agent/agent-structured-experience.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "37a4d373ed33c1c2583e685b573a8baa0efc2ca434daefc5b0bc78b12352289e"
+      },
+      {
+        "after": 972,
+        "before": 828,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "7d0ca410ee34074f9a88943c5f86cd4b46ec4c711f00e90dea00ff4b18a448d9"
+      },
+      {
+        "after": 938,
+        "before": 932,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/api/routes/kai/gmail.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "3bcfa8a2b5f8467ff763c8c71900eda51ecbf6c20bd523dc8fdd3d2d37032999"
+      },
+      {
+        "after": 913,
+        "before": 910,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/tests/services/test_curated_connector_manifest.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "422996314a62b3da0c6572835e695e36b7e303ed12854480ab7b5a5bd16724fe"
+      },
+      {
+        "after": 897,
+        "before": 849,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "450d9ccf64e228b5930ce074e54490ad58ca1ea01d4f4ad7601b98ec6179b103"
+      },
+      {
+        "after": 884,
+        "before": 880,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/__tests__/services/pkm-write-coordinator.test.ts||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "cecb860eac95c8ccf378617ed776773d7a3a86a2646b6b0b08fa8a5ab65fbc93"
+      },
+      {
+        "after": 834,
+        "before": 741,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "575042ac478065818313a5aceaa2f2b2dd13d4e3499fc13525b0069fad386f81"
+      },
+      {
+        "after": 826,
+        "before": 825,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/tests/services/test_google_drive_rest_transport.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "8971559bb296d724209a7aca72fd655b453ac14c57010c5880d1b22bbaa89ece"
+      },
+      {
+        "after": 819,
+        "before": 538,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|consent-protocol/tests/services/test_drive_ingestion.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "7f10d3517cc14d6633f90c3da24307340e090fe211774ceaa53c032dd41e4f58"
+      },
+      {
+        "after": 802,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_store.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "e6d9aca247defd3c7133c71911327e22f32a16a1d90212ef2ae3bc0e66c3070b"
+      },
+      {
+        "after": 769,
+        "before": 681,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_package_store.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "8e99b06757586d40173308c2c4e23e8772490d231d968409b2318103821d3c5b"
+      },
+      {
+        "after": 767,
+        "before": 569,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-native-privacy-generation.test.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "bb86589511e8a4ecb72ea071c10104701aa1c1b03b6b060af14a761bac6e02d0"
+      },
+      {
+        "after": 758,
+        "before": 719,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/__tests__/components/phone-verification-flow-interaction.test.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "bbfedb9bc704672243a7a0e4c07962d969b03c09b2497f1b0c3328ce4a7f4bb0"
+      },
+      {
+        "after": 720,
+        "before": 699,
+        "classification": "bounded_union_of_preserved_parent_spans",
+        "key": "module_size|hushh-webapp/__tests__/components/agent-scope-discovery.test.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "eeabb1f37df1f394ae4a7bb85563f5f5eb5f20db780854fe7dbad897d9dac1fc"
+      },
+      {
+        "after": 640,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_collection_store.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "e5abcc20dcc7cdd068fddad5021ec5302424bcb2996306d8d896736c4a48288a"
+      },
+      {
+        "after": 577,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "55fc9a34e4c13fc336eea6d97e7ce37a3c98781d7c34191d040b6080561ef876"
+      },
+      {
+        "after": 568,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "825c043de0628472a80a7d9ce0c76221b9520966fe0177dac37457576de264cf"
+      },
+      {
+        "after": 566,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/tests/services/test_drive_document_processor.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "f53225fd737d4201b93d03ee7065cb5e817c0371f4b705be03cd59c07be18b91"
+      },
+      {
+        "after": 545,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/tests/services/test_google_drive_adapter.py||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "2956583ec119bc0795c5d364856d8a729aab2ef50af20763e075fe7cb8411178"
+      },
+      {
+        "after": 509,
+        "before": null,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|hushh-webapp/e2e/guest-preview.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "4e7f23bd1b386afb910e79b76123e88e810979281993b47c90e78a8d1430af12"
+      }
+    ],
+    "main_parent": "6543414a21287ced7353a8813f69852c2acb8de9",
+    "merge_commit": "5ec281d5560e46c8fc635cc1d459e1ffd36abb8b",
+    "qualification_sha256": "7e6135acac784299184cf1cc44ff30ef859833ba8beb97978ae2f333aa43fba4",
+    "review": "Independent occurrence-ranked source review: retain every historical finding and metadata field; 92 exact incoming spans, 29 bounded parent compositions, one AST-identical formatted composition, and three separately qualified privacy/stable-inbox corrections. Budgets, detector and exclusions unchanged. Source tests do not establish deployed payments or owner OAuth.",
+    "task_parent": "a6d2287eed655800f0570b1044532843a96c1a64",
+    "verification_evidence": [
+      {
+        "observed_result": "224 passed; supplementary positive backend run before nearest negative fixture refinement.",
+        "sha256": "d797073696b305047d11efe1f876f1c77e963599ebb9ac17a9c5d1061fa9c701"
+      },
+      {
+        "observed_result": "9 passed,7 deselected; exact refined fixture; six worker ByOC/unknown admission cases, two packet-catalog cases and Shared positive case.",
+        "sha256": "56bc4fe80be0515451dbf3d09efdcc8dc231593143b526b9821a6c471ddc40c3"
+      },
+      {
+        "observed_result": "Immutable frozen-main control:8 failed DID NOT RAISE required HTTPException,1 Shared positive passed,7 deselected. No downstream mock AttributeError in final control.",
+        "sha256": "e253d95c042fa47146679a0fd070e325d172acae8ba150ca165196269d085dc4"
+      },
+      {
+        "observed_result": "7 files,196 passed under canonical installed React19.2.5/ReactDOM19.2.5.",
+        "sha256": "05d7681cf413ef90e255ce34b4ac472a90740677921f1a729718827ea1c6ffae"
+      },
+      {
+        "observed_result": "Canonical npm ci restored dependencies; installed React and ReactDOM match package-lock19.2.5; earlier182 React19.3 run excluded.",
+        "sha256": "c16f3e3506ac319e8f01710ebdd8847efac90c854530c94158ba3f9cf9ff17b8"
+      }
+    ]
   },
   "scope_commerce_receipt_native_main_merge_20261013": {
     "detector_sha256": "e30239423c7473d86893b35c795bae618732fc1b1fd6f82bd54aa9607870581c",
