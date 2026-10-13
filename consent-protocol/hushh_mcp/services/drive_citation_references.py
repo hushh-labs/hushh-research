@@ -10,12 +10,22 @@ from pydantic import Field
 
 from hushh_mcp.services.drive_packet_contract import (
     CanonicalPacketKey,
+    DateRole,
     DocumentFacts,
     DocumentPageFacts,
     EvidenceModel,
 )
 
-FACT_FIELDS = ("document_type", "issuer", "subject", "account", "periods", "topics", "facts")
+FACT_FIELDS = (
+    "document_type",
+    "issuer",
+    "subject",
+    "account",
+    "periods",
+    "date_evidence",
+    "topics",
+    "facts",
+)
 SPAN_CHARACTERS = 300
 
 
@@ -30,6 +40,14 @@ class ReferencedPeriod(EvidenceModel):
     citation_refs: list[str] = Field(min_length=1, max_length=8)
 
 
+class ReferencedDateEvidence(EvidenceModel):
+    role: DateRole
+    start: str | None
+    end: str | None
+    meaning: str = Field(min_length=1, max_length=500)
+    citation_refs: list[str] = Field(min_length=1, max_length=8)
+
+
 class ReferencedPageFacts(EvidenceModel):
     pages: list[int] = Field(min_length=1)
     document_type: ReferencedFact | None
@@ -37,6 +55,7 @@ class ReferencedPageFacts(EvidenceModel):
     subject: ReferencedFact | None
     account: ReferencedFact | None
     periods: list[ReferencedPeriod] = Field(max_length=24)
+    date_evidence: list[ReferencedDateEvidence] = Field(max_length=24)
     topics: list[ReferencedFact] = Field(max_length=16)
     facts: list[ReferencedFact] = Field(max_length=32)
     missing_information: list[str] = Field(max_length=24)
@@ -49,6 +68,7 @@ class ReferencedDocumentFacts(EvidenceModel):
     subject: ReferencedFact | None
     account: ReferencedFact | None
     periods: list[ReferencedPeriod] = Field(max_length=120)
+    date_evidence: list[ReferencedDateEvidence] = Field(max_length=120)
     topics: list[ReferencedFact] = Field(max_length=24)
     facts: list[ReferencedFact] = Field(max_length=64)
     missing_information: list[str] = Field(max_length=32)

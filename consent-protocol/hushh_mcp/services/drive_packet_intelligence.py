@@ -25,7 +25,7 @@ from hushh_mcp.services.drive_citation_references import (
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
     DocumentPageFacts,
-    PacketAssessment,
+    PacketProposal,
     PacketRequestMatch,
     PacketVerification,
     validate_page_citations,
@@ -33,7 +33,7 @@ from hushh_mcp.services.drive_packet_contract import (
 from hushh_mcp.services.drive_request_package_assessment import _interpret
 
 MAX_INPUT_BYTES = 160 * 1024
-FACTS_SCHEMA_VERSION = "document-facts-v4-span-refs"
+FACTS_SCHEMA_VERSION = "document-facts-v5-date-roles"
 logger = logging.getLogger(__name__)
 MAX_VALIDATION_ATTEMPTS = 2
 
@@ -71,6 +71,8 @@ def _validation_code(error):
         "incomplete evidence cannot verify ready": "model_readiness_invalid",
         "nonready proposal cannot verify ready": "model_readiness_invalid",
         "invented packet match": "model_membership_invalid",
+        "unsupported content period": "model_period_invalid",
+        "unsupported snapshot scope": "model_period_invalid",
     }.get(str(error))
 
 
@@ -189,7 +191,16 @@ async def _ask(
 def _citation_issues(facts, accepted):
     """Locate rejected citations without returning document or model text."""
     issues = []
-    for field in ("document_type", "issuer", "subject", "account", "periods", "topics", "facts"):
+    for field in (
+        "document_type",
+        "issuer",
+        "subject",
+        "account",
+        "periods",
+        "date_evidence",
+        "topics",
+        "facts",
+    ):
         value = getattr(facts, field)
         records = value if isinstance(value, list) else [value]
         for item, record in enumerate(records):
@@ -244,10 +255,38 @@ def _citations(facts):
         facts.subject,
         facts.account,
         *facts.periods,
+        *facts.date_evidence,
         *facts.topics,
         *facts.facts,
     ]
     return {(c.page, c.unit_kind, c.quote) for fact in records if fact for c in fact.citations}
+
+
+def _require_source_periods(periods, source_periods, *, citations=True):
+    """Preserve the classified interval, not just a quote containing some date.
+
+    Keep each source window explicit. Combining windows in prose is a model
+    decision checked separately; the typed evidence must retain actual bounds.
+    """
+    for period in periods:
+        matches = [
+            source
+            for source in source_periods
+            if (source["start"], source["end"]) == (period["start"], period["end"])
+        ]
+        if not matches:
+            raise ValueError("unsupported content period")
+        if citations:
+            allowed = {
+                (c["page"], c.get("unit_kind", "page"), c["quote"])
+                for source in matches
+                for c in source["citations"]
+            }
+            if any(
+                (c["page"], c.get("unit_kind", "page"), c["quote"]) not in allowed
+                for c in period["citations"]
+            ):
+                raise ValueError("unsupported content period")
 
 
 async def consolidate_facts(
@@ -271,6 +310,12 @@ async def consolidate_facts(
             )
         if not complete and result.canonical_packets:
             raise ValueError("unprocessed pages cannot establish canonical packets")
+        source_periods = [
+            period.model_dump()
+            for source in [*observations, *([previous] if previous else [])]
+            for period in source.periods
+        ]
+        _require_source_periods([period.model_dump() for period in result.periods], source_periods)
 
     return await _ask(
         "document_facts",
@@ -340,6 +385,21 @@ async def construct_packet(
         ]
         if issues:
             raise EvidenceValidationError("model_citation_invalid", issues=issues[:8])
+        _require_source_periods([period.model_dump() for period in result.periods], periods)
+        if result.temporal_scope == "as_of_snapshot":
+            current_snapshot = any(
+                date.get("role") == "as_of" and date.get("start") is not None
+                for item in documents
+                if item["document_id"] in selected
+                for date in item["facts"].get("date_evidence", [])
+            )
+            prior_snapshot = (
+                previous
+                and previous_ids <= selected
+                and previous.get("temporal_scope") == "as_of_snapshot"
+            )
+            if not (current_snapshot or prior_snapshot):
+                raise ValueError("unsupported snapshot scope")
         if result.state == "ready" and not complete:
             raise ValueError("unfinished assembly cannot be ready")
 
@@ -352,7 +412,7 @@ async def construct_packet(
             "all_members_observed": complete,
             "owner_pricing_preferences": owner_preferences,
         },
-        PacketAssessment,
+        PacketProposal,
         user_id=user_id,
         interpret=interpret,
         validate=validate,
@@ -380,6 +440,26 @@ async def verify_packet(
                 "mode"
             ) == "complete_compact_summary" and accounted != supplied:
                 raise ValueError("invented packet member")
+            # Legacy purchase manifests are read elsewhere. A new ready verdict
+            # must validate the new proposal, including its temporal/pricing scope.
+            proposal = PacketProposal.model_validate(packet)
+            if (batch_scope or {}).get("mode") == "complete_compact_summary":
+                selected_facts = [
+                    item.get("facts") if isinstance(item.get("facts"), dict) else item
+                    for item in documents
+                    if item["document_id"] in set(selected)
+                ]
+                _require_source_periods(
+                    [period.model_dump() for period in proposal.periods],
+                    [period for facts in selected_facts for period in facts.get("periods", [])],
+                    citations=False,
+                )
+                if proposal.temporal_scope == "as_of_snapshot" and not any(
+                    date.get("role") == "as_of" and date.get("start") is not None
+                    for facts in selected_facts
+                    for date in facts.get("date_evidence", [])
+                ):
+                    raise ValueError("unsupported snapshot scope")
 
     return await _ask(
         "packet_verification",

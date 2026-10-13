@@ -28,6 +28,7 @@ def page_facts():
         "subject": None,
         "account": None,
         "periods": [],
+        "date_evidence": [],
         "topics": [],
         "facts": [],
         "missing_information": [],
@@ -310,6 +311,7 @@ def packet(periods, selected=None):
         "selected_document_ids": selected or ["selected"],
         "coverage_summary": "One period",
         "periods": periods,
+        "temporal_scope": "document_period" if periods else "no_period_claim",
         "gaps": [],
         "assessment_score": 90,
         "importance": 25,
@@ -472,3 +474,144 @@ def test_ready_packet_cannot_hide_unverifiable_member():
     result["excluded_documents"] = [{**exclusion("july"), "reason": "unverifiable"}]
     with pytest.raises(ValueError, match="ready packet requires complete evidence"):
         PacketAssessment.model_validate(result)
+
+
+def dated_evidence(role="event"):
+    return {
+        "role": role,
+        "start": "2027-06-03",
+        "end": "2027-06-05" if role != "as_of" else "2027-06-03",
+        "meaning": "Conference dates; draft posting days have no absolute calendar anchors",
+        "citations": [{"page": 1, "quote": "Conference June 3–5, 2027. Drafts: Day 1, Day 2."}],
+    }
+
+
+async def test_date_roles_resolve_exact_source_without_turning_event_into_coverage():
+    source = dated_evidence()
+    answer = wire_page_facts()
+    answer.update(pages=[1], issuer=None)
+    answer["date_evidence"] = [
+        {
+            **{key: value for key, value in source.items() if key != "citations"},
+            "citation_refs": ["p1s0"],
+        }
+    ]
+    result = await extract_page_facts(
+        user_id="owner",
+        pages=[{"page": 1, "text": source["citations"][0]["quote"]}],
+        interpret=AsyncMock(return_value=answer),
+    )
+    assert result.periods == []
+    assert result.date_evidence[0].model_dump(exclude_defaults=True) == source
+
+
+async def test_consolidation_cannot_promote_exact_event_quote_to_coverage():
+    observed = page_facts()
+    observed["date_evidence"] = [dated_evidence()]
+    answer = {key: value for key, value in wire_page_facts("c0").items() if key != "pages"}
+    answer["canonical_packets"] = []
+    answer["periods"] = [{"start": "2027-06-03", "end": "2027-06-05", "citation_refs": ["c1"]}]
+    # c0 is the issuer, c1 is the exact event quote: citation validity alone
+    # previously allowed this semantic promotion.
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await consolidate_facts(
+            user_id="owner",
+            previous=None,
+            page_facts=[observed],
+            complete=True,
+            interpret=AsyncMock(return_value=answer),
+        )
+
+
+async def test_packet_cannot_change_coverage_endpoints_using_a_valid_quote():
+    result = packet([{**period(), "end": "2026-12-31"}])
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await construct_packet(
+            user_id="owner",
+            key="statements",
+            complete=True,
+            documents=[{"document_id": "selected", "facts": {"periods": [period()]}}],
+            interpret=AsyncMock(return_value=result),
+        )
+
+
+async def test_undated_drafts_remain_useful_ready_packet_without_period_pricing():
+    result = packet([])
+    result.update(title="Conference post drafts", coverage_summary="Two draft posts")
+    result["pricing"]["rationale"] = "Two reusable drafts, with no publication schedule claimed"
+    arguments = dict(
+        user_id="owner",
+        key="conference-drafts",
+        complete=True,
+        documents=[
+            {
+                "document_id": "selected",
+                "facts": {"periods": [], "date_evidence": [dated_evidence()]},
+            }
+        ],
+    )
+    ready = await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
+    assert ready.state == "ready" and ready.periods == []
+    result["pricing"]["useful_scope"] = "period"
+    with pytest.raises(EvidenceValidationError, match="model_schema_invalid"):
+        await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
+
+
+@pytest.mark.parametrize("role,accepted", [("as_of", True), ("event", False)])
+async def test_snapshot_requires_evidenced_snapshot_date(role, accepted):
+    result = packet([])
+    result["temporal_scope"] = "as_of_snapshot"
+    arguments = dict(
+        user_id="owner",
+        key="snapshot",
+        complete=True,
+        documents=[
+            {
+                "document_id": "selected",
+                "facts": {"periods": [], "date_evidence": [dated_evidence(role)]},
+            }
+        ],
+        interpret=AsyncMock(return_value=result),
+    )
+    if accepted:
+        assert (await construct_packet(**arguments)).state == "ready"
+    else:
+        with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+            await construct_packet(**arguments)
+
+
+async def test_final_checker_cannot_certify_event_as_document_period():
+    event = dated_evidence()
+    proposal = packet(
+        [{key: value for key, value in event.items() if key in {"start", "end", "citations"}}]
+    )
+    verdict = dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=proposal,
+            complete=True,
+            documents=[{"document_id": "selected", "periods": [], "date_evidence": [event]}],
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+
+
+def test_legacy_manifest_remains_readable_but_new_ready_proposal_requires_typed_scope():
+    from hushh_mcp.services.drive_packet_contract import PacketAssessment, PacketProposal
+
+    legacy = packet([])
+    legacy.pop("temporal_scope")
+    assert PacketAssessment.model_validate(legacy).temporal_scope == "unknown"
+    with pytest.raises(ValueError):
+        PacketProposal.model_validate(legacy)
+    with pytest.raises(ValueError):
+        PacketProposal.model_validate({**legacy, "temporal_scope": "unknown"})

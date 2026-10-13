@@ -78,6 +78,31 @@ class ContentPeriod(EvidenceModel):
         return self
 
 
+DateRole = Literal["event", "publication", "planned_action", "transaction", "as_of", "unknown"]
+TemporalScope = Literal["document_period", "as_of_snapshot", "no_period_claim", "unknown"]
+
+
+class DateEvidence(EvidenceModel):
+    """A date mentioned by content, without claiming a document coverage window."""
+
+    role: DateRole
+    start: str | None
+    end: str | None
+    meaning: str = Field(min_length=1, max_length=500)
+    citations: list[PageCitation] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def dates(self):
+        if (self.start is None) != (self.end is None):
+            raise ValueError("date evidence requires both endpoints or neither")
+        if self.start is not None:
+            if date.fromisoformat(self.start) > date.fromisoformat(self.end):
+                raise ValueError("reversed date evidence")
+            if self.role == "as_of" and self.start != self.end:
+                raise ValueError("as-of evidence is a snapshot date")
+        return self
+
+
 class DocumentPageFacts(EvidenceModel):
     """Request-independent observations from an explicitly accounted page range."""
 
@@ -87,6 +112,7 @@ class DocumentPageFacts(EvidenceModel):
     subject: EvidenceFact | None
     account: EvidenceFact | None
     periods: list[ContentPeriod] = Field(max_length=24)
+    date_evidence: list[DateEvidence] = Field(default_factory=list, max_length=24)
     topics: list[EvidenceFact] = Field(max_length=16)
     facts: list[EvidenceFact] = Field(max_length=32)
     missing_information: list[str] = Field(max_length=24)
@@ -107,6 +133,7 @@ class DocumentFacts(EvidenceModel):
     subject: EvidenceFact | None
     account: EvidenceFact | None
     periods: list[ContentPeriod] = Field(max_length=120)
+    date_evidence: list[DateEvidence] = Field(default_factory=list, max_length=120)
     topics: list[EvidenceFact] = Field(max_length=24)
     facts: list[EvidenceFact] = Field(max_length=64)
     missing_information: list[str] = Field(max_length=32)
@@ -147,6 +174,9 @@ class PacketAssessment(EvidenceModel):
     excluded_documents: list[PacketExclusion] = Field(default_factory=list)
     coverage_summary: str = Field(min_length=1, max_length=1000)
     periods: list[ContentPeriod] = Field(max_length=120)
+    # Legacy immutable manifests have no typed scope. New model proposals must
+    # supply it, using PacketProposal below; historical approvals remain readable.
+    temporal_scope: TemporalScope = "unknown"
     gaps: list[str] = Field(max_length=64)
     assessment_score: int = Field(ge=0, le=100)
     importance: int = Field(ge=1, le=500)
@@ -173,6 +203,25 @@ class PacketAssessment(EvidenceModel):
             or self.pricing.quality != "verified"
         ):
             raise ValueError("ready packet requires complete evidence")
+        return self
+
+
+class PacketProposal(PacketAssessment):
+    temporal_scope: TemporalScope
+
+    @model_validator(mode="after")
+    def temporal_claim(self):
+        if self.periods and self.temporal_scope != "document_period":
+            raise ValueError("periods require document-period scope")
+        if self.state == "ready" and (
+            self.temporal_scope == "unknown"
+            or (self.temporal_scope == "document_period" and not self.periods)
+        ):
+            raise ValueError("ready packet requires an explicit supported temporal scope")
+        if self.temporal_scope in {"as_of_snapshot", "no_period_claim"} and (
+            self.pricing.useful_scope in {"period", "multi_period"}
+        ):
+            raise ValueError("snapshot or undated packet cannot be priced as period coverage")
         return self
 
 
@@ -236,6 +285,7 @@ def validate_page_citations(
         result.subject,
         result.account,
         *result.periods,
+        *result.date_evidence,
         *result.topics,
         *result.facts,
     ]

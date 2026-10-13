@@ -6,12 +6,17 @@ import pytest
 from google.genai import _transformers
 from pydantic import BaseModel, Field, ValidationError
 
+from hushh_mcp.services.drive_citation_references import (
+    ReferencedDocumentFacts,
+    ReferencedPageFacts,
+)
 from hushh_mcp.services.drive_packet_contract import (
     CanonicalPacketKey,
     DocumentFacts,
     DocumentPageFacts,
     EvidenceModel,
     PacketAssessment,
+    PacketProposal,
     PacketRequestMatch,
     PacketVerification,
     PageCitation,
@@ -35,6 +40,9 @@ def assert_required_properties_exist(node):
         DocumentPageFacts,
         DocumentFacts,
         PacketAssessment,
+        PacketProposal,
+        ReferencedPageFacts,
+        ReferencedDocumentFacts,
         PacketVerification,
         PacketRequestMatch,
     ],
