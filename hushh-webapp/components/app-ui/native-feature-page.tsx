@@ -58,7 +58,8 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
     context: readinessContext, back: previous.context === readinessContext && previous.back || kind === "back",
     close: previous.context === readinessContext && previous.close || kind === "close",
   }));
-  const onReadyRef = useRef(onReady); onReadyRef.current = onReady;
+  const onReadyRef = useRef(onReady);
+  useLayoutEffect(() => { onReadyRef.current = onReady; }, [onReady]);
   useLayoutEffect(() => { if (pane && open && ready) onReadyRef.current?.(); }, [pane, open, ready, readinessContext]);
   return <Dialog open={open} onOpenChange={next => { if (!next) onBack(); }} modal>
     <DialogContent {...attributes} aria-label={pane ? "Profile pane" : undefined} data-native-feature-pane={pane && paneState.phase !== "web" ? "profile" : undefined}

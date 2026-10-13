@@ -963,12 +963,15 @@ final class AppUITests: XCTestCase {
                     let rowIdentifier = actions.identifier.replacingOccurrences(of: "native-history-actions-", with: "native-history-row-")
                     let row = app.buttons[rowIdentifier].firstMatch
                     guard waitForAdmittedControl(row) else { XCTFail("COHERENT_HISTORY_ROW_GEOMETRY_UNAVAILABLE"); return }
-                    print("COHERENT_HISTORY_ROW_GEOMETRY row_height=\(Int(row.frame.height)) menu_height=\(Int(actions.frame.height)) fully_visible=\(row.frame.minY >= scroll.frame.minY && row.frame.maxY <= scroll.frame.maxY)")
+                    print("COHERENT_HISTORY_ROW_GEOMETRY row_height=\(row.frame.height) menu_height=\(actions.frame.height) fully_visible=\(row.frame.minY >= scroll.frame.minY && row.frame.maxY <= scroll.frame.maxY)")
                     // SwiftUI combines this label into the Button's AX node.
                     // Actual text centering and inline age are measured on the
                     // same shared renderer in NativeSupportTests, not inferred
                     // from inaccessible text descendants or the hit rectangle.
-                    XCTAssertGreaterThanOrEqual(row.frame.height, 44)
+                    // The same rendered contract uses a floating-point epsilon
+                    // in NativeSupportTests. Do not round an AX coordinate into
+                    // a smaller integer, or accept a genuinely sub-44pt target.
+                    XCTAssertGreaterThanOrEqual(row.frame.height, 44 - 1e-6)
                     XCTAssertEqual(row.frame.midY, actions.frame.midY, accuracy: 1)
                     XCTAssertLessThanOrEqual(row.frame.maxX, actions.frame.minX + 1, "History selection must not collide with More")
                     XCTAssertEqual(actions.frame.width, 44, accuracy: 1)
@@ -3495,7 +3498,9 @@ final class AppUITests: XCTestCase {
             }
             if close.exists && close.isHittable { close.tap() }
         }
-        if !root("account").exists {
+        // A retained, covered roster can still exist in an AX snapshot. Its
+        // presence does not prove the menu is open; use the admitted Close.
+        if !close.exists || !close.isHittable {
             guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
             opener.tap()
         }
@@ -3564,10 +3569,25 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(waitForAdmittedControl(detailClose), "PROFILE_DETAIL_CLOSE_UNAVAILABLE")
             XCTAssertEqual(detailClose.frame.width, 44, accuracy: 1)
             XCTAssertEqual(detailClose.frame.height, 44, accuracy: 1)
-            let detailPane = web.otherElements["Profile pane"].firstMatch
-            XCTAssertTrue(detailPane.waitForExistence(timeout: 5), "PROFILE_DETAIL_FRAME_UNAVAILABLE")
-            XCTAssertEqual(detailPane.frame.minY, app.frame.minY, accuracy: 1, "PROFILE_DETAIL_TOP_GAP")
-            XCTAssertEqual(detailPane.frame.maxY, app.frame.maxY, accuracy: 1, "PROFILE_DETAIL_BOTTOM_GAP")
+            // Radix names the dialog through its current DialogTitle. In
+            // WebKit that aria-labelledby takes precedence over aria-label;
+            // do not replace the real accessible title for a test locator.
+            let detailTitles = ["account": "Account", "preferences": "Appearance & preferences",
+                "security": "Security & privacy", "devices": "Trusted devices", "connectors": "Connectors",
+                "support": "Help & feedback", "privacy": "Privacy Policy", "terms": "Terms of Use"]
+            let containers = web.descendants(matching: .any).matching(NSPredicate(format:
+                "label IN %@ AND elementType != %d", [detailTitles[id] ?? "Profile", "Profile pane"],
+                XCUIElement.ElementType.staticText.rawValue))
+            _ = containers.firstMatch.waitForExistence(timeout: 5)
+            let frames = containers.allElementsBoundByIndex.filter {
+                ![XCUIElement.ElementType.application, .window, .webView].contains($0.elementType)
+            }.map(\.frame).filter { $0.width >= 200 && $0.height > 100 }
+            guard let detailFrame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
+                print("PROFILE_DETAIL_FRAME_PROBE candidates=\(containers.count) admitted=\(frames.count)")
+                XCTFail("PROFILE_DETAIL_FRAME_UNAVAILABLE"); return
+            }
+            XCTAssertEqual(detailFrame.minY, app.frame.minY, accuracy: 1, "PROFILE_DETAIL_TOP_GAP")
+            XCTAssertEqual(detailFrame.maxY, app.frame.maxY, accuracy: 1, "PROFILE_DETAIL_BOTTOM_GAP")
             // Touch isolation is proven by the root's absence below; Back and
             // Close have their own foreground plane, not the covered Chat host.
             XCTAssertFalse(app.buttons["chat-history-toggle"].firstMatch.isHittable)

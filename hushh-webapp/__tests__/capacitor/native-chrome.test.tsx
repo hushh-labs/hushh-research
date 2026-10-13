@@ -2587,6 +2587,7 @@ describe("native chrome presentation lease", () => {
     const identity = bridge.acquireContentPane.mock.calls[0][0];
     await act(async () => { admit?.({ ...identity, phase: "active" }); });
     await waitFor(() => expect(ready).toHaveBeenCalledOnce());
+    expect(view.getByRole("dialog", { name: "Preferences" })).toBeVisible();
     expect(bridge.prepare.mock.calls.map(([p]) => p.controlId).sort()).toEqual(["profile-back", "profile-close"]);
     expect(bridge.prepare.mock.calls.every(([p]) => p.contentPane.generation === identity.generation)).toBe(true);
     const projection = bridge.prepare.mock.calls.find(([p]) => p.controlId === "profile-close")![0];
