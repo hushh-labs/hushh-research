@@ -134,7 +134,7 @@ describe("parseRequesterPaymentView", () => {
 
   it.each([
     ["unknown state", { state: "deposited" }],
-    ["fractional price", { amountCents: 2550 }],
+    ["sub-cent price", { amountCents: 2550.5 }],
     ["Pay without a deadline", { checkoutExpiresAt: null }],
     ["Pay without a price", { amountCents: null }],
     ["unreadable deadline", { requestExpiresAt: "soon" }],
@@ -148,7 +148,7 @@ describe("parseRequesterPaymentView", () => {
   it("parses the price view and rejects other amounts", () => {
     const price = { estimateCents: 1000, currentCents: 2500, finalCents: null, state: "owner_set" };
     expect(parseRequesterPriceView(price)).toEqual(price);
-    expect(parseRequesterPriceView({ ...price, currentCents: 2550 })).toBeNull();
+    expect(parseRequesterPriceView({ ...price, currentCents: 49 })).toBeNull();
     expect(parseRequesterPriceView({ ...price, state: "locked" })).toBeNull();
   });
 });

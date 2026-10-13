@@ -39,12 +39,12 @@ describe("owner Drive request price", () => {
       expect(screen.queryByRole("switch")).toBeNull();
       enterPrice("0");
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-      enterPrice("25.50");
+      enterPrice("25.501");
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-      enterPrice("25");
+      enterPrice("25.50");
       save();
       await waitFor(() => expect(state.save).toHaveBeenCalledExactlyOnceWith("owner-token", {
-        enabled: true, amountCents: 2500, expectedVersion: 4,
+        enabled: true, amountCents: 2550, expectedVersion: 4,
       }));
       expect(await screen.findByText("Default price saved.")).toBeVisible();
       expect(screen.getByText(/Trusted requests use this price automatically/)).toBeVisible();
