@@ -100,3 +100,8 @@ export const HushhKeychain = {
   set: async () => { throw new Error("Not admitted in layout fixture"); },
   delete: async () => { throw new Error("Not admitted in layout fixture"); },
 };
+
+// The One pane is a read-only preview; full Feed owns mutations and invalidation.
+export const CacheSyncService = {
+  onFeedChanged: () => { throw new Error("Feed mutation is not admitted in the preview layout fixture"); },
+};

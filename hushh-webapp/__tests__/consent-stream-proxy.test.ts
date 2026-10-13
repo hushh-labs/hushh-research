@@ -47,6 +47,43 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
     expect(body.detail?.error_code).toBe("CONSENT_SSE_DISABLED");
   });
 
+  it("preserves a different 410 code so an expired stream isn't mistaken for a permanent refusal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: { error_code: "STREAM_EXPIRED" } }), {
+          status: 410,
+        }),
+      ),
+    );
+
+    const response = await proxyConsentStream(request(), "user-1", "events");
+    expect(response.status).toBe(410);
+    const body = await response.json();
+    expect(body.detail?.error_code).toBe("STREAM_EXPIRED");
+  });
+
+  it("never reflects the upstream message, only the enum code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            detail: {
+              error_code: "CONSENT_SSE_DISABLED",
+              message: "private-internal-diagnostic-detail",
+            },
+          }),
+          { status: 410 },
+        ),
+      ),
+    );
+
+    const response = await proxyConsentStream(request(), "user-1", "events");
+    const text = await response.text();
+    expect(text).not.toContain("private-internal-diagnostic-detail");
+  });
+
   it("omits detail when the upstream error carries no recognizable code", async () => {
     vi.stubGlobal(
       "fetch",

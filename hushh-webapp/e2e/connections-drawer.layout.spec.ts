@@ -47,6 +47,7 @@ test.beforeAll(async () => {
         ...[
           "@/hooks/use-auth",
           "@/lib/services/api-service",
+          "@/lib/cache/cache-sync-service",
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
           "@/lib/services/gmail-receipts-service",
@@ -1441,7 +1442,7 @@ test.describe("One profile artwork and mapped work frames", () => {
                   event_type: "connection_accepted",
                   source_domain: "connections",
                   actor_label: "Synthetic person",
-                  metadata: {},
+                  metadata: { counterpart_label: "Synthetic person" },
                   read: true,
                   created_at: "2026-10-13T08:00:00Z",
                 },
@@ -1626,7 +1627,7 @@ test.describe("One profile artwork and mapped work frames", () => {
           .click();
         const one = page.getByRole("dialog", { name: "One", exact: true });
         await one.getByRole("tab", { name: "Feed", exact: true }).click();
-        const feedRow = one.getByTestId("feed-row").first();
+        const feedRow = one.getByTestId("one-feed-preview-row").first();
         await expect(feedRow).toBeVisible();
         await expect
           .poll(() =>
@@ -1679,7 +1680,7 @@ test.describe("One profile artwork and mapped work frames", () => {
         expect((await feedRow.boundingBox())!.height).toBeGreaterThanOrEqual(
           44,
         );
-        const passiveRow = one.getByTestId("feed-row").nth(1);
+        const passiveRow = one.getByTestId("one-feed-preview-row").nth(1);
         await expect(passiveRow.locator("button")).toHaveCount(0);
         expect(
           await passiveRow
@@ -1869,7 +1870,7 @@ test.describe("One profile artwork and mapped work frames", () => {
       await page.getByRole("button", { name: "Open One profile", exact: true }).click();
       const panel = page.getByRole("dialog", { name: "One", exact: true });
       await expect(panel).toBeVisible();
-      await expect(panel.getByTestId("feed-row").first()).toBeVisible();
+      await expect(panel.getByTestId("one-feed-preview-row").first()).toBeVisible();
       // Geometry is measured after the sheet's entrance motion settles.
       await expect.poll(() => panel.evaluate(element =>
         new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
@@ -1903,7 +1904,7 @@ test.describe("One profile artwork and mapped work frames", () => {
         await expect(panel.getByRole("link", { name: "Open memory.md in Memory" })).toBeVisible();
         expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
         await panel.getByRole("tab", { name: "Feed", exact: true }).click();
-        await expect(panel.getByTestId("feed-row").first()).toBeVisible();
+        await expect(panel.getByTestId("one-feed-preview-row").first()).toBeVisible();
         expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
       }
       expect(frame.x).toBeGreaterThan(0);

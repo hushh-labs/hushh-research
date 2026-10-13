@@ -18,7 +18,9 @@ import {
   SettingsPresentationProvider,
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
-import { FeedRow } from "@/components/feed/feed-row";
+import { FeedRowMetadata } from "@/components/feed/feed-row-metadata";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import {
   Fingerprint,
   Heart,
@@ -45,6 +47,58 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 import styles from "./one-agent-profile-sheet.module.css";
 import { OnePresenceAvatar, type OnePresenceState } from "./one-presence-avatar";
+
+/** The pane shares Feed presentation, while the full Feed owns its gestures. */
+function OneFeedPreviewRow({
+  item,
+  onOpen,
+}: {
+  item: FeedItem;
+  onOpen: () => void;
+}) {
+  const presentation = presentFeedItem(item);
+  const person = presentation.person;
+  return (
+    <SettingsRow
+      testId="one-feed-preview-row"
+      layout="person"
+      icon={person ? undefined : presentation.icon}
+      iconTone="capability"
+      leading={
+        person ? (
+          <ConnectionPersonAvatar
+            label={person.displayName}
+            photoUrl={person.photoUrl}
+            size="compact"
+            className="size-[22px]"
+          />
+        ) : undefined
+      }
+      title={
+        <span className={item.read ? undefined : "font-semibold"}>
+          {!item.read ? <span className="sr-only">Unread: </span> : null}
+          {presentation.label}
+        </span>
+      }
+      description={
+        <FeedRowMetadata
+          description={presentation.description}
+          timestamp={item.created_at}
+        />
+      }
+      trailing={
+        <span
+          aria-hidden
+          data-slot="feed-unread-marker"
+          data-state={item.read ? "read" : "unread"}
+          className={`block size-1.5 rounded-full ${item.read ? "bg-transparent" : "bg-accent"}`}
+        />
+      }
+      chevron={Boolean(presentation.href)}
+      onClick={presentation.href ? onOpen : undefined}
+    />
+  );
+}
 
 /** A read-only feed preview; the full Feed owns actions and read acknowledgements. */
 function OneFeedPreview({
@@ -78,7 +132,7 @@ function OneFeedPreview({
   const items = collapseDriveLifecycleRows(
     collapseConsentBundleRows(visibleItems),
   );
-  const openFullFeed = (_item: FeedItem) => onNavigate(ROUTES.ONE_FEED);
+  const openFullFeed = () => onNavigate(ROUTES.ONE_FEED);
 
   return (
     <div className={styles.feed}>
@@ -117,7 +171,7 @@ function OneFeedPreview({
         <SettingsPresentationProvider density="compact" separatorInset>
           <SettingsGroup>
             {items.map((item) => (
-              <FeedRow key={item.id} item={item} onOpen={openFullFeed} />
+              <OneFeedPreviewRow key={item.id} item={item} onOpen={openFullFeed} />
             ))}
           </SettingsGroup>
         </SettingsPresentationProvider>

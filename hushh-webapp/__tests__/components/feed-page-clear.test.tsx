@@ -39,6 +39,9 @@ const mocks = vi.hoisted(() => {
     retryActionables: vi.fn().mockResolvedValue(undefined),
     clearSmsEmergencies: vi.fn(),
     markRead: vi.fn().mockResolvedValue(undefined),
+    clear: vi.fn().mockResolvedValue(undefined),
+    dismiss: vi.fn().mockResolvedValue("dismissal-token"),
+    restore: vi.fn().mockResolvedValue(true),
     readStarted: vi.fn(),
     readSettled: vi.fn(),
     readFailed: vi.fn(),
@@ -48,6 +51,7 @@ const mocks = vi.hoisted(() => {
     toastError: vi.fn(),
     feedRowRender: vi.fn(),
     useRealFeedRow: false,
+    useActionTestRow: false,
     // Undefined leaves the Feed on its closed default price step.
     documentPricePrompt: undefined as Record<string, unknown> | undefined,
   };
@@ -94,7 +98,13 @@ vi.mock("@/lib/services/cache-service", () => ({
 }));
 
 vi.mock("@/lib/services/feed-service", () => ({
-  FeedService: { markRead: mocks.markRead, list: vi.fn() },
+  FeedService: {
+    markRead: mocks.markRead,
+    clear: mocks.clear,
+    dismiss: mocks.dismiss,
+    restore: mocks.restore,
+    list: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/feed/feed-events", () => ({
@@ -139,6 +149,10 @@ vi.mock("@/components/feed/feed-row", async (importOriginal) => {
       mocks.feedRowRender(props.item.id);
       return mocks.useRealFeedRow ? (
         <FeedRow {...props} />
+      ) : mocks.useActionTestRow ? (
+        <button type="button" onClick={() => { void props.onRemove?.(props.item); }}>
+          row-{props.item.id}
+        </button>
       ) : (
         <div>row-{props.item.id}</div>
       );
@@ -283,8 +297,12 @@ describe("Feed history interactions", () => {
     window.localStorage.clear();
     vi.clearAllMocks();
     mocks.useRealFeedRow = false;
+    mocks.useActionTestRow = false;
     mocks.user.getIdToken.mockResolvedValue("firebase-token");
     mocks.markRead.mockResolvedValue(undefined);
+    mocks.clear.mockResolvedValue(undefined);
+    mocks.dismiss.mockResolvedValue("dismissal-token");
+    mocks.restore.mockResolvedValue(true);
     mocks.data = {
       items: [
         {
@@ -321,7 +339,7 @@ describe("Feed history interactions", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Ankit Shared location with you for 2 hours/,
+        name: "Open Ankit",
       }),
     );
 
@@ -393,50 +411,57 @@ describe("Feed history interactions", () => {
     );
   });
 
-  it("never renders cached history before hydrating a persisted clear watermark", async () => {
+  it("keeps an old device clear hidden while transferring it to the server", async () => {
     window.localStorage.setItem("hushh:feed-cleared-through-id:feed-user", "5");
+    mocks.clear.mockImplementation(() => new Promise(() => undefined));
 
     render(<FeedPage />);
 
     expect(mocks.feedRowRender).not.toHaveBeenCalled();
     expect(screen.queryByText("row-5")).toBeNull();
+    await waitFor(() => expect(mocks.clear).toHaveBeenCalledWith({
+      idToken: "firebase-token",
+      userId: "feed-user",
+      upToId: "5",
+    }));
     await waitFor(() =>
       expect(screen.getByText("No activity yet")).toBeInTheDocument(),
     );
   });
 
-  it("requires confirmation, commits the read first, and keeps a later id visible despite an older timestamp", async () => {
+  it("requires confirmation, commits Clear to the server, and keeps a later id visible", async () => {
     const view = await renderAfterAutomaticRead();
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Clear feed notifications on this device",
+        name: "Clear feed notifications",
       }),
     );
-    expect(mocks.markRead).not.toHaveBeenCalled();
+    expect(mocks.clear).not.toHaveBeenCalled();
     expect(mocks.clearSmsEmergencies).not.toHaveBeenCalled();
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Confirm clear feed notifications on this device",
+        name: "Confirm clear feed notifications",
       }),
     );
     await waitFor(() =>
       expect(mocks.toastSuccess).toHaveBeenCalledWith(
-        "Feed cleared on this device",
+        "Feed cleared",
       ),
     );
 
-    expect(mocks.markRead).toHaveBeenCalledWith({
+    expect(mocks.clear).toHaveBeenCalledWith({
       idToken: "firebase-token",
+      userId: "feed-user",
       upToId: "5",
     });
-    expect(mocks.markRead.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.clear.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.clearSmsEmergencies.mock.invocationCallOrder[0],
     );
     expect(
       window.localStorage.getItem("hushh:feed-cleared-through-id:feed-user"),
-    ).toBe("5");
+    ).toBeNull();
 
     mocks.data = {
       ...mocks.data,
@@ -455,21 +480,116 @@ describe("Feed history interactions", () => {
     expect(screen.queryByText("row-5")).toBeNull();
   });
 
+  it("removes only after server acknowledgement and restores through Undo", async () => {
+    mocks.useActionTestRow = true;
+    let confirmDismiss: (() => void) | undefined;
+    mocks.dismiss.mockImplementationOnce(() => new Promise<string>((resolve) => {
+      confirmDismiss = () => resolve("dismissal-token");
+    }));
+    await renderAfterAutomaticRead();
+
+    fireEvent.click(screen.getByRole("button", { name: "row-5" }));
+    await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
+      idToken: "firebase-token", userId: "feed-user", itemId: "5",
+    }));
+    expect(screen.getByRole("button", { name: "row-5" })).toBeInTheDocument();
+
+    await act(async () => { confirmDismiss?.(); });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "row-5" })).toBeNull());
+    const undo = mocks.toastSuccess.mock.calls.find((call) => call[0] === "Removed from Feed")?.[1] as
+      | { action?: { onClick?: () => void } }
+      | undefined;
+    expect(undo?.action?.onClick).toBeTypeOf("function");
+    await act(async () => { undo?.action?.onClick?.(); });
+    await waitFor(() => expect(mocks.restore).toHaveBeenCalledWith({
+      idToken: "firebase-token", userId: "feed-user", itemId: "5",
+      dismissalToken: "dismissal-token",
+    }));
+    expect(screen.getByRole("button", { name: "row-5" })).toBeInTheDocument();
+  });
+
+  it("keeps a row hidden when its Undo token is stale", async () => {
+    mocks.useActionTestRow = true;
+    mocks.restore.mockResolvedValueOnce(false);
+    await renderAfterAutomaticRead();
+
+    fireEvent.click(screen.getByRole("button", { name: "row-5" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "row-5" })).toBeNull());
+    const undo = mocks.toastSuccess.mock.calls.find((call) => call[0] === "Removed from Feed")?.[1] as
+      | { action?: { onClick?: () => void } }
+      | undefined;
+    await act(async () => { undo?.action?.onClick?.(); });
+
+    expect(mocks.restore).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: "5", dismissalToken: "dismissal-token",
+    }));
+    expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
+    expect(mocks.toastError).toHaveBeenCalledWith("This item can no longer be restored.");
+  });
+
+  it("leaves a row visible when server dismissal fails", async () => {
+    mocks.useActionTestRow = true;
+    mocks.dismiss.mockRejectedValueOnce(new Error("backend unavailable"));
+    await renderAfterAutomaticRead();
+
+    fireEvent.click(screen.getByRole("button", { name: "row-5" }));
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(
+      "Couldn't remove this item. Try again.",
+    ));
+    expect(screen.getByRole("button", { name: "row-5" })).toBeInTheDocument();
+  });
+
+  it("does not reveal an older consent bundle row from stale cache after dismissal", async () => {
+    mocks.useActionTestRow = true;
+    mocks.data.items = [
+      { ...mocks.data.items[0], id: "6", source_domain: "consent", event_type: "consent_granted", metadata: { bundle_id: "same-request" } },
+      { ...mocks.data.items[0], id: "5", source_domain: "consent", event_type: "consent_granted", metadata: { bundle_id: "same-request" } },
+    ];
+    await renderAfterAutomaticRead();
+    expect(screen.getByRole("button", { name: "row-6" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "row-6" }));
+    await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
+      idToken: "firebase-token", userId: "feed-user", itemId: "6",
+    }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "row-6" })).toBeNull());
+    expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
+  });
+
+  it("does not reveal an older Drive outcome after removing the displayed outcome", async () => {
+    mocks.useActionTestRow = true;
+    mocks.data.items = [
+      { ...mocks.data.items[0], id: "6", source_domain: "connected_systems", event_type: "document_share_outcome", metadata: { request_id: "request-1", user_facing_status: "completed" } },
+      { ...mocks.data.items[0], id: "5", source_domain: "connected_systems", event_type: "document_share_outcome", metadata: { request_id: "request-1", user_facing_status: "no_match" } },
+    ];
+    await renderAfterAutomaticRead();
+    expect(screen.getByRole("button", { name: "row-6" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "row-6" }));
+    await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
+      idToken: "firebase-token", userId: "feed-user", itemId: "6",
+    }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "row-6" })).toBeNull());
+    expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
+  });
+
   it("keeps the clear action compact on phone and desktop layouts", async () => {
     await renderAfterAutomaticRead();
 
     const clearButton = screen.getByRole("button", {
-      name: "Clear feed notifications on this device",
+      name: "Clear feed notifications",
     });
     expect(clearButton).toHaveClass("w-auto", "max-w-full", "px-4");
     expect(clearButton).not.toHaveClass("w-full");
   });
 
-  // Regression (localhost run 2026-09-28): the red "Clear on this device"
+  // Regression (localhost run 2026-09-28): the red Clear action
   // sat directly under the Needs you row, reading as an answer to it.
   it("keeps Clear quiet and after the history, destructive only once armed", async () => {
     const view = await renderAfterAutomaticRead();
-    const clearButton = screen.getByRole("button", { name: "Clear feed notifications on this device" });
+    const clearButton = screen.getByRole("button", { name: "Clear feed notifications" });
     const daySections = view.container.querySelectorAll("section[aria-label]");
     const lastHistorySection = daySections[daySections.length - 1]!;
     expect(lastHistorySection).toBeTruthy();
@@ -477,22 +597,22 @@ describe("Feed history interactions", () => {
     expect(lastHistorySection.compareDocumentPosition(clearButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(clearButton.className).not.toMatch(/text-destructive/);
     fireEvent.click(clearButton);
-    expect(screen.getByRole("button", { name: "Confirm clear feed notifications on this device" }).className)
+    expect(screen.getByRole("button", { name: "Confirm clear feed notifications" }).className)
       .toMatch(/text-destructive/);
   });
 
-  it("does not dismiss revoked SOS cards or persist a watermark when mark-read fails", async () => {
+  it("does not dismiss revoked SOS cards or hide history when server Clear fails", async () => {
     await renderAfterAutomaticRead();
-    mocks.markRead.mockRejectedValueOnce(new Error("backend unavailable"));
+    mocks.clear.mockRejectedValueOnce(new Error("backend unavailable"));
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Clear feed notifications on this device",
+        name: "Clear feed notifications",
       }),
     );
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Confirm clear feed notifications on this device",
+        name: "Confirm clear feed notifications",
       }),
     );
 
@@ -502,7 +622,6 @@ describe("Feed history interactions", () => {
       ),
     );
     expect(mocks.clearSmsEmergencies).not.toHaveBeenCalled();
-    expect(mocks.readFailed).toHaveBeenCalledWith("feed-user");
     expect(
       window.localStorage.getItem("hushh:feed-cleared-through-id:feed-user"),
     ).toBeNull();

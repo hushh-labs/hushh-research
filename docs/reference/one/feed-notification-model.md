@@ -62,7 +62,10 @@ Other event types remain independent. `chat_thread_key`, `chat_message_count`
 and `chat_unread_count` are computed response metadata, never trusted from
 stored payloads. Feed unread counts count visible groups; the new-message count
 means unseen Feed events. Opening Feed marks that presentation seen without
-marking chat messages read. Clearing Feed keeps its existing source-id watermark.
+marking chat messages read. Dismissing the grouped entry hides it after ranking,
+so older messages do not resurface; genuinely new activity can make the group
+visible again. Clearing Feed updates server-owned rows through a source-id
+snapshot watermark.
 
 Client refresh/load-more deduplicates chat entries by thread key. Cursor
 continuity still requires overlapping source ids, since a moved conversation
@@ -156,6 +159,19 @@ mutation and retains that existing atomic policy.
 - `POST /api/one/feed/read` — marks unread rows read up to a given `id`.
   Fired once when the Feed page opens (Instagram/Twitter's "opening the tab
   clears the badge" convention), not per item.
+- `POST /api/one/feed/{item_id}/dismiss` and `/restore` — owner-scoped,
+  idempotent presentation-only hide and versioned Undo; neither changes source
+  activity. A dismissal returns a server token, and Undo succeeds only while
+  that exact token is current. Clear replaces tokens to supersede stale Undo.
+  Older members of a displayed Consent bundle are hidden with the selected row.
+  Removing a Drive outcome also hides earlier outcomes for that exact request,
+  so a suppressed outcome cannot reappear after refresh. Drive decisions,
+  progress, and payment events remain independent history entries. Later
+  activity remains visible.
+- `POST /api/one/feed/clear` — marks the owner's current rows through
+  `up_to_id` hidden and read in one server update. Newer rows remain visible.
+  Hidden state survives sign-out and other devices, and disappears with the
+  Feed rows on account deletion.
 
 The Feed tab's icon is fixed (no spinner or live-task overlay): the tab is a
 static navigational affordance, and unread state surfaces only through its

@@ -6,6 +6,8 @@ import { CacheService } from "@/lib/services/cache-service";
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   markRead: vi.fn(),
+  dismiss: vi.fn(),
+  restore: vi.fn(),
   push: vi.fn(),
   close: vi.fn(),
   getIdToken: vi.fn().mockResolvedValue("viewer-token"),
@@ -15,7 +17,7 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/lib/services/feed-service", () => ({
-  FeedService: { list: mocks.list, markRead: mocks.markRead },
+  FeedService: { list: mocks.list, markRead: mocks.markRead, dismiss: mocks.dismiss, restore: mocks.restore },
 }));
 vi.mock("@/lib/connected-systems/crm-product-availability", () => ({
   isLocalCrmBuildEnabled: () => false,
@@ -63,8 +65,14 @@ describe("One agent profile feed preview", () => {
       }),
     );
     expect(screen.queryByText("Calendar connected")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("feed-row")).toHaveLength(1);
+    const preview = screen.getAllByTestId("one-feed-preview-row");
+    expect(preview).toHaveLength(1);
+    fireEvent.click(preview[0].querySelector("button")!);
+    expect(mocks.push).toHaveBeenCalledWith("/one/feed");
+    expect(mocks.close).toHaveBeenCalledWith(false);
     expect(mocks.markRead).not.toHaveBeenCalled();
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    expect(mocks.restore).not.toHaveBeenCalled();
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), {
       button: 0,
