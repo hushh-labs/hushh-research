@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import text
 
@@ -30,6 +31,36 @@ OWNER_ALLOWED_VERSION = 1
 DEFAULT_PRICE_CENTS = 1000
 MIN_OWNER_PRICE_CENTS = 50
 MAX_OWNER_PRICE_CENTS = 50_000
+
+
+def request_has_document_scope(private: Mapping[str, Any]) -> bool:
+    """An exact server-bound packet may legitimately contain undated documents.
+
+    This checks shape only, never grants authority. Callers still validate the
+    current manifest, recipient, consent, owner Allow and frozen source versions.
+    Ordinary free-text requests retain their explicit date requirement.
+    """
+    purpose = private.get("purpose", {})
+    if isinstance(purpose, Mapping) and purpose.get("periodStart") and purpose.get("periodEnd"):
+        return True
+    packet = private.get("reusable_packet")
+    if private.get("agent_package_required") is not True or not isinstance(packet, Mapping):
+        return False
+    try:
+        UUID(packet["packetId"])
+        return bool(
+            type(packet["version"]) is int
+            and packet["version"] >= 1
+            and isinstance(packet["manifestDigest"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", packet["manifestDigest"])
+            and type(packet["listingRevision"]) is int
+            and packet["listingRevision"] >= 1
+            and valid_owner_price_cents(packet["priceCents"])
+            and isinstance(packet["ownerUserId"], str)
+            and packet["ownerUserId"]
+        )
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return False
 
 
 def valid_owner_price_cents(value: object) -> bool:

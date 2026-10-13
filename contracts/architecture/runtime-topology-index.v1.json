@@ -882,6 +882,25 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
+        "drive_collection_sync",
+        "drive_document_extractions",
+        "drive_document_pages",
+        "drive_document_facts",
+        "drive_document_fact_pages",
+        "drive_packet_heads",
+        "drive_packet_members",
+        "drive_packet_versions",
+        "drive_packet_version_sources",
+        "drive_packet_listings"
+      ],
+      "id": "drive_continuous_document_evidence",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
         "drive_document_rules"
       ],
       "id": "drive_document_trust_rules",
@@ -994,7 +1013,7 @@
       "id": "drive_request_owner_pricing",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only."
+      "primary_access_path": "An authenticated document owner sets one USD Drive request price in integer cents from 50 to 50000 in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only."
     },
     {
       "data_class": "workflow_state",
@@ -1007,7 +1026,7 @@
       "id": "drive_request_payment_authority",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective quote from 50 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
     },
     {
       "data_class": "reference",
@@ -1673,7 +1692,7 @@
       "id": "selected_drive_documents",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access."
+      "primary_access_path": "Owner-authenticated selection/management and separately consented continuous live collection discovery, with durable connection-generation-bound ingestion leases and versioned publication. No client database access."
     },
     {
       "data_class": "workflow_state",
@@ -5568,6 +5587,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "people.profile.browse_packets",
           "people.profile.cancel_connection_request",
           "people.profile.connect",
           "people.profile.manage_consent",
@@ -6245,21 +6265,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "4b26134d23a9f6e0306cfa63f0ac3c73f2132a456e5185754833577c9deeffca",
-    "agent_registry": "177f654a5566ee65d98d50fe6f39903a083bd970e094bbf532179de1d1276a40",
+    "action_gateway": "8dc7cdcff19a589a82f8cf3f5bb489e62020af5663fa842c2ca25841c0faa2fc",
+    "agent_registry": "2f9fa7091374fab6a460ab5e13603ec50f951c1e5127360e5acd221014d13f52",
     "cache_manifest": "3edd997108a71695e9f867f56b34e9238ceb6fc47da0639236cd8b201ecbc647",
-    "data_plane": "978e7c4afb3655e7a0949683c24c0086b4d2e7fa49a07f25f2414a0151746515",
+    "data_plane": "2824925f22bdd96051a941b03031befb318247bdb82f135f6eec281ebddfd483",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "084c4287101963ac51c7c2e589ab3fe46be4294017dcfc093150a906de8bce24",
-    "route_index": "966eced19cd6ec65c93c76c102ba4bdc3deb2db15635d45195081d9af2de6abd",
-    "route_layout": "52f465ef39f38e8ae166a7770dc36feaa5e9769ecb317c2c46c67e3e16c3fb64",
-    "surface_map": "e7805aaa6321821547b170d3cf36f034ef927a5b4b4f2c2b7841340a1be8176a",
+    "route_index": "3ff82d9e9b28b9523da87304156e1d23a8431af065df2db52526b7634e22f8ca",
+    "route_layout": "786acff97209997ec52e889b401a1a2bc0ab7e5ec925edf394f4a751a2f1de4f",
+    "surface_map": "50464c893eecccc9800829daf288f971a31feb1238f2fd459501e3073dae6f83",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 239,
+    "actions": 240,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
@@ -6267,6 +6287,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 150,
     "semantic_routes": 14,
-    "table_families": 100
+    "table_families": 101
   }
 }

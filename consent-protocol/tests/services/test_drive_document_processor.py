@@ -6,6 +6,7 @@ import io
 import os
 import subprocess
 import sys
+import time
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -30,6 +31,111 @@ from hushh_mcp.services.drive_document_processor import (
     _private_process,
 )
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+
+def scanned_pdf() -> bytes:
+    """Original raster PDF fixture: no pre-extracted text or embedded text layer."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (1600, 550), "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=48)
+    for number, line in enumerate(
+        ("Charles Schwab statement", "Account 12345678", "September 1, 2026 - September 30, 2026")
+    ):
+        draw.text((40, 50 + number * 100), line, fill="black", font=font)
+    output = io.BytesIO()
+    image.save(output, format="PDF", resolution=200)
+    return output.getvalue()
+
+
+def joined_pdf(*sources: bytes) -> bytes:
+    import pypdfium2
+
+    target = pypdfium2.PdfDocument.new()
+    try:
+        for source in sources:
+            with pypdfium2.PdfDocument(source) as document:
+                target.import_pages(document)
+        output = io.BytesIO()
+        target.save(output)
+        return output.getvalue()
+    finally:
+        target.close()
+
+
+def test_mixed_original_pdf_cannot_hide_unreadable_scanned_page(monkeypatch):
+    from hushh_mcp.services import drive_document_pages as pages
+
+    original = joined_pdf(pdf(), scanned_pdf())
+    assert parse_document(original, "application/pdf").truncated
+    monkeypatch.setattr(pages, "TESSERACT_BINARY", "/nonexistent/tesseract")
+    result = pages.extract_pages(original, "application/pdf")
+    assert result.complete and result.has_gaps
+    assert result.pages[0].status == "extracted"
+    assert result.pages[1].status == "unreadable"
+    assert result.pages[1].error_code == "ocr_unavailable"
+
+
+def test_real_original_scanned_pdf_ocr_and_engine_provenance(monkeypatch, record_property):
+    from hushh_mcp.services import drive_document_pages as pages
+
+    binary = os.environ.get("DRIVE_TEST_TESSERACT_BINARY", "/usr/bin/tesseract")
+    if not Path(binary).is_file():
+        pytest.skip("local Tesseract engine not installed; image build installs it")
+    monkeypatch.setattr(pages, "TESSERACT_BINARY", binary)
+    data = os.environ.get("DRIVE_TEST_TESSDATA_FILE")
+    if data:
+        monkeypatch.setattr(pages, "TESSDATA_FILE", data)
+    original = scanned_pdf()
+    started = time.monotonic()
+    result = pages.extract_pages(original, "application/pdf")
+    elapsed = time.monotonic() - started
+    record_property("original_pdf_bytes", len(original))
+    record_property("extraction_seconds", round(elapsed, 3))
+    assert result.complete and not result.has_gaps
+    assert result.pages[0].method == "ocr"
+    assert result.pages[0].page_number == 1
+    assert "Charles Schwab" in result.pages[0].text
+    assert "12345678" in result.pages[0].text
+    assert "September 30, 2026" in result.pages[0].text
+    assert result.engine_versions["tesseract"].startswith("tesseract 5.")
+    assert len(result.engine_versions["tesseract_eng_sha256"]) == 64
+    # Original image-only PDFs beyond both former limits retain a resumable
+    # cursor and actual page positions; never materialize every rendered page.
+    long_original = joined_pdf(*(original for _ in range(110)))
+    assert len(long_original) > MAX_INPUT_BYTES
+    tail = pages.extract_pages(long_original, "application/pdf", start_page=109)
+    assert tail.total_pages == 110 and tail.complete and not tail.has_gaps
+    assert [page.page_number for page in tail.pages] == [109, 110]
+    assert all("12345678" in page.text for page in tail.pages)
+
+
+def test_original_long_pdf_has_explicit_cursor_and_reaches_page_101():
+    from hushh_mcp.services.drive_document_pages import extract_pages
+
+    original = joined_pdf(*(pdf() for _ in range(102)))
+    first = extract_pages(original, "application/pdf")
+    assert [page.page_number for page in first.pages] == [1, 2, 3, 4]
+    assert first.next_page == 5 and first.total_pages == 102 and not first.complete
+    tail = extract_pages(original, "application/pdf", start_page=100)
+    assert [page.page_number for page in tail.pages] == [100, 101, 102]
+    assert tail.complete and tail.next_page is None and not tail.has_gaps
+    assert "January 2026" in tail.pages[-1].text
+
+
+def test_long_unicode_text_resumes_without_silent_compatibility_limit_loss():
+    from hushh_mcp.services.drive_document_pages import extract_pages
+
+    original_text = "Schwab September ₹ statement\n" * 20000
+    content = original_text.encode()
+    extracted, cursor = [], 1
+    while cursor is not None:
+        result = extract_pages(content, "text/plain", start_page=cursor)
+        assert not result.has_gaps and result.unit_kind == "text_segment"
+        extracted.extend(page.text for page in result.pages)
+        cursor = result.next_page
+    assert "".join(extracted) == original_text
 
 
 def docx(xml: bytes, *, extra=None) -> bytes:

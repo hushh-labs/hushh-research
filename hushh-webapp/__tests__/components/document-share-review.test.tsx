@@ -274,13 +274,14 @@ describe("exact-file document review", () => {
       ownerPriceRequired: true, priceCents: 2000, agentPackage: agentPackage() }));
     await poll();
     expect(await screen.findByText("Package ready for your decision")).toBeVisible();
+    fireEvent.click(screen.getByText("View details"));
     expect(screen.getByText("82/100")).toBeVisible();
     expect(screen.getByText("175/500")).toBeVisible();
     expect(screen.getByText("February is missing.")).toBeVisible();
     expect(screen.getByText("4 files")).toBeVisible();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(state.requestSearchFiles).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit price" }));
     expect(priceSheet.props).toMatchObject({ moneyPolicy: "drive_cents", initialAmountCents: 1050 });
     state.review.mockResolvedValue(partial({ revision: 4, paymentRequired: true, priceCents: 2000,
       agentPackage: agentPackage({ status: "allowed", canAllow: false }) }));
@@ -291,6 +292,18 @@ describe("exact-file document review", () => {
     expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
     expect(state.approve).not.toHaveBeenCalled();
     expect(state.prepareRequestBulk).not.toHaveBeenCalled();
+  });
+
+  it("allows a prepared exact packet at its estimate without requiring a price edit", async () => {
+    state.status.mockResolvedValue(pending(3));
+    state.review.mockResolvedValue(partial({ revision: 3, paymentRequired: true,
+      priceCents: 2000, agentPackage: agentPackage() }));
+    state.allow.mockResolvedValue({ requestId, status: "pending", revision: 4 });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+    await waitFor(() => expect(state.allow).toHaveBeenCalledWith("owner-a", requestId,
+      { revision: 3, amountCents: 1050, packageRevision: 2, packageDigest: "b".repeat(64) }, expect.any(Function)));
+    expect(screen.queryByRole("dialog", { name: "Set a price" })).toBeNull();
   });
 
   it("reuses background Drive setup before polling package preparation", async () => {
@@ -313,7 +326,7 @@ describe("exact-file document review", () => {
     state.status.mockResolvedValue(pending(3));
     state.review.mockResolvedValue(partial({ revision: 3, paymentRequired: true, agentPackage: agentPackage() }));
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit price" }));
     expect(screen.getByRole("dialog", { name: "Set a price" })).toBeVisible();
     state.review.mockResolvedValue(partial({ revision: 4, paymentRequired: true,
       agentPackage: agentPackage({ revision: 3, digest: "c".repeat(64), summary: "A different package." }) }));

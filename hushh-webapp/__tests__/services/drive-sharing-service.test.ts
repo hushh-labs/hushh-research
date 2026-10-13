@@ -70,6 +70,13 @@ describe("requester document payment boundary", () => {
     await expect(DriveRequestPaymentService.checkout("firebase", requestId)).rejects.toThrow("Invalid checkout response");
   });
 
+  it("preserves actionable pre-charge access outcomes without opening checkout", async () => {
+    for (const code of ["request_already_accessible", "package_existing_access_requires_review"]) {
+      fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { code } }), { status: 409 }));
+      await expect(DriveRequestPaymentService.checkout("firebase", requestId)).rejects.toMatchObject({ code });
+    }
+  });
+
   it("preserves an unset price while setup is pending without inventing an amount", async () => {
     const payment = { status: "preparing", amountCents: null, currency: "usd",
       ownerPriceRequired: true, ownerPayoutAccountReady: false, paymentsReady: false };

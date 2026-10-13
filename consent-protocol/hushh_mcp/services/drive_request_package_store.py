@@ -132,6 +132,21 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
             )
         ):
             raise DriveSharingError("package_changed")
+        if checkpoint.get("reusable_packet") != private.get("reusable_packet"):
+            raise DriveSharingError("package_changed")
+        from hushh_mcp.services.drive_owner_allowed import package_allow_marker
+
+        allowed = package_allow_marker(private)
+        self._evidence_current(
+            connection,
+            checkpoint,
+            row["user_id"],
+            approved_terms=bool(
+                allowed
+                and request["owner_allowed_at"] is not None
+                and allowed["request_revision"] == request["revision"]
+            ),
+        )
         if unfrozen:
             self._unfrozen(connection, user_id=row["user_id"], request_id=request_id)
         return request, checkpoint
@@ -250,6 +265,15 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                         ),
                     }
                 )
+            if checkpoint.get("evidence_route") in {"index", "hybrid"}:
+                retained, budget = [], 0
+                for candidate in candidates:
+                    size = candidate["metadata"].get("indexedEvidenceBytes", 128 * 1024)
+                    if retained and budget + size > 128 * 1024:
+                        break
+                    retained.append(candidate)
+                    budget += size
+                candidates = retained
             remaining = connection.execute(
                 text("""SELECT count(*) FROM drive_owner_search_results
                     WHERE job_id=:job AND evaluated_at IS NULL"""),
@@ -315,7 +339,11 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
             ):
                 raise ValueError("included file has no sharing capability")
             assessment = assessment.model_dump(mode="json")
+        indexed = value.get("indexed_evidence")
+        if indexed is not None and indexed != expected["metadata"].get("indexedEvidence"):
+            raise ValueError("indexed evidence identity changed")
         result = {
+            **({"indexed_evidence": indexed} if indexed is not None else {}),
             "position": expected["position"],
             "document_ref": expected["document_ref"],
             "file_digest": expected["file_digest"],
@@ -345,6 +373,14 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
         def operation(connection):
             self._evaluation_current(connection, job)
             for value in values:
+                if value.get("indexed_evidence"):
+                    from hushh_mcp.services.drive_document_facts_store import (
+                        DriveDocumentFactsStore,
+                    )
+
+                    DriveDocumentFactsStore(db=self.db)._current_document(
+                        connection, owner_user_id=job["user_id"], **value["indexed_evidence"]
+                    )
                 position = value["position"]
                 current = self._row(
                     connection,
@@ -501,11 +537,16 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                             )
                         }
                         | {
+                            **(
+                                {"indexed_evidence": item["indexed_evidence"]}
+                                if item.get("indexed_evidence")
+                                else {}
+                            ),
                             "evidence_digest": hashlib.sha256(
                                 json.dumps(
                                     item, sort_keys=True, separators=(",", ":"), ensure_ascii=False
                                 ).encode()
-                            ).hexdigest()
+                            ).hexdigest(),
                         }
                     )
             after = items[-1]["position"]
@@ -529,6 +570,13 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 package["revision"],
                 package["policy_version"],
                 package["assessment"],
+                *([package["reusable_packet"]] if package.get("reusable_packet") else []),
+                *([package["matched_packet"]] if package.get("matched_packet") else []),
+                *(
+                    [package["request_packet_verification"]]
+                    if package.get("request_packet_verification")
+                    else []
+                ),
                 sources,
             ],
         )
@@ -550,9 +598,29 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 counts[key] for key in ("unreadable", "truncated", "uncertain")
             ):
                 raise DriveSharingError("package_incomplete")
+            if (checkpoint.get("reusable_packet") or checkpoint.get("matched_packet")) and (
+                answer["decision"] != "ready" or len(positions) != counts["candidates"]
+            ):
+                raise DriveSharingError("package_changed")
+            if (
+                checkpoint.get("coverage_manifest", {}).get("fallbackReason")
+                and answer["decision"] == "ready"
+            ):
+                raise DriveSharingError("package_incomplete")
             previous = checkpoint.get(PACKAGE_KEY, {})
             package = {
                 "schema_version": PACKAGE_VERSION,
+                **(
+                    {
+                        key: checkpoint[key]
+                        for key in (
+                            "reusable_packet",
+                            "matched_packet",
+                            "request_packet_verification",
+                        )
+                        if key in checkpoint
+                    }
+                ),
                 "revision": previous.get("revision", 0) + 1,
                 "policy_version": policy_version,
                 "assessment": answer,

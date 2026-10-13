@@ -19,6 +19,20 @@ export interface DriveRequestPayment {
   checkoutExpiresAt?: string | null;
 }
 
+export class DriveRequestPaymentError extends Error {
+  constructor(readonly code: "request_already_accessible" | "package_existing_access_requires_review") {
+    super(code === "request_already_accessible"
+      ? "You already have access. No payment was taken."
+      : "You already have access to part of this packet. Checkout is paused.");
+    this.name = "DriveRequestPaymentError";
+  }
+}
+
+export function drivePaymentErrorMessage(cause: unknown): string {
+  return cause instanceof DriveRequestPaymentError
+    ? cause.message : "Checkout couldn't open. Try again.";
+}
+
 const CHECKOUT_HOSTS = new Set(["checkout.stripe.com", "checkout.stripe.dev"]);
 
 function validPaymentAmount(status: unknown, amountCents: unknown, ownerPriceRequired: unknown): boolean {
@@ -47,7 +61,15 @@ async function paymentRequest(
       headers: { Authorization: `Bearer ${firebaseIdToken}` },
     },
   );
-  if (!response.ok) throw new Error("Payment is unavailable. Try again.");
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    const detail = body && typeof body === "object" && "detail" in body ? body.detail : null;
+    const code = detail && typeof detail === "object" && "code" in detail ? detail.code : null;
+    if (response.status === 409 && (code === "request_already_accessible" || code === "package_existing_access_requires_review")) {
+      throw new DriveRequestPaymentError(code);
+    }
+    throw new Error("Payment is unavailable. Try again.");
+  }
   const value: unknown = await response.json();
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Invalid payment response");

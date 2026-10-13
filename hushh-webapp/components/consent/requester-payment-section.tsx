@@ -15,7 +15,7 @@ import {
 } from "@/lib/consent/document-request-payment-view";
 import { Button } from "@/lib/morphy-ux/button";
 import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
-import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
+import { DriveRequestPaymentService, drivePaymentErrorMessage } from "@/lib/services/drive-request-payment-service";
 import { DriveSharingError, DriveSharingService } from "@/lib/services/drive-sharing-service";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -151,8 +151,8 @@ export function RequesterPaymentSection({ requestId, revision, payment, ownerNam
       const idToken = await user?.getIdToken();
       if (!idToken) throw new Error("Sign in to continue");
       window.location.assign(await DriveRequestPaymentService.checkout(idToken, requestId));
-    } catch {
-      setError("Checkout couldn't open. Try again.");
+    } catch (cause) {
+      setError(drivePaymentErrorMessage(cause));
       onChanged();
     } finally {
       setBusy(null);

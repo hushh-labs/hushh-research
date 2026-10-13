@@ -77,7 +77,7 @@ import {
 } from "@/lib/feed/drive-request-payment";
 import { useFeedPaymentClock } from "@/lib/feed/use-feed-payment-clock";
 import { useFeedPaymentContext } from "@/lib/feed/use-feed-payment-context";
-import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
+import { DriveRequestPaymentService, drivePaymentErrorMessage } from "@/lib/services/drive-request-payment-service";
 import {
   DriveSharingError,
   DriveSharingService,
@@ -1467,8 +1467,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     payment.requestId,
                   );
                   window.location.assign(checkoutUrl);
-                } catch {
-                  toast.error("Checkout couldn't open. Try again.");
+                } catch (cause) {
+                  toast.error(drivePaymentErrorMessage(cause));
+                  void refreshDocumentRequests();
                 }
               },
             },
@@ -2233,6 +2234,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // streaming debate's frequent ticks would rebuild every row each render.
   }, [
     appTaskState.tasks,
+    refreshDocumentRequests,
     consentDecision.allow,
     declineConsentRequest,
     declineDocumentRequest,

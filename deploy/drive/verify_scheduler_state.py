@@ -18,7 +18,7 @@ RUNTIME_ORIGIN = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app"
 WORKER_HOST = re.compile(r"consent-protocol-drive-worker-[a-z0-9-]+\.a\.run\.app\Z")
 JOB_PREFIX = "projects/hushh-pda-uat/locations/us-central1/jobs/"
 STAGE_JOBS = {
-    "drive-work-drain-uat": ("documents", {"*/2 * * * *", "*/4 * * * *"}),
+    "drive-work-drain-uat": ("documents", {"*/2 * * * *", "*/4 * * * *", "* * * * *"}),
     # A one-minute recovery cadence prevents a missed prompt wake from adding
     # up to four minutes before a paid request reaches the search worker. Keep
     # the previous four-minute cadence accepted for rollback snapshots taken

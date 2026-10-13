@@ -200,6 +200,8 @@ export type SharingAllowInput = {
   { packageRevision?: never; packageDigest?: never });
 export type SharingAllowResult = { requestId: string; status: string; revision: number };
 const SHARING_PREPARATION_ERRORS = [
+  "package_existing_access_requires_review",
+  "payment_not_ready",
   "no_relevant_files",
   "no_ready_files",
   "narrow_selection_required",

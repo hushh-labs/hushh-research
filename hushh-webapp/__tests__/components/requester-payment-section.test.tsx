@@ -48,7 +48,8 @@ vi.mock("@/lib/perf/use-periodic-task", () => ({
     return Date.now();
   },
 }));
-vi.mock("@/lib/services/drive-request-payment-service", () => ({
+vi.mock("@/lib/services/drive-request-payment-service", async (original) => ({
+  ...(await original<typeof import("@/lib/services/drive-request-payment-service")>()),
   DriveRequestPaymentService: { checkout: state.checkout },
 }));
 vi.mock("@/lib/services/drive-sharing-service", async (original) => ({

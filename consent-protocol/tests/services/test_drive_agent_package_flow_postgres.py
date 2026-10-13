@@ -312,7 +312,10 @@ async def test_46_evaluated_candidates_freeze_only_30_selected_before_checkout(
             )
         return {"status": "awaiting_payment"}
 
-    payment = SimpleNamespace(ensure_payment_for_frozen_batch=AsyncMock(side_effect=payment_ready))
+    payment = SimpleNamespace(
+        ensure_payment_for_frozen_batch=AsyncMock(side_effect=payment_ready),
+        payment_state=AsyncMock(return_value={"status": "awaiting_payment"}),
+    )
     service = DriveTrustedAutoService(
         sharing=sharing, bulk=request_bulk, payment=payment, wake=AsyncMock()
     )

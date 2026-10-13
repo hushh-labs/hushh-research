@@ -23,6 +23,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     MAX_OWNER_PRICE_CENTS,
     MIN_OWNER_PRICE_CENTS,
     automatic_recipient_current,
+    request_has_document_scope,
     valid_owner_price_cents,
 )
 from hushh_mcp.services.drive_request_payment_store import (
@@ -109,7 +110,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
 
     async def get_payment(self, *, requester_user_id: str, request_id: str) -> dict:
         state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
-        return {key: value for key, value in state.items() if not key.startswith("_payout_")}
+        return {key: value for key, value in state.items() if not key.startswith("_")}
 
     async def reconcile_refunds(self, *, max_orders: int = 4) -> dict:
         from hushh_mcp.services.drive_request_payment_refunds import reconcile_refunds
@@ -222,10 +223,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         ):
             raise DriveSharingError("payment_not_ready")
         private = sharing._open_request(request)
-        purpose = private.get("purpose", {})
-        if request["status"] == "pending" and not (
-            purpose.get("periodStart") and purpose.get("periodEnd")
-        ):
+        if request["status"] == "pending" and not request_has_document_scope(private):
             raise DriveSharingError("date_range_required")
         if private.get("trusted_auto") is True and not request_requires_owner_review(
             connection,
@@ -281,6 +279,45 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             raise DriveSharingError("payment_checkout_expired")
         if state["status"] not in {"awaiting_payment", "checkout_open"}:
             raise DriveSharingError("payment_not_ready")
+
+        # Reusing working access must be decided before allocating an external
+        # attempt. An allocated attempt may already be reaching Stripe.
+        if package_owner := state.get("_package_owner_user_id"):
+            from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+            from hushh_mcp.services.drive_package_access_preflight import (
+                DrivePackageAccessPreflight,
+            )
+            from hushh_mcp.services.drive_package_existing_access_store import (
+                DrivePackageExistingAccessStore,
+            )
+
+            sharing = DriveSharingStore(db=self.db)
+
+            async def require_current():
+                await sharing.trusted_request_authority(
+                    user_id=package_owner, request_id=request_id
+                )
+
+            try:
+                async with asyncio.timeout(25):
+                    access = await DrivePackageAccessPreflight(
+                        sharing=sharing, bulk=DriveBulkShareStore(db=self.db)
+                    ).inspect(
+                        user_id=package_owner,
+                        request_id=request_id,
+                        require_current=require_current,
+                    )
+            except Exception:
+                raise DriveSharingError("payment_not_ready") from None
+            if access.status == "all_existing":
+                await DrivePackageExistingAccessStore(db=self.db).complete(
+                    user_id=package_owner, request_id=request_id, result=access
+                )
+                raise DriveSharingError("request_already_accessible")
+            if access.status == "mixed":
+                raise DriveSharingError("package_existing_access_requires_review")
+            if access.status != "none":
+                raise DriveSharingError("payment_not_ready")
 
         # A newly enrolled owner-paid order must have a live US Connect
         # destination before charging the requester. Existing orders without
@@ -424,11 +461,13 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             # Check the approved versions before exposing even an existing URL.
             try:
                 async with asyncio.timeout(25):
-                    await DriveTrustedAutoService(
+                    access = await DriveTrustedAutoService(
                         sharing=DriveSharingStore(db=self.db)
                     ).preflight_package(
                         user_id=order["_package_owner_user_id"], request_id=request_id
                     )
+                    if access is not None and access.status != "none":
+                        raise DriveSharingError("payment_not_ready")
             except Exception:
                 raise DriveSharingError("payment_not_ready") from None
         if order["stripe_checkout_url"]:

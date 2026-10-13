@@ -751,3 +751,27 @@ tests/test_drive_request_terms_migrations_postgres.py
 
 tests/test_pkm_answer_catalog.py
 tests/test_answer_center_surface_integration.py
+
+tests/services/test_drive_packet_intelligence.py
+
+tests/services/test_drive_document_pages_postgres.py
+
+tests/services/test_drive_pipeline_evaluation.py
+
+tests/services/test_drive_reusable_packets_postgres.py
+
+tests/services/test_drive_packet_catalog_postgres.py
+
+tests/services/test_drive_packet_provider_schema.py
+
+tests/services/test_drive_request_index_reuse.py
+
+tests/services/test_drive_request_index_reuse_postgres.py
+
+tests/services/test_drive_packet_payment_postgres.py
+
+tests/services/test_drive_package_access_preflight.py
+
+tests/services/test_drive_package_existing_access_postgres.py
+
+tests/services/test_drive_collection_semantic_status_postgres.py
