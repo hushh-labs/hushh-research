@@ -850,7 +850,11 @@ class DriveSharingStore(DriveDocumentStore):
                 {
                     "user_id": row["user_id"],
                     "request_id": str(row["request_id"]),
-                    "agent_package": self._open_request(row).get("agent_package_required") is True,
+                    **(
+                        {"agent_package": True}
+                        if self._open_request(row).get("agent_package_required") is True
+                        else {}
+                    ),
                 }
                 for row in rows
                 if (
