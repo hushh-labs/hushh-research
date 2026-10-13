@@ -228,7 +228,9 @@ export type AgentChatStreamHandlers = {
     chatKey: string;
     isCurrent: () => boolean;
     loadConfiguration?: () => Promise<CustomConnectorConfiguration | undefined>;
-    resume: (approval: McpCallApproval | null, signal?: AbortSignal) => Promise<void>;
+    resume: (approval: McpCallApproval | null, signal?: AbortSignal,
+      /** Fresh handlers for an owner-pod recovery segment; never replay the user turn. */
+      handlers?: AgentChatStreamHandlers) => Promise<void>;
   }) => void;
   onStart?: (payload: { conversationId: string; model?: string }) => void;
   onToolStart?: (payload: AgentChatToolEvent) => void;
@@ -1162,6 +1164,8 @@ export async function streamAgentChat(input: {
   specialistFocus?: "email" | "location" | "information" | "finance";
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
+  /** A keyed native interrupt recovered from the pod; never a new user turn. */
+  resumeMcpReview?: { interruptId: string; reference: McpCallReviewReference; approval: McpCallApproval | null };
 }): Promise<{
   conversationId: string | null;
   model: string | null;
@@ -1189,6 +1193,17 @@ export async function streamAgentChat(input: {
     isValidatedAuthSessionOwnerCurrent(mcpOwner) &&
     isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted,
   );
+  const recovered = input.resumeMcpReview;
+  if (recovered && (!input.conversationId || input.message || input.attachments?.length ||
+      Date.parse(recovered.reference.expiresAt) <= serverNow() || !mcpSessionCurrent() ||
+      (recovered.approval && (
+        (recovered.approval.directiveId !== recovered.reference.directiveId &&
+          recovered.approval.replacesDirectiveId !== recovered.reference.directiveId) ||
+        recovered.approval.pendingHandle !== recovered.reference.pendingHandle ||
+        recovered.approval.connectorId !== recovered.reference.connectorId ||
+        recovered.approval.toolName !== recovered.reference.toolName ||
+        !/^[A-Za-z0-9_-]{32,128}$/.test(recovered.approval.receipt)
+      )))) throw new Error("The recovered connector review changed or expired.");
   // Owner-authored names from the owner's own vault, keyed by opaque id. The
   // provider-authored tool name never labels a step: a server can write anything.
   const connectorNames = new Map<string, string>();
@@ -1267,7 +1282,7 @@ export async function streamAgentChat(input: {
     url: "/api/one/agent-chat",
     threadId,
     headers: { Authorization: `Bearer ${input.vaultOwnerToken}`, ...chatKeyHeaders },
-    initialMessages: [{
+    initialMessages: input.resumeMcpReview ? [] : [{
       id: input.messageId || crypto.randomUUID(),
       role: "user",
       content: buildAgentUserMessageContent(input.message, input.attachments),
@@ -1846,12 +1861,12 @@ export async function streamAgentChat(input: {
               }
               return configuration;
             } : undefined,
-            resume: async (approval, signal) => {
+            resume: async (approval, signal, resumeHandlers) => {
               if (attempted || signal?.aborted || !mcpSessionCurrent() || Date.parse(review.reference.expiresAt) <= serverNow()) {
                 throw new Error("This connector review expired or was already used.");
               }
               if (approval && (
-                approval.directiveId !== review.reference.directiveId ||
+                (approval.directiveId !== review.reference.directiveId && approval.replacesDirectiveId !== review.reference.directiveId) ||
                 approval.connectorId !== review.reference.connectorId ||
                 approval.toolName !== review.reference.toolName ||
                 approval.pendingHandle !== review.reference.pendingHandle ||
@@ -1859,6 +1874,13 @@ export async function streamAgentChat(input: {
               )) throw new Error("This confirmation does not match the connector review.");
               // A lost acknowledgement must not cause an automatic second mutation.
               attempted = true;
+              if (resumeHandlers) {
+                await streamAgentChat({ ...input, message: "", attachments: [], signal,
+                  handlers: resumeHandlers,
+                  resumeMcpReview: { interruptId, reference: review.reference, approval },
+                });
+                return;
+              }
               const abortResume = () => { liveness.stop(); agent.abortRun(); };
               input.signal?.addEventListener("abort", abortResume, { once: true });
               signal?.addEventListener("abort", abortResume, { once: true });
@@ -1979,11 +2001,20 @@ export async function streamAgentChat(input: {
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.feedAttention ? { feedAttention: { itemId: input.feedAttention.itemId } } : {}),
+        ...(input.resumeMcpReview?.approval ? { mcpApproval: {
+          directiveId: input.resumeMcpReview.approval.directiveId,
+          connectorId: input.resumeMcpReview.approval.connectorId,
+          toolName: input.resumeMcpReview.approval.toolName,
+          pendingHandle: input.resumeMcpReview.approval.pendingHandle,
+          receipt: input.resumeMcpReview.approval.receipt,
+        } } : {}),
         ...(input.specialistFocus ? { specialistFocus: input.specialistFocus } : {}),
         // Only the native app asks the server for a "One replied" push when it
         // stops reading; a web tab's closed stream must not wake a phone.
         notifyOnDetach: Capacitor.isNativePlatform(),
       },
+      ...(recovered ? { resume: [{ interruptId: recovered.interruptId,
+        status: "resolved" as const, payload: { confirmed: recovered.approval !== null } }] } : {}),
     });
     await terminalRun;
   } catch (error) {

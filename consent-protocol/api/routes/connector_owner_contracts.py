@@ -75,6 +75,7 @@ class McpReviewRequest(McpConfigurationRequest):
     toolName: str = Field(pattern=r"^mcp_[0-9a-f]{40}$")
     arguments: dict[str, Any]
     pendingHandle: str | None = Field(default=None, pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$")
+    directiveId: str | None = Field(default=None, pattern=r"^dir_[a-f0-9]{32}$")
 
     @field_validator("arguments")
     @classmethod

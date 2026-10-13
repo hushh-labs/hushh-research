@@ -280,6 +280,7 @@ import {
   AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
 import { isChatKeyRefusal } from "@/lib/vault/one-chat-key";
+import { recoverMcpReviews } from "@/lib/agent/mcp-review-recovery";
 import {
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
@@ -4624,6 +4625,110 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   };
 
+  const restorePendingMcpReviews = useCallback(async (thread: string, token: string, effectCurrent: () => boolean) => {
+    const ownerId = user?.uid;
+    const key = vaultKeyRef.current;
+    if (!ownerId || !key || isPuppySurface) return;
+    const current = () => effectCurrent() && workspaceOwnerIdRef.current === ownerId &&
+      vaultKeyRef.current === key && conversationIdRef.current === thread;
+    const bindReview = (review: McpChatReview): McpChatReview => ({
+      ...review,
+      isCurrent: () => current() && review.isCurrent(),
+      resume: async (approval, signal) => {
+        if (!current() || !review.isCurrent() || signal?.aborted || streamAbortControllerRef.current) {
+          throw new Error("This review is no longer active.");
+        }
+        const controller = new AbortController();
+        const assistantId = `mcp-recovered-${crypto.randomUUID()}`;
+        const operationCurrent = () => current() && streamAbortControllerRef.current === controller;
+        const active = () => operationCurrent() && !controller.signal.aborted;
+        let stopping = false;
+        let running: Promise<void> | undefined;
+        const abort = () => controller.abort();
+        const settleMessage = (status: "done" | "error", fallback?: string) => setMessages(items => items.map(item =>
+          item.id === assistantId ? { ...item, status, text: item.text || fallback || "",
+            streamEvents: settleVisibleStreamEvents(item.streamEvents, status),
+          } : item));
+        const progress = (phase: "start" | "waiting" | "result", tool: AgentChatToolEvent) => {
+          if (!active()) return;
+          const event = agentToolEventToVisibleStreamEvent(phase, tool);
+          setMessages(items => items.map(item => item.id === assistantId ? {
+            ...item, streamEvents: upsertVisibleStreamEvent(item.streamEvents, event),
+          } : item));
+        };
+        const stop = async () => {
+          if (!active()) return;
+          stopping = true;
+          setMessages(items => items.map(item => item.id === assistantId ? {
+            ...item, status: "streaming", text: item.text || "Stopping…",
+          } : item));
+          setStoppableTurn(false);
+          controller.abort();
+          await running?.catch(() => undefined); // The resume owns authoritative settlement.
+        };
+        signal?.addEventListener("abort", abort, { once: true });
+        streamAbortControllerRef.current = controller;
+        stopActiveTurnRef.current = stop;
+        setStoppableTurn(true);
+        try {
+          running = review.resume(approval, controller.signal, {
+            onStart: () => {
+              if (!active()) return;
+              setIsChatLoading(true); setIsStreaming(true);
+              setMessages(items => items.some(item => item.id === assistantId) ? items : [...items,
+                { id: assistantId, role: "assistant", text: "", ...stampNow(), status: "streaming" }]);
+            },
+            onToken: delta => { if (active()) setMessages(items => items.map(item =>
+              item.id === assistantId ? { ...item, text: item.text + delta } : item)); },
+            onToolStart: tool => progress("start", tool),
+            onToolWaiting: tool => progress("waiting", tool),
+            onToolResult: tool => progress("result", tool),
+            onComplete: () => { if (active()) settleMessage("done"); },
+            onError: () => { if (active()) settleMessage("error",
+              "This connector outcome could not be verified. Reconnect before continuing."); },
+            onInterrupt: () => { if (active()) settleMessage("done"); },
+            onMcpReview: next => {
+              if (!active() || !next.isCurrent()) return;
+              const bound = bindReview(next);
+              setPendingMcpReviews(items => items.some(item =>
+                item.reference.directiveId === bound.reference.directiveId) ? items : [...items, bound]);
+            },
+          });
+          await running;
+          if (stopping && operationCurrent()) setMessages(items => items.map(item =>
+            item.id === assistantId ? { ...item, status: "done", text: item.text === "Stopping…" ? "Stopped." : item.text,
+              streamEvents: settleVisibleStreamEvents(item.streamEvents, "blocked"),
+            } : item));
+        } catch (error) {
+          if (operationCurrent()) setMessages(items => items.map(item => item.id === assistantId ? {
+            ...item, status: "error", streamEvents: settleVisibleStreamEvents(item.streamEvents, "error"), text: stopping
+              ? "Could not confirm that One stopped. Reconnect before continuing."
+              : "This connector outcome could not be verified. Reconnect before continuing.",
+          } : item));
+          throw error;
+        } finally {
+          signal?.removeEventListener("abort", abort);
+          if (stopActiveTurnRef.current === stop) stopActiveTurnRef.current = null;
+          if (streamAbortControllerRef.current === controller) {
+            streamAbortControllerRef.current = null;
+            if (current()) { setIsChatLoading(false); setIsStreaming(false); setStoppableTurn(false); }
+          }
+        }
+      },
+    });
+    const reviews = await recoverMcpReviews({ userId: ownerId, vaultKey: key,
+      vaultOwnerToken: token, conversationId: thread, isCurrent: current, handlers: {},
+      loadConnectorConfigurations: async () => (await loadCustomConnectorSnapshot({
+        userId: ownerId, vaultKey: key, vaultOwnerToken: token,
+      })).configurations,
+    });
+    if (current()) setPendingMcpReviews(existing => {
+      const retained = existing.filter(review => review.isCurrent());
+      return [...retained, ...reviews.filter(review => !retained.some(item =>
+        item.reference.directiveId === review.reference.directiveId)).map(bindReview)];
+    });
+  }, [isPuppySurface, user?.uid]);
+
   useEffect(() => {
     if (
       !hasChatAccess ||
@@ -4697,6 +4802,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (stillRunning) {
         setIsChatLoading(true);
         setIsStreaming(true);
+      } else {
+        void restorePendingMcpReviews(selectedId, vaultOwnerToken, () =>
+          !cancelled && restoreEpoch === historyRestoreEpochRef.current).catch(() => undefined);
       }
     };
 
@@ -4740,7 +4848,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [hasChatAccess, recoveryCheckedForUid, updateConversationId, user?.uid, vaultOwnerToken]);
+  }, [hasChatAccess, recoveryCheckedForUid, restorePendingMcpReviews, updateConversationId, user?.uid, vaultOwnerToken]);
 
   // A restored connector step carries only its opaque id. Label it with the
   // owner's own connector name from the vault, as the live row did; the
@@ -4792,6 +4900,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setMessages(current => preservePresentations
         ? mergePendingConsentMessages(nextMessages, current)
         : nextMessages);
+      void restorePendingMcpReviews(nextConversationId, token, isCurrent).catch(() => undefined);
       // Same-chat recovery must not erase local delivery receipts or proposals.
       if (preservePresentations) return;
       setEmailDraftOpen(false);
@@ -4806,6 +4915,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     [
       clearTranscriptProgrammaticScroll,
+      restorePendingMcpReviews,
       updateConversationId,
       user?.uid,
     ],

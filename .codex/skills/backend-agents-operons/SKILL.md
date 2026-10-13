@@ -61,6 +61,8 @@ Non-owned surfaces:
 7. Browser PKM selection requires independent model-processing and website-disclosure consent. Use the existing scoped-export and action-ledger ports; keep remembered sign-in state outside ADK context. The browser runtime reference owns manual login, Forget and recovery restrictions.
 8. Native pod Google grants require exact project/account lifecycle handling: confirm project-wide revocation before fresh authorization, then remove fenced legacy hub credentials without revoking the new grant. Connector credentials, tool reviews and notification work keep their existing owners; metadata feeds cannot carry private observations. Read the dev pod runbook for notification checkpoint and native-client prerequisites.
 
+9. Private command and MCP recovery must retain original expiry, exact owner/pod authority and dispatch-before-effect journals. Read the streaming implementation guide before changing those adapters; native resume must not replay a user turn or revive an uncertain effect.
+
 ## Handoff Rules
 
 1. If the request is still broad or ambiguous, route it back to `backend`.

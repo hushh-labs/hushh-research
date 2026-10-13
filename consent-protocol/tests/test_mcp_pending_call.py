@@ -357,5 +357,5 @@ async def test_pod_process_without_scope_cannot_fall_through_to_sql(monkeypatch)
     monkeypatch.setattr(mcp_pending_call, "pod_mode", lambda: True)
     monkeypatch.setattr(mcp_pending_call, "get_db", lambda: pytest.fail("Pod opened shared SQL"))
     monkeypatch.setattr(mcp_pending_call, "_execute", forbidden)
-    handle = await capture_pending_call(context(), tool_name=TOOL, arguments={})
-    assert (await pending_call_details(session(), handle))["arguments"] == {}
+    with pytest.raises(PendingCallStorageError):
+        await capture_pending_call(context(), tool_name=TOOL, arguments={})

@@ -67,6 +67,18 @@ class PodChatContext:
         from hushh_mcp.services.pod_mcp_approval import PodMcpApprovalPort
 
         self.mcp_approval = PodMcpApprovalPort(self)
+        from hushh_mcp.services.pod_action_checkpoints import MCP_OBJECT, PodActionCheckpointStorage
+        from hushh_mcp.services.pod_mcp_pending import PodMcpPendingStore
+
+        self.mcp_pending = PodMcpPendingStore(
+            PodActionCheckpointStorage(
+                owner=self.owner,
+                hushh_id=self.hushh_id,
+                store=self.log._store,
+                require_access=self.require_access,
+                slot=MCP_OBJECT,
+            )
+        )
         from hushh_mcp.services.pod_browser.task_runtime import BrowserTaskRuntime
         from hushh_mcp.services.pod_upgrade_admission import pod_incarnation
 
@@ -165,6 +177,7 @@ class PodChatContext:
     def runtime_scope(self):
         from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime
         from hushh_mcp.one_adk.mcp_call_approval import bind_mcp_approval_port
+        from hushh_mcp.one_adk.mcp_pending_call import private_pending_call_scope
         from hushh_mcp.services.pod_files.runtime import files_access
 
         if self.runtime is None:
@@ -172,6 +185,7 @@ class PodChatContext:
         with (
             bind_specialist_runtime(self.runtime),
             bind_mcp_approval_port(self.mcp_approval),
+            private_pending_call_scope(self.mcp_pending),
             files_access(self._files_access, manage=self._files_manage),
             self._browser_scope(),
         ):

@@ -364,6 +364,7 @@ export class ExternalConnectorService {
       } : {
         conversationId: input.conversationId,
         toolName: input.reference.toolName, pendingHandle: input.reference.pendingHandle,
+        directiveId: input.reference.directiveId,
         arguments: args,
         ...(configuration ? { connectorConfiguration: configuration } : {}),
         ...(operation === "confirm" ? { directiveId: input.reference.directiveId, confirmed: true } : {}),

@@ -228,3 +228,12 @@ def test_memory_preparation_opens_only_its_named_app_door():
     assert is_app_surface("/api/one/pod/memory/proposals")
     for path in ("/api/one/pod/memory", "/api/one/pod/memory/commit", "/api/pkm/memory/proposals"):
         assert not is_app_surface(path)
+
+
+def test_command_dispatch_opens_only_the_exact_owner_checkpoint_route():
+    from api.middlewares.pod_ingress import is_app_surface
+
+    path = "/api/one/pod/agent-chat/proposals/86c1f6a9-9e80-40a3-9de4-348b8b990666"
+    assert is_app_surface(path + "/dispatch")
+    for suffix in ("/dispatch/again", "/consume", "/issue", "/dispatch?admin=1"):
+        assert not is_app_surface(path + suffix)

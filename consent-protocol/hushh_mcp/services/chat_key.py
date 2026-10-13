@@ -13,9 +13,10 @@ wipes it when that exchange and the background run it started have both ended.
 Nothing here persists or logs the key, and nothing falls back to the process-wide
 ``VAULT_DATA_KEY``: a missing key refuses the read or write.
 
-Key sourcing sits behind ``ChatKeyProvider``. A pod, which holds its owner's key
-itself, replaces the per-request provider with ``set_chat_key_provider`` at process
-start without touching any store.
+Key sourcing sits behind ``ChatKeyProvider``. Owner pods use the same per-request
+binding; encrypted recovery does not persist the owner's chat key or replace it
+with a service-held key. Explicit provider injection is reserved for qualified
+adapters and isolated fixtures.
 """
 
 from __future__ import annotations

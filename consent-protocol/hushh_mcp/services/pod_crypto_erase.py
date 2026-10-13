@@ -288,6 +288,11 @@ async def _replace(store: ObjectStore, key: str, data: bytes) -> None:
 async def _close_fences(store: ObjectStore) -> None:
     """Keep memory admission and the log closed for any process still running."""
     from hushh_mcp.one_adk.pod_adk_checkpoint import KEY as SESSION_PROJECTION
+    from hushh_mcp.services.pod_action_checkpoints import (
+        CLOSED_CHECKPOINT,
+        COMMANDS_OBJECT,
+        MCP_OBJECT,
+    )
     from hushh_mcp.services.pod_memory_bank import MEMORY_BANK_RECORD_KEY  # noqa: PLC0415
     from hushh_mcp.services.pod_recovery_projection import KEY as OWNER_PROJECTION
 
@@ -296,6 +301,8 @@ async def _close_fences(store: ObjectStore) -> None:
     # sealed records after erasure. Older writers lose their CAS against this marker.
     for key in (SESSION_PROJECTION, OWNER_PROJECTION):
         await _replace(store, key, ERASED_PROJECTION)
+    for key in (COMMANDS_OBJECT, MCP_OBJECT):
+        await _replace(store, key, CLOSED_CHECKPOINT)
     head = await store.get(PodCommitLog.HEAD)
     if head is None:
         await store.put_if_generation(PodCommitLog.HEAD, _ERASED_HEAD, ABSENT)

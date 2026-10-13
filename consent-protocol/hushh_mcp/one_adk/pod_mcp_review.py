@@ -11,8 +11,14 @@ from hushh_mcp.services.pod_mcp_approval import PodMcpTerms
 
 
 async def prepare_private_review(owner, connector_id, body):
-    with private_pending_call_scope():
-        return await _prepare_private_review(owner, connector_id, body)
+    from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+
+    permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+    try:
+        with private_pending_call_scope(owner.mcp_pending):
+            return await _prepare_private_review(owner, connector_id, body)
+    finally:
+        await permit.release()
 
 
 async def _prepare_private_review(owner, connector_id, body):
@@ -44,8 +50,37 @@ async def _prepare_private_review(owner, connector_id, body):
         from dataclasses import replace
 
         approval = replace(approval, call_id=pending["call_id"])
-        if recorded.model_copy(update={"serviceUid": None}) != owner.mcp_approval.terms(approval):
+        current = owner.mcp_approval.terms(approval).model_copy(
+            update={"serviceUid": recorded.serviceUid}
+        )
+        if (
+            recorded.model_dump(exclude={"epoch"}) != current.model_dump(exclude={"epoch"})
+            or recorded.epoch > current.epoch
+        ):
             raise ActionDirectiveAuthorityError("Private connector terms changed.")
+        original_directive = body.directiveId or review["directiveId"]
+        if intent := pending.get("rebind"):
+            target = PodMcpTerms.model_validate(intent["target"])
+            if (
+                intent["previous"] != review
+                or target.epoch > current.epoch
+                or target.model_dump(exclude={"epoch"}) != current.model_dump(exclude={"epoch"})
+            ):
+                raise ActionDirectiveAuthorityError("Private connector recovery changed.")
+            replacement = await owner.mcp_approval.rebind(previous=review, target=target)
+            pending = await owner.mcp_pending.replace_review(
+                session, body.pendingHandle, expected=review, review=replacement
+            )
+            review, recorded = pending["review"], target
+        if recorded.epoch < current.epoch:
+            await owner.mcp_pending.begin_rebind(
+                session, body.pendingHandle, expected=review, target=current.model_dump()
+            )
+            replacement = await owner.mcp_approval.rebind(previous=review, target=current)
+            pending = await owner.mcp_pending.replace_review(
+                session, body.pendingHandle, expected=review, review=replacement
+            )
+            review, recorded = pending["review"], current
         await owner.require_access()
         return {
             "status": "review_required",
@@ -58,4 +93,9 @@ async def _prepare_private_review(owner, connector_id, body):
             "toolLabel": tool.descriptor["name"],
             "arguments": approval.arguments,
             "podReview": recorded.model_dump(),
+            **(
+                {"replacesDirectiveId": original_directive}
+                if original_directive != review["directiveId"]
+                else {}
+            ),
         }

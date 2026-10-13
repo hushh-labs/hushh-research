@@ -163,7 +163,7 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         # Messages sent while a turn runs, and stop (pod_agent_chat.py).
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/(?:queue|stop)",
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/queue/[A-Za-z0-9_-]{{8,64}}",
-        rf"/api/one/pod/agent-chat/proposals/{_UUID}(?:/settle)?",
+        rf"/api/one/pod/agent-chat/proposals/{_UUID}(?:/(?:settle|dispatch))?",
         r"/api/one/pod/connectors/(?:gmail|calendar|drive|contacts)",
         r"/api/one/pod/actions/(?:gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}/confirm",
         r"/api/one/pod/actions/gmod_[A-Za-z0-9_-]{16,64}/status",
