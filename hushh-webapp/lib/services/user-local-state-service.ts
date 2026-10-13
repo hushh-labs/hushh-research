@@ -43,8 +43,20 @@ export class UserLocalStateService {
     }
   }
 
-  static async clearForUser(userId: string): Promise<void> {
+  static async clearForUser(userId: string, options: { deleteDurableReceipts?: boolean } = {}): Promise<void> {
     if (!userId) return;
+
+    // Confirmed Reset/delete only; ordinary sign-out/disconnect retains saved
+    // receipts. Purge also fences old writes and removes pending PKM jobs.
+    const { clearMarkdownMemory } = await import("@/lib/pkm/markdown-memory");
+    const { clearCachedGmailReceipts } = await import("@/lib/profile/gmail-receipts-cache");
+    clearMarkdownMemory(userId);
+    clearCachedGmailReceipts(userId);
+    const { SecureDurableResourceService } = await import("./secure-durable-resource-service");
+    let receiptPurgeError: unknown;
+    if (options.deleteDurableReceipts) {
+      try { await SecureDurableResourceService.purgeUser(userId); } catch (error) { receiptPurgeError = error; }
+    }
 
     OneSetupCompletionHintService.clear(userId);
     PreVaultSensitiveDraftService.clearForUser(userId);
@@ -72,5 +84,6 @@ export class UserLocalStateService {
         console.warn("[UserLocalStateService] Failed clearing user-scoped local state:", result.reason);
       }
     }
+    if (receiptPurgeError) throw new Error("Account reset completed, but encrypted device receipts couldn't be removed. Clear this device's app storage before using it again.");
   }
 }

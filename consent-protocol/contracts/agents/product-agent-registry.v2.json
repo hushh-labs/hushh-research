@@ -1400,7 +1400,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "05a6582d96b9b8de875753332112b1db454f0627aab1aff71ce25be990916450",
+      "system_instruction_sha256": "a7960544de39fb5218e6e8ee260a03d8daa4b4ed7bfde364ea139d0b1ec93ccd",
       "telemetry_namespace": "agent.email",
       "tools": [
         {
@@ -4139,9 +4139,33 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "d27bc966fc03b736263d2768989b63930f0709fdad591039e9b8e91cb0f76520",
+      "system_instruction_sha256": "ba3397de5a6bc2f6a8e202c149e959a25f57f27fba4d4397f727966d511f85fa",
       "telemetry_namespace": "agent.one",
       "tools": [
+        {
+          "description": "Owner-authorized device canonical receipt list; current turn only.",
+          "name": "list_recent_receipts",
+          "py_func": "hushh_mcp.one_adk.receipt_client_tools.list_recent_receipts",
+          "required_scope": "vault.owner"
+        },
+        {
+          "description": "Deterministic canonical receipt spend by merchant, category or product; currencies separate.",
+          "name": "receipt_spending",
+          "py_func": "hushh_mcp.one_adk.receipt_client_tools.receipt_spending",
+          "required_scope": "vault.owner"
+        },
+        {
+          "description": "Deterministic canonical receipt ranking within each currency.",
+          "name": "highest_receipt_spend",
+          "py_func": "hushh_mcp.one_adk.receipt_client_tools.highest_receipt_spend",
+          "required_scope": "vault.owner"
+        },
+        {
+          "description": "Product analysis unavailable until structured product evidence exists.",
+          "name": "most_frequently_purchased_products",
+          "py_func": "hushh_mcp.one_adk.receipt_client_tools.most_frequently_purchased_products",
+          "required_scope": "vault.owner"
+        },
         {
           "description": "Check whether the authenticated owner can open private connector setup in Chat. Returns safe saved names and setup state, not credentials or callable authority.",
           "name": "inspect_private_connectors",

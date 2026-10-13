@@ -120,7 +120,7 @@ function session(scopes = [NAME_SCOPE, AGE_SCOPE]) {
 
 async function rawCache(): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
-    const open = indexedDB.open("hushh-secure-resource-cache", 1);
+    const open = indexedDB.open("hushh-secure-resource-cache");
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
       const database = open.result;
@@ -132,6 +132,10 @@ async function rawCache(): Promise<unknown[]> {
 }
 
 beforeEach(async () => {
+  // Stable age calculations and timestamps keep synthetic stale ages from
+  // coincidentally matching wall-clock milliseconds in encrypted readback.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-13T12:00:00.000Z"));
   transport.apiFetch.mockReset();
   transport.refreshAccountIdentityShadow.mockReset();
   transport.encrypt.mockImplementation(({ plaintext, keyHex }) => encryptData(plaintext, keyHex));

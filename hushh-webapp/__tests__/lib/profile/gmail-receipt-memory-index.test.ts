@@ -282,19 +282,10 @@ describe("receipt canonical index", () => {
       provenance: { source_kind: "gmail_receipts", artifact_id: "artifact-1", receipt_count_used: 3 },
     };
     const merged = mergeReceiptsMemoryWithIndex({ existing, index, digest, now: NOW });
-    expect(merged.readable_summary).toBe(existing.readable_summary);
-    expect(merged.observed_facts).toBe(existing.observed_facts);
-    expect(merged.inferred_preferences).toBe(existing.inferred_preferences);
-    expect(merged.provenance).toMatchObject({
-      artifact_id: "artifact-1",
-      canonical_index_digest: digest,
-      receipt_count_used: index.total_transactions,
-    });
-    expect(merged[RECEIPT_INDEX_BRANCH]).toBe(index);
-
-    const fresh = mergeReceiptsMemoryWithIndex({ existing: undefined, index, digest, now: NOW });
-    expect(fresh.readable_summary).toMatchObject({ source_label: "Gmail receipts" });
-    expect(fresh.observed_facts).toEqual({ merchant_affinity: [], purchase_patterns: [], recent_highlights: [] });
-    expect(fresh.inferred_preferences).toEqual({ preference_signals: [] });
+    expect(merged.schema_version).toBe(2);
+    expect(merged).not.toHaveProperty(RECEIPT_INDEX_BRANCH);
+    expect(JSON.stringify(merged)).not.toMatch(/transactions|recent_highlights|124\.01|ZSUQHV|transaction_date|canonical_index_digest/);
+    expect(merged.observed_facts).toMatchObject({ merchant_affinity: [{ merchant_label: "Supabase", purchase_count: 2 }] });
+    expect(merged.provenance).toEqual({ source_kind: "mail_receipt_snapshot", updated_at: "2026-10-09T10:00:00Z" });
   });
 });

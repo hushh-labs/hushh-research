@@ -1,6 +1,7 @@
 "use client";
 
 import { Capacitor } from "@capacitor/core";
+import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import {
   Fragment,
   FormEvent,
@@ -474,6 +475,8 @@ type AgentMessage = {
   sentAtMs?: number;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
+  receiptPrivate?: { ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number };
+  receiptRedacted?: boolean;
   kind?: "selection";
   /** Sent while One was working and taken into that reply at its next step. */
   queuedPlacement?: "joined";
@@ -2604,6 +2607,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
   ]);
+  const clearReceiptAnswers = useCallback(() => setMessages(current => current.map(message => message.receiptPrivate ? {
+    ...message, receiptPrivate: undefined, receiptRedacted: true, status: "done",
+    text: "Receipt analysis was shown for that turn. Ask again for a fresh analysis.",
+    structuredExperience: null, structuredExperiences: [], streamEvents: [], sources: [], followUps: [],
+  } : message)), []);
+  useEffect(() => {
+    const privateMessages = messages.filter(message => message.receiptPrivate);
+    if (!privateMessages.length) return;
+    if (privateMessages.some(message => {
+      const scope = message.receiptPrivate!;
+      return scope.ownerId !== user?.uid || !isVaultUnlocked || !vaultKey || scope.vaultEpoch !== vaultSessionEpoch || scope.conversationId !== conversationId || scope.expiresAt <= Date.now();
+    })) { clearReceiptAnswers(); return; }
+    const expiresAt = Math.min(...privateMessages.map(message => message.receiptPrivate!.expiresAt));
+    const timer = window.setTimeout(clearReceiptAnswers, Math.max(1, expiresAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [messages, user?.uid, isVaultUnlocked, vaultKey, vaultSessionEpoch, conversationId, clearReceiptAnswers]);
+  useEffect(() => subscribeDurableOwnerReset(owner => {
+    if (owner !== user?.uid) return;
+    clearReceiptAnswers();
+    clearAgentPkmContext(owner);
+  }), [user?.uid, clearReceiptAnswers]);
   const compiledDriveMarkdownRef = useRef(new Map<string, string>());
   const driveCompilationAbortRef = useRef<AbortController | null>(null);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
@@ -3715,7 +3739,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ) => {
     setMessages((current) =>
       current.map((message) =>
-        message.id === messageId ? update(message) : message,
+        message.id === messageId && !message.receiptRedacted ? update(message) : message,
       ),
     );
   };
@@ -5325,6 +5349,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // A person starting a new turn owns the workspace. Invalidate any ambient
     // initial-history restoration so a late warmup cannot replace this turn.
     historyRestoreEpochRef.current += 1;
+    clearReceiptAnswers();
     // A new user turn supersedes any unconfirmed proposal. Never let a stale
     // action card remain armed after the person asks for something else.
     setPendingAppAction(null);
@@ -5984,6 +6009,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
+          onReceiptPrivate: () => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, message => ({ ...message, receiptPrivate: {
+              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              expiresAt: Date.now() + 5 * 60 * 1000,
+            } }));
+          },
           // No onThinkingSummary: the model's reasoning is never shown in
           // chat, live or restored. Only the answer and Activity render.
           onStreamHealth: (signal) => {
@@ -6346,6 +6378,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       addErrorMessage("Vault access expired. Unlock again to continue.");
       return "failed";
     }
+    clearReceiptAnswers();
     const consentBundleId = extra.consentContinuation?.bundleId.toLowerCase();
     // A consent follow-up another device already continued is refused by the
     // server (409). That is a settled answer, not an error: the reply from the
@@ -6455,6 +6488,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // onPkmResults are intentionally omitted; only the events a delegated
         // confirmation turn can actually emit are wired here.
         handlers: {
+          onReceiptPrivate: () => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, current => ({ ...current, receiptPrivate: {
+              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              expiresAt: Date.now() + 5 * 60 * 1000,
+            } }));
+          },
           onStreamHealth: (signal) => {
             if (streamAbortController.signal.aborted) return;
             slowNotice.signal(signal);
@@ -7805,7 +7845,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     (message) => message.id !== "agent-greeting",
   );
   const visibleMessages = dedupeAdjacentAgentMessages(
-    messages.filter((message) => {
+    messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== user?.uid || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? {
+      ...message, receiptRedacted: true, text: "Receipt analysis was shown for that turn. Ask again for a fresh analysis.",
+      structuredExperience: null, structuredExperiences: [], streamEvents: [], sources: [], followUps: [],
+    } : message).filter((message) => {
       if (message.id === "agent-greeting") return false;
       if (
         pendingSpecialistDirective &&
@@ -8437,7 +8480,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const renderDriveMemoryReview = (message: AgentMessage) => {
     const experiences = [...(message.structuredExperiences || []).map(item => item.experience),
       ...(message.structuredExperience ? [message.structuredExperience] : [])];
-    if (!hasChatAccess || !user?.uid || !vaultKey || !vaultOwnerToken || message.role !== "assistant" ||
+    if (message.receiptPrivate || !hasChatAccess || !user?.uid || !vaultKey || !vaultOwnerToken || message.role !== "assistant" ||
       !canReviewDriveMemory(message.status, message.text, experiences)) return undefined;
     const ownerId = user.uid;
     const threadId = conversationId;
