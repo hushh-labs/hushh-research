@@ -437,6 +437,7 @@ export function KaiNavTour() {
 
             <div className="grid grid-cols-3 gap-2 pt-1">
               <Button
+                type="button"
                 variant="blue-gradient"
                 effect="fade"
                 size="default"
