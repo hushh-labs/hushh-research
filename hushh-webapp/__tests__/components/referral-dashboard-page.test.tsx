@@ -186,8 +186,8 @@ describe("ReferralDashboardPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "How it works" }));
     expect(screen.queryByRole("button", { name: "View welcome screen" })).not.toBeInTheDocument();
     expect(await screen.findByText("123 coins")).toBeInTheDocument();
-    expect(screen.getByText("+17 coins")).toBeInTheDocument();
-    expect(screen.getByText("246 total")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Keep your streak" }).closest("article")).toHaveTextContent("+17 coins");
+    expect(screen.getByRole("heading", { name: "Flash boost" }).closest("article")).toHaveTextContent("246 coins");
     act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
     expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
     expect(screen.getByText("Weekly challenge ends in")).toBeInTheDocument();
