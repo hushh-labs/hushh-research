@@ -59,6 +59,7 @@ def indexed_evidence_source(*, document_ref, document):
         facts.subject,
         facts.account,
         *facts.periods,
+        *facts.date_evidence,
         *facts.topics,
         *facts.facts,
     ]
@@ -179,6 +180,7 @@ class DriveRequestPackageService:
                             facts.get("subject"),
                             facts.get("account"),
                             *facts.get("periods", []),
+                            *facts.get("date_evidence", []),
                             *facts.get("topics", []),
                             *facts.get("facts", []),
                         ]

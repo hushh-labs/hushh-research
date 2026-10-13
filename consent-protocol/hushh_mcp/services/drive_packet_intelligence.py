@@ -422,6 +422,8 @@ async def construct_packet(
 async def verify_packet(
     *, user_id, packet, documents, complete, batch_scope=None, interpret=_interpret
 ):
+    scope_mode = batch_scope.get("mode") if isinstance(batch_scope, dict) else batch_scope
+
     def validate(result):
         if result.state == "ready" and not complete:
             raise ValueError("incomplete evidence cannot verify ready")
@@ -436,14 +438,17 @@ async def verify_packet(
             supplied = {item["document_id"] for item in documents}
             if not supplied <= accounted:
                 raise ValueError("unaccounted packet member")
-            if (batch_scope or {}).get(
-                "mode"
-            ) == "complete_compact_summary" and accounted != supplied:
+            if (
+                scope_mode in {"complete_compact_summary", "complete_current_request_packet"}
+                and accounted != supplied
+            ):
                 raise ValueError("invented packet member")
             # Legacy purchase manifests are read elsewhere. A new ready verdict
             # must validate the new proposal, including its temporal/pricing scope.
-            proposal = PacketProposal.model_validate(packet)
-            if (batch_scope or {}).get("mode") == "complete_compact_summary":
+            proposal = PacketProposal.model_validate(
+                {key: value for key, value in packet.items() if key != "document_request"}
+            )
+            if scope_mode in {"complete_compact_summary", "complete_current_request_packet"}:
                 selected_facts = [
                     item.get("facts") if isinstance(item.get("facts"), dict) else item
                     for item in documents
@@ -451,7 +456,11 @@ async def verify_packet(
                 ]
                 _require_source_periods(
                     [period.model_dump() for period in proposal.periods],
-                    [period for facts in selected_facts for period in facts.get("periods", [])],
+                    [
+                        period
+                        for facts in selected_facts
+                        for period in facts.get("periods", facts.get("content_periods", []))
+                    ],
                     citations=False,
                 )
                 if proposal.temporal_scope == "as_of_snapshot" and not any(

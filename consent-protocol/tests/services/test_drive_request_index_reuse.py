@@ -89,6 +89,34 @@ def test_index_adapter_keeps_late_evidence_beyond_legacy_excerpt():
     assert source["source_version"] == "7"
 
 
+def test_index_adapter_preserves_date_roles_and_verbatim_multiline_date_evidence():
+    facts = document_facts([{"page": 1}])
+    quote = "Conference:\nJune 3–5, 2027\nDraft plan has no publication dates."
+    facts["date_evidence"] = [
+        {
+            "role": "event",
+            "start": "2027-06-03",
+            "end": "2027-06-05",
+            "meaning": "Dates describe the conference, not publication coverage",
+            "citations": [{"page": 1, "quote": quote}],
+        }
+    ]
+    source = indexed_evidence_source(
+        document_ref="p1",
+        document={
+            "source_version": "7",
+            "facts_version": "v1",
+            "metadata": {"name": "Draft.txt"},
+            "facts": facts,
+            "complete": True,
+        },
+    )
+    assert '"role": "event"' in source["text"]
+    # JSON serialization alone escapes newlines and cannot support the original
+    # verbatim citation used by the request assessor.
+    assert quote in source["text"]
+
+
 async def test_incomplete_or_disabled_index_explicitly_falls_back():
     facts = SimpleNamespace(
         current_index_status=AsyncMock(return_value={"complete": False, "signature": "a"})
@@ -319,6 +347,15 @@ async def test_request_checker_rejects_wrong_account_even_when_matcher_says_exac
         "value": "account 2222",
         "citations": [{"page": 1, "quote": "Account 2222"}],
     }
+    facts["date_evidence"] = [
+        {
+            "role": "as_of",
+            "start": "2026-09-30",
+            "end": "2026-09-30",
+            "meaning": "Closing balance snapshot, distinct from the statement period",
+            "citations": [{"page": 1, "quote": "Balance as of 30 September 2026"}],
+        }
+    ]
     current = {"complete": True, "signature": "unchanged", "indexed": 1}
     facts_store = SimpleNamespace(
         current_index_status=AsyncMock(return_value=current),
@@ -344,3 +381,14 @@ async def test_request_checker_rejects_wrong_account_even_when_matcher_says_exac
     assert route["kind"] == "index" and "matched_packet" not in route
     assert checker.call_args.kwargs["packet"]["document_request"] == request
     assert checker.call_args.kwargs["documents"][0]["account"] == "account 2222"
+    expected_date = {
+        key: value for key, value in facts["date_evidence"][0].items() if key != "citations"
+    }
+    assert checker.call_args.kwargs["documents"][0]["date_evidence"] == [expected_date]
+    matched_evidence = service.packet_matcher.call_args.kwargs["packets"][0][
+        "current_source_facts"
+    ][0]
+    assert matched_evidence["date_evidence"] == [expected_date]
+    assert matched_evidence["content_periods"] == [
+        {"start": item["start"], "end": item["end"]} for item in facts["periods"]
+    ]

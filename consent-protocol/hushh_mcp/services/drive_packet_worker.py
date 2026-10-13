@@ -85,6 +85,12 @@ def compact_evidence(document):
             for key in ("document_type", "issuer", "subject", "account")
         },
         "periods": [{"start": item["start"], "end": item["end"]} for item in facts["periods"]],
+        # Date role is substantive evidence: losing it can turn an event window
+        # into apparent reporting coverage in the final global checker.
+        "date_evidence": [
+            {key: item[key] for key in ("role", "start", "end", "meaning")}
+            for item in facts.get("date_evidence", [])
+        ],
         # Preserve substantive differences for cross-batch duplicate review.
         # The caller rejects summaries over its budget instead of truncating.
         "topics": [item["value"] for item in facts["topics"]],

@@ -605,6 +605,99 @@ async def test_final_checker_cannot_certify_event_as_document_period():
         )
 
 
+async def test_global_checker_preserves_snapshot_role_and_event_qualification():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    evidence = page_facts()
+    evidence.pop("pages")
+    evidence["date_evidence"] = [dated_evidence("as_of"), dated_evidence("event")]
+    summary = compact_evidence(
+        {
+            "document_id": "selected",
+            "source_version": "v1",
+            "complete": True,
+            "facts": evidence,
+        }
+    )
+    assert summary["periods"] == []
+    assert summary["date_evidence"] == [
+        {key: item[key] for key in ("role", "start", "end", "meaning")}
+        for item in evidence["date_evidence"]
+    ]
+    proposal = packet([])
+    proposal["temporal_scope"] = "as_of_snapshot"
+    verdict = dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+    checker = AsyncMock(return_value=verdict)
+    result = await verify_packet(
+        user_id="owner",
+        packet=proposal,
+        complete=True,
+        documents=[summary],
+        batch_scope={"mode": "complete_compact_summary"},
+        interpret=checker,
+    )
+    assert result.state == "ready"
+    payload = json.loads(checker.await_args.kwargs["prompt"])
+    assert payload["document_facts"][0]["date_evidence"] == summary["date_evidence"]
+
+
+async def test_request_checker_accepts_bounded_financial_coverage_with_request_context():
+    proposal = packet([period()])
+    request = {
+        "purpose": "January statements",
+        "periodStart": "2026-01-05",
+        "periodEnd": "2026-01-20",
+    }
+    proposal["document_request"] = request
+    verdict = dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+    checker = AsyncMock(return_value=verdict)
+    documents = [
+        {
+            "document_id": "selected",
+            "content_periods": [{"start": "2026-01-01", "end": "2026-01-31"}],
+        }
+    ]
+    result = await verify_packet(
+        user_id="owner",
+        packet=proposal,
+        complete=True,
+        documents=documents,
+        batch_scope="complete_current_request_packet",
+        interpret=checker,
+    )
+    assert result.state == "ready"
+    assert (
+        json.loads(checker.await_args.kwargs["prompt"])["proposed_packet"]["document_request"]
+        == request
+    )
+    documents[0]["content_periods"] = []
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=proposal,
+            complete=True,
+            documents=documents,
+            batch_scope="complete_current_request_packet",
+            interpret=checker,
+        )
+
+
 def test_legacy_manifest_remains_readable_but_new_ready_proposal_requires_typed_scope():
     from hushh_mcp.services.drive_packet_contract import PacketAssessment, PacketProposal
 
