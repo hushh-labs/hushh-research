@@ -607,9 +607,7 @@ def test_apply_applies_attio_as_a_runtime_provider_not_a_registration_only_spec(
     assert descriptor.raw["toolAllowlist"] == list(ATTIO.tool_allowlist)
     assert descriptor.raw["mcpEndpoint"] == "https://mcp.attio.com/mcp"
     assert descriptor.raw["oauthScopes"] == ["mcp", "offline_access", "openid"]
-    assert descriptor.raw["registeredRedirectUris"] == [
-        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
-    ]
+    assert descriptor.raw["registeredRedirectUris"] == list(ATTIO.redirect_uris["uat"])
 
 
 def test_apply_refuses_a_registration_only_spec_before_descriptor_or_registry_work(
@@ -708,6 +706,4 @@ async def test_the_attio_dry_run_builds_the_reviewed_request_and_sends_nothing(m
     assert result["registrationEndpoint"] == "https://app.attio.com/oauth/register"
     assert result["request"]["token_endpoint_auth_method"] == "none"
     assert result["request"]["scope"] == "mcp offline_access openid"
-    assert result["request"]["redirect_uris"] == [
-        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
-    ]
+    assert result["request"]["redirect_uris"] == list(ATTIO.redirect_uris["uat"])
