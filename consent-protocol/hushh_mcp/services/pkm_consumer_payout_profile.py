@@ -5,15 +5,17 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from .connect_payout_binding import require_separate_payout_account, scope_account_ids
 from .pkm_packet_order_service import _stripe_dict
 from .stripe_mode import stripe_environment
 
 
 async def create_consumer_account(
-    *, stripe_api: Any, api_key: str, mode: str, owner: str
+    *, stripe_api: Any, api_key: str, mode: str, owner: str, database: Any
 ) -> dict[str, Any]:
     """Keep the original create intent while preparing only a verified new consumer."""
     intent = f"pkm-payout-account:{stripe_environment()}:{mode}:{owner}"
+    foreign_ids = await scope_account_ids(database, owner, mode)
     created = _stripe_dict(
         await asyncio.to_thread(
             stripe_api.Account.create,
@@ -25,12 +27,19 @@ async def create_consumer_account(
             metadata={"hussh_user_ref": "pkm_owner", "hussh_environment": stripe_environment()},
         )
     )
-    return await prepare_consumer_profile(
+    account_id = created.get("id")
+    foreign_ids.update(await scope_account_ids(database, owner, mode, account_id))
+    require_separate_payout_account(account_id, foreign_ids)
+    prepared = await prepare_consumer_profile(
         created,
         stripe_api=stripe_api,
         api_key=api_key,
         intent_key=intent,
     )
+    require_separate_payout_account(
+        account_id, await scope_account_ids(database, owner, mode, account_id)
+    )
+    return prepared
 
 
 async def create_hosted_link(

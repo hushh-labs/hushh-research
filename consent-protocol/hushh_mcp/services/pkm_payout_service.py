@@ -20,6 +20,7 @@ from uuid import UUID
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings
+from hushh_mcp.services.connect_payout_binding import resolve_document_binding
 from hushh_mcp.services.payout_account_status_cache import (
     StatusReadInvalidated,
     account_status_cache,
@@ -455,7 +456,6 @@ class PkmPayoutService:
         return adopted
 
     # --- owner -------------------------------------------------------------
-
     async def onboarding_link(
         self,
         *,
@@ -480,7 +480,7 @@ class PkmPayoutService:
         key = self._account_key()
         origin = _app_origin()
         return_path = ONBOARDING_RETURN_PATHS[surface]
-        account = await self._account(user_id)
+        account = await resolve_document_binding(self, user_id)
         remote: dict[str, Any] | None = None
         if account is None and purpose == "verify":
             raise PacketOrderError("PAYOUT_ACCOUNT_REQUIRED", "Link a bank first.")
@@ -491,6 +491,7 @@ class PkmPayoutService:
                     api_key=key,
                     mode=self.account_mode,
                     owner=user_id,
+                    database=self.db,
                 )
             except Exception as exc:
                 _log_provider_error("account_create", exc)
@@ -518,9 +519,8 @@ class PkmPayoutService:
                     )
                 )
             except Exception:
-                # A concurrent request may have inserted the same owner's mapping.
-                # Stripe's owner-scoped idempotency key also keeps creation single.
-                account = await self._account(user_id)
+                # Recheck a concurrent winner without changing the creation intent.
+                account = await resolve_document_binding(self, user_id)
                 if account is None:
                     raise PacketOrderError(
                         "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."

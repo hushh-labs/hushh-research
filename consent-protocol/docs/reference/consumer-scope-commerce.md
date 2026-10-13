@@ -111,6 +111,38 @@ correction. Stripe's tools screen now opens the existing Payments and earnings
 pane directly, retaining Back to its origin; all 16 connection cases and 447 Back
 cases pass. The final exact-candidate core and hosted CI remain required.
 
+Source-aware payout admission now checks existing document bindings, creation
+receipts and concurrent insert winners against active and retained scope
+attribution, including another owner's exact account ID. Migration 332 adds
+read-only attribution and transaction-locked admission functions to the existing
+stores. It adds no ledger and rewrites no financial records; the original
+326–331 SQL, rollbacks and preservation receipt remain unchanged. Generated
+release contracts require both functions and release head 332.
+
+Scope account creation remains separate because document settlement's automatic
+payout/balance attribution cannot currently prove compatibility with scope
+settlement's manual, source-backed withdrawals. Compatible document, prepared-
+answer and Drive callers retain their existing shared payout authority. Existing
+account IDs, provider creation bodies and retry keys are preserved. Unknown
+retained mode, failed lookup or policy-filtered visibility refuses adoption;
+it does not invent an account or reinterpret protected earnings.
+
+The guard serializes competing exact-account claims under READ COMMITTED and
+rejects unsupported snapshot isolation. Retained seller routing is a financial
+projection, not a new account-admission authority; erasure can archive existing
+routing and detach its owner while obligations continue. Rollback removes only
+the new guards/functions after new paid admission is disabled.
+
+All 110 focused payout, provenance and PostgreSQL cases pass, including both
+race directions, separate-account/mode controls, retained erased routing,
+restricted-role visibility, historical account erasure and rollback. Five
+conflicting admission cases fail against actual predecessor `a09ee218b7`, while
+three positive controls pass. The data-model audit classifies all 295 tables,
+release/schema generators agree on head 332, and the architecture ratchet has
+zero new regressions. The inherited Gmail workflow helper baseline is qualified
+against exact incoming source/AST; budgets and unrelated entries are unchanged.
+The final full core, hosted CI and Dev promotion remain required.
+
 The last qualified Dev observation at `23:26:31Z` served source `0d00ceaf1e1b` and retained two funding records,
 three journals, zero purchases and zero withdrawals. Counterpart funding totals
 $10.50 ($0.50 plus $10), and the tagged $5 operating Topup was already settled;

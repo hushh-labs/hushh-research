@@ -45,9 +45,15 @@ def expected_contracts() -> dict[Path, dict]:
         migration,
         re.IGNORECASE,
     )
+    binding_migration = "332_stripe_payout_source_binding.sql"
+    functions += re.findall(
+        r"\bCREATE\s+OR\s+REPLACE\s+FUNCTION\s+(enforce_stripe_payout_source_binding|scope_commerce_payout_account_claims_v1)\s*\(",
+        (ROOT / "db/migrations" / binding_migration).read_text(),
+        re.IGNORECASE,
+    )
     manifest = json.loads(MANIFEST_PATH.read_text())
     base = manifest["ordered_migrations"]
-    if MIGRATION_NAME not in base:
+    if MIGRATION_NAME not in base or binding_migration not in base:
         raise ValueError("Scope commerce migration must be registered in the release lane")
 
     def head(names: list[str]) -> int:
@@ -80,7 +86,10 @@ def expected_contracts() -> dict[Path, dict]:
                 vault.append(column)
         payload["required_tables"] = dict(sorted(payload["required_tables"].items()))
         payload["required_functions"] = [
-            name for name in payload["required_functions"] if not name.startswith("scope_commerce_")
+            name
+            for name in payload["required_functions"]
+            if not name.startswith("scope_commerce_")
+            and name != "enforce_stripe_payout_source_binding"
         ] + functions
         payload["expected_migration_version"] = heads[lane]
         payload["expected_schema_head"] = heads[lane]

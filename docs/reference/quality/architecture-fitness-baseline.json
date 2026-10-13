@@ -11768,7 +11768,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_gmail_information_request_release_contract.py",
       "symbol": "_run_setup",
-      "value": 81
+      "value": 91
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -37244,5 +37244,14 @@
         "source_sha256": "0a5447ac34b488b4e72969188a00b58547faa993b86bc403b906584f805c0416"
       }
     ]
+  },
+  "scope_commerce_gmail_main_merge_20261012": {
+    "incoming_main": "a05166ee8687a941979c23bfe9535ee0970f0237",
+    "review": "Independent ci_registry_review verified this inherited function is byte-identical to main d9714dec2e. Update only the existing 81-to-91 slot; preserve every other finding, multiplicity, scanner, budget and future-growth gate. The task-owned chat allowlist retains its previous module bound.",
+    "key": "function_size|consent-protocol/tests/test_gmail_information_request_release_contract.py|_run_setup|function exceeds the advisory gene budget",
+    "before": 81,
+    "after": 91,
+    "source_sha256": "133a7f57fe043c49c79b73f507ac8bfc1b9740f2e7d299724128988c4cc3f7f1",
+    "function_sha256": "b6b00a5f9cbd22a1088c075fb5758b8d98ffb420a6279a77d9b2ebf038250354"
   }
 }

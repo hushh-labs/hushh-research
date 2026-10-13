@@ -4,9 +4,25 @@ from __future__ import annotations
 
 from typing import Any
 
+from hushh_mcp.services.connect_payout_binding import (
+    PayoutBindingConflict,
+    document_account_ids,
+    require_separate_payout_account,
+)
+
 from .provider_contracts import ProviderContext, _derived_id, _operation_id
 from .provider_onboarding_links import onboarding_urls, validate_onboarding_link
 from .stripe_adapter import CommerceProviderError
+
+
+async def _require_scope_source(
+    connection: Any, owner: str, mode: bool, account: str | None
+) -> None:
+    foreign_ids = await document_account_ids(connection, owner, mode, account)
+    try:
+        require_separate_payout_account(account, foreign_ids)
+    except PayoutBindingConflict:
+        raise CommerceProviderError("provider_account_source_conflict") from None
 
 
 class ConnectOnboarding(ProviderContext):
@@ -14,6 +30,9 @@ class ConnectOnboarding(ProviderContext):
         async def read(connection: Any) -> dict[str, Any] | None:
             row = await connection.fetchrow(
                 "SELECT * FROM scope_commerce_seller_accounts WHERE user_id=$1", user_id
+            )
+            await _require_scope_source(
+                connection, user_id, self.config.livemode, row["account_id"] if row else None
             )
             return dict(row) if row is not None else None
 
@@ -198,6 +217,9 @@ class ConnectOnboarding(ProviderContext):
             )
 
             async def bind(connection: Any) -> dict[str, Any]:
+                await _require_scope_source(
+                    connection, user_id, self.config.livemode, account["id"]
+                )
                 await connection.execute(
                     """INSERT INTO scope_commerce_seller_accounts(user_id,account_id,country,livemode,eligible)
                     VALUES($1,$2,$3,$4,FALSE) ON CONFLICT(user_id) DO NOTHING""",
