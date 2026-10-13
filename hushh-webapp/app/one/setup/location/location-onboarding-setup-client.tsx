@@ -42,10 +42,11 @@ export function LocationOnboardingSetupClient() {
   });
   useLocalOnboardingActionHandler("setup.finish_location", (_slots, context) => {
     const userId = auth.userId;
+    const session = sessionRef.current;
     return finishVerifiedLocationSetup({
       userId,
       runId: interaction?.currentRun?.runId ?? null,
-      isCurrent: () => sessionRef.current.mounted && sessionRef.current.userId === userId && !context?.signal?.aborted,
+      isCurrent: () => sessionRef.current === session && session.mounted && session.userId === userId && !context?.signal?.aborted,
       onVerified: coordinator.returnToSetup,
     });
   }, { enabled: coordinator.isReady && Boolean(auth.userId) });

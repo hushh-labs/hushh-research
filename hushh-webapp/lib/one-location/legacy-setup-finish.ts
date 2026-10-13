@@ -31,6 +31,7 @@ export async function finishVerifiedLocationSetup({
     onVerified();
     return { status: "succeeded", summary: "Location setup is verified." };
   } catch {
+    if (!isCurrent()) return blocked;
     return { status: "failed", summary: "Could not verify the existing Location task. Please try again." };
   }
 }

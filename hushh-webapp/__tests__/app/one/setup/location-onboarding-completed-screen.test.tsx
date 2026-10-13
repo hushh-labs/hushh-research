@@ -127,13 +127,15 @@ describe("completed Location onboarding re-entry", () => {
     expect(coordinatorMocks.finish).not.toHaveBeenCalled();
   });
 
-  it("discards a legacy verification response after the owner changes", async () => {
+  it("discards a legacy verification response after the owner changes and returns", async () => {
     legacyMocks.runId = "run_aaaaaaaaaaaaaaaa";
     let release!: (result: unknown) => void;
     legacyMocks.get.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
     const { rerender } = render(<LocationOnboardingSetupClient />);
     const pending = resolveLocalOnboardingHandler("setup.finish_location")!({});
     legacyMocks.userId = "user_b";
+    rerender(<LocationOnboardingSetupClient />);
+    legacyMocks.userId = "user_a";
     rerender(<LocationOnboardingSetupClient />);
     let result;
     await act(async () => {
