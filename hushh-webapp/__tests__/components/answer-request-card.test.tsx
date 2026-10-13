@@ -277,10 +277,10 @@ it.each(["preparing", "empty", undefined])(
     expect(screen.queryByRole("button", { name: /^Pay / })).toBeNull();
     expect(m.checkout).not.toHaveBeenCalled();
     if (preparationStatus === "empty") {
-      expect(screen.getByRole("status")).toHaveTextContent("does not contain an answer");
+      expect(screen.getByRole("status")).toHaveTextContent("Answer not found");
     } else {
       expect(screen.getByRole("status")).toHaveTextContent("being prepared");
-      expect(screen.getByRole("status")).not.toHaveTextContent("does not contain an answer");
+      expect(screen.getByRole("status")).not.toHaveTextContent("Answer not found");
     }
   },
 );
@@ -289,7 +289,7 @@ it("retries a failed requester status read without treating it as an absent answ
   m.payment.mockRejectedValueOnce(new Error("temporary status failure"));
   render(<AnswerRequestCard requestId={REQUEST} />);
   expect(await screen.findByText(/Payment status could not be checked/)).toBeVisible();
-  expect(screen.queryByText(/does not contain an answer/)).toBeNull();
+  expect(screen.queryByText(/Answer not found/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Refresh question" }));
   expect(await screen.findByRole("button", { name: "Open answer" })).toBeVisible();
   expect(m.payment).toHaveBeenCalledTimes(2);

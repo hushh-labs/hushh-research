@@ -392,7 +392,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
               // unavailable. No Pay control, because checkout would 503.
               <HelperText as="p" role="status">
                 {payment.preparationStatus === "empty"
-                  ? "The approved information does not contain an answer. You have not been charged."
+                  ? "Answer not found. You have not been charged."
                   : payments === "on"
                     ? "Their answer is being prepared. Payment opens when it is ready."
                     : payments === "off"
