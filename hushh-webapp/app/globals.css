@@ -3010,7 +3010,7 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   --agent-chat-header-height: calc(var(--agent-chat-header-row-height) + var(--agent-chat-header-safe-top));
 }
 
-@media (min-width: 768px) {
+@media (min-width: 1280px) {
   :root { --agent-chat-header-row-height: 3.75rem; }
 }
 
@@ -7939,17 +7939,32 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-agent-history-drawer] {
     left: 0 !important;
   }
-  .profile-pane-sheet .profile-pane-header {
+  html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-header,
+  html.native-full-window-overlays .profile-pane-sheet .profile-pane-header {
     padding-top: calc(16px + env(safe-area-inset-top, 0px)) !important;
     padding-left: max(16px, env(safe-area-inset-left, 0px)) !important;
     padding-right: max(68px, calc(52px + env(safe-area-inset-right, 0px))) !important;
   }
-  .profile-pane-sheet .profile-pane-header--inner {
+  html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-header--inner,
+  html.native-full-window-overlays .profile-pane-sheet .profile-pane-header--inner {
     padding-right: max(16px, env(safe-area-inset-right, 0px)) !important;
   }
-  .profile-pane-sheet .profile-pane-close {
+  html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-close,
+  html.native-full-window-overlays .profile-pane-sheet .profile-pane-close {
     top: calc(17px + env(safe-area-inset-top, 0px)) !important;
     right: max(16px, env(safe-area-inset-right, 0px)) !important;
+  }
+  html:not(.native-reserved-chrome) [data-agent-history-sidebar="drawer"],
+  html.native-full-window-overlays [data-agent-history-sidebar="drawer"] {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  html:not(.native-reserved-chrome) [data-agent-history-sidebar="drawer"] [data-agent-history-header],
+  html.native-full-window-overlays [data-agent-history-sidebar="drawer"] [data-agent-history-header] {
+    /* The drawer owns the safe area; its header has one action row. */
+    height: 60px;
   }
 }
 
@@ -9403,7 +9418,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 }
 
 /* One shared header measure, including feature-page and History reservations.
-   Phones retain all actions on a compact second row, not a 72px hero avatar.
+   Constrained widths retain all actions on a compact second row, not a 72px hero avatar.
    Both agents use the same tracks so switching does not move the transcript. */
 .agent-chat-header {
   display: grid;
@@ -9443,7 +9458,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   justify-content: flex-start;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 1280px) {
   .agent-chat-header {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     grid-template-rows: 44px;
@@ -9464,11 +9479,6 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     grid-column: 2;
     align-self: center;
   }
-  .agent-chat-header [data-agent-chat-header-region="identity"] p {
-    max-width: 128px;
-  }
-}
-@media (min-width: 1024px) {
   .agent-chat-header [data-agent-chat-header-region="identity"] p {
     max-width: 256px;
   }

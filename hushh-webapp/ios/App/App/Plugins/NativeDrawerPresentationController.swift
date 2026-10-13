@@ -2,6 +2,9 @@ import SwiftUI
 import UIKit
 
 enum NativeDrawerLayout {
+    static func travel(family: String, frame: CGRect, in bounds: CGRect) -> CGFloat {
+        max(1, family == "history" ? frame.maxX - bounds.minX : bounds.maxX - frame.minX)
+    }
     static func frame(family: String, in bounds: CGRect, phone: Bool) -> CGRect {
         if phone || bounds.width < 640 { return bounds }
         if family == "profile" {
@@ -169,9 +172,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             host.view.transform = .identity
             host.view.frame = NativeDrawerLayout.frame(family: model.projection.family, in: view.bounds,
                 phone: UIDevice.current.userInterfaceIdiom == .phone)
-            let halfWidth = host.view.bounds.width / 2
-            travel = max(1, direction > 0 ? view.bounds.maxX - host.view.center.x + halfWidth :
-                host.view.center.x + halfWidth - view.bounds.minX)
+            travel = NativeDrawerLayout.travel(family: model.projection.family, frame: host.view.frame, in: view.bounds)
             model.panelCornerRadius = host.view.frame == view.bounds ? 0 : model.projection.family == "history" ? 24 : 25
             pose(visible)
             // Invalidating geometry cancels a drag without committing its

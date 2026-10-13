@@ -364,7 +364,7 @@ async function buildFixture(variant: Variant): Promise<string> {
 <link rel="stylesheet" href="fixture.css">
 <style>${TOKENS}
 :root { --agent-chat-header-height:96px; }
-@media(min-width:768px) { :root { --agent-chat-header-height:60px; } }
+@media(min-width:1280px) { :root { --agent-chat-header-height:60px; } }
 ${geometry}
 ${productFontStyle()}
 </style></head><body>
@@ -645,11 +645,28 @@ test.describe("Agent Chat: which agent is answering", () => {
         const cluster = await box(page, "agent-header-cluster");
         const disjoint = identity.y + identity.height <= cluster.y + 0.5 || identity.x + identity.width <= cluster.x + 0.5;
         expect(disjoint, "Identity and actions must occupy separate tracks, never overlap").toBe(true);
-        expect(before.header.height).toBeLessThanOrEqual(width < 768 ? 96 : 60);
+        expect(before.header.height).toBeLessThanOrEqual(width < 1280 ? 96 : 60);
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
       }
     });
   }
+
+  test("active tool status cannot overlap the full action cluster at constrained widths", async ({ page }) => {
+    for (const width of [768, 1024, 1280]) {
+      await openFixture(page, SHIPPED, width);
+      // Public synthetic status exercises the streaming state omitted by the
+      // idle fixture. No real prompt or tool payload enters layout artifacts.
+      await page.getByTestId("agent-identity").locator("div.min-w-0").evaluate((element) => {
+        const status = document.createElement("p");
+        status.textContent = "Searching connected information";
+        element.append(status);
+      });
+      const identity = await box(page, "agent-identity");
+      const actions = await box(page, "agent-header-cluster");
+      expect(identity.y + identity.height <= actions.y + 0.5 || identity.x + identity.width <= actions.x + 0.5).toBe(true);
+      expect(actions.x + actions.width).toBeLessThanOrEqual(width + 0.5);
+    }
+  });
 
   test("a person with a single cloud model gets no picker, and the toggle still holds still", async ({
     page,

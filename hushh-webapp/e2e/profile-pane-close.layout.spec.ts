@@ -246,11 +246,16 @@ test.describe("Profile pane custom close layout", () => {
     await page.setContent(`<style>
       :root { --native-overlay-top: 116px; --native-overlay-bottom: 149px; }
       section { position: fixed; inset: 0; }
-      ${globals.slice(start, end)}
+      ${globals.slice(start, end).replace(/env\(safe-area-inset-(top|bottom|left|right), 0px\)/g, (_, edge: string) => `${edge === "top" ? 20 : edge === "bottom" ? 28 : 12}px`)}
     </style>
-    <section id="profile" data-testid="profile-pane" data-slot="sheet-content" data-sheet-side="right"></section>
+    <section id="profile" class="profile-pane-sheet" data-testid="profile-pane" data-slot="sheet-content" data-sheet-side="right">
+      <header class="profile-pane-header" data-slot="sheet-header"></header>
+      <button class="profile-pane-close" data-native-chrome-slot="profile-close" style="position:absolute"></button>
+    </section>
     <section id="preview" data-profile-preview></section>
-    <section id="history" data-agent-history-drawer data-slot="sheet-content" data-sheet-side="left"></section>`);
+    <section id="history" data-agent-history-drawer data-slot="sheet-content" data-sheet-side="left">
+      <aside data-agent-history-sidebar="drawer" style="box-sizing:border-box;height:100%"><header data-agent-history-header></header></aside>
+    </section>`);
     for (const mode of [
       { classes: "native-reserved-chrome native-full-window-overlays", top: 0, height: 844 },
       { classes: "native-reserved-chrome", top: 116, height: 579 },
@@ -264,6 +269,19 @@ test.describe("Profile pane custom close layout", () => {
         expect(bounds.y, `${mode.classes}:${family}`).toBeCloseTo(mode.top, 0);
         expect(bounds.height, `${mode.classes}:${family}`).toBeCloseTo(mode.height, 0);
       }
+      // Simulate nonzero material-safe insets in the owning CSS. Legacy native
+      // reservations already include them; only full-window content adds them.
+      const content = await page.evaluate(() => ({
+        profileTop: parseFloat(getComputedStyle(document.querySelector(".profile-pane-header")!).paddingTop),
+        closeTop: parseFloat(getComputedStyle(document.querySelector(".profile-pane-close")!).top),
+        historyTop: parseFloat(getComputedStyle(document.querySelector("aside")!).paddingTop),
+        historyBottom: parseFloat(getComputedStyle(document.querySelector("aside")!).paddingBottom),
+      }));
+      const legacy = mode.classes === "native-reserved-chrome";
+      expect(content.profileTop).toBe(legacy ? 16 : 36);
+      expect(content.closeTop).toBe(legacy ? 16 : 37);
+      expect(content.historyTop).toBe(legacy ? 0 : 20);
+      expect(content.historyBottom).toBe(legacy ? 0 : 28);
     }
   });
 

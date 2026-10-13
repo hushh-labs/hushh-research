@@ -33,6 +33,11 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(frame.width, 430)
         XCTAssertEqual(tablet.maxX - frame.maxX, 18)
         XCTAssertTrue(tablet.contains(frame))
+        let travel = NativeDrawerLayout.travel(family: "profile", frame: frame, in: tablet)
+        XCTAssertEqual(travel, 448)
+        XCTAssertGreaterThanOrEqual(frame.offsetBy(dx: travel, dy: 0).minX, tablet.maxX)
+        XCTAssertLessThan(frame.offsetBy(dx: frame.width, dy: 0).minX, tablet.maxX,
+            "Negative control: width-only travel leaves the inset tablet panel exposed")
     }
     @MainActor
     func testDrawerBootstrapUsesTheFinalCapacitorContentController() {

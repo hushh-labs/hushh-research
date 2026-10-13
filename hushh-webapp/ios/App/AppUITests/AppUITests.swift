@@ -1873,6 +1873,7 @@ final class AppUITests: XCTestCase {
         print("NATIVE_DOCK_STAGE stage=keyboard_closed")
         reportNativeDockAdmission(app)
         for cycle in 0..<10 {
+            let beforeRoute = try XCTUnwrap(counters(), "NATIVE_CHAT_ROUTE_CONTINUITY_PROBE_UNAVAILABLE")
             print("NATIVE_DOCK_STAGE stage=one_route cycle=\(cycle + 1)")
             perfTapNav(app, label: "One")
             let dock = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch
@@ -1880,7 +1881,10 @@ final class AppUITests: XCTestCase {
             let history = app.buttons["chat-history-toggle"].firstMatch
             let selector = app.segmentedControls["chat-agent-surface"].firstMatch
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                !history.exists && !selector.exists
+                // Suspended hosts deliberately hide accessibility but retain
+                // their pixels. Require actual removal, not AX absence alone.
+                !history.exists && !selector.exists &&
+                (counters()?["removals"] ?? 0) > (beforeRoute["removals"] ?? 0)
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [retired], timeout: 5), .completed,
                 "NATIVE_CHAT_CONTROLS_LEAKED_TO_ONE")
