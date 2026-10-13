@@ -7,7 +7,7 @@ vi.mock("@/components/profile/settings-ui", () => ({
   SettingsGroup: ({ title, children }: { title: string; children: React.ReactNode }) => <section aria-label={title}>{children}</section>,
   SettingsRow: ({ title, description, trailing }: { title: string; description: React.ReactNode; trailing: React.ReactNode }) => <div>{title}{description}{trailing}</div>,
 }));
-vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCardSharing: () => null }));
+vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCardSharing: ({ card }: { card: { cardId: string } }) => <button>Share {card.cardId}</button> }));
 vi.mock("@/lib/navigation/back-layers", () => ({ useBackLayer: vi.fn() }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 import { WalletSharingHistory } from "@/components/wallet/wallet-sharing-history";
@@ -39,8 +39,10 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     await waitFor(() => expect(mocks.revoke).toHaveBeenCalledWith(context, "First"));
   });
   it("keeps loaded history through refresh and rejects a late page after the owner changes", async () => {
+    mocks.profile.mockResolvedValue({ eligible: true, cardId: "profile_owner" });
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    expect(await screen.findByRole("button", { name: "Share profile_owner" })).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: "Load more shares" }));
     await screen.findByText("VISA •••• 4242 · Second");
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
@@ -54,6 +56,7 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     view.rerender(<WalletSharingHistory ownerId="other" active getContext={getContext} />);
     await act(async () => finish(page(["Old owner reply"])));
     expect(screen.queryByText(/First|Second|Old owner reply/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share profile_owner" })).toBeNull();
   });
   it("does not claim an empty ledger when loading fails, and uses the received direction", async () => {
     mocks.history.mockRejectedValueOnce(new Error("offline"));

@@ -28,10 +28,12 @@ describe("Wallet Sharing", () => {
 
   it("retains confirmed recipients during background refresh and tab changes", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [{ id: "grant", scope: "attr.wallet.summary.*", kind: "active_grant", status: "active", action: "grant", counterpart_type: "person", counterpart_label: "Alex" }] });
-    const view = render(<WalletSharing active />);
+    const getHistoryContext = () => null;
+    const view = render(<WalletSharing active getHistoryContext={getHistoryContext} />);
     await screen.findByText("Alex");
-    view.rerender(<WalletSharing active={false} />);
-    view.rerender(<WalletSharing active />);
+    expect(screen.getByRole("button", { name: "Manage" })).toBeVisible();
+    view.rerender(<WalletSharing active={false} getHistoryContext={getHistoryContext} />);
+    view.rerender(<WalletSharing active getHistoryContext={getHistoryContext} />);
     expect(loadWalletSharing).toHaveBeenCalledTimes(1);
     vi.mocked(loadWalletSharing).mockImplementationOnce(() => new Promise(() => {}));
     await act(async () => { window.dispatchEvent(new Event("focus")); });

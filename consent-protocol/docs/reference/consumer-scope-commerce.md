@@ -56,6 +56,16 @@ unchanged detector, budgets, duplicate occurrences and unrelated measurements.
 The database and admission leaves introduce no new size finding. Full core,
 hosted CI and exact-candidate Dev verification remain required.
 
+Latest main `3d30e32f4618` is also integrated normally, preserving current avatar
+and wallet presentation. Recipient-bound Profile sharing and Wallet-wide Manage
+controls remain reachable alongside card history; these distinct authorities
+are not replaced by the preview carousel. UTF-8 punctuation is normalized, and
+the incoming `wallet.add` graph revision has an explicit authored retirement.
+The current-owner artwork fence remains intact. The read-only headless
+counterpart probe verifies normal authentication, visible vault unlock and
+private Azure placement; its pod model diagnostic returns 503, so provider
+reachability and deployed private Memory execution remain unverified.
+
 Normal integration of main `1d691714135e` retains the existing infrastructure
 branch, prepared-answer settlement ownership and timed scope-access authority.
 The combined interface continues to use one Payments and earnings destination;

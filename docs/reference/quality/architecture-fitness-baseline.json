@@ -20174,7 +20174,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1449
+      "value": 1491
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22317,7 +22317,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/wallet_sharing_history.py",
       "symbol": "history",
-      "value": 199
+      "value": 205
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -38041,6 +38041,26 @@
     "reviewed_original_report_sha256": "701b2e2f5c42fe6ec79bb5bf3051dbf39e7f92ea856172579c90ef23715d6b9e",
     "reviewer": "migration_merge_review",
     "source_report_sha256": "353cd0cca01dd705c9d580cbc4979154d715ebb7d4c3e140a965be2784d2d779"
+  },
+  "scope_commerce_wallet_avatar_main_merge_20261013": {
+    "findings": [
+      {
+        "after": 205,
+        "before": 199,
+        "key": "function_size|consent-protocol/hushh_mcp/services/wallet_sharing_history.py|history|function exceeds the advisory gene budget",
+        "source_sha256": "1736970e0bb70720cf8f883b1148c37b6e8cc3d308e86cf307d2a0ee7ada65cf"
+      },
+      {
+        "after": 1491,
+        "before": 1449,
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "source_sha256": "b244ed0f40656d04368eb38614cd788865d1f549f3aea89fa2a56884c229e530"
+      }
+    ],
+    "incoming_main": "3d30e32f4618cf7e546cbf2296d91dd9b63af5b6",
+    "qualification": "Exact incoming main wallet source and bounded connections test composition; no new merge source, budgets or ordering changes.",
+    "reviewed_report_sha256": "5c775100c5b16658f281197c01867233c8024bbf0069547c439ae4a15e215d9c",
+    "reviewer": "migration_merge_review"
   },
   "scope_commerce_wallet_network_main_merge_20261012": {
     "findings": [
