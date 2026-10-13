@@ -31,7 +31,7 @@
   width: 192px;
   height: 160px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
 }

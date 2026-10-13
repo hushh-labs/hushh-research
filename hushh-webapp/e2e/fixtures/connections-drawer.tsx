@@ -6,6 +6,11 @@ import {
   type ConnectionsDrawerMode,
 } from "../../components/agent/agent-connections-drawer";
 import { OneAgentProfileSheet } from "../../components/agent/one-agent-profile-sheet";
+import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
+import { appInteractionCoordinator } from "../../lib/interaction/interaction-intent-coordinator";
+
+declare const __ONE_PROFILE_TRIGGER_CLASS__: string;
+
 import { OnePresenceAvatar, resolveOnePresenceState } from "../../components/agent/one-presence-avatar";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
@@ -238,6 +243,7 @@ function Fixture() {
       </main>
     );
   }
+  (window as unknown as { __setOnePresenceLifecycle: typeof appInteractionCoordinator.handleLifecycle }).__setOnePresenceLifecycle = state => appInteractionCoordinator.handleLifecycle(state);
   return (
     <main
       className="relative flex h-dvh flex-col overflow-hidden bg-background text-foreground"
@@ -259,9 +265,15 @@ function Fixture() {
       </button>
       {panelParity ? <button onClick={() => openProfilePane(window.location.pathname, window.location.search)}>Open reference Profile</button> : null}
       <ProfilePane open={referenceProfileOpen} onOpenChange={next => { if (!next) closeProfilePane(window.location.pathname, window.location.search); }} />
-      {new URLSearchParams(window.location.search).has("one-profile") ? <button data-testid="one-presence-header" ref={oneProfileTrigger} onClick={() => setOneProfileOpen(true)}>
-        <OnePresenceAvatar state={onePresenceState} /> Open One profile
-      </button> : null}
+      {new URLSearchParams(window.location.search).has("one-profile") ? <div className="agent-chat-header" data-one-centered-header="true">
+        <div data-agent-chat-header-region="identity"><div data-agent-chat-brand-tile>
+          <ShellActionSurface variant="icon" data-testid="one-presence-header" data-agent-chat-one-profile-trigger
+            aria-label="Open One profile" ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__}
+            onClick={() => setOneProfileOpen(true)}>
+            <OnePresenceAvatar state={onePresenceState} />
+          </ShellActionSurface>
+        </div></div>
+      </div> : null}
       <OneAgentProfileSheet presenceState={onePresenceState} open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
       <AgentConnectionsDrawer
         gestureSurfaceRef={transcriptRef}

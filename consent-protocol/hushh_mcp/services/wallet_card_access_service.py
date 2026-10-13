@@ -385,7 +385,7 @@ class WalletCardAccessService:
     ):
         source = source_for_card(card_id)
         refs = sorted({str(uuid.UUID(str(ref))) for ref in person_refs})
-        if duration_minutes not in (5, 10, 15) or not refs or len(refs) > 20:
+        if duration_minutes not in (5, 10, 15, 60, 120) or not refs or len(refs) > 20:
             raise WalletCardAccessError("WALLET_CARD_SHARE_INVALID", 422)
         if encrypted_cards is not None:
             try:

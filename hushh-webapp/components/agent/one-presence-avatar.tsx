@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import NextImage from "next/image";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 export type OnePresenceState = "connected" | "thinking" | "working" | "answering";
 
@@ -21,7 +22,9 @@ const portrait = {
   answering: "/one-presence/thinking-hd.png",
 } satisfies Record<OnePresenceState, string>;
 
-/** Compact work states keep the 72-frame animation; large portraits stay sharp. */
+const compactClassName = "block size-16 shrink-0 bg-contain bg-center bg-no-repeat";
+
+/** Both surfaces show mapped work frames; idle/reduced motion keep HD artwork. */
 export function OnePresenceAvatar({ state, presentation = "compact", className }: {
   state: OnePresenceState;
   presentation?: "compact" | "profile";
@@ -29,7 +32,7 @@ export function OnePresenceAvatar({ state, presentation = "compact", className }
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    if (presentation === "profile" || state === "connected") return;
+    if (state === "connected") return;
     const canvas = ref.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
@@ -57,7 +60,15 @@ export function OnePresenceAvatar({ state, presentation = "compact", className }
     const sync = () => {
       cancelAnimationFrame(frameRequest);
       if (!loaded || disposed) return;
-      if (motion.matches || document.hidden || !visible) { draw(0); return; }
+      if (motion.matches) {
+        context.clearRect(0, 0, 128, 128);
+        previous = -1;
+        canvas.style.backgroundImage = `url('${portrait[state]}')`;
+        return;
+      }
+      if (document.hidden || !visible || appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+      canvas.style.backgroundImage = "none";
+      draw(0);
       start = performance.now();
       frameRequest = requestAnimationFrame(tick);
     };
@@ -76,6 +87,7 @@ export function OnePresenceAvatar({ state, presentation = "compact", className }
     image.src = `/one-presence/${state === "answering" ? "thinking" : state}.webp`;
     document.addEventListener("visibilitychange", sync);
     motion.addEventListener("change", sync);
+    const unsubscribeLifecycle = appInteractionCoordinator.subscribeLifecycle(sync);
     return () => {
       disposed = true;
       cancelAnimationFrame(frameRequest);
@@ -83,9 +95,10 @@ export function OnePresenceAvatar({ state, presentation = "compact", className }
       image.onload = null;
       document.removeEventListener("visibilitychange", sync);
       motion.removeEventListener("change", sync);
+      unsubscribeLifecycle();
     };
   }, [presentation, state]);
-  if (presentation === "profile" || state === "connected") {
+  if (state === "connected") {
     return <NextImage src={portrait[state]} width={1254} height={1254} alt=""
       aria-hidden="true" data-one-presence-state={state}
       unoptimized loading="eager" decoding="async"
@@ -93,6 +106,6 @@ export function OnePresenceAvatar({ state, presentation = "compact", className }
   }
   return <canvas ref={ref} width={128} height={128} aria-hidden="true"
     data-one-presence-state={state}
-    className="block size-16 shrink-0 bg-contain bg-center bg-no-repeat"
-    style={{ backgroundImage: `url('${portrait[state]}')` }} />;
+    className={className ? `${className} bg-contain bg-center bg-no-repeat` : compactClassName}
+    style={{ backgroundColor: "transparent", backgroundImage: `url('${portrait[state]}')` }} />;
 }
