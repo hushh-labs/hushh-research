@@ -3041,6 +3041,7 @@
         "profile.gmail.connect",
         "profile.gmail.disconnect",
         "profile.gmail.sync_now",
+        "profile.gmail.visit_merchant",
         "route.one_gmail_kyc",
         "route.profile_receipts"
       ],
@@ -10124,5 +10125,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "8d46a1fe74d16aa75efae2a02f0a097d415a74f97c065e3407703a21a0a47381"
+  "content_sha256": "60c9f486865650bdd66a4d30a09d3302247b288e196d5e9efc72d5292e4f8e78"
 }
