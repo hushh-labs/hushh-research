@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ProfilePaneAccountIcon } from "@/components/profile/profile-pane-icons";
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { SettingsGroup, SettingsRow, SettingsPresentationProvider } from "@/components/profile/settings-ui";
 import { WalletCardAccessService, type CardSharingHistory, type CardSharingHistoryItem } from "@/lib/services/wallet-card-access-service";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
 import { WalletSavedCardSharing } from "./wallet-saved-card-sharing";
@@ -103,11 +103,11 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
     catch { /* Toast owns action feedback; confirmed history stays visible. */ }
     finally { if (context.isCurrent()) setBusy(null); }
   };
-  return <section aria-label="Card sharing history" className="space-y-4">
+  return <SettingsPresentationProvider density="compact"><section aria-label="Card sharing history" className="space-y-4">
     {active && profile?.context.isCurrent() && profile.context.userId === ownerId ? <WalletSavedCardSharing card={{ cardId: profile.cardId }} getContext={getContext} disabled={Boolean(busy)} showHistory={false} /> : null}
     <div className="flex gap-2" role="group" aria-label="Share direction">
-      <Button size="compact" variant={direction === "outgoing" ? "default" : "secondary"} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Sent cards</Button>
-      <Button size="compact" variant={direction === "received" ? "default" : "secondary"} aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Received cards</Button>
+      <Button size="compact" className="ui-text-compact-button-label" variant={direction === "outgoing" ? "default" : "secondary"} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Sent cards</Button>
+      <Button size="compact" className="ui-text-compact-button-label" variant={direction === "received" ? "default" : "secondary"} aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Received cards</Button>
     </div>
     <SettingsGroup title={direction === "outgoing" ? "Shared cards" : "Cards shared with you"}>
       {current?.page.items.map(item => <SettingsRow key={`${item.cardType}:${item.id}`} icon={ProfilePaneAccountIcon} iconTone="transparent"
@@ -125,12 +125,12 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
       {!current && !failed ? <SettingsRow title="Loading shared cards…" /> : null}
       {current && !current.page.items.length ? <SettingsRow title={direction === "outgoing" ? "No cards shared yet" : "No cards received yet"} /> : null}
     </SettingsGroup>
-    {failed ? <div role="alert"><p className="text-sm">Could not refresh card sharing.</p><Button variant="ghost" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : null}
+    {failed ? <div role="alert"><p className="ui-text-row-description">Could not refresh card sharing.</p><Button variant="ghost" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : null}
     {current?.page.nextCursor ? <div ref={end}><Button variant="ghost" size="compact" disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading more shares…" : moreFailed ? "Retry loading shares" : "Load more shares"}</Button></div> : null}
     <AlertDialog open={Boolean(selection && current)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
       <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Revoke this card share?</AlertDialogTitle><AlertDialogDescription>This stops future access for {selection?.recipientName}. Information already viewed cannot be taken back.</AlertDialogDescription></AlertDialogHeader>
         <AlertDialogFooter><AlertDialogCancel disabled={Boolean(busy)}>Keep sharing</AlertDialogCancel><AlertDialogAction disabled={Boolean(busy)} onClick={event => { event.preventDefault(); if (selection) void revoke(selection); }}>Revoke access</AlertDialogAction></AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  </section>;
+  </section></SettingsPresentationProvider>;
 }
