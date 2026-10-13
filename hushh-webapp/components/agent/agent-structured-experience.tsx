@@ -665,8 +665,12 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       setRefreshState("unavailable");
       return () => { active = false; };
     }
-    const published = publishedRef.current;
     const fromEvent = eventRefreshRef.current;
+    // A queued pre-event publication is not the answer to this doorbell.
+    // Keep publication reuse for descriptor refreshes, but re-read authority
+    // after an event even when an older pending result was just published.
+    const published = fromEvent ? null : publishedRef.current;
+    if (fromEvent) publishedRef.current = null;
     eventRefreshRef.current = false;
     if (!published) setRefreshState("checking");
     // A status-change event must not reuse a read that began before the

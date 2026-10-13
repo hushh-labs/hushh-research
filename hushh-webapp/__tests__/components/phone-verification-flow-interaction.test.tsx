@@ -5,7 +5,10 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Capacitor } from "@capacitor/core";
+
+beforeEach(() => { vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(false); });
 
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
@@ -21,10 +24,13 @@ function renderPhoneVerificationFlow(options?: {
   phonePresentation?: "compact";
   confirmVerification?: ReturnType<typeof vi.fn>;
   currentPhoneNumber?: string | null;
+  mode?: "link" | "replace";
+  startVerification?: ReturnType<typeof vi.fn>;
+  onContinueExisting?: ReturnType<typeof vi.fn>;
 }) {
-  const startVerification = options?.startRejects
+  const startVerification = options?.startVerification ?? (options?.startRejects
     ? vi.fn().mockRejectedValue(new Error("provider unavailable"))
-    : vi.fn().mockResolvedValue({ autoVerified: false });
+    : vi.fn().mockResolvedValue({ autoVerified: false }));
   const confirmVerification =
     options?.confirmVerification ??
     vi.fn().mockResolvedValue({ uid: "user_1" });
@@ -32,13 +38,14 @@ function renderPhoneVerificationFlow(options?: {
 
   const flow = (currentPhoneNumber?: string | null) => (
     <PhoneVerificationFlow
-      mode="link"
+      mode={options?.mode ?? "link"}
       codePresentation={options?.codePresentation}
       phonePresentation={options?.phonePresentation}
       currentPhoneNumber={currentPhoneNumber}
       startVerification={startVerification}
       confirmVerification={confirmVerification}
       onCompleted={onCompleted}
+      onContinueExisting={options?.onContinueExisting}
     />
   );
 
@@ -88,6 +95,38 @@ async function selectIndiaOnce() {
 }
 
 describe("PhoneVerificationFlow country selector", () => {
+  it.each(["linked", "same-number"])("requires retryable native synchronization before %s completion", async (path) => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    let reject!: (error: Error) => void;
+    const pending = new Promise<{ autoVerified: boolean }>((_resolve, rejectPromise) => { reject = rejectPromise; });
+    const start = vi.fn().mockReturnValueOnce(pending).mockResolvedValue({ autoVerified: true });
+    const continueExisting = vi.fn();
+    const handle = renderPhoneVerificationFlow({ mode: path === "linked" ? "link" : "replace", currentPhoneNumber: "+16505550101", startVerification: start, onContinueExisting: continueExisting });
+    const action = screen.getByRole("button", { name: path === "linked" ? "Continue" : "Send verification code" });
+    fireEvent.click(action);
+    fireEvent.click(action);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(continueExisting).not.toHaveBeenCalled();
+    expect(handle.onCompleted).not.toHaveBeenCalled();
+    await act(async () => { reject(new Error("persistence unavailable")); });
+    await waitFor(() => expect(action).toBeEnabled());
+    expect(continueExisting).not.toHaveBeenCalled();
+    expect(handle.onCompleted).not.toHaveBeenCalled();
+    fireEvent.click(action);
+    await waitFor(() => expect(path === "linked" ? continueExisting : handle.onCompleted).toHaveBeenCalledOnce());
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(handle.confirmVerification).not.toHaveBeenCalled();
+  });
+
+  it.each(["linked", "same-number"])("retains the existing web %s completion without another OTP", async (path) => {
+    const continueExisting = vi.fn();
+    const handle = renderPhoneVerificationFlow({ mode: path === "linked" ? "link" : "replace", currentPhoneNumber: "+16505550101", onContinueExisting: continueExisting });
+    fireEvent.click(screen.getByRole("button", { name: path === "linked" ? "Continue" : "Send verification code" }));
+    await waitFor(() => expect(path === "linked" ? continueExisting : handle.onCompleted).toHaveBeenCalledOnce());
+    expect(handle.startVerification).not.toHaveBeenCalled();
+    expect(handle.confirmVerification).not.toHaveBeenCalled();
+  });
+
   it("validates compact entry only after Continue, retains errors until corrected, and never sends invalid input", async () => {
     const { startVerification } = renderPhoneVerificationFlow({ phonePresentation: "compact" });
     const input = screen.getByRole("textbox", { name: "Phone number" });

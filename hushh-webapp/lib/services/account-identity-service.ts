@@ -139,7 +139,7 @@ export class AccountIdentityService {
   static async refreshIdentityForSession(
     userId: string,
     idToken: string,
-    options?: { force?: boolean },
+    options?: { force?: boolean; requireSuccess?: boolean },
   ): Promise<AccountIdentity | null> {
     const response = await ApiService.refreshAccountIdentityShadow(idToken, options);
     const identity = await this.identityFromResponse(response);
@@ -152,7 +152,7 @@ export class AccountIdentityService {
 
   static async refreshCurrentUserIdentity(
     user: User | null | undefined,
-    options?: { force?: boolean }
+    options?: { force?: boolean; requireSuccess?: boolean }
   ): Promise<AccountIdentity | null> {
     if (!user?.uid) {
       return null;
@@ -209,8 +209,11 @@ export class AccountIdentityService {
       return null;
     }
 
-    const response = await ApiService.claimAccountPhone(phoneIdToken, idToken);
+    const response = await ApiService.claimAccountPhone(phoneIdToken, idToken, user.uid);
     const identity = response.identity ?? null;
+    if (identity?.user_id !== user.uid) {
+      throw new Error("Phone verification could not be completed for this account.");
+    }
     // Write through so guards immediately see the newly verified phone.
     this.cacheIdentity(user.uid, identity);
     return identity;
@@ -346,11 +349,37 @@ export class AccountIdentityService {
       params.phoneNumber,
       params.verificationCode,
       params.verificationId,
-      idToken
+      idToken,
+      user.uid
     );
     const identity = response.identity ?? null;
+    if (identity?.user_id !== user.uid) {
+      throw new Error("Phone verification could not be completed for this account.");
+    }
     this.cacheIdentity(user.uid, identity);
     return identity;
+  }
+
+  static async finalizeNativePhoneVerification(
+    user: User | null | undefined,
+    requestedPhone: string | null | undefined,
+  ): Promise<void> {
+    const linkedPhone = String(user?.phoneNumber ?? "").trim();
+    const expectedPhone = String(requestedPhone ?? "").trim();
+    if (!user?.uid || !expectedPhone || linkedPhone !== expectedPhone) {
+      throw new Error("Phone verification completed but the linked phone could not be confirmed.");
+    }
+    const identity = await this.refreshCurrentUserIdentity(user, {
+      force: true,
+      requireSuccess: true,
+    });
+    if (
+      identity?.user_id !== user.uid ||
+      identity.phone_verified !== true ||
+      String(identity.phone_number ?? "").trim() !== expectedPhone
+    ) {
+      throw new Error("Phone verification could not be saved to your account. Please retry or use a different phone number.");
+    }
   }
 
   static async syncCurrentUser(
