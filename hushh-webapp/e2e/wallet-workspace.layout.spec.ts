@@ -715,6 +715,15 @@ for (const width of [320, 390, 1440]) {
   });
 }
 
+async function openSyntheticRuPayCard(page: Page, width: number) {
+  const errors = await open(page, width, "light", { networkCards: true }, { height: 844, shell: true, secure: true });
+  await mount(page);
+  await page.getByRole("button", { name: "Search cards" }).click();
+  await page.getByRole("textbox", { name: "Search cards" }).fill("RuPay");
+  await page.getByRole("button", { name: /^RuPay ·/ }).click();
+  return errors;
+}
+
 for (const width of [390, 1440]) {
   test(`Wallet card actions: tab highlight stays centered during form presses and tab switches at ${width}px`, async ({ page }) => {
     // Six tab switches and twelve press/release cycles share this budget.
@@ -830,18 +839,19 @@ for (const width of [390, 1440]) {
     await expect(details).toBeVisible();
   });
 
-  test(`Temporary card sharing: logos and recipient selection fit at ${width}px`, async ({ page }) => {
-    const errors = await open(page, width, "light", { networkCards: true }, { height: 844, shell: true, secure: true });
-    await mount(page);
-    await page.getByRole("button", { name: "Search cards" }).click();
-    await page.getByRole("textbox", { name: "Search cards" }).fill("RuPay");
-    await page.getByRole("button", { name: /^RuPay ·/ }).click();
+  test(`Temporary card sharing: revealed logo fits at ${width}px`, async ({ page }) => {
+    const errors = await openSyntheticRuPayCard(page, width);
     const face = page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face");
     await expect(face).toHaveAttribute("data-revealed", "true");
     const logo = face.getByTestId("card-network-wordmark-rupay").locator("img");
     await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
     expect(await logo.evaluate(el => { const box = el.getBoundingClientRect(), card = el.closest('[data-testid="wallet-card-face"]')!.getBoundingClientRect(); return box.left >= card.left && box.right <= card.right && box.top >= card.top && box.bottom <= card.bottom; })).toBe(true);
     await face.screenshot({ path: test.info().outputPath("wallet-rupay-card.png") });
+    expect(errors).toEqual([]);
+  });
+
+  test(`Temporary card sharing: recipient selection fits at ${width}px`, async ({ page }) => {
+    const errors = await openSyntheticRuPayCard(page, width);
     await page.getByRole("button", { name: "Share card Temporary access for your connections.", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("textbox", { name: "Search connections" })).toBeVisible();
@@ -851,12 +861,24 @@ for (const width of [390, 1440]) {
     await expect(dialog.getByRole("button", { name: "Share with 2", exact: true })).toBeEnabled();
     await expect(dialog).toContainText("Trusted Circle");
     await expect(dialog.getByRole("button", { name: "15 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath("wallet-encrypted-card-sharing.png") });
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test(`Temporary card sharing: duration selection and Escape dismissal at ${width}px`, async ({ page }) => {
+    const errors = await openSyntheticRuPayCard(page, width);
+    await page.getByRole("button", { name: "Share card Temporary access for your connections.", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("button", { name: "15 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
     await dialog.getByRole("button", { name: "1 hour", exact: true }).click();
     await expect(dialog.getByRole("button", { name: "1 hour", exact: true })).toHaveAttribute("aria-pressed", "true");
     await dialog.getByRole("button", { name: "2 hours", exact: true }).click();
     await expect(dialog.getByRole("button", { name: "2 hours", exact: true })).toHaveAttribute("aria-pressed", "true");
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-    await page.screenshot({ path: test.info().outputPath("wallet-encrypted-card-sharing.png") });
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
     await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
