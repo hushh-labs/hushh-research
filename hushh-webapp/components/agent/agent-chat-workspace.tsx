@@ -9388,6 +9388,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 vaultKey={vaultKey ?? null}
                 vaultOwnerToken={vaultOwnerToken ?? null}
                 enabled={hasChatAccess && !isPuppySurface}
+                onPromptSelect={handleWelcomePromptSelect}
+                promptDisabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
               />
 
 
