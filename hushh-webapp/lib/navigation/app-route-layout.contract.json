@@ -418,10 +418,10 @@
   {
     "route": "/getting-started",
     "mode": "hidden",
-    "exemptionReason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes.",
+    "exemptionReason": "Compatibility entry redirects signed-out visitors to sign-in and signed-in people to One; it renders no application shell.",
     "voicePlaybook": {
       "playbookId": "route.getting.started",
-      "purpose": "Help the person understand and use the getting started screen through its generated controls.",
+      "purpose": "Complete the compatibility entry handoff according to the current session; no carousel or local action controls are rendered.",
       "screen": "getting_started",
       "entryCue": "",
       "proactivity": "ambient",
@@ -436,8 +436,8 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": "/getting-started",
+      "completionBoundary": "The signed-out login destination or signed-in One destination has settled.",
+      "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     },
@@ -449,7 +449,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes."
+      "reason": "Compatibility entry redirects before application interaction; Back belongs to the settled destination."
     }
   },
   {
