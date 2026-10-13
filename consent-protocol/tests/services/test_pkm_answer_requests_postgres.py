@@ -876,7 +876,9 @@ async def test_creation_is_durable_before_catalog_or_model_work(answer_engine):
     assert (await service.pending_for_owner(owner_user_id=OWNER))[0]["proposedScopes"] == []
 
 
-async def test_resolution_lease_recovers_abandoned_work_and_excludes_competing_drains(answer_engine):
+async def test_resolution_lease_recovers_abandoned_work_and_excludes_competing_drains(
+    answer_engine,
+):
     entered = asyncio.Event()
     release = asyncio.Event()
     calls = 0
@@ -890,16 +892,20 @@ async def test_resolution_lease_recovers_abandoned_work_and_excludes_competing_d
             return ["attr.travel.trips"]
 
     service = PkmAnswerRequestService(
-        _db(answer_engine), resolver=WaitingResolver(), catalog_reader=_fixture_catalog(answer_engine)
+        _db(answer_engine),
+        resolver=WaitingResolver(),
+        catalog_reader=_fixture_catalog(answer_engine),
     )
     created = await service.create(
         requester_user_id=REQUESTER, owner_user_id=OWNER, question="Where did you travel?"
     )
     with answer_engine.begin() as connection:
-        connection.execute(text("""UPDATE pkm_answer_requests
+        connection.execute(
+            text("""UPDATE pkm_answer_requests
             SET resolution_lease_until=clock_timestamp()-interval '1 second',
                 resolution_attempts=1 WHERE request_id=:request"""),
-            {"request": created["requestId"]})
+            {"request": created["requestId"]},
+        )
     first = asyncio.create_task(service.resolve_pending())
     try:
         await asyncio.wait_for(entered.wait(), 5)
@@ -909,9 +915,17 @@ async def test_resolution_lease_recovers_abandoned_work_and_excludes_competing_d
         release.set()
         await asyncio.wait_for(first, 5)
     with answer_engine.begin() as connection:
-        row = connection.execute(text("""SELECT status, resolution_attempts,
-            resolution_lease_until FROM pkm_answer_requests""")).mappings().one()
+        row = (
+            connection.execute(
+                text("""SELECT status, resolution_attempts,
+            resolution_lease_until FROM pkm_answer_requests""")
+            )
+            .mappings()
+            .one()
+        )
         assert row["status"] == "awaiting_owner"
         assert row["resolution_attempts"] == 2
         assert row["resolution_lease_until"] is None
-    assert (await service.pending_for_owner(owner_user_id=OWNER))[0]["proposedScopes"][0]["scope"] == "attr.travel.trips"
+    assert (await service.pending_for_owner(owner_user_id=OWNER))[0]["proposedScopes"][0][
+        "scope"
+    ] == "attr.travel.trips"
