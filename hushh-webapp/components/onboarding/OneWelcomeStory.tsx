@@ -136,6 +136,7 @@ function WelcomeArtwork({ dark = false }: { dark?: boolean }) {
               />
               <OneRosterAgentIcon
                 agentId={TILE_AGENTS[index]!}
+                weight={TILE_AGENTS[index] === "messages" ? "regular" : "duotone"}
                 x={x + w / 2 - Math.min(w, h) * 0.26}
                 y={y + h / 2 - Math.min(w, h) * 0.26}
                 size={Math.min(w, h) * 0.52}
