@@ -994,7 +994,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "hidden",
-        "exemption_reason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes.",
+        "exemption_reason": "Compatibility entry redirects signed-out visitors to sign-in and signed-in people to One; it renders no application shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -1002,7 +1002,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.getting.started",
-          "purpose": "Help the person understand and use the getting started screen through its generated controls.",
+          "purpose": "Complete the compatibility entry handoff according to the current session; no carousel or local action controls are rendered.",
           "screen": "getting_started",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -1017,8 +1017,8 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/getting-started",
+          "completion_boundary": "The signed-out login destination or signed-in One destination has settled.",
+          "next_route": null,
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -10595,5 +10595,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "3b7cb02b88416e47d0a017f64a352916fea215f933b5a17f59bb6285e5ba8b9d"
+  "content_sha256": "7988ff80eb2bbb09337550c361aea40e8609e5034d342b23b92d053852f7edfd"
 }
