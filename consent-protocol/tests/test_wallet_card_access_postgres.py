@@ -54,6 +54,7 @@ def cards_db(legacy_cards_db):
             "323_wallet_sharing_owner_index.sql",
             "324_wallet_sharing_recipient_index.sql",
             "325_wallet_sharing_audit_index.sql",
+            "330_wallet_share_longer_durations.sql",
         ]
     )
     db.apply_migrations(["322_wallet_universal_sharing.sql"])
