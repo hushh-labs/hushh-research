@@ -129,6 +129,20 @@ function deferred<T>() {
 // ---------------------------------------------------------------------------
 
 describe("ApiService.apiFetch", () => {
+  it.each(["ios", "android"])("preserves authenticated attachment bytes on %s and keeps JSON refusals readable", async platform => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue(platform);
+    const bytes = new Uint8Array([0, 255, 137, 80, 78, 71, 13, 10, 128]);
+    capacitorMocks.request.mockResolvedValueOnce({ status: 200, headers: { "content-type": "application/octet-stream" },
+      data: btoa(String.fromCharCode(...bytes)) });
+    const response = await ApiService.apiFetch("/api/one/messages/conversations/c/messages/m/attachment", { responseType: "arraybuffer", headers: { Authorization: "Bearer synthetic-token" } });
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(capacitorMocks.request).toHaveBeenCalledWith(expect.objectContaining({ responseType: "arraybuffer" }));
+    capacitorMocks.request.mockResolvedValueOnce({ status: 403, headers: { "Content-Type": "application/json" }, data: { detail: { message: "Unavailable" } } });
+    const refused = await ApiService.apiFetch("/api/one/messages/conversations/c/messages/m/attachment", { responseType: "arraybuffer" });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ detail: { message: "Unavailable" } });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockReset();
