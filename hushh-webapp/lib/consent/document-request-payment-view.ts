@@ -7,6 +7,7 @@
  * request details can never disagree on state or countdown. `price` separates
  * the estimate the requester saw from the owner's current and final price.
  */
+import { parseDrivePackageDisclosure, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 
 export type RequesterPaymentState =
@@ -35,6 +36,9 @@ export type RequesterPaymentView = {
   nextAction: "pay" | "wait_owner" | "new_request" | "none";
   /** True once the requester withdrew the request. Absent from older servers. */
   withdrawn?: boolean;
+  /** Marked agent packets require their sealed buyer disclosure before Pay. */
+  packageDisclosureRequired?: boolean;
+  packageDisclosure?: DrivePackageDisclosure | null;
 };
 
 export type RequesterPriceState = "estimate" | "owner_set" | "final" | "awaiting_owner";
@@ -143,6 +147,7 @@ export function parseRequesterPaymentView(value: unknown): RequesterPaymentView 
     refund = { status: item.status as RequesterRefundStatus, amountCents: item.amountCents };
   }
   if (raw.withdrawn !== undefined && typeof raw.withdrawn !== "boolean") return null;
+  if (raw.packageDisclosureRequired !== undefined && typeof raw.packageDisclosureRequired !== "boolean") return null;
   return {
     state,
     amountCents,
@@ -152,6 +157,8 @@ export function parseRequesterPaymentView(value: unknown): RequesterPaymentView 
     refund,
     nextAction: raw.nextAction as RequesterPaymentView["nextAction"],
     withdrawn: raw.withdrawn === true,
+    ...(raw.packageDisclosureRequired === undefined ? {} : { packageDisclosureRequired: raw.packageDisclosureRequired as boolean }),
+    ...(raw.packageDisclosure === undefined ? {} : { packageDisclosure: parseDrivePackageDisclosure(raw.packageDisclosure) }),
   };
 }
 

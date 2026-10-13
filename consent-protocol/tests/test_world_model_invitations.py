@@ -135,7 +135,7 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             INSERT INTO actor_profiles VALUES ('inviter'),('recipient'),('wrong');
             CREATE TABLE vault_keys(user_id text PRIMARY KEY, setup_completed bool, vault_status text);
             INSERT INTO vault_keys SELECT user_id,true,'active' FROM actor_profiles;""")
-        migration = (ROOT / "db/migrations/333_pwm_claim_invitations.sql").read_text()
+        migration = (ROOT / "db/migrations/336_pwm_claim_invitations.sql").read_text()
         await pool.execute(migration)
         await pool.execute(migration)
         import asyncio
@@ -167,9 +167,9 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         with pytest.raises(PermissionError):
             await invites.create("inviter", "fixture", "recipient@example.test")
         await pool.execute(
-            (ROOT / "db/migrations/rollback/333_pwm_claim_invitations.rollback.sql").read_text()
+            (ROOT / "db/migrations/rollback/336_pwm_claim_invitations.rollback.sql").read_text()
         )
-        await pool.execute((ROOT / "db/migrations/332_pwm_provider_budget.sql").read_text())
+        await pool.execute((ROOT / "db/migrations/335_pwm_provider_budget.sql").read_text())
         from hushh_mcp.one_adk import world_model
 
         monkeypatch.setattr("db.connection.get_pool", AsyncMock(return_value=pool))
@@ -177,7 +177,7 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         await pool.execute("UPDATE pwm_provider_budget SET credits=900")
         assert await world_model.charge_search_credit() is False
         await pool.execute(
-            (ROOT / "db/migrations/rollback/332_pwm_provider_budget.rollback.sql").read_text()
+            (ROOT / "db/migrations/rollback/335_pwm_provider_budget.rollback.sql").read_text()
         )
     finally:
         await pool.close()

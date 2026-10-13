@@ -1,5 +1,10 @@
 # Agent-assessed Drive request packages
 
+Continuous collection preparation and canonical packet reuse extend this
+request workflow; see [continuous Drive packets](./drive-continuous-packets.md).
+The live retrieval and 20 KiB excerpt below describe the fallback path; current
+indexed requests reuse complete versioned facts and their original-page evidence.
+
 ## User story
 
 Chris asks for all Schwab statements covering September 1–October 9, 2026. The explicitly selected dates narrow the year in his sentence. AgentOne searches Manish's connected Drive, reads candidate contents, and assesses relevance and statement coverage. A recent file edit is never evidence of a recent statement period.
@@ -48,7 +53,7 @@ The report records fixture/manifest hashes, model alias/resolved model where ava
 
 ## Rollout and compatibility
 
-Migrations `consent-protocol/db/migrations/328_drive_request_packages.sql` and `consent-protocol/db/migrations/329_drive_request_cent_prices.sql` add the package evidence fields and cent-denominated price constraints after the existing direct-message delivery migration 327. The release schema contracts require version 329.
+Migrations `consent-protocol/db/migrations/328_drive_request_packages.sql` and `consent-protocol/db/migrations/329_drive_request_cent_prices.sql` add the package evidence fields and cent-denominated price constraints after the existing direct-message delivery migration 327. The continuous-packet release extends the schema contracts through version 334.
 
 `DRIVE_AGENT_PACKAGES_ENABLED` enrolls new requester-origin live Drive requests. The UAT release defaults it on; other environments default off. A sealed `agent_package_required` marker persists the contract after creation so disabling enrollment cannot downgrade an existing package to legacy manual or Trusted automation. Historical frozen and paid records are not reinterpreted.
 

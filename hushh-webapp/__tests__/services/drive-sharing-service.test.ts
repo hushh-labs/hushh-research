@@ -70,6 +70,24 @@ describe("requester document payment boundary", () => {
     await expect(DriveRequestPaymentService.checkout("firebase", requestId)).rejects.toThrow("Invalid checkout response");
   });
 
+  it("parses only sealed buyer disclosure fields and rejects invalid coverage dates", async () => {
+    const purpose = { purpose: "Statements", periodStart: "2026-09-01", periodEnd: "2026-10-09" };
+    const packageDisclosure = { schemaVersion: 1, packageDigest: "b".repeat(64), packageRevision: 2,
+      selectedCount: 1, coverageStatus: "partial", periods: [{ start: "2026-09-01", end: "2026-09-30" }],
+      limitations: ["October coverage is missing."] };
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, packageDisclosure: { ...packageDisclosure, rawModelNarrative: "private" } }));
+    expect(await DriveSharingService.requesterContext("vault", requestId, guard)).toEqual({ requestId, purpose, packageDisclosure });
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, packageDisclosure: { ...packageDisclosure, periods: [{ start: "2026-02-30", end: "2026-03-01" }] } }));
+    await expect(DriveSharingService.requesterContext("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("preserves actionable pre-charge access outcomes without opening checkout", async () => {
+    for (const code of ["request_already_accessible", "package_existing_access_requires_review"]) {
+      fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { code } }), { status: 409 }));
+      await expect(DriveRequestPaymentService.checkout("firebase", requestId)).rejects.toMatchObject({ code });
+    }
+  });
+
   it("preserves an unset price while setup is pending without inventing an amount", async () => {
     const payment = { status: "preparing", amountCents: null, currency: "usd",
       ownerPriceRequired: true, ownerPayoutAccountReady: false, paymentsReady: false };

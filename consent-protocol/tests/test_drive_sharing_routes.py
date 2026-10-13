@@ -20,6 +20,77 @@ BASE = "/api/connectors/google_drive/sharing/requests"
 REQUEST_ID = "5d0c7a4e-2f61-4c3b-9a8e-0d51a7e3b001"
 
 
+def test_packet_catalog_requires_owner_and_validated_listing_consent(setup, monkeypatch):
+    client, app, _, current = setup
+    service = SimpleNamespace(
+        list_packets=AsyncMock(return_value={"packets": [], "nextCursor": None}),
+        set_listing=AsyncMock(return_value={"revision": 1}),
+    )
+    monkeypatch.setattr(routes, "_packet_service", lambda: service)
+    path = "/api/connectors/google_drive/sharing/packets"
+    assert client.get(path).status_code == 401
+    assert not service.list_packets.called
+    unlock(app)
+    response = client.get(path)
+    assert response.status_code == 200 and "no-store" in response.headers["Cache-Control"]
+    service.list_packets.assert_awaited_once_with(
+        user_id="recipient", owner_user_id=None, cursor=None
+    )
+    body = {
+        "version": 1,
+        "decision": "allow",
+        "priceCents": 51,
+        "expectedRevision": 0,
+        "disclosure": "drive-packet-listing-connections-v1",
+    }
+    assert client.post(path + f"/{REQUEST_ID}/listing", json=body).status_code == 200
+    service.set_listing.assert_awaited_once_with(
+        user_id="recipient",
+        packet_id=REQUEST_ID,
+        version=1,
+        decision="allow",
+        price_cents=51,
+        expected_revision=0,
+        disclosure="drive-packet-listing-connections-v1",
+    )
+    for patch in (
+        {"version": True},
+        {"priceCents": 49},
+        {"priceCents": 50001},
+        {"disclosure": "background-sync"},
+        {"ownerUserId": "other"},
+    ):
+        assert client.post(path + f"/{REQUEST_ID}/listing", json=body | patch).status_code == 422
+    assert service.set_listing.await_count == 1
+    current.side_effect = HTTPException(401, "Expired")
+    assert client.get(path).status_code == 401
+    assert service.list_packets.await_count == 1
+
+
+def test_packet_request_binds_verified_recipient_and_rejects_injected_members(setup, monkeypatch):
+    client, app, _, _ = setup
+    service = SimpleNamespace(
+        request_packet=AsyncMock(return_value={"requestId": REQUEST_ID, "existingAccess": False})
+    )
+    monkeypatch.setattr(routes, "_packet_service", lambda: service)
+    unlock(app)
+    identity = SimpleNamespace(user_id="recipient")
+    app.dependency_overrides[routes._recipient] = lambda: identity
+    path = f"/api/connectors/google_drive/sharing/packets/{REQUEST_ID}/requests"
+    body = {"version": 2, "clientRequestId": REQUEST_ID}
+    assert client.post(path, json=body).status_code == 202
+    service.request_packet.assert_awaited_once_with(
+        user_id="recipient",
+        recipient=identity,
+        packet_id=REQUEST_ID,
+        version=2,
+        client_request_id=REQUEST_ID,
+    )
+    for patch in ({"sourceIds": ["private"]}, {"priceCents": 50}, {"version": "2"}):
+        assert client.post(path, json=body | patch).status_code == 422
+    assert service.request_packet.await_count == 1
+
+
 @pytest.fixture
 def setup(monkeypatch):
     app = FastAPI()

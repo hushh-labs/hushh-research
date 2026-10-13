@@ -3,7 +3,7 @@
 The saved request carries an encrypted creation-time policy marker. Every
 search and batch rechecks the current pair, Trusted roster and the owner's
 separate background Drive setting. Google grants remain in the durable bulk
-worker; this service never calls the provider permission API.
+worker; this service only reads recipient permissions before checkout.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 def _defer_code(error: BaseException) -> str:
     if str(error) in OWNER_SETUP_CODES:
         return str(error)
+    if str(error) in {"package_existing_access_requires_review", "payment_not_ready"}:
+        return str(error)
     if str(error) == "date_range_required":
         return "date_range_required"
     if str(error) == "background_preparation_required":
@@ -38,34 +40,66 @@ class DriveTrustedAutoService:
         self.payment = payment or DriveRequestPaymentService(db=self.sharing.db)
         self.wake = wake or wake_drive_work
 
-    async def preflight_package(self, *, user_id: str, request_id: str) -> None:
-        """Fence evaluated bytes by their exact Drive version before checkout."""
-        from hushh_mcp.services.drive_live_reader import DriveLiveReader
+    async def _undated_packet_current(self, *, user_id, context):
+        from hushh_mcp.services.drive_owner_search_store import validate_reusable_packet
+        from hushh_mcp.services.drive_packet_store import DrivePacketStore
 
-        require_current = self._authority(user_id, request_id)
+        binding = context.get("reusablePacket")
+        if not binding:
+            raise DriveReadError("date_range_required")
+        manifest = await DrivePacketStore(db=self.sharing.db).current_packet_manifest(
+            owner_user_id=user_id, packet_id=binding["packetId"], version=binding["version"]
+        )
+        validate_reusable_packet(
+            manifest, binding, user_id, approved_terms=context.get("packageAllowed") is True
+        )
+
+    async def preflight_package(
+        self, *, user_id: str, request_id: str, inspect_access: bool = True
+    ):
+        """Check source versions and recipient access before any paid delivery."""
+        from hushh_mcp.services.drive_package_access_preflight import DrivePackageAccessPreflight
+
         files = await self.bulk.package_sources(user_id=user_id, request_id=request_id)
         if not files:
-            return
-        reader = DriveLiveReader(user_id=user_id, require_access=require_current)
-        credential = await reader._credential()
-        semaphore = asyncio.Semaphore(4)
+            return None
+        if not inspect_access:
+            from hushh_mcp.services.drive_live_reader import DriveLiveReader
 
-        async def inspect(file):
-            async with semaphore:
-                await require_current()
-                if reader._generation != file["generation"]:
-                    raise DriveReadError("connection_changed")
-                actual = await reader.adapter.get_metadata(
-                    file_id=file["id"],
-                    access_token=credential["accessToken"],
-                    require_app_authorized=False,
-                    require_genai_eligibility=False,
-                )
-                if actual.version != file["sourceVersion"] or actual.name != file["name"]:
-                    raise DriveReadError("source_changed")
-                await require_current()
+            require_current = self._authority(user_id, request_id)
+            reader = DriveLiveReader(user_id=user_id, require_access=require_current)
+            credential = await reader._credential()
+            semaphore = asyncio.Semaphore(4)
 
-        await asyncio.gather(*(inspect(file) for file in files))
+            async def verify(file):
+                async with semaphore:
+                    await require_current()
+                    if reader._generation != file["generation"]:
+                        raise DriveReadError("connection_changed")
+                    actual = await reader.adapter.get_metadata(
+                        file_id=file["id"],
+                        access_token=credential["accessToken"],
+                        require_app_authorized=False,
+                        require_genai_eligibility=False,
+                    )
+                    if actual.version != file["sourceVersion"] or actual.name != file["name"]:
+                        raise DriveReadError("source_changed")
+                    await require_current()
+
+            async with asyncio.timeout(40):
+                await asyncio.gather(*(verify(file) for file in files))
+            return None
+        result = await DrivePackageAccessPreflight(sharing=self.sharing, bulk=self.bulk).inspect(
+            user_id=user_id,
+            request_id=request_id,
+            require_current=self._authority(user_id, request_id),
+            files=files,
+        )
+        if result.status == "mixed":
+            raise DriveReadError("package_existing_access_requires_review")
+        if result.status == "unknown":
+            raise DriveReadError("payment_not_ready")
+        return result
 
     async def _payment_ready(self, *, user_id: str, request_id: str, share_id: str) -> bool:
         state = await self.payment.ensure_payment_for_frozen_batch(
@@ -111,7 +145,7 @@ class DriveTrustedAutoService:
                     )
                     purpose = context["purpose"]
                     if not (purpose.get("periodStart") and purpose.get("periodEnd")):
-                        raise DriveReadError("date_range_required")
+                        await self._undated_packet_current(user_id=user_id, context=context)
                     dates_checked = True
             except (DriveReadError, TimeoutError) as error:
                 await self.sharing.defer_trusted_search(
@@ -188,7 +222,7 @@ class DriveTrustedAutoService:
         context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
         purpose = context["purpose"]
         if not (purpose.get("periodStart") and purpose.get("periodEnd")):
-            raise DriveReadError("date_range_required")
+            await self._undated_packet_current(user_id=user_id, context=context)
         if await self.sharing.request_owner_review_required(user_id=user_id, request_id=request_id):
             # Discovery still runs under current background authority. Its
             # candidates need exact owner review before a batch or order exists.
@@ -203,7 +237,15 @@ class DriveTrustedAutoService:
             store=self.bulk, require_owner=require_current, wake=self.wake
         )
         if context.get("agentPackageRequired"):
-            await self.preflight_package(user_id=user_id, request_id=request_id)
+            payment_state = await self.payment.payment_state(
+                requester_user_id=context["recipientUserId"], request_id=request_id
+            )
+            # Confirmed payment is durable authority to resume interrupted
+            # delivery. Its own earlier grants are expected existing access.
+            paid = payment_state["status"] == "paid"
+            access = await self.preflight_package(
+                user_id=user_id, request_id=request_id, inspect_access=not paid
+            )
             # The whole purchased set exists before any order is created.
             for _ in range(5):
                 await require_current()
@@ -217,6 +259,21 @@ class DriveTrustedAutoService:
                 )
             if await self.bulk.unclaimed_positions(user_id=user_id, request_id=request_id, limit=1):
                 raise DriveReadError("package_incomplete")
+            if access is not None and access.status == "all_existing":
+                from hushh_mcp.services.drive_package_existing_access_store import (
+                    DrivePackageExistingAccessStore,
+                )
+
+                # Freezing reviews is separate I/O: read the ACLs again rather
+                # than completing from a snapshot that may have been revoked.
+                fresh = await self.preflight_package(user_id=user_id, request_id=request_id)
+                if fresh is None or fresh.status != "all_existing":
+                    raise DriveReadError("package_existing_access_requires_review")
+                await DrivePackageExistingAccessStore(
+                    db=self.bulk.db, cipher=self.bulk.cipher
+                ).complete(user_id=user_id, request_id=request_id, result=fresh)
+                await self.wake("sharing")
+                return 0
             max_batches = max(max_batches, 5)
         queued = 0
         remaining = []

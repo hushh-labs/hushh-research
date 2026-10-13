@@ -24412,6 +24412,163 @@
     },
     {
       "aliases": [
+        "Browse available document packets",
+        "show available packets",
+        "browse document packets",
+        "what packets can I request"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "people.profile.browse_packets",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Shows document packet summaries this connected person has allowed you to see. Requesting a packet still requires owner approval before checkout; browsing grants no document access.",
+      "execution": {
+        "binding_ref": "semantic_action:people.profile.browse_packets",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "people.profile.browse_packets"
+        }
+      },
+      "goal_id": "goal.people.profile.browse_packets",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Browse available document packets",
+      "navigation": {
+        "fallback": "people.profile.browse_packets",
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "packets",
+        "documents",
+        "coverage",
+        "price",
+        "browse"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Choose Country Code",
         "choose country code",
         "select country",
@@ -40203,7 +40360,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "8f016bfdc422cdfdefb8b5ec6332cc54ef566dbd47e17f8f1ee6a0640eeeaf78",
+      "projection_digest": "dfb5946811a56d8bc03570123cc59eace0ae606b1045289f5f0da8070b413fe8",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -40222,7 +40379,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
       },
-      "source_revision": "f7445aa56d82a9cf",
+      "source_revision": "2b74dd366e283e03",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -41740,7 +41897,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "f7445aa56d82a9cf",
+    "source_revision": "2b74dd366e283e03",
     "web": {
       "actions": [
         {
@@ -41783,7 +41940,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "75f3d99d152fd882d0dced868275c3518486f6fb61abe3d3a31faeb372f54bfa",
+      "projection_digest": "41dc62a6e5c584cd5952f777fd773050659e47e2cf4ad50903f8e1d9a43ce86b",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -41802,7 +41959,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
       },
-      "source_revision": "f7445aa56d82a9cf",
+      "source_revision": "2b74dd366e283e03",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -43359,7 +43516,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "f7445aa56d82a9cf",
+  "revision": "2b74dd366e283e03",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -44929,6 +45086,7 @@
     },
     {
       "action_ids": [
+        "people.profile.browse_packets",
         "people.profile.cancel_connection_request",
         "people.profile.connect",
         "people.profile.manage_consent",
@@ -45197,6 +45355,7 @@
   ],
   "semantic_diff": {
     "added": [
+      "actions:people.profile.browse_packets",
       "actions:profile.world_model.build",
       "actions:profile.world_model.claim",
       "actions:profile.world_model.invite",
@@ -45208,7 +45367,8 @@
     "changed": [
       "screens:screen:/one/profile",
       "screens:screen:/one/profile/account",
-      "screens:screen:/one/profile/account/phone"
+      "screens:screen:/one/profile/account/phone",
+      "screens:screen:/people/[personRef]"
     ],
     "compatible": [],
     "deprecated": [],
@@ -47446,18 +47606,18 @@
     "capability_graph_evolution": "35796571165328969e86afe7f93e7ae20ae606d4672d7bfed2df935c9423e000",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "1e41b85c4e6e1b002ee118f27bd9481f329d9f6a65c04a0f5bf382403cb26419",
+    "kai_action_gateway": "8b3aba3024ee630e40a020a20364089e1a3cbd769c3a81151dcd6a904b7e16a3",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "a2b445f705c315479d1a066954c09bfbcd4e1fac59f756f7c6c34e3b1bf7cd96",
-    "route_orchestration_index": "58628c7c9ee1358d988ee093980a5da099b6fb81d55cc9fa6bdfd84792c635a9",
+    "product_agent_registry": "2dee6ce61ea25a330e1113534e0ebabcd5f83c788a08d9c1ed4a0a7c77971e96",
+    "route_orchestration_index": "335300eb4fa1c0c28f7dd651b477ba9e2182d94fa223330432c78bc2977d52eb",
     "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
   },
-  "source_revision": "f7445aa56d82a9cf",
+  "source_revision": "2b74dd366e283e03",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "f7445aa56d82a9cf",
+    "current_graph_revision": "2b74dd366e283e03",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

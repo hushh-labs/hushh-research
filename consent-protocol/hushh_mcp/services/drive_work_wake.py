@@ -19,7 +19,11 @@ _LOCATION = "us-central1"
 _SCHEDULERS = {
     "uat": (
         "hushh-pda-uat",
-        {"suggestions": "drive-work-suggestions-uat", "sharing": "drive-work-sharing-uat"},
+        {
+            "documents": "drive-work-drain-uat",
+            "suggestions": "drive-work-suggestions-uat",
+            "sharing": "drive-work-sharing-uat",
+        },
     ),
     "production": (
         "hushh-pda",
@@ -63,12 +67,14 @@ def _forget_credentials() -> None:
 
 
 async def wake_drive_work(stage: str) -> bool:
-    if stage not in {"suggestions", "sharing"}:
+    if stage not in {"documents", "suggestions", "sharing"}:
         raise ValueError("invalid Drive stage")
     scheduler = _SCHEDULERS.get(os.getenv("ENVIRONMENT", ""))
     if scheduler is None:
         return False
     project_id, jobs = scheduler
+    if stage not in jobs:
+        return False
     if (
         os.getenv("GOOGLE_CLOUD_PROJECT") != project_id
         or os.getenv("DRIVE_WORK_DRAIN_ENABLED", "").lower() != "true"

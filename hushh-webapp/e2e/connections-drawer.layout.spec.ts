@@ -42,6 +42,7 @@ test.beforeAll(async () => {
       alias: [
         ...[
           "@/hooks/use-auth",
+          "@/lib/services/auth-service",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
           "@/lib/cache/cache-sync-service",
