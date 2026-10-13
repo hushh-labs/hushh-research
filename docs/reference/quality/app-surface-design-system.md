@@ -200,10 +200,13 @@ Their next content or tab slot consumes `--page-header-section-gap` once: 0px
 on phones and 6px from 640px upward. Nested hub stacks, body tab rails and
 custom heading/action layouts use this same token instead of adding local
 margins or padding. The 56px segmented rail retains its 10px inset above the
-visible pill, giving a 10px/16px heading-to-pill gap. Calendar's workspace
-connection action follows the compact token; its focused onboarding
-illustration keeps the existing setup layout. General page headers retain
-their standard spacing.
+visible pill, giving a 10px/16px heading-to-pill gap. Calendar's connection
+hero centers its action 24px below the heading. Its collage keeps a 420px cap
+on mobile and grows to 480px from the desktop breakpoint. Unknown Calendar
+connection evidence renders a neutral checking state; only confirmed
+disconnection shows the connect hero. A failed check offers retry, and the
+disconnect action uses `--app-destructive`. General page headers retain their
+standard spacing.
 
 1. The top shell is the single authority for header clearance.
 2. The top shell is one public visual component with three route-declared

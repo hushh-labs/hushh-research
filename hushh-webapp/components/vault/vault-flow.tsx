@@ -21,8 +21,6 @@ import {
   Copy,
   Download,
   Fingerprint,
-  Eye,
-  EyeOff,
   type LucideIcon,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -42,6 +40,11 @@ import { User } from "firebase/auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
+import {
+  ProfilePaneKeyIcon,
+  ProfilePanePreviewIcon,
+  ProfilePanePreviewOffIcon,
+} from "@/components/profile/profile-pane-icons";
 import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { useHostname } from "@/lib/hooks/use-hostname";
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
@@ -1841,7 +1844,7 @@ export function VaultFlow({
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <Icon icon={Key} size={18} className="shrink-0 text-foreground" />
+                    <ProfilePaneKeyIcon size={18} className="shrink-0" />
                     <Input
                       id="passphrase"
                       type={showPassphrase ? "text" : "password"}
@@ -1862,7 +1865,7 @@ export function VaultFlow({
                       aria-label={showPassphrase ? "Hide password" : "Show password"}
                       title={showPassphrase ? "Hide password" : "Show password"}
                     >
-                      <Icon icon={showPassphrase ? Eye : EyeOff} size={18} />
+                      {showPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
                     </button>
                   </div>
               </div>
@@ -1876,7 +1879,7 @@ export function VaultFlow({
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <Icon icon={Key} size={18} className="shrink-0 text-foreground" />
+                    <ProfilePaneKeyIcon size={18} className="shrink-0" />
                     <Input
                       id="confirm"
                       type={showConfirmPassphrase ? "text" : "password"}
@@ -1896,7 +1899,7 @@ export function VaultFlow({
                       aria-label={showConfirmPassphrase ? "Hide password" : "Show password"}
                       title={showConfirmPassphrase ? "Hide password" : "Show password"}
                     >
-                      <Icon icon={showConfirmPassphrase ? Eye : EyeOff} size={18} />
+                      {showConfirmPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
                     </button>
                   </div>
                 {createPassphraseHelperText && (
@@ -2002,7 +2005,7 @@ export function VaultFlow({
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <Icon icon={Key} size={18} className="shrink-0 text-foreground" />
+                    <ProfilePaneKeyIcon size={18} className="shrink-0" />
                     <Input
                       id="unlock-passphrase"
                       type={showPassphrase ? "text" : "password"}
@@ -2027,7 +2030,7 @@ export function VaultFlow({
                       aria-label={showPassphrase ? "Hide password" : "Show password"}
                       title={showPassphrase ? "Hide password" : "Show password"}
                     >
-                      <Icon icon={showPassphrase ? Eye : EyeOff} size={18} />
+                      {showPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
                     </button>
                   </div>
                 </div>

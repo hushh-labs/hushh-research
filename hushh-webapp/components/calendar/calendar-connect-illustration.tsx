@@ -12,8 +12,8 @@ import type { CSSProperties } from "react";
  *
  * Responsive without any layout code: the wrapper is a size container and
  * every length inside is in `em`, with 1em = 1/42 of the container width. The
- * collage therefore scales as one picture, never reflows, and is capped at its
- * 420px design width on wide screens.
+ * collage therefore scales as one picture, never reflows, and is capped at
+ * 420px on mobile and 480px on desktop.
  */
 
 const TILE_BASE =
@@ -226,7 +226,7 @@ export function CalendarConnectIllustration() {
     <div
       aria-hidden="true"
       data-testid="calendar-connect-illustration"
-      className="pointer-events-none mx-auto w-full max-w-[420px] select-none [container-type:inline-size]"
+      className="pointer-events-none mx-auto w-full max-w-[420px] select-none [container-type:inline-size] md:max-w-[480px]"
     >
       <div className="relative w-full py-[2.4em]" style={SCALE_STYLE}>
         <GoogleCalendarTile />

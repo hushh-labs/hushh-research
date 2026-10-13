@@ -27,7 +27,7 @@ export function CalendarConnectHero({
   return (
     <section
       aria-labelledby="calendar-connect-title"
-      className="mx-auto flex w-full max-w-[420px] flex-col items-center text-center"
+      className="mx-auto flex w-full max-w-[420px] flex-col items-center text-center md:max-w-[480px]"
       data-testid="calendar-connect-hero"
     >
       <CalendarConnectIllustration />
