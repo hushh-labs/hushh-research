@@ -60,7 +60,7 @@ def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
     )
     require(
         ".github/workflows/deploy-uat-one-chat.yml",
-        "--candidate-service consent-protocol",
+        "--inherit-candidate-service consent-protocol",
         'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"',
         'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"',
     )

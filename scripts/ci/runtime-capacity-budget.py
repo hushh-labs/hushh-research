@@ -165,6 +165,75 @@ def candidate_connections(service: str, settings: dict[str, Any]) -> dict[str, A
     }
 
 
+def inherited_candidate_connections(
+    service: str,
+    settings: dict[str, Any],
+    service_doc: dict[str, Any],
+    revisions: list[dict[str, Any]],
+    database_connection_name: str,
+) -> dict[str, Any]:
+    """Reserve the largest of policy, the service template, and serving revision.
+
+    A service update that changes only image and selected env vars inherits the
+    live template's scale and DB pools. The serving revision is a second bound
+    for scale, pool, or explicit worker-argument drift from that template.
+    """
+    template = (service_doc.get("spec") or {}).get("template")
+    if not isinstance(template, dict):
+        raise BudgetError(f"{service}: service template unavailable")
+    template_row = revision_connections(
+        {
+            "metadata": {
+                "name": f"{service}-candidate-template",
+                "annotations": (template.get("metadata") or {}).get("annotations"),
+            },
+            "spec": template.get("spec"),
+        },
+        service,
+        settings,
+        database_connection_name,
+    )
+    traffic = (service_doc.get("status") or {}).get("traffic")
+    if not isinstance(traffic, list):
+        raise BudgetError(f"{service}: service traffic unavailable")
+    serving = [
+        target.get("revisionName")
+        for target in traffic
+        if positive_int(
+            target.get("percent", 0), f"{service} traffic percent", zero_ok=True
+        ) > 0
+    ]
+    if len(serving) != 1 or not isinstance(serving[0], str) or sum(
+        positive_int(
+            target.get("percent", 0), f"{service} traffic percent", zero_ok=True
+        )
+        for target in traffic
+    ) != 100:
+        raise BudgetError(f"{service}: inherited candidate needs one 100% serving revision")
+    matching = [
+        revision
+        for revision in revisions
+        if (revision.get("metadata") or {}).get("name") == serving[0]
+    ]
+    if len(matching) != 1:
+        raise BudgetError(f"{service}: serving revision inventory is ambiguous")
+    serving_row = revision_connections(
+        matching[0], service, settings, database_connection_name
+    )
+    policy_row = candidate_connections(service, settings)
+    largest = max(
+        (policy_row, template_row, serving_row),
+        key=lambda row: row["connections"],
+    )
+    return {
+        **policy_row,
+        "max_instances": largest["max_instances"],
+        "workers_per_instance": largest["workers_per_instance"],
+        "connections_per_worker": largest["connections_per_worker"],
+        "connections": largest["connections"],
+    }
+
+
 def service_budget(
     service: str,
     settings: dict[str, Any],
@@ -321,6 +390,7 @@ def evaluate(
     *,
     phase: CapacityPhase = "pre-deploy",
     candidate_services: frozenset[str] | None = None,
+    inherited_candidate_services: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     if phase not in CAPACITY_PHASES:
         raise BudgetError(f"unsupported capacity phase: {phase}")
@@ -330,6 +400,8 @@ def evaluate(
         candidate_services = frozenset(config["services"])
     if candidate_services - config["services"].keys():
         raise BudgetError("candidate service is not in the capacity profile")
+    if inherited_candidate_services - candidate_services:
+        raise BudgetError("inherited candidate must be a reserved candidate service")
     maximum = policy["database_max_connections"]
     limit = policy["admission_limit"]
     reserve = policy["administrative_reserve"]
@@ -366,7 +438,21 @@ def evaluate(
                 )
             )
         if phase == "pre-deploy" and name in candidate_services:
-            service_rows.append(candidate_connections(name, settings))
+            if name in inherited_candidate_services:
+                if name not in inventory["services"]:
+                    raise BudgetError(f"{name}: inherited candidate has no live service")
+                service = inventory["services"][name]
+                service_rows.append(
+                    inherited_candidate_connections(
+                        name,
+                        settings,
+                        service["service"],
+                        service["revisions"],
+                        connection_name,
+                    )
+                )
+            else:
+                service_rows.append(candidate_connections(name, settings))
     if set(inventory["jobs"]) != set(config["jobs"]):
         extra = set(inventory["jobs"]) - set(config["jobs"])
         missing = set(config["jobs"]) - set(inventory["jobs"])
@@ -509,6 +595,11 @@ def main() -> int:
         help="Reserve a new revision of this service (repeat for each deployed service)",
     )
     candidates.add_argument(
+        "--inherit-candidate-service",
+        action="append",
+        help="Reserve a candidate inheriting this live service's template (repeatable)",
+    )
+    candidates.add_argument(
         "--no-candidates",
         action="store_true",
         help="Reserve no new database service revisions for a frontend-only deploy",
@@ -527,6 +618,8 @@ def main() -> int:
             if args.no_candidates
             else frozenset(args.candidate_service)
             if args.candidate_service is not None
+            else frozenset(args.inherit_candidate_service)
+            if args.inherit_candidate_service is not None
             else None
         )
         report = evaluate(
@@ -535,6 +628,7 @@ def main() -> int:
             collect(profile, args.environment),
             phase=args.phase,
             candidate_services=candidate_services,
+            inherited_candidate_services=frozenset(args.inherit_candidate_service or ()),
         )
     except (OSError, KeyError, TypeError, json.JSONDecodeError, BudgetError) as exc:
         print(f"capacity budget blocked: {exc}", file=sys.stderr)

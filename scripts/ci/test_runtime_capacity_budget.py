@@ -6,6 +6,7 @@ import copy
 import importlib.util
 import io
 import json
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -271,6 +272,95 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         self.assertEqual(
             budget.candidate_connections("app", SETTINGS)["connections"], 70
         )
+
+    def test_inherited_candidate_reserves_live_template_and_serving_ceiling(self) -> None:
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        config = profile["environments"]["uat"]
+        config["services"] = {"consent-protocol": config["services"]["consent-protocol"]}
+        config["jobs"] = {}
+        serving = revision("consent-protocol-current")
+        template = {
+            "metadata": {
+                "annotations": copy.deepcopy(serving["metadata"]["annotations"])
+            },
+            "spec": copy.deepcopy(serving["spec"]),
+        }
+        inventory = {
+            "database_max_connections": 1000,
+            "services": {
+                "consent-protocol": {
+                    "service": {
+                        "spec": {"template": template},
+                        "status": {
+                            "traffic": [
+                                {"revisionName": "consent-protocol-current", "percent": 100}
+                            ]
+                        },
+                    },
+                    "revisions": [serving],
+                }
+            },
+            "jobs": {},
+        }
+
+        def evaluate_inherited() -> dict:
+            return budget.evaluate(
+                profile,
+                "uat",
+                inventory,
+                candidate_services=frozenset({"consent-protocol"}),
+                inherited_candidate_services=frozenset({"consent-protocol"}),
+            )
+
+        self.assertEqual(evaluate_inherited()["projected_connections"], 240)
+        template["spec"]["containers"][0]["env"][1]["value"] = "4"
+        result = evaluate_inherited()
+        self.assertEqual(result["services"][-1]["connections"], 80)
+        self.assertEqual(result["projected_connections"], 250)
+        serving["metadata"]["annotations"]["autoscaling.knative.dev/maxScale"] = "6"
+        result = evaluate_inherited()
+        self.assertEqual(result["services"][-1]["connections"], 84)
+        self.assertEqual(result["projected_connections"], 268)
+        config["services"]["consent-protocol"]["candidate"]["max_instances"] = 7
+        self.assertEqual(evaluate_inherited()["services"][-1]["connections"], 98)
+
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as temporary:
+            profile_path = Path(temporary) / "profile.json"
+            profile_path.write_text(json.dumps(profile))
+            argv = [
+                str(MODULE_PATH), "--environment", "uat", "--output", "json",
+                "--profile", str(profile_path),
+                "--inherit-candidate-service", "consent-protocol",
+            ]
+            with (
+                mock.patch.object(budget, "collect", return_value=inventory),
+                mock.patch.object(budget.sys, "argv", argv),
+                redirect_stdout(output),
+            ):
+                self.assertEqual(budget.main(), 0)
+        self.assertEqual(json.loads(output.getvalue())["services"][-1]["connections"], 98)
+
+        del template["metadata"]["annotations"]["autoscaling.knative.dev/maxScale"]
+        with self.assertRaisesRegex(budget.BudgetError, "revision max instances"):
+            evaluate_inherited()
+        template["metadata"]["annotations"]["autoscaling.knative.dev/maxScale"] = "5"
+        traffic = inventory["services"]["consent-protocol"]["service"]["status"]["traffic"]
+        traffic[0]["percent"] = 50
+        with self.assertRaisesRegex(budget.BudgetError, "one 100% serving revision"):
+            evaluate_inherited()
+        traffic[0]["percent"] = 100
+        template["spec"]["containers"][0]["env"].pop()
+        with self.assertRaisesRegex(budget.BudgetError, "DB_SQLALCHEMY_MAX_OVERFLOW"):
+            evaluate_inherited()
+        with self.assertRaisesRegex(budget.BudgetError, "reserved candidate service"):
+            budget.evaluate(
+                profile,
+                "uat",
+                inventory,
+                candidate_services=frozenset(),
+                inherited_candidate_services=frozenset({"consent-protocol"}),
+            )
 
     def test_missing_revision_max_or_pool_fails_closed(self) -> None:
         source = revision("app-serving")

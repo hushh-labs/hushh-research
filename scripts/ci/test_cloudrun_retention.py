@@ -888,6 +888,13 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             "status": "healthy",
             "scope": "all",
             "sha": previous_sha,
+            "verification": {
+                "backend_provenance": "success",
+                "frontend_provenance": "success",
+                "parity_success": "true",
+                "semantic_success": "true",
+                "blocking_classifications": "",
+            },
             "final": {
                 "backend_revision": "consent-protocol-02115-faq",
                 "backend_sha": previous_sha,
@@ -929,6 +936,238 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             },
         }
         return previous_run, failed_run, previous, partial
+
+    def test_partial_replay_accepts_prior_healthy_frontend_only_release(self):
+        previous_run, failed_run, previous, partial = self.partial_uat_fixture()
+        # workflow_dispatch's head SHA is the current main ref; the artifact
+        # records the exact older SHA selected by the deployment input.
+        previous_run["head_sha"] = "d" * 40
+        failed_run["head_sha"] = "e" * 40
+        previous["scope"] = "frontend"
+        previous["final"]["backend_sha"] = "c" * 40
+        backend_run = {**self.trusted_source(199), "head_sha": "f" * 40}
+        backend = copy.deepcopy(previous)
+        backend["scope"] = "backend"
+        backend["sha"] = "c" * 40
+        backend["final"]["backend_sha"] = "c" * 40
+        with (
+            mock.patch.object(
+                MAINTENANCE, "api", return_value={"workflow_runs": [previous_run, backend_run]}
+            ),
+            mock.patch.object(
+                MAINTENANCE,
+                "load_release",
+                side_effect=lambda _repo, run_id, _directory, _environment: {
+                    200: previous,
+                    199: backend,
+                }[run_id],
+            ),
+        ):
+            MAINTENANCE.verify_uat_partial_failure(
+                "org/repo", failed_run, partial, pathlib.Path("/tmp")
+            )
+        self.assertEqual(
+            partial["_maintenance_lane_provenance"],
+            {
+                "backend": {"run_id": 202, "sha": "b" * 40},
+                "frontend": {"run_id": 200, "sha": "a" * 40},
+            },
+        )
+
+    def test_partial_after_standard_backend_only_uses_separate_lane_owners(self):
+        frontend_run, failed_run, frontend, partial = self.partial_uat_fixture()
+        backend_run = self.trusted_source(201)
+        backend = copy.deepcopy(frontend)
+        backend["scope"] = "backend"
+        backend["sha"] = "c" * 40
+        backend["final"]["backend_revision"] = "consent-protocol-02117-mid"
+        backend["final"]["backend_sha"] = backend["sha"]
+        partial["predeploy"]["backend_revision"] = backend["final"]["backend_revision"]
+        partial["rollback_targets"]["backend_revision"] = backend["final"]["backend_revision"]
+
+        def api(_repo, endpoint):
+            if "deploy-uat-one-chat.yml" in endpoint:
+                return {"workflow_runs": []}
+            return {"workflow_runs": [backend_run, frontend_run]}
+
+        with (
+            mock.patch.object(MAINTENANCE, "api", side_effect=api),
+            mock.patch.object(
+                MAINTENANCE,
+                "load_release",
+                side_effect=lambda _repo, run_id, _directory, _environment: {
+                    200: frontend,
+                    201: backend,
+                }[run_id],
+            ),
+        ):
+            MAINTENANCE.verify_uat_partial_failure(
+                "org/repo", failed_run, partial, pathlib.Path("/tmp")
+            )
+        self.assertEqual(partial["_maintenance_lane_provenance"]["frontend"]["run_id"], 200)
+
+    def test_partial_after_chained_one_chat_and_frontend_release(self):
+        owner_run, failed_run, owner, partial = self.partial_uat_fixture()
+        owner_run["id"] = 190
+        frontend_run = self.trusted_source(201)
+        frontend = copy.deepcopy(owner)
+        frontend["scope"] = "frontend"
+        frontend["sha"] = "d" * 40
+        frontend["final"]["frontend_revision"] = "hushh-webapp-01699-new"
+        frontend["final"]["frontend_sha"] = frontend["sha"]
+        partial["predeploy"]["frontend_revision"] = frontend["final"]["frontend_revision"]
+        partial["final"]["frontend_revision"] = frontend["final"]["frontend_revision"]
+        partial["final"]["frontend_sha"] = frontend["sha"]
+        partial["rollback_targets"]["frontend_revision"] = frontend["final"]["frontend_revision"]
+        older_one_chat = self.trusted_source(195, "deploy-uat-one-chat.yml")
+        latest_one_chat = self.trusted_source(200, "deploy-uat-one-chat.yml")
+        one_chat_backend = "consent-protocol-02121-new"
+        partial["predeploy"]["backend_revision"] = one_chat_backend
+        partial["rollback_targets"]["backend_revision"] = one_chat_backend
+
+        def api(_repo, endpoint):
+            if "deploy-uat-one-chat.yml" in endpoint:
+                return {"workflow_runs": [latest_one_chat, older_one_chat]}
+            return {"workflow_runs": [frontend_run, owner_run]}
+
+        def one_chat(_repo, run, _directory):
+            self.assertEqual(run["id"], 200)
+            return {
+                "status": "healthy",
+                "scope": "backend",
+                "sha": "c" * 40,
+                "final": {
+                    "backend_revision": one_chat_backend,
+                    "backend_sha": "c" * 40,
+                },
+            }
+
+        with (
+            mock.patch.object(MAINTENANCE, "api", side_effect=api),
+            mock.patch.object(
+                MAINTENANCE,
+                "load_release",
+                side_effect=lambda _repo, run_id, _directory, _environment: {
+                    190: owner,
+                    201: frontend,
+                }[run_id],
+            ),
+            mock.patch.object(MAINTENANCE, "load_one_chat_release", side_effect=one_chat) as load,
+        ):
+            MAINTENANCE.verify_uat_partial_failure(
+                "org/repo", failed_run, partial, pathlib.Path("/tmp")
+            )
+            load.assert_called_once()
+        self.assertEqual(partial["_maintenance_lane_provenance"]["frontend"]["run_id"], 201)
+
+    def test_repeated_passkey_partials_prove_backend_lineage_through_prior_failure(self):
+        owner_run, failed_run, owner, later_partial = self.partial_uat_fixture()
+        owner_run["id"] = 190
+        first_failed_run = {**self.trusted_source(195), "conclusion": "failure"}
+        first_partial = copy.deepcopy(later_partial)
+        first_partial["sha"] = "c" * 40
+        first_partial["current"]["backend_candidate_revision"] = "consent-protocol-02117-mid"
+        first_partial["current"]["backend_revision"] = "consent-protocol-02117-mid"
+        first_partial["final"]["backend_revision"] = "consent-protocol-02117-mid"
+        first_partial["final"]["backend_sha"] = first_partial["sha"]
+        first_partial["current"]["frontend_candidate_revision"] = "hushh-webapp-01695-mid"
+
+        frontend_run = self.trusted_source(200)
+        frontend = copy.deepcopy(owner)
+        frontend["scope"] = "frontend"
+        frontend["sha"] = "d" * 40
+        frontend["final"]["backend_revision"] = first_partial["final"]["backend_revision"]
+        frontend["final"]["backend_sha"] = first_partial["sha"]
+        frontend["final"]["frontend_revision"] = "hushh-webapp-01696-front"
+        frontend["final"]["frontend_sha"] = frontend["sha"]
+        later_partial["predeploy"]["backend_revision"] = first_partial["final"]["backend_revision"]
+        later_partial["rollback_targets"]["backend_revision"] = first_partial["final"]["backend_revision"]
+        later_partial["predeploy"]["frontend_revision"] = frontend["final"]["frontend_revision"]
+        later_partial["final"]["frontend_revision"] = frontend["final"]["frontend_revision"]
+        later_partial["final"]["frontend_sha"] = frontend["sha"]
+        later_partial["rollback_targets"]["frontend_revision"] = frontend["final"]["frontend_revision"]
+        artifacts = {190: owner, 195: first_partial, 200: frontend}
+
+        def api(_repo, endpoint):
+            if "deploy-uat-one-chat.yml" in endpoint:
+                return {"workflow_runs": []}
+            if "status=completed" in endpoint:
+                return {"workflow_runs": [failed_run, frontend_run, first_failed_run, owner_run]}
+            return {"workflow_runs": [frontend_run, owner_run]}
+
+        with (
+            mock.patch.object(MAINTENANCE, "api", side_effect=api),
+            mock.patch.object(
+                MAINTENANCE,
+                "load_release",
+                side_effect=lambda _repo, run_id, _directory, _environment: artifacts[run_id],
+            ),
+        ):
+            MAINTENANCE.verify_uat_partial_failure(
+                "org/repo", failed_run, later_partial, pathlib.Path("/tmp")
+            )
+            self.assertEqual(
+                later_partial["_maintenance_lane_provenance"]["frontend"]["run_id"], 200
+            )
+            self.assertEqual(
+                first_partial["_maintenance_lane_provenance"]["frontend"]["run_id"], 190
+            )
+            self.assertEqual(
+                later_partial["_maintenance_prior_backend_provenance"],
+                {"revision": "consent-protocol-02117-mid", "run_id": 195, "sha": "c" * 40},
+            )
+            invalid = copy.deepcopy(first_partial)
+            invalid["verification"]["semantic_success"] = "false"
+            artifacts[195] = invalid
+            with self.assertRaisesRegex(
+                MAINTENANCE.retention.UnsafeState, "passkey-only partial rollback"
+            ):
+                MAINTENANCE.verify_uat_partial_failure(
+                    "org/repo", failed_run, copy.deepcopy(later_partial), pathlib.Path("/tmp")
+                )
+
+    def test_frontend_owner_scan_paginates_past_backend_only_runs(self):
+        owner_run, _failed_run, owner, _partial = self.partial_uat_fixture()
+        owner_run["id"] = 100
+        backend_runs = [self.trusted_source(run_id) for run_id in range(101, 1100)]
+        ordered = list(reversed(backend_runs)) + [owner_run]
+        backend = copy.deepcopy(owner)
+        backend["scope"] = "backend"
+
+        def api(_repo, endpoint):
+            page = int(endpoint.rsplit("page=", 1)[1])
+            return {"workflow_runs": ordered[(page - 1) * 100 : page * 100]}
+
+        with (
+            mock.patch.object(MAINTENANCE, "api", side_effect=api),
+            mock.patch.object(
+                MAINTENANCE,
+                "load_release",
+                side_effect=lambda _repo, run_id, _directory, _environment: (
+                    owner if run_id == 100 else backend
+                ),
+            ),
+        ):
+            run_id, release = MAINTENANCE.prior_healthy_uat_release(
+                "org/repo", {"id": 1102}, pathlib.Path("/tmp"), frontend_owner=True
+            )
+        self.assertEqual(run_id, 100)
+        self.assertIs(release, owner)
+
+    def test_prior_frontend_only_release_requires_frontend_provenance(self):
+        previous_run, _failed_run, previous, _partial = self.partial_uat_fixture()
+        previous["scope"] = "frontend"
+        previous["verification"]["frontend_provenance"] = "skipped"
+        with (
+            mock.patch.object(
+                MAINTENANCE, "api", return_value={"workflow_runs": [previous_run]}
+            ),
+            mock.patch.object(MAINTENANCE, "load_release", return_value=previous),
+            self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "frontend health"),
+        ):
+            MAINTENANCE.prior_healthy_uat_release(
+                "org/repo", {"id": 202}, pathlib.Path("/tmp")
+            )
 
     def test_failed_budget_wakeup_selects_independently_verified_partial_source(self):
         previous_run, failed_run, previous, partial = self.partial_uat_fixture()
@@ -988,6 +1227,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     MAINTENANCE,
                     "prior_healthy_uat_release",
                     return_value=(previous_run["id"], previous),
+                ), mock.patch.object(
+                    MAINTENANCE,
+                    "prior_healthy_uat_backend_release",
+                    return_value=(previous_run["id"], previous),
                 ):
                     with self.assertRaises(MAINTENANCE.retention.UnsafeState):
                         MAINTENANCE.verify_uat_partial_failure(
@@ -1031,6 +1274,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         with mock.patch.object(
             MAINTENANCE,
             "prior_healthy_uat_release",
+            return_value=(previous_run["id"], previous),
+        ), mock.patch.object(
+            MAINTENANCE,
+            "prior_healthy_uat_backend_release",
             return_value=(previous_run["id"], previous),
         ):
             MAINTENANCE.verify_uat_partial_failure(
@@ -1085,6 +1332,84 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                             MAINTENANCE.live_release_matches(partial)
                         continue
                     self.assertEqual(MAINTENANCE.live_release_matches(partial), defect is None)
+
+    def test_historical_partial_backend_requires_live_revision_provenance(self):
+        _previous_run, _failed_run, _previous, partial = self.partial_uat_fixture()
+        partial["_maintenance_lane_provenance"] = {
+            "backend": {"run_id": 202, "sha": "b" * 40},
+            "frontend": {"run_id": 200, "sha": "a" * 40},
+        }
+        partial["_maintenance_prior_backend_provenance"] = {
+            "revision": partial["predeploy"]["backend_revision"],
+            "run_id": 195,
+            "sha": "c" * 40,
+        }
+
+        def state(service, _project, _region):
+            revision = (
+                "consent-protocol-drive-worker-00002-abc"
+                if service == "consent-protocol-drive-worker"
+                else partial["final"]["backend_revision" if service == "consent-protocol" else "frontend_revision"]
+            )
+            return {
+                "status": {
+                    "conditions": [{"type": "Ready", "status": "True"}],
+                    "traffic": [{"revisionName": revision, "percent": 100}],
+                }
+            }
+
+        def revision(name, run_id, sha, *, source="deploy-uat"):
+            return {
+                "metadata": {
+                    "name": name,
+                    "labels": {
+                        "deploy-sha": sha,
+                        "github-run-id": str(run_id),
+                        "deploy-source": source,
+                    },
+                },
+                "spec": {"containers": [{
+                    "image": "gcr.io/app@sha256:" + "d" * 64,
+                    "env": [
+                        {"name": "HUSHH_DEPLOY_SHA", "value": sha},
+                        {"name": "HUSHH_DEPLOY_SOURCE", "value": source},
+                    ],
+                }]},
+                "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+            }
+
+        current = revision(partial["final"]["backend_revision"], 202, "b" * 40)
+        frontend = revision(partial["final"]["frontend_revision"], 200, "a" * 40)
+        historical = revision(partial["predeploy"]["backend_revision"], 195, "c" * 40)
+        for defect in (None, "run", "sha", "source", "env", "image", "ready", "absent"):
+            with self.subTest(defect=defect):
+                older = copy.deepcopy(historical)
+                if defect == "run":
+                    older["metadata"]["labels"]["github-run-id"] = "999"
+                elif defect == "sha":
+                    older["metadata"]["labels"]["deploy-sha"] = "f" * 40
+                elif defect == "source":
+                    older["metadata"]["labels"]["deploy-source"] = "other"
+                elif defect == "env":
+                    older["spec"]["containers"][0]["env"][0]["value"] = "f" * 40
+                elif defect == "image":
+                    older["spec"]["containers"][0]["image"] = "gcr.io/app:latest"
+                elif defect == "ready":
+                    older["status"]["conditions"][0]["status"] = "False"
+
+                def revisions(service, _project, _region, *, defect=defect, older=older):
+                    if service == "hushh-webapp":
+                        return [frontend]
+                    return [current] + ([] if defect == "absent" else [older])
+
+                with (
+                    mock.patch.object(MAINTENANCE.retention, "service_state", side_effect=state),
+                    mock.patch.object(MAINTENANCE.retention, "revision_state", side_effect=revisions),
+                ):
+                    self.assertEqual(
+                        MAINTENANCE.live_release_matches(partial),
+                        defect in {None, "absent"},
+                    )
 
     def test_stale_uat_tag_uses_verified_rollback_anchor(self):
         current = "consent-protocol-02118-yed"

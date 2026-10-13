@@ -93,7 +93,7 @@ jobs:
 
       - name: Enforce UAT database connection budget
         shell: bash
-        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat --candidate-service consent-protocol
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat --inherit-candidate-service consent-protocol
 
       - name: Deploy and verify only the backend service
         id: deploy-backend
