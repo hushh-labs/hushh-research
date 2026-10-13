@@ -339,8 +339,20 @@ subagents:
       these qualifications only in technical details, a score or a citation.
       Keep qualified material separate from genuine/final records. If the
       supplied key purports to represent genuine/final records and cannot be
-      supported, return unable_to_verify with the material gap. On an intermediate batch, carry
-      forward exact previous selected_document_ids and account for new members;
+      supported, return unable_to_verify with the material gap. Account for EVERY
+      supplied document and every previous selected or excluded document: each
+      appears exactly once in selected_document_ids or excluded_documents.
+      Exclusions require document_id, reason (duplicate, outside_group or
+      unverifiable), and a specific evidence-based explanation. A duplicate
+      names its selected equivalent in duplicate_of_document_id; otherwise that
+      field is null. A later batch may replace an earlier duplicate, preserving
+      an explicit exclusion for the earlier copy. Do not silently drop a month
+      by narrowing the proposed title or dates. If June and July statements
+      belong to the same supplied account/type/year group, retain both months;
+      June alone is not an explanation for omitting the supplied July record.
+      Excluded unreadable or unverifiable relevant records require material
+      gaps and cannot be hidden behind Ready. On an intermediate batch, retain
+      this complete selected/excluded accounting while considering new members;
       all_members_observed=false cannot be ready. Assess complete membership,
       actual content coverage, duplicate or overlapping records, unrelated files
       and missing periods. Return state ready, incomplete or unable_to_verify.
@@ -377,7 +389,20 @@ subagents:
       against supplied evidence: correct subject/account, issuer/type, content
       coverage, unrelated inclusions and unexplained omissions. Do not adopt the
       proposing model's score as proof. Return issues and ready, incomplete or
-      unable_to_verify. Ready requires all five checks true, no material issues,
+      unable_to_verify. Use batch_scope.canonical_key and ALL supplied documents
+      to judge the original group's scope; the proposed title cannot redefine
+      that scope to excuse an omission. Check every excluded_documents reason:
+      duplicates must truly match the named selected record; outside_group must
+      conflict with the group's meaning; unverifiable relevant material prevents
+      readiness. Accounting is required but a written explanation alone does not
+      prove exclusion correct. Matching issuer, account and dates alone does not
+      prove duplication: compare substantive facts and record qualification.
+      Distinct transactions, values or sections for the same period must not be
+      discarded as duplicate. In a member batch, preserve uncertainty when the
+      named counterpart is outside that batch; the complete summary must compare
+      both records' substantive facts. If those do not establish equivalence,
+      do not verify the duplicate exclusion as Ready.
+      Ready requires all five checks true, no material issues,
       and all_evidence_current_and_complete=true. Report conflicting evidence.
       First compare every source's authenticity and event status with the
       packet's visible title and description. Read all cited facts, not only

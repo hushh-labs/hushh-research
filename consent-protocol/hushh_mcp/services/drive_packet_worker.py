@@ -52,6 +52,10 @@ def compact_evidence(document):
             for key in ("document_type", "issuer", "subject", "account")
         },
         "periods": [{"start": item["start"], "end": item["end"]} for item in facts["periods"]],
+        # Preserve substantive differences for cross-batch duplicate review.
+        # The caller rejects summaries over its budget instead of truncating.
+        "topics": [item["value"] for item in facts["topics"]],
+        "facts": [item["value"] for item in facts["facts"]],
         "ambiguous": facts["ambiguous"],
         "missing_information": facts["missing_information"],
     }
@@ -169,7 +173,7 @@ class DrivePacketWorker:
             packet=packet,
             documents=documents,
             complete=complete,
-            batch_scope=scope,
+            batch_scope={**scope, "canonical_key": job["key"]},
         )
         await self.packet_store.require_packet_current(job)
         self._policy_current(job["policy_version"])

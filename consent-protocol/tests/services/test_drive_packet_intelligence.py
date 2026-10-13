@@ -331,6 +331,7 @@ def period(quote="January 2026"):
 @pytest.mark.parametrize("quote", ["INJECTED invented coverage", "Unselected document period"])
 async def test_packet_rejects_period_citations_outside_selected_source_periods(quote):
     result = packet([period(quote)])
+    result["excluded_documents"] = [exclusion("unselected")]
     interpreter = AsyncMock(return_value=result)
     with pytest.raises(EvidenceValidationError, match="model_citation_invalid"):
         await construct_packet(
@@ -363,6 +364,7 @@ async def test_packet_carries_prior_verified_provenance_only_with_exact_membersh
         await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
     ).state == "ready"
     result["selected_document_ids"] = ["current"]
+    result["excluded_documents"] = [exclusion("previous")]
     with pytest.raises(EvidenceValidationError, match="model_citation_invalid"):
         await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
 
@@ -370,6 +372,7 @@ async def test_packet_carries_prior_verified_provenance_only_with_exact_membersh
 async def test_packet_can_replace_prior_copy_with_current_supported_complete_copy():
     previous = packet([period("Earlier copy period")], ["earlier_copy"])
     result = packet([period("Complete copy period")], ["complete_copy"])
+    result["excluded_documents"] = [exclusion("earlier_copy", duplicate_of="complete_copy")]
     interpreter = AsyncMock(return_value=result)
     answer = await construct_packet(
         user_id="owner",
@@ -392,6 +395,7 @@ async def test_packet_can_replace_prior_copy_with_current_supported_complete_cop
 async def test_packet_dropping_one_prior_member_cannot_reuse_unscoped_prior_citation():
     previous = packet([period("Unscoped prior period")], ["prior_kept", "prior_removed"])
     result = packet([period("Unscoped prior period")], ["prior_kept", "current"])
+    result["excluded_documents"] = [exclusion("prior_removed")]
     interpreter = AsyncMock(return_value=result)
     with pytest.raises(EvidenceValidationError, match="model_citation_invalid"):
         await construct_packet(
@@ -405,3 +409,66 @@ async def test_packet_dropping_one_prior_member_cannot_reuse_unscoped_prior_cita
             interpret=interpreter,
         )
     assert interpreter.await_count == 2
+
+
+def exclusion(document_id, *, duplicate_of=None):
+    return {
+        "document_id": document_id,
+        "reason": "duplicate" if duplicate_of else "outside_group",
+        "explanation": "Synthetic exclusion evidence for validation test",
+        "duplicate_of_document_id": duplicate_of,
+    }
+
+
+@pytest.mark.parametrize("omission", ["silent", "invented", "conflicting", "prior_exclusion"])
+async def test_packet_requires_every_candidate_selected_or_explained(omission):
+    previous = None
+    result = packet([], ["june"])
+    documents = [{"document_id": ref, "facts": {"periods": []}} for ref in ["june", "july"]]
+    if omission == "invented":
+        result["excluded_documents"] = [exclusion("july"), exclusion("invented")]
+    elif omission == "conflicting":
+        result["excluded_documents"] = [exclusion("june"), exclusion("july")]
+    elif omission == "prior_exclusion":
+        previous = packet([], ["june"])
+        previous["excluded_documents"] = [exclusion("old_copy", duplicate_of="june")]
+        result["selected_document_ids"] = ["june", "july"]
+    with pytest.raises(EvidenceValidationError):
+        await construct_packet(
+            user_id="owner",
+            key="same-account-2016",
+            documents=documents,
+            complete=True,
+            previous=previous,
+            interpret=AsyncMock(return_value=result),
+        )
+
+
+async def test_checker_cannot_mark_unaccounted_month_ready():
+    result = {
+        "state": "ready",
+        "correct_subject_and_account": True,
+        "correct_issuer_and_type": True,
+        "correct_coverage": True,
+        "no_unrelated_inclusions": True,
+        "no_unexplained_omissions": True,
+        "issues": [],
+    }
+    with pytest.raises(EvidenceValidationError, match="model_membership_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=packet([], ["june"]),
+            documents=[{"document_id": "june"}, {"document_id": "july"}],
+            complete=True,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=result),
+        )
+
+
+def test_ready_packet_cannot_hide_unverifiable_member():
+    from hushh_mcp.services.drive_packet_contract import PacketAssessment
+
+    result = packet([], ["june"])
+    result["excluded_documents"] = [{**exclusion("july"), "reason": "unverifiable"}]
+    with pytest.raises(ValueError, match="ready packet requires complete evidence"):
+        PacketAssessment.model_validate(result)

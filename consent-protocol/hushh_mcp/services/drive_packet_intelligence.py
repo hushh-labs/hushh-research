@@ -65,6 +65,8 @@ def _validation_code(error):
         "unaccounted extraction pages": "model_pages_unaccounted",
         "unprocessed pages cannot establish canonical packets": "model_readiness_invalid",
         "invented packet member": "model_membership_invalid",
+        "unaccounted packet member": "model_membership_invalid",
+        "invalid packet exclusion": "model_membership_invalid",
         "unfinished assembly cannot be ready": "model_readiness_invalid",
         "incomplete evidence cannot verify ready": "model_readiness_invalid",
         "nonready proposal cannot verify ready": "model_readiness_invalid",
@@ -301,11 +303,17 @@ async def construct_packet(
     previous_ids = set(previous["selected_document_ids"]) if previous else set()
     if previous:
         allowed |= previous_ids
+        allowed |= {item["document_id"] for item in previous.get("excluded_documents", [])}
 
     def validate(result):
         selected = set(result.selected_document_ids)
         if not selected <= allowed:
             raise ValueError("invented packet member")
+        excluded = {item.document_id for item in result.excluded_documents}
+        if not excluded <= allowed:
+            raise ValueError("invented packet member")
+        if selected | excluded != allowed:
+            raise ValueError("unaccounted packet member")
         # Source periods have already passed page and consolidation validation.
         # Prior period citations lack document identities, so reuse them only
         # while every prior selected member remains selected. A later batch may
@@ -361,6 +369,17 @@ async def verify_packet(
         proposed_state = packet.get("state", packet.get("decision"))
         if result.state == "ready" and (not selected or proposed_state != "ready"):
             raise ValueError("nonready proposal cannot verify ready")
+        if result.state == "ready" and "selected_document_ids" in packet:
+            accounted = set(selected or []) | {
+                item["document_id"] for item in packet.get("excluded_documents", [])
+            }
+            supplied = {item["document_id"] for item in documents}
+            if not supplied <= accounted:
+                raise ValueError("unaccounted packet member")
+            if (batch_scope or {}).get(
+                "mode"
+            ) == "complete_compact_summary" and accounted != supplied:
+                raise ValueError("invented packet member")
 
     return await _ask(
         "packet_verification",

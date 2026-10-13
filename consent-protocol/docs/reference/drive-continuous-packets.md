@@ -105,6 +105,16 @@ or silently converts invalid facts into valid ones. Exhausted retries remain
 visible failures; policy upgrades can retry earlier failed facts. Model schema
 validity and independently assessed factual correctness are separate measures.
 
+For document facts, the model selects source-span references; the host resolves
+them to exact supplied text and locations. Every page remains accounted for.
+Packet construction must select or explicitly explain every supplied candidate,
+including candidates retained from earlier batches. Duplicate exclusions point
+to a selected document, and unresolved exclusions prevent Ready. The verifier
+checks these explanations against the original group and substantive facts;
+changing the title to a narrower period cannot excuse dropping a relevant month.
+The final database commit checks the exact candidate set again. Evidence that
+exceeds the bounded final-check context fails visibly instead of being truncated.
+
 ## Limits and purchase boundaries
 
 The collection supports source bytes up to 32 MiB and resumable original-page

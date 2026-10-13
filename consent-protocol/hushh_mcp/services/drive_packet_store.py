@@ -465,10 +465,11 @@ class DrivePacketStore(DriveDocumentFactsStore):
             ):
                 raise DriveReadError("packet_incomplete")
             # Compact exact source list only; original facts remain per-document encrypted rows.
-            sources, after = [], None
+            sources, after, candidate_ids = [], None, set()
             while True:
                 documents = self._members(connection, row, after=after, limit=50)
                 for document in documents:
+                    candidate_ids.add(document["document_id"])
                     if document["facts_profile"] != job["policy_version"]:
                         raise DriveReadError("packet_policy_changed")
                     if document["document_id"] in packet.selected_document_ids:
@@ -484,6 +485,10 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 after = documents[-1]["document_id"]
             if {source["document_id"] for source in sources} != set(packet.selected_document_ids):
                 raise DriveReadError("packet_source_changed")
+            if candidate_ids != set(packet.selected_document_ids) | {
+                item.document_id for item in packet.excluded_documents
+            }:
+                raise DriveReadError("packet_incomplete")
             complete = self._collection_complete(
                 connection, row["user_id"], row["connection_generation"], job["policy_version"]
             )

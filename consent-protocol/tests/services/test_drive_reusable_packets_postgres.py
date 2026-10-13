@@ -780,3 +780,19 @@ async def test_packet_claim_skips_older_policy_head_without_burning_attempts(reu
             ).scalar_one()
             == 0
         )
+
+
+def test_final_duplicate_check_keeps_substantive_differences():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    a = document_facts([{"page": 1}])
+    b = document_facts([{"page": 1}])
+    a["facts"] = [{"value": "Trade A: 10 shares", "citations": []}]
+    b["facts"] = [{"value": "Trade B: 20 shares", "citations": []}]
+    documents = [
+        {"document_id": str(n), "source_version": "1", "complete": True, "facts": facts}
+        for n, facts in enumerate([a, b])
+    ]
+    summaries = [compact_evidence(document) for document in documents]
+    assert summaries[0]["facts"] == ["Trade A: 10 shares"]
+    assert summaries[1]["facts"] == ["Trade B: 20 shares"]

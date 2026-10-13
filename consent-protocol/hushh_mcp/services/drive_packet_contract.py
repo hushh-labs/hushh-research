@@ -130,11 +130,21 @@ class PricingAssessment(EvidenceModel):
     suggested_price_cents: int = Field(ge=50, le=50000)
 
 
+class PacketExclusion(EvidenceModel):
+    document_id: str = Field(min_length=1)
+    reason: Literal["duplicate", "outside_group", "unverifiable"]
+    explanation: str = Field(min_length=1, max_length=1000)
+    duplicate_of_document_id: str | None = None
+
+
 class PacketAssessment(EvidenceModel):
     title: str = Field(min_length=1, max_length=160)
     description: str = Field(min_length=1, max_length=1000)
     state: Literal["ready", "incomplete", "unable_to_verify"]
     selected_document_ids: list[str]
+    # Older immutable manifests remain readable. New construction separately
+    # requires explicit accounting for every supplied candidate.
+    excluded_documents: list[PacketExclusion] = Field(default_factory=list)
     coverage_summary: str = Field(min_length=1, max_length=1000)
     periods: list[ContentPeriod] = Field(max_length=120)
     gaps: list[str] = Field(max_length=64)
@@ -146,9 +156,19 @@ class PacketAssessment(EvidenceModel):
     def coherent(self):
         if len(set(self.selected_document_ids)) != len(self.selected_document_ids):
             raise ValueError("duplicate packet membership")
+        excluded = [item.document_id for item in self.excluded_documents]
+        if len(set(excluded)) != len(excluded) or set(excluded) & set(self.selected_document_ids):
+            raise ValueError("invalid packet exclusion")
+        for item in self.excluded_documents:
+            if item.reason == "duplicate":
+                if item.duplicate_of_document_id not in self.selected_document_ids:
+                    raise ValueError("invalid packet exclusion")
+            elif item.duplicate_of_document_id is not None:
+                raise ValueError("invalid packet exclusion")
         if self.state == "ready" and (
             not self.selected_document_ids
             or self.gaps
+            or any(item.reason == "unverifiable" for item in self.excluded_documents)
             or self.pricing.coverage != "complete"
             or self.pricing.quality != "verified"
         ):
