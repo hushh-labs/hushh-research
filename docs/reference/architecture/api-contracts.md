@@ -1557,9 +1557,29 @@ connection ended.
 | PATCH | `/api/one/messages/conversations/{conversationId}/messages/{messageId}` | Edit the caller's non-deleted sent message using `{content}`. The envelope is re-encrypted with its original message identity, and the response is the participant-safe updated projection. |
 | DELETE | `/api/one/messages/conversations/{conversationId}/messages/{messageId}?scope=me\|everyone` | `scope=me` hides the message only for the caller. `scope=everyone` is sender-only and replaces content with the durable deleted-message marker for both participants. |
 | PUT | `/api/one/messages/conversations/{conversationId}/messages/{messageId}/reaction` | Set the caller's one durable emoji reaction using `{emoji}`. The response aggregates emoji counts without exposing participant identities. |
+| POST | `/api/one/messages/conversations/{conversationId}/delivered` | Recipient acknowledgment of received bodies using `{messageIds: UUID[]}` (1–100). Every id must be a visible received message in this participant conversation; own, hidden, deleted or foreign messages fail the entire batch without updates. Delivery is idempotent and monotonic; returns `deliveredCount` and `deliveredAt`. |
 | POST | `/api/one/messages/conversations/{conversationId}/read?throughMessageId=` | Mark the viewer's received unread messages through the supplied message's `(created_at,id)` boundary. The optional UUID must belong to this participant-scoped conversation; a foreign boundary returns 404 without updates. Returns `readCount`, `readAt` and, when bounded, `readThroughCreatedAt`. Omitting the boundary preserves the legacy whole-conversation behavior. Reading preserved history remains available after a connection ends. |
 | GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
 | POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
+
+Message projections include nullable `deliveredAt`; `readAt` implies delivery,
+including legacy read rows. Send acceptance and push hints do not establish
+recipient delivery. Inbox body previews and authenticated history can be
+acknowledged without marking them read; the existing visibility/read boundary
+remains separate.
+
+The send route also accepts `attachment: {name, mimeType, data}` with canonical
+unpadded base64url bytes and a 5 MB bound. Voice notes use the existing encrypted
+attachment store with verified mono PCM16, 16 kHz WAV, at most 60 seconds.
+Duration comes from actual samples. Stored/wire `kind: document` keeps WAV files
+readable by older revisions; `durationMs` lets current clients render audio.
+Missing duration falls back to a downloadable file. The authenticated
+`GET /api/one/messages/conversations/{conversationId}/messages/{messageId}/attachment`
+returns private/no-store bytes only after participant and deletion checks.
+Apply migration `327_direct_message_delivery_receipts.sql` before deploying the
+new service readers; rolling back requires reverting those readers and freezing
+writes before the explicit schema rollback. This PR adds voice notes, not live
+peer calls or video-message controls.
 
 Persisted body text is AES-256-GCM ciphertext under the server-managed
 direct-message envelope key. API responses decrypt only inside the authenticated

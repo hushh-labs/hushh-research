@@ -48,6 +48,8 @@ The report records fixture/manifest hashes, model alias/resolved model where ava
 
 ## Rollout and compatibility
 
+Migrations `consent-protocol/db/migrations/328_drive_request_packages.sql` and `consent-protocol/db/migrations/329_drive_request_cent_prices.sql` add the package evidence fields and cent-denominated price constraints after the existing direct-message delivery migration 327. The release schema contracts require version 329.
+
 `DRIVE_AGENT_PACKAGES_ENABLED` enrolls new requester-origin live Drive requests. The UAT release defaults it on; other environments default off. A sealed `agent_package_required` marker persists the contract after creation so disabling enrollment cannot downgrade an existing package to legacy manual or Trusted automation. Historical frozen and paid records are not reinterpreted.
 
 Background preparation still requires the owner's current connected Drive and background permission. Current peer, request revision, expiration and connection generation are rechecked at work boundaries. Owner Allow remains a separate sharing decision.

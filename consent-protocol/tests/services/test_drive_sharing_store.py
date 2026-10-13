@@ -120,7 +120,7 @@ async def sharing(documents, monkeypatch):
             "304_connect_bank_payout_reconciliation.sql",
             "316_connect_bank_payout_snapshot.sql",
             "320_drive_request_initial_quote.sql",
-            "327_drive_request_packages.sql",
+            "328_drive_request_packages.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.

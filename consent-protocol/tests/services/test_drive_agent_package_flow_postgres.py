@@ -45,7 +45,7 @@ def agent_flow(packages, sharing, monkeypatch):
     monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     clear_runtime_settings_caches()
     with sharing.db.engine.begin() as connection:
-        connection.execute(text((MIGRATIONS / "328_drive_request_cent_prices.sql").read_text()))
+        connection.execute(text((MIGRATIONS / "329_drive_request_cent_prices.sql").read_text()))
     yield packages
     clear_runtime_settings_caches()
 

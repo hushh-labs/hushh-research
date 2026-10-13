@@ -29,8 +29,8 @@ from tests.services.test_drive_request_bulk_postgres import (  # noqa: F401
 @pytest.fixture
 def packages(request_bulk, sharing):
     with sharing.db.engine.begin() as connection:
-        connection.execute(text((MIGRATIONS / "327_drive_request_packages.sql").read_text()))
-        connection.execute(text((MIGRATIONS / "327_drive_request_packages.sql").read_text()))
+        connection.execute(text((MIGRATIONS / "328_drive_request_packages.sql").read_text()))
+        connection.execute(text((MIGRATIONS / "328_drive_request_packages.sql").read_text()))
     return DriveRequestPackageStore(db=sharing.db, sharing=sharing)
 
 
@@ -325,7 +325,7 @@ async def test_cent_migration_replay_preserves_existing_orders_and_does_not_bloc
 ):
     request_id, _ = await request_search(packages, request_bulk, sharing, count=1)
     with sharing.db.engine.begin() as connection:
-        connection.execute(text((MIGRATIONS / "328_drive_request_cent_prices.sql").read_text()))
+        connection.execute(text((MIGRATIONS / "329_drive_request_cent_prices.sql").read_text()))
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
           (request_id,user_id,requester_user_id,amount_cents)
@@ -349,8 +349,8 @@ async def test_cent_migration_replay_preserves_existing_orders_and_does_not_bloc
         try:
             for name in (
                 "291_drive_request_owner_allowed.sql",
-                "327_drive_request_packages.sql",
-                "328_drive_request_cent_prices.sql",
+                "328_drive_request_packages.sql",
+                "329_drive_request_cent_prices.sql",
             ):
                 with sharing.db.engine.connect() as reader:
                     raw = reader.connection.driver_connection
