@@ -32,6 +32,7 @@ type Scenario = {
   profile?: WalletCardPayload;
   artworkGallery?: boolean;
   sharingHistory?: boolean;
+  revokeFailure?: boolean;
 };
 
 const SYNTHETIC: FixtureCard[] = [
@@ -232,6 +233,8 @@ const sharedCardHistory: CardSharingHistoryItem = {
   activity: [{ event: "SHARE_CREATED", at: "2026-10-12T10:00:00Z", actor: "owner", outcome: "recorded" }],
 };
 let sharedCardRevoked = false;
+let profileQrRotated = false;
+let referralQrRotated = false;
 
 // The production Wallet Card service imports ApiService through the shared
 // client. Keep that transport inert in this fixture so a layout test never
@@ -240,6 +243,12 @@ let sharedCardRevoked = false;
 export const ApiService = {
   getDirectBackendUrl: () => "",
   apiFetch: async (requestPath: string, options?: { method?: string }) => {
+    if (options?.method === "POST" && (requestPath === "/api/one/wallet-card/rotate" || requestPath === "/api/one/referrals/rotate")) {
+      record(`qr-revoke:${requestPath.includes("referrals") ? "referral" : "profile"}`);
+      if (scenario().revokeFailure) return new Response(JSON.stringify({ detail: { code: "FIXTURE_REVOKE_FAILED" } }), { status: 500, headers: { "content-type": "application/json" } });
+      if (requestPath.includes("referrals")) referralQrRotated = true;
+      else profileQrRotated = true;
+    }
     if (scenario().sharingHistory && requestPath === "/api/one/wallet/card-access/grants/fixture-history-grant" && options?.method === "DELETE") {
       record("sharing-revoke:fixture-history-grant");
       sharedCardRevoked = true;
@@ -263,20 +272,20 @@ export const ApiService = {
         { personRef: "22222222-2222-4222-8222-222222222222", displayName: "Trusted Recipient", photoUrl: null, trusted: true },
       ], hasMore: false,
     } : requestPath.startsWith("/api/one/wallet/card-access/cards/") ? { eligible: true, grants: [] }
-      : requestPath.startsWith("/api/one/referrals/summary") ? {
-      slug: "fixture-referral", link: "https://example.test/r/fixture-referral",
-      link_open_count: 7, last_opened_at: "2026-09-01T10:00:00Z",
+      : (requestPath.startsWith("/api/one/referrals/summary") || requestPath === "/api/one/referrals/rotate") ? {
+      slug: referralQrRotated ? "fixture-referral-new" : "fixture-referral", link: `https://example.test/r/fixture-referral${referralQrRotated ? "-new" : ""}`,
+      link_open_count: referralQrRotated ? 0 : 7, last_opened_at: referralQrRotated ? null : "2026-09-01T10:00:00Z",
       qualified_count: 2, in_progress_count: 1, under_review_count: 0,
       required_active_minutes: 15, new_users_only: true, referrals: [],
     } : requestPath.startsWith("/api/one/wallet-card") ? {
       card: {
-        pass_serial: "fixture-wallet-0001", status: "active", share_token_version: 1,
+        pass_serial: "fixture-wallet-0001", status: "active", share_token_version: profileQrRotated ? 2 : 1,
         card_payload: { full_name: "Alex Rivera", username: "alex.rivera", ...scenario().profile },
         display_name: "Alex Rivera", created_at: "2026-01-01T00:00:00Z",
-        updated_at: "2026-09-01T10:00:00Z", scan_count: 3,
-        last_scanned_at: "2026-09-01T09:00:00Z",
+        updated_at: "2026-09-01T10:00:00Z", scan_count: profileQrRotated ? 0 : 3,
+        last_scanned_at: profileQrRotated ? null : "2026-09-01T09:00:00Z",
       },
-      share_token: "fixture-wallet-share-token-000001", share_url: "https://example.test/c/fixture-wallet-share-token-000001",
+      share_token: profileQrRotated ? "fixture-wallet-share-token-000002" : "fixture-wallet-share-token-000001", share_url: `https://example.test/c/fixture-wallet-share-token-00000${profileQrRotated ? "2" : "1"}`,
     } : {};
     return new Response(JSON.stringify(payload), {
       status: 200, headers: { "content-type": "application/json" },

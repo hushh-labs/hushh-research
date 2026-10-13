@@ -5,7 +5,7 @@
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. One chat uses only one canonical encrypted Markdown document, **Soul.md** (`one_memory.markdown`), for V1 conversation memory. Structured encrypted domains remain compatibility authorities for Finance, KYC, Consent, and other specialist workflows. Chat never imports them or uses their metadata summaries as fallback memory.
+The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. One chat uses only one canonical encrypted Markdown document, **memory.md** (`one_memory.markdown`), for V1 conversation memory. Structured encrypted domains remain compatibility authorities for Finance, KYC, Consent, and other specialist workflows. Chat never imports them or uses their metadata summaries as fallback memory.
 
 The approved product direction is One-owned relationship memory with specialist slices beneath it:
 
@@ -19,11 +19,15 @@ decryption. A validated same-owner, same-key credential renewal preserves it;
 lock, sign-out, or account change clears plaintext and withdraws pending effects.
 Every One turn receives the complete document, bounded to 18,000 characters so
 the backend's 20,000-character request envelope never truncates it. If the
-document does not yet exist, the client initializes a clean session-only Soul.md
+document does not yet exist, the client initializes a clean session-only memory.md
 with flat **Facts**, **Preferences**, and **Commitments** sections. The first
 authorized memory write persists that document and new facts atomically.
 Unlock itself does not create a write, and a failed or malformed read is never
-treated as an absent document. Old structured records remain untouched.
+treated as an absent document. Reads invalidated during loading or encrypted
+device persistence retry with bounded backoff; exhausted retries reject rather
+than returning absence or obsolete information. Retries remain bound to the
+original unlocked session and stop if it locks during backoff.
+Old structured records remain untouched.
 Legacy receipt indexes are not attached to chat as a second memory channel;
 connector tools may still read live sources when the owner requests them.
 The legacy domain-summary model tool refuses typed-chat reads before querying
@@ -32,7 +36,7 @@ Personal recall uses this supplied document, not Drive. Missing information
 remains unknown; a failed Drive detour cannot replace available memory with a
 mandatory connector message. External-read authority still fails closed.
 
-The Memory screen opens on **Saved**. Its private Soul.md section renders this
+The Memory screen opens on **Saved**. Its private memory.md section renders this
 exact document and offers a Markdown editor with a live preview. Save changes uses
 the existing browser-encrypted PKM coordinator on web, iOS, and Android. It
 compares the edit-start document with the current document on every conflict
@@ -47,18 +51,18 @@ Mutation doorbells reconcile cloud changes in the background after local writers
 finish, not before every prompt. Clean previews reflect RAM updates; unsaved drafts remain in
 memory until canceled, saved, or the unlocked session ends. Markdown does not
 execute raw HTML or automatically fetch external images. Memory has two tabs, **Saved** and **Add**. Saved includes specialized records,
-exact-scope sharing, pricing and earnings; sharing is not a separate tab. Soul.md
+exact-scope sharing, pricing and earnings; sharing is not a separate tab. memory.md
 uses the product font with bold section headings, readable foreground text, and
 a bounded reading measure. New bullets follow the preparation agent's authored
 intent classification, not domain paths. The client formats technical packets
-already copied into Soul.md as flat Markdown, preserving owner edits and distinct
+already copied into memory.md as flat Markdown, preserving owner edits and distinct
 facts; this conversion reads no other domains and persists on the next authorized
 save through the revision-preserving writer. Arbitrary owner-authored Markdown
 is not reformatted.
 
 ## Receipt Radar memory
 
-Mail owns detailed canonical receipts; PKM and Soul.md contain only lightweight
+Mail owns detailed canonical receipts; PKM and memory.md contain only lightweight
 durable summaries. Neither store receives email bodies, subjects, senders,
 source passages, PDFs, URLs, provider message IDs or tokens.
 
@@ -119,7 +123,7 @@ leaves the visible session rows and the prior durable snapshot intact.
 Affinities contain bounded labels and purchase counts; patterns contain verified
 recurring counts. Receipts do not establish durable preferences by themselves.
 No individual amounts, transaction dates, identifiers, rows or product lines
-are saved in PKM. Assessment selects approved aggregate sentences for Soul.md;
+are saved in PKM. Assessment selects approved aggregate sentences for memory.md;
 it cannot rewrite them into transaction details. Receipt-owned generated bullets
 use source replacement, preserving unrelated facts and owner corrections.
 Empty completed scans replace old owned summaries. Incomplete assessment keeps
@@ -574,7 +578,7 @@ labels only escalate, so a salary saved under a general profile scope makes that
 scope sensitive for consent sharing. Structured writers (runtime settings, connectors, financial replace) pass no
 memory merge decision and keep their plain merge, so no credential accumulates history.
 
-Gmail KYC onboarding uses the same Soul.md personal memory as chat. It requires
+Gmail KYC onboarding uses the same memory.md personal memory as chat. It requires
 an unlocked private vault; an account without a vault first enters vault setup.
 The person's import action advances the UI immediately while semantic preparation
 selects usable facts, then stages plain bullets in browser RAM and queues encrypted

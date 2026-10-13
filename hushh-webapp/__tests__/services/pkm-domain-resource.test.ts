@@ -28,6 +28,7 @@ vi.mock("@/lib/services/secure-resource-cache-service", () => ({
 }));
 
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   CacheService,
   CACHE_KEYS,
@@ -40,6 +41,18 @@ describe("PkmDomainResourceService", () => {
     CacheService.getInstance().clear();
   });
 
+  it.each(["memory", "device"])("contains a failed background refresh for a warm %s snapshot", async tier => {
+    const snapshot = { key: { userId: "warm-owner", domain: "one_memory", segmentIds: [], contentRevision: 1 }, data: { markdown: "kept" }, manifestRevision: null, updatedAt: null, audit: { cacheTier: "device", source: "secure_cache", refreshedAt: "now" } };
+    peekCachedDomainBlobMock.mockReturnValue(null);
+    secureReadMock.mockResolvedValue(tier === "device" ? snapshot : null);
+    const peek = vi.spyOn(CacheService.getInstance(), "peek").mockReturnValue(tier === "memory" ? { data: snapshot, isFresh: false } : null);
+    loadDomainDataWithBlobMock.mockRejectedValueOnce(new Error("Synthetic background failure"));
+    try {
+      await expect(PkmDomainResourceService.getStaleFirst({ userId: "warm-owner", domain: "one_memory", vaultKey: "vault-key", vaultOwnerToken: "vault-owner" })).resolves.toMatchObject({ data: { markdown: "kept" } });
+      expect(loadDomainDataWithBlobMock).toHaveBeenCalledOnce();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    } finally { peek.mockRestore(); }
+  });
   it("does not return a stale secure-cache domain when the encrypted blob revision is newer", async () => {
     const userId = "user-financial";
     const oldDomain = {
@@ -260,34 +273,77 @@ describe("PkmDomainResourceService", () => {
   // the same domain, or one that will keep 404ing because it was never
   // created) used to recurse here with no cap and no backoff: one page load
   // produced well over a hundred identical network fetches in production.
-  it.each(["response", "device write"])("discards obsolete information after bounded retries during %s", async (phase) => {
-    const owner = `storm-owner-${phase}`;
-    const invalidate = () => {
-      PkmDomainResourceService.invalidateDomain(owner, "storm-domain", {
-        includeBackingCaches: true,
-      });
-    };
+  it.each(["read", "write"])("fails closed after bounded retries when invalidated during %s", async (phase) => {
+    const userId = `storm-owner-${phase}`;
+    const invalidate = () => PkmDomainResourceService.invalidateDomain(userId, "storm-domain", {
+      includeBackingCaches: true,
+    });
     secureWriteMock.mockImplementation(async () => {
-      if (phase === "device write") invalidate();
+      if (phase === "write") invalidate();
     });
     secureInvalidateMock.mockResolvedValue(undefined);
     loadDomainDataWithBlobMock.mockImplementation(async () => {
-      if (phase === "response") invalidate();
+      // Every response arrives after the domain was invalidated again, so
+      // the revision check never lands -- the storm this regression guards.
+      if (phase === "read") invalidate();
       return {
         data: { value: "churned" },
         blob: { dataVersion: 1, updatedAt: "2026-09-20T00:00:00.000Z" },
       };
     });
 
-    const result = await PkmDomainResourceService.refresh({
-      userId: owner,
+    await expect(PkmDomainResourceService.refresh({
+      userId,
       domain: "storm-domain",
       vaultKey: "vault-key",
       vaultOwnerToken: "vault-owner",
-    });
-
-    expect(result).toBeNull();
+    })).rejects.toThrow("Memory changed repeatedly while loading. Try again.");
     expect(loadDomainDataWithBlobMock).toHaveBeenCalledTimes(4);
+    secureWriteMock.mockReset();
+  });
+
+  it("returns absence only for a stable successful missing-domain read", async () => {
+    loadDomainDataWithBlobMock.mockResolvedValue({ data: null, blob: null });
+    await expect(PkmDomainResourceService.refresh({
+      userId: "absent-owner",
+      domain: "one_memory",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+    })).resolves.toBeNull();
+    expect(loadDomainDataWithBlobMock).toHaveBeenCalledOnce();
+    expect(secureWriteMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["read", "write"])("does not restart invalidated %s work after vault lock during backoff", async (phase) => {
+    vi.useFakeTimers();
+    const userId = `locked-retry-owner-${phase}`;
+    const invalidate = () => PkmDomainResourceService.invalidateDomain(userId, "one_memory", {
+      includeBackingCaches: true,
+    });
+    loadDomainDataWithBlobMock.mockImplementation(async () => {
+      if (phase === "read") invalidate();
+      return { data: { markdown: "private memory" }, blob: { dataVersion: 1 } };
+    });
+    secureWriteMock.mockImplementation(async () => {
+      if (phase === "write") invalidate();
+    });
+    secureInvalidateMock.mockResolvedValue(undefined);
+    try {
+      const request = PkmDomainResourceService.refresh({
+        userId, domain: "one_memory", vaultKey: "vault-key", vaultOwnerToken: "vault-owner",
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(loadDomainDataWithBlobMock).toHaveBeenCalledOnce();
+      const writesBeforeLock = secureWriteMock.mock.calls.length;
+      advanceVaultSessionEpoch();
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(request).resolves.toBeNull();
+      expect(loadDomainDataWithBlobMock).toHaveBeenCalledOnce();
+      expect(secureWriteMock).toHaveBeenCalledTimes(writesBeforeLock);
+    } finally {
+      vi.useRealTimers();
+      secureWriteMock.mockReset();
+    }
   });
 
   it("rejects a secure snapshot read that finishes after a domain clear", async () => {

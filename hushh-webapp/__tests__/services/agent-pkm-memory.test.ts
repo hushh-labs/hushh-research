@@ -975,7 +975,7 @@ describe("agent PKM memory helpers", () => {
     pkmGetStaleFirstMock.mockResolvedValueOnce(null);
     pkmGetMetadataMock.mockClear(); pkmGetManyStaleFirstMock.mockClear();
     const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token", requireDecrypted: true });
-    expect(context.text).toBe("# Soul.md\n\n## Facts\n\n## Preferences\n\n## Commitments\n");
+    expect(context.text).toBe("# memory.md\n\n## Facts\n\n## Preferences\n\n## Commitments\n");
     expect(context.text).not.toContain("concise summaries");
     expect(context.domains).toEqual(["one_memory"]);
     expect(pkmGetMetadataMock).not.toHaveBeenCalled();

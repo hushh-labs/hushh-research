@@ -229,6 +229,19 @@ same. The `username` payload field is optional and server-validated (3–30
 lowercase letters/digits/single internal dots, reserved/blocked labels rejected).
 
 Public QR resolves count aggregate visits only, without identifying scanners.
+Profile and NWS share that QR and its scan counters. Owner-confirmed QR rotation
+invalidates the old token and atomically resets `scanCount` and `lastScannedAt`
+for the replacement, while preserving the profile and pass serial. Delayed
+scans presenting the old token cannot increment the replacement's counter.
+
+Referral has a separate invitation QR. Authenticated `POST
+/api/one/referrals/rotate` accepts `{slug}` for the currently presented link,
+derives the owner from Firebase authentication, and returns the current referral
+summary. Disabling the old code and minting its replacement commit together;
+allocation failure rolls back both. A stale/repeated request cannot disable a
+newer replacement. Link opens and last opened apply to the current code only;
+earned referrals, accepted invitations, relationships and credits are retained.
+The existing One proxy and native API transport carry the same contract.
 Saved payment-card secrets remain in the encrypted `wallet` PKM domain.
 Temporary sharing of manually added cards uses the existing direct-message
 transaction, connection/block checks and durable Feed projection. A successful

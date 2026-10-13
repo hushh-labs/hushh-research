@@ -6,7 +6,7 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
     markWalletIntroductionSeen: vi.fn().mockResolvedValue(undefined),
   },
 }));
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: ({ cardDetails }: { cardDetails?: boolean }) => <section>{cardDetails ? "Card recipients" : "Sharing overview"}</section> }));
@@ -20,7 +20,7 @@ const navigationMock = vi.hoisted(() => ({
   replace: vi.fn(),
 }));
 const authMock = vi.hoisted(() => ({
-  user: { uid: "user_1" } as { uid: string } | null,
+  user: { uid: "user_1" } as { uid: string; getIdToken?: () => Promise<string> } | null,
 }));
 const trackEventMock = vi.hoisted(() => vi.fn());
 const vaultMock = vi.hoisted(() => ({ locked: false, token: "owner_token" }));
@@ -63,6 +63,9 @@ const serviceMock = vi.hoisted(() => ({
   getCard: vi.fn(),
   addCard: vi.fn(),
 }));
+const referralMock = vi.hoisted(() => ({ getSummary: vi.fn(), rotateShareLink: vi.fn() }));
+vi.mock("@/lib/services/referral-service", () => ({ ReferralService: referralMock }));
+vi.mock("@/lib/referral/use-referral-stream", () => ({ useReferralStream: () => ({ connected: true }) }));
 const profileMock = vi.hoisted(() => ({ getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }) }));
 vi.mock("@/lib/services/wallet-card-service", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/wallet-card-service")>("@/lib/services/wallet-card-service");
@@ -169,6 +172,26 @@ describe("Wallet video browser workspace", () => {
     view.rerender(<WalletWorkspace />);
     await waitFor(() => expect(screen.queryByTestId("one-wallet-remove-confirm")).toBeNull());
     expect(serviceMock.deleteCard).not.toHaveBeenCalled();
+  });
+  it.each(["current", "owner roundtrip", "lock", "tab", "overview"])("fences delayed referral revocation after %s", async boundary => {
+    referralMock.getSummary.mockResolvedValue({ slug: "fixture", link: "https://example.test/r/fixture", link_open_count: 3, referrals: [], qualified_count: 0, in_progress_count: 0, under_review_count: 0 });
+    referralMock.rotateShareLink.mockResolvedValue({ slug: "replacement", link: "https://example.test/r/replacement", link_open_count: 0, referrals: [], qualified_count: 0, in_progress_count: 0, under_review_count: 0 });
+    const getIdToken = vi.fn().mockResolvedValue("identity");
+    const owner = { uid: "user_1", getIdToken };
+    authMock.user = owner;
+    const view = await open();
+    fireEvent.click(screen.getByRole("button", { name: "Open Agent One Referral" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke access", exact: true }));
+    let resolveToken!: (token: string) => void;
+    getIdToken.mockImplementationOnce(() => new Promise(resolve => { resolveToken = resolve; }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke access", exact: true }));
+    if (boundary === "owner roundtrip") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); authMock.user = owner; view.rerender(<WalletWorkspace />); }
+    if (boundary === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); vaultMock.locked = false; view.rerender(<WalletWorkspace />); }
+    if (boundary === "tab") fireEvent.click(document.getElementById("top-shell-wallet-tab-add")!);
+    if (boundary === "overview") fireEvent.click(screen.getByText("All cards").closest("button")!);
+    await act(async () => { resolveToken("identity"); });
+    if (boundary === "current") { expect(referralMock.rotateShareLink).toHaveBeenCalledWith({ idToken: "identity", slug: "fixture" }); expect(screen.getByRole("link", { name: "Preview referral page" })).toHaveAttribute("href", "https://example.test/r/replacement"); expect(screen.getByTestId("wallet-referral-opens")).toHaveTextContent("0"); }
+    else expect(referralMock.rotateShareLink).not.toHaveBeenCalled();
   });
   it("copies only on request while keeping security codes and telemetry private", async () => {
     await open();

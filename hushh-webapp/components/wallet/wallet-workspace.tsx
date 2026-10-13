@@ -446,19 +446,39 @@ export function WalletWorkspace() {
   }, [profileVisit, fallbackName, user?.metadata?.creationTime]);
   const [referralState, setReferralState] = useState<{ ownerId: string; summary: ReferralSummary } | null>(null);
   const [referralErrorOwnerId, setReferralErrorOwnerId] = useState<string | null>(null);
+  const referralReadRevision = useRef(0);
   const loadReferral = useCallback(async () => {
     if (!user) return;
+    const revision = ++referralReadRevision.current;
     const ownerId = user.uid;
     setReferralErrorOwnerId(null);
     try {
       const idToken = await user.getIdToken();
       const summary = await ReferralService.getSummary({ idToken });
-      if (activeOwnerIdRef.current === ownerId) setReferralState({ ownerId, summary });
+      if (revision === referralReadRevision.current && activeOwnerIdRef.current === ownerId) setReferralState({ ownerId, summary });
     } catch {
       // Preserve a confirmed summary, but make a failed first load actionable.
-      if (activeOwnerIdRef.current === ownerId) setReferralErrorOwnerId(ownerId);
+      if (revision === referralReadRevision.current && activeOwnerIdRef.current === ownerId) setReferralErrorOwnerId(ownerId);
     }
   }, [user]);
+  const revokeReferral = useCallback(async (slug: string) => {
+    const context = vaultContext();
+    const visit = profileVisit;
+    const revision = cardActionScopeRef.current.revision;
+    const isCurrent = () => profileVisitRef.current === visit &&
+      cardActionScopeRef.current.revision === revision && document.visibilityState !== "hidden" &&
+      activeOwnerIdRef.current === context?.userId && getVaultOwnerTokenRef.current() === context?.vaultOwnerToken;
+    if (!user || !context || !isCurrent()) throw new Error("Unlock your vault to revoke access.");
+    const idToken = await user.getIdToken();
+    if (!isCurrent()) throw new Error("Your session changed.");
+    ++referralReadRevision.current;
+    const summary = await ReferralService.rotateShareLink({ idToken, slug });
+    if (!isCurrent()) throw new Error("Your session changed.");
+    // Only the current visit may retire pre-mutation reads.
+    ++referralReadRevision.current;
+    setReferralState({ ownerId: context.userId, summary });
+    setReferralErrorOwnerId(null);
+  }, [user, vaultContext, profileVisit]);
   useEffect(() => { void loadReferral(); }, [loadReferral]);
   const { connected: referralConnected } = useReferralStream(user, loadReferral);
   useEffect(() => {
@@ -964,14 +984,14 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser dockHost={cardDockHost} demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
+            <WalletCardBrowser dockHost={cardDockHost} demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} onRevokeReferral={revokeReferral} ownerId={renderedOwnerId || undefined}
               key={renderedOwnerId}
               cards={cards}
               cardholderNames={cardholderNames}
               selectedCardId={selectedDeckCardId}
               selectedCardNumber={displayedNumber}
               onSelect={selectCard}
-              onOverview={() => { setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
+              onOverview={() => { cardActionScopeRef.current.revision += 1; setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
               onAdd={() => { dispatch({ type: "unfocus" }); dispatch({ type: "open_add" }); }}
               details={cardDetails}
               active={activeTab === "cards"}

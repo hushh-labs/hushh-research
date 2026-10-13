@@ -1214,3 +1214,8 @@ tests/test_drive_request_terms_migrations_postgres.py
 
 tests/test_pkm_answer_catalog.py
 tests/test_answer_center_surface_integration.py
+tests/test_wallet_default_qr_revocation_postgres.py
+tests/test_one_wallet_card_service.py
+tests/test_one_wallet_card_routes.py
+tests/services/test_one_referral_service_summary.py
+tests/test_one_referral_dashboard_routes.py
