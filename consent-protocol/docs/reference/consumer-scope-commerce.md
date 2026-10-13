@@ -28,7 +28,8 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Main integration verification — 2026-10-13 UTC
 
-The latest continuation integrates main `811101872f74`. Main migrations 327–331
+The latest continuation integrates main `460a68d4b908` through normal merge
+`49d29b86ac99` on the preserved infrastructure branch. Main migrations 327–331
 remain intact; the seven task registrations move from 327–333 to 332–338 with
 all fourteen forward/rollback bodies byte-identical. Active consumers and schema
 contracts use head 338. Read-only target evidence at
@@ -44,6 +45,17 @@ fixes obsolete Memory publication after bounded encrypted-write retries. Consent
 stream errors are read before transport cleanup; unconfigured receipt logos keep
 merchant domains out of implicit third-party requests. Focused negative controls
 and fresh combined core/CI qualify these boundaries before deployment.
+
+Latest Memory reads distinguish stable absence from repeated invalidation and
+reject exhausted retries; vault retirement stops further reads. Background
+refreshes consume failures at the existing service boundary. Wallet QR revocation
+retains transactional old-link refusal and activity reset while fencing delayed
+authentication and settlement to the current owner visit and card surface.
+Forty-eight nearest cases and nine handoff cases pass. Broken controls permit
+retired QR writes, publish late success, or leave two background rejections
+unhandled. These source checks do not establish provider financial acceptance.
+The Memory interface retains **Saved** and **Add** with exact-scope sharing and
+pricing in Saved; private memory.md remains excluded from commercial exports.
 
 The continuation incorporates main `4d067d6ce126` through the existing branch.
 Search preserves curated presentation order while projecting labels, aliases,
