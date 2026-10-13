@@ -18,6 +18,20 @@ const user = {
 export function useAuth() {
   return { user, loading: false };
 }
+// Packet controls use the auth service for verified buyer identity. Keep that
+// provider boundary synthetic instead of importing Firebase's full sign-out
+// and vault warm-up graph into this mounted settings fixture.
+export const AuthService = {
+  getIdToken: user.getIdToken,
+  getCurrentUser: () => user,
+  documentRequestIdentityToken: async () => "synthetic-firebase",
+  linkGoogleIdentity: async () => { throw new Error("No identity mutation in the layout fixture"); },
+};
+// Keep real FeedService reads and the mounted feed preview. App-wide cache
+// invalidation belongs to mutations, which this read-only fixture never makes.
+export const CacheSyncService = {
+  onFeedChanged: () => { throw new Error("No feed mutation in the layout fixture"); },
+};
 export function useVault() {
   return { vaultOwnerToken: "synthetic-owner" };
 }
