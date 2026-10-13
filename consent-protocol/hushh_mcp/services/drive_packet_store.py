@@ -232,7 +232,10 @@ class DrivePacketStore(DriveDocumentFactsStore):
             changed.add(packet)
         for packet in changed:
             connection.execute(
-                text("""UPDATE drive_packet_heads SET dirty=TRUE,revision=revision+1,
+                text("""UPDATE drive_packet_heads SET
+              dirty=EXISTS(SELECT 1 FROM drive_packet_members WHERE packet_id=:id),revision=revision+1,
+              awaiting_collection=CASE WHEN EXISTS(SELECT 1 FROM drive_packet_members WHERE packet_id=:id)
+                THEN awaiting_collection ELSE FALSE END,
               build_envelope=NULL,after_document_id=NULL,build_phase='construct',lease_id=NULL,lease_expires_at=NULL,
               attempts=0,error_code=NULL,next_at=clock_timestamp(),updated_at=clock_timestamp() WHERE packet_id=:id"""),
                 {"id": packet},
@@ -241,6 +244,34 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 text("UPDATE drive_packet_versions SET available=FALSE WHERE packet_id=:id"),
                 {"id": packet},
             )
+
+    @staticmethod
+    def _retire_empty_heads_locked(connection, *, user_id, generation):
+        """Retire bounded legacy empty work without deleting frozen history."""
+        retired = list(
+            connection.execute(
+                text("""WITH empty AS (
+                  SELECT h.packet_id FROM drive_packet_heads h
+                  WHERE h.user_id=:user AND h.connection_generation=:generation
+                    AND NOT EXISTS(SELECT 1 FROM drive_packet_members m WHERE m.packet_id=h.packet_id)
+                    AND (h.dirty OR h.awaiting_collection OR h.lease_id IS NOT NULL OR EXISTS(
+                      SELECT 1 FROM drive_packet_versions v WHERE v.packet_id=h.packet_id AND v.available))
+                  ORDER BY h.updated_at,h.packet_id LIMIT 32 FOR UPDATE OF h SKIP LOCKED)
+                UPDATE drive_packet_heads h SET dirty=FALSE,awaiting_collection=FALSE,
+                  revision=revision+1,lease_id=NULL,lease_expires_at=NULL,build_envelope=NULL,
+                  after_document_id=NULL,build_phase='construct',attempts=0,error_code=NULL,
+                  updated_at=clock_timestamp()
+                WHERE h.packet_id IN(SELECT packet_id FROM empty) RETURNING h.packet_id"""),
+                {"user": user_id, "generation": generation},
+            ).scalars()
+        )
+        if retired:
+            connection.execute(
+                text("""UPDATE drive_packet_versions SET available=FALSE
+                  WHERE packet_id=ANY(CAST(:ids AS uuid[])) AND available"""),
+                {"ids": retired},
+            )
+        return len(retired)
 
     def _collection_complete(self, connection, user_id, generation, policy):
         return bool(
@@ -379,6 +410,9 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 revision=collection["revision"],
                 policy=policy_version,
             )
+            self._retire_empty_heads_locked(
+                connection, user_id=user_id, generation=active["connection_generation"]
+            )
             # Build from the current canonical members while unrelated Drive
             # documents continue indexing. Membership revisions fence concurrent
             # changes; finalization still checks every exact source. Waiting for
@@ -401,6 +435,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 """SELECT h.* FROM drive_packet_heads h WHERE user_id=:user
               AND connection_generation=:generation AND dirty AND next_at<=clock_timestamp()
               AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())
+              AND EXISTS(SELECT 1 FROM drive_packet_members m WHERE m.packet_id=h.packet_id)
               AND NOT EXISTS(SELECT 1 FROM drive_packet_members m
                 JOIN drive_document_facts f ON f.document_id=m.document_id AND f.facts_version=m.facts_version
                 JOIN connected_documents d ON d.document_id=f.document_id AND d.user_id=f.user_id
@@ -655,7 +690,8 @@ class DrivePacketStore(DriveDocumentFactsStore):
             and row["state"] == "ready"
             and self._collection_fresh(connection, row["user_id"], row["connection_generation"])
             and not connection.execute(
-                text("""SELECT EXISTS(SELECT 1 FROM drive_packet_version_sources s
+                text("""SELECT NOT EXISTS(SELECT 1 FROM drive_packet_members WHERE packet_id=:id)
+              OR EXISTS(SELECT 1 FROM drive_packet_version_sources s
               LEFT JOIN connected_documents d ON d.document_id=s.document_id AND d.user_id=:user
               WHERE s.packet_id=:id AND s.version=:version AND (d.document_id IS NULL OR d.source_version<>s.source_version
                 OR d.active_version IS NULL OR d.status<>'ready' OR d.connection_generation<>:generation))"""),
@@ -687,7 +723,8 @@ class DrivePacketStore(DriveDocumentFactsStore):
               FROM drive_packet_heads h LEFT JOIN drive_packet_versions v ON v.packet_id=h.packet_id AND v.version=h.current_version
               LEFT JOIN drive_packet_listings l ON l.packet_id=v.packet_id AND l.version=v.version
               WHERE h.user_id=:owner AND h.connection_generation=:generation
-                AND v.version IS NOT NULL
+                AND v.version IS NOT NULL AND v.document_count>0
+                AND EXISTS(SELECT 1 FROM drive_packet_members m WHERE m.packet_id=h.packet_id)
                 AND (:after IS NULL OR h.packet_id>CAST(:after AS uuid))
                 AND (:is_owner OR l.enabled) ORDER BY h.packet_id LIMIT :limit"""),
                     {

@@ -831,6 +831,194 @@ async def test_packet_release_rejects_untrusted_failure_code(reusable):
         )
 
 
+async def test_last_member_removal_retires_work_and_preserves_frozen_history(reusable, sharing):
+    from hushh_mcp.services.drive_packet_contract import DocumentFacts
+
+    packet = await ready_packet(reusable, 2)
+    created = await request(sharing)
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_share_requests SET reusable_packet_id=:packet,reusable_packet_version=1 WHERE request_id=:request"
+            ),
+            {"packet": packet["packetId"], "request": created["requestId"]},
+        )
+        before = connection.execute(
+            text("SELECT manifest_envelope,digest FROM drive_packet_versions")
+        ).one()
+        rows = (
+            connection.execute(text("SELECT * FROM drive_document_facts ORDER BY document_id"))
+            .mappings()
+            .all()
+        )
+        reusable.packets._authority(connection, user_id="owner")
+        for index, row in enumerate(rows):
+            facts = DocumentFacts.model_validate(reusable.facts.facts(dict(row)))
+            facts.canonical_packets = []
+            reusable.packets.update_membership_locked(connection, row, facts)
+            head = connection.execute(text("SELECT * FROM drive_packet_heads")).mappings().one()
+            assert head["dirty"] is (index == 0)
+        assert not head["awaiting_collection"] and head["lease_id"] is None
+        assert (
+            connection.execute(
+                text("SELECT manifest_envelope,digest FROM drive_packet_versions")
+            ).one()
+            == before
+        )
+        assert (
+            connection.execute(text("SELECT available FROM drive_packet_versions")).scalar_one()
+            is False
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_packet_version_sources")
+            ).scalar_one()
+            == 2
+        )
+        bound = connection.execute(
+            text("SELECT reusable_packet_id,reusable_packet_version FROM drive_share_requests")
+        ).one()
+        assert (
+            str(bound.reusable_packet_id) == packet["packetId"]
+            and bound.reusable_packet_version == 1
+        )
+    reusable.worker.constructor = AsyncMock(
+        side_effect=AssertionError("retired packet invoked model")
+    )
+    assert await reusable.worker.run_packet_one(user_id="owner") == "idle"
+    reusable.worker.constructor.assert_not_awaited()
+    assert (await reusable.packets.list_packets(user_id="owner"))["packets"] == []
+    with pytest.raises(DriveReadError, match="packet_unavailable"):
+        await reusable.packets.current_packet_manifest(
+            owner_user_id="owner", packet_id=packet["packetId"], version=1
+        )
+
+
+async def test_legacy_empty_packet_is_hidden_and_retired_without_model_work(reusable):
+    packet = await ready_packet(reusable)
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(text("DELETE FROM drive_packet_members"))
+        connection.execute(
+            text(
+                "UPDATE drive_packet_heads SET dirty=TRUE,awaiting_collection=TRUE,build_phase='finalize'"
+            )
+        )
+        before = connection.execute(
+            text("SELECT manifest_envelope,digest FROM drive_packet_versions")
+        ).one()
+    assert (await reusable.packets.list_packets(user_id="owner"))["packets"] == []
+    with pytest.raises(DriveReadError, match="packet_unavailable"):
+        await reusable.packets.current_packet_manifest(
+            owner_user_id="owner", packet_id=packet["packetId"], version=1
+        )
+    reusable.worker.constructor = AsyncMock(
+        side_effect=AssertionError("empty packet invoked model")
+    )
+    reusable.worker.checker = AsyncMock(side_effect=AssertionError("empty packet invoked model"))
+    assert await reusable.worker.run_packet_one(user_id="owner") == "idle"
+    reusable.worker.constructor.assert_not_awaited()
+    reusable.worker.checker.assert_not_awaited()
+    with reusable.facts.db.engine.connect() as connection:
+        head = connection.execute(text("SELECT * FROM drive_packet_heads")).mappings().one()
+        assert not head["dirty"] and not head["awaiting_collection"] and head["lease_id"] is None
+        assert (
+            connection.execute(
+                text("SELECT manifest_envelope,digest FROM drive_packet_versions")
+            ).one()
+            == before
+        )
+        assert (
+            connection.execute(text("SELECT available FROM drive_packet_versions")).scalar_one()
+            is False
+        )
+    assert await reusable.worker.run_packet_one(user_id="owner") == "idle"
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT revision FROM drive_packet_heads")).scalar_one()
+            == head["revision"]
+        )
+
+
+async def test_empty_head_cleanup_is_bounded_and_does_not_block_current_packet(reusable):
+    from uuid import uuid4
+
+    from hushh_mcp.services.drive_document_facts_store import seal_evidence
+
+    await originals(reusable)
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    with reusable.facts.db.engine.begin() as connection:
+        current = connection.execute(text("SELECT * FROM drive_packet_heads")).mappings().one()
+        for index in range(34):
+            row = {**current, "packet_id": uuid4()}
+            connection.execute(
+                text("""INSERT INTO drive_packet_heads(packet_id,user_id,connection_generation,key_fingerprint,key_envelope)
+                VALUES(:id,'owner',1,:fingerprint,CAST(:envelope AS jsonb))"""),
+                {
+                    "id": row["packet_id"],
+                    "fingerprint": str(uuid4()),
+                    "envelope": seal_evidence(
+                        reusable.packets.cipher,
+                        reusable.packets._packet_identity(row, "key"),
+                        {
+                            "key": f"retired-{index}",
+                            "title": "Retired",
+                            "description": "Retired empty test group",
+                        },
+                    ),
+                },
+            )
+    claimed = await reusable.packets.claim_packet(user_id="owner", policy_version=POLICY)
+    assert claimed["packet_id"] == current["packet_id"] and claimed["member_count"] == 1
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_packet_heads h WHERE dirty
+            AND NOT EXISTS(SELECT 1 FROM drive_packet_members m WHERE m.packet_id=h.packet_id)""")
+            ).scalar_one()
+            == 2
+        )
+
+
+async def test_zero_selected_document_abstention_is_retained_but_not_a_catalog_packet(reusable):
+    await originals(reusable)
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+
+    async def abstain(**kwargs):
+        assessment = await construct(**kwargs)
+        assessment.update(
+            state="unable_to_verify",
+            selected_document_ids=[],
+            excluded_documents=[
+                {
+                    "document_id": document["document_id"],
+                    "reason": "unverifiable",
+                    "explanation": "Cannot establish useful verified evidence.",
+                }
+                for document in kwargs["documents"]
+            ],
+        )
+        return assessment
+
+    async def cannot_verify(**kwargs):
+        return {
+            **await check(**kwargs),
+            "state": "unable_to_verify",
+            "correct_coverage": False,
+            "issues": ["No selected documents can be verified."],
+        }
+
+    reusable.worker.constructor, reusable.worker.checker = abstain, cannot_verify
+    for _ in range(3):
+        outcome = await reusable.worker.run_packet_one(user_id="owner")
+    assert outcome == "unable_to_verify"
+    assert (await reusable.packets.list_packets(user_id="owner"))["packets"] == []
+    with reusable.facts.db.engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT state,document_count,available FROM drive_packet_versions")
+        ).one()
+        assert row.state == "unable_to_verify" and row.document_count == 0 and not row.available
+
+
 async def test_canonical_key_context_is_current_bounded_and_owner_private(reusable):
     from uuid import uuid4
 
