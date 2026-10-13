@@ -211,10 +211,10 @@ class DriveBulkShareWorker:
             stage = "inspect"
             await self.adapter.inspect_shareable(
                 **args,
-                expected_version="1",
+                expected_version=file.get("sourceVersion", "1"),
                 require_app_authorized=False,
                 require_genai_eligibility=False,
-                metadata_only=True,
+                metadata_only=not bool(file.get("packageDigest")),
                 expected_name=file["name"],
                 time_field="modifiedTime",
                 start_time="1970-01-01T00:00:00Z",

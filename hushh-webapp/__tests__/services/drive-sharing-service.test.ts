@@ -43,7 +43,7 @@ describe("requester document payment boundary", () => {
 
   it("reads only vault-authorized request context without caching or trusting another request", async () => {
     const purpose = { purpose: "Standup notes", periodStart: "2026-10-01", periodEnd: "2026-10-08" };
-    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, files: [{ name: "private.pdf" }] }));
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, files: [{ name: "private.pdf" }], agentPackage: { summary: "Owner-only assessment" } }));
     expect(await DriveSharingService.requesterContext("vault", requestId, guard))
       .toEqual({ requestId, purpose });
     expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/context`);
@@ -96,10 +96,10 @@ describe("requester document payment boundary", () => {
     }
   });
 
-  it("accepts an owner-set whole-dollar price and rejects any other amount", async () => {
-    fetcher.mockResolvedValueOnce(reply({ status: "checkout_open", amountCents: 2000, currency: "usd" }));
-    expect(await DriveRequestPaymentService.status("firebase", requestId)).toMatchObject({ amountCents: 2000 });
-    for (const amountCents of [150, 60_000, 2000.5]) {
+  it("accepts owner-set integer cents and rejects amounts outside the Drive policy", async () => {
+    fetcher.mockResolvedValueOnce(reply({ status: "checkout_open", amountCents: 51, currency: "usd" }));
+    expect(await DriveRequestPaymentService.status("firebase", requestId)).toMatchObject({ amountCents: 51 });
+    for (const amountCents of [49, 60_000, 2000.5]) {
       fetcher.mockResolvedValueOnce(reply({ status: "checkout_open", amountCents, currency: "usd" }));
       await expect(DriveRequestPaymentService.status("firebase", requestId)).rejects.toThrow("Invalid payment response");
     }
@@ -119,7 +119,7 @@ describe("requester document payment boundary", () => {
     expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject({ payment, price });
     fetcher.mockResolvedValueOnce(reply({
       ...status, direction: "outgoing",
-      payment: { ...payment, amountCents: 2550 }, price: { ...price, state: "locked" },
+      payment: { ...payment, amountCents: 49 }, price: { ...price, state: "locked" },
     }));
     // The request still loads; a bad view never becomes a Pay action.
     expect(await DriveSharingService.status("vault", requestId, guard))
@@ -464,7 +464,7 @@ describe("private sharing transport", () => {
     }
   });
 
-  it("offers Allow only on a pending request not yet allowed, with a whole-dollar price", async () => {
+  it("offers Allow only on a pending request not yet allowed, with a valid Drive price", async () => {
     const decision = { ...notStartedReview(), allowAvailable: true, paymentRequired: true,
       ownerAllowed: false, priceCents: null };
     fetcher.mockResolvedValueOnce(reply(decision));
@@ -476,7 +476,7 @@ describe("private sharing transport", () => {
     expect(await DriveSharingService.review("vault", requestId, guard))
       .toMatchObject({ allowAvailable: false, ownerAllowed: true, priceCents: 2000 });
     for (const invalid of [
-      { priceCents: 2050 }, { priceCents: 0 }, { priceCents: 50_100 }, { priceCents: "2000" },
+      { priceCents: 49 }, { priceCents: 0 }, { priceCents: 50_100 }, { priceCents: "2000" },
       { allowAvailable: "true" }, { paymentRequired: 1 }, { ownerAllowed: null },
     ]) {
       fetcher.mockResolvedValueOnce(reply({ ...decision, ...invalid }));
@@ -489,7 +489,7 @@ describe("private sharing transport", () => {
       ownerAllowed: false, priceCents: null };
     fetcher.mockResolvedValueOnce(reply({ ...decision, estimateCents: 1000 }));
     expect((await DriveSharingService.review("vault", requestId, guard)).estimateCents).toBe(1000);
-    for (const estimateCents of [null, 1050, 0, 50_100, "1000"]) {
+    for (const estimateCents of [null, 49, 0, 50_100, "1000"]) {
       fetcher.mockResolvedValueOnce(reply({ ...decision, estimateCents }));
       const review = await DriveSharingService.review("vault", requestId, guard);
       expect(review.allowAvailable).toBe(true);
@@ -517,6 +517,39 @@ describe("private sharing transport", () => {
         .rejects.toMatchObject({ code: "invalid_response" });
     }
   });
+  it("preserves the owner package assessment and rejects unsafe approval projections", async () => {
+    const agentPackage = { status: "ready", revision: 2, digest: "a".repeat(64),
+      selectedCount: 4, evaluatedCount: 8, candidateCount: 12,
+      confidenceScore: 82, confidenceBasis: "model_assessment", importanceScore: 175,
+      suggestedPriceCents: 1051, priceReason: "Four records.", summary: "Partial coverage.",
+      coverageStatus: "partial", gaps: ["February missing"], canAllow: true };
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), agentPackage }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).agentPackage).toEqual(agentPackage);
+    for (const invalid of [{ digest: null }, { digest: "wrong" }, { status: "preparing" },
+      { selectedCount: 0 }, { confidenceScore: 101 }, { confidenceScore: 0.8 },
+      { confidenceBasis: "probability" }, { importanceScore: 0 }, { importanceScore: 501 },
+      { suggestedPriceCents: 49 }, { suggestedPriceCents: 50.5 }, { canAllow: "true" }]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), agentPackage: { ...agentPackage, ...invalid } }));
+      await expect(DriveSharingService.review("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("binds package Allow to its revision and digest and refuses incomplete package inputs", async () => {
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 4 }));
+    await DriveSharingService.allow("vault", requestId, {
+      revision: 3, amountCents: 50, packageRevision: 2, packageDigest: "a".repeat(64),
+    }, guard);
+    expect(JSON.parse(fetcher.mock.lastCall?.[1].body)).toEqual({ revision: 3, amountCents: 50,
+      packageRevision: 2, packageDigest: "a".repeat(64), confirmed: true });
+    for (const fields of [{ packageRevision: 2 }, { packageDigest: "a".repeat(64) },
+      { packageRevision: 2, packageDigest: "wrong" }, { packageRevision: -1, packageDigest: "a".repeat(64) }]) {
+      // Deliberately test values crossing the typed boundary from untrusted callers.
+      const input = { revision: 3, amountCents: 50, ...fields } as Parameters<typeof DriveSharingService.allow>[2];
+      await expect(DriveSharingService.allow("vault", requestId, input, guard)).rejects.toMatchObject({ code: "invalid_argument" });
+    }
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("allows with the revision, explicit confirmation and a price only when one is set", async () => {
     fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 4,
       ownerAllowed: true, amountCents: 2000 }, 202));
@@ -530,7 +563,7 @@ describe("private sharing transport", () => {
       ownerAllowed: true, amountCents: null }, 202));
     await DriveSharingService.allow("owner", requestId, { revision: 4, amountCents: null }, guard);
     expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ revision: 4, confirmed: true });
-    for (const input of [{ revision: 4, amountCents: 2050 }, { revision: 4, amountCents: 50_100 },
+    for (const input of [{ revision: 4, amountCents: 49 }, { revision: 4, amountCents: 50_100 },
       { revision: -1, amountCents: null }]) {
       await expect(DriveSharingService.allow("owner", requestId, input, guard))
         .rejects.toMatchObject({ code: "invalid_argument" });

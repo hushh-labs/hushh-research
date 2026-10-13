@@ -266,6 +266,9 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             )
         if not trusted_valid:
             raise DriveSharingError("payment_not_ready")
+        # Internal only; authority derives from the encrypted request, never
+        # the public routing hint or a caller-supplied package flag.
+        request["_agent_package_required"] = private.get("agent_package_required") is True
         return request
 
     async def checkout(self, *, requester_user_id: str, request_id: str) -> dict:
@@ -307,7 +310,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             verified_account_id = account["stripe_account_id"]
 
         def reserve(connection):
-            self._current_checkout_authority(
+            request = self._current_checkout_authority(
                 connection, request_id=request_id, requester_user_id=requester_user_id
             )
             order = self._row(
@@ -326,6 +329,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 or order["request_expires_at"] <= datetime.now(UTC)
             ):
                 raise DriveSharingError("payment_not_ready")
+            if request.get("_agent_package_required") is True:
+                order["_package_owner_user_id"] = request["user_id"]
             if order["status"] == "paid":
                 raise DriveSharingError("payment_already_paid")
             # The first provider-backed payment window is the only one for
@@ -382,7 +387,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             if order["stripe_checkout_session_id"]:
                 raise DriveSharingError("payment_unavailable")
             # The stored order amount is the Checkout price. An amount outside
-            # the whole-dollar price range never reaches the provider.
+            # the supported integer-cent price range never reaches the provider.
             if not valid_owner_price_cents(order["amount_cents"]) or order["currency"] != "usd":
                 raise DriveSharingError("payment_unavailable")
             # Reserve the exact Stripe payload before provider I/O. Replays
@@ -412,6 +417,20 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             return order
 
         order = await self._transaction(reserve)
+        if order.get("_package_owner_user_id"):
+            from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
+
+            # An owner can edit/delete a source while the requester waits.
+            # Check the approved versions before exposing even an existing URL.
+            try:
+                async with asyncio.timeout(25):
+                    await DriveTrustedAutoService(
+                        sharing=DriveSharingStore(db=self.db)
+                    ).preflight_package(
+                        user_id=order["_package_owner_user_id"], request_id=request_id
+                    )
+            except Exception:
+                raise DriveSharingError("payment_not_ready") from None
         if order["stripe_checkout_url"]:
             return {"checkoutUrl": order["stripe_checkout_url"]}
 
