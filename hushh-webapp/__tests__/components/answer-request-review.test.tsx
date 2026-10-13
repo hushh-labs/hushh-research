@@ -48,6 +48,10 @@ it("successful empty resolution never falls back to every scope", () => {
 it("prices the answer in this lane's words, never the document lane's", () => {
   priceSheet.props = null;
   render(<AnswerRequestReview request={{ ...base, resolutionMode: "agent" }} requesterLabel="Peer" />);
+  // Consent is captured on the review step, before a price is ever chosen.
+  expect(screen.getByRole("button", { name: "Set a price" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ }));
+  expect(screen.getByRole("button", { name: "Set a price" })).toBeEnabled();
   fireEvent.click(screen.getByRole("button", { name: "Set a price" }));
   const description = String(priceSheet.props?.description ?? "");
   expect(description).toBeTruthy();
@@ -57,6 +61,19 @@ it("prices the answer in this lane's words, never the document lane's", () => {
   expect(description).toMatch(/After you approve/i);
   expect(description).toMatch(/pay this price only when it is ready/i);
   expect(description).toMatch(/verified payment releases/i);
-  expect(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ }))
-    .toHaveAccessibleName(/Google Gemini/);
+});
+
+it("shows exactly one step at a time, and the price step carries no consent or payout control", () => {
+  priceSheet.props = null;
+  render(<AnswerRequestReview request={{ ...base, resolutionMode: "agent" }} requesterLabel="Peer" />);
+  fireEvent.click(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Set a price" }));
+  // Exactly one modal: the review form (question, Uses, checkbox, Set a
+  // price / Don't allow) is gone once the price step is showing, and the
+  // price step itself carries no checkbox, consent paragraph or payout
+  // control -- those already happened on the review step above it.
+  expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Set a price" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Don't allow" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/payout/i)).not.toBeInTheDocument();
 });
