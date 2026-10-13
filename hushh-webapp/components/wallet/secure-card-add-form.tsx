@@ -99,6 +99,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
   }, [errors]);
 
   const [supportedNetworks, setSupportedNetworks] = useState<CardBrand[]>([]);
+  const [catalogFailed, setCatalogFailed] = useState(false);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const [networkReply, setNetworkReply] = useState<{ key: string; vaultOwnerToken: string; result: WalletNetworkResult | null } | null>(null);
   const [networkLoading, setNetworkLoading] = useState(false);
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
@@ -125,11 +127,12 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
     const current = contextRef.current;
     const controller = new AbortController();
     setSupportedNetworks([]);
+    setCatalogFailed(false);
     if (current && active) void WalletService.supportedCardNetworks(current, controller.signal).then(values => {
       if (!controller.signal.aborted) setSupportedNetworks(values);
-    }).catch(() => {});
+    }).catch(() => { if (!controller.signal.aborted) setCatalogFailed(true); });
     return () => controller.abort();
-  }, [context?.userId, context?.vaultOwnerToken, active, epoch]);
+  }, [context?.userId, context?.vaultOwnerToken, active, epoch, catalogRevision]);
   useEffect(() => {
     const current = contextRef.current;
     const controller = new AbortController();
@@ -261,6 +264,10 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
                 {supportedNetworks.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
               </SelectContent>
             </Select>
+            {catalogFailed ? <div role="status" className={styles.scanHint}>
+              <p>Network options could not load. Auto-detect is still available.</p>
+              <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
+            </div> : null}
             {networkHint ? <p className={cn(TYPOGRAPHY_CLASSNAMES.helperText, "text-muted-foreground")} role="status">{networkHint}</p> : null}
           </div>
         </div>

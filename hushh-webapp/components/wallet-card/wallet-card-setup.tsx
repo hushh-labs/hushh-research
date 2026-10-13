@@ -56,7 +56,7 @@ function DraftField({
     <div className="space-y-1.5" data-wallet-field={definition.key}>
       <Label
         htmlFor={inputId}
-        className="text-[14px] font-semibold leading-[18px] text-[color:var(--app-primary-label)]"
+        className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]"
       >
         {definition.label}
       </Label>
@@ -68,7 +68,7 @@ function DraftField({
           rows={3}
           maxLength={WALLET_CARD_FIELD_LIMITS[definition.key]}
           placeholder={definition.placeholder}
-          className="min-h-24 rounded-[12px] border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[16px] leading-[22px] shadow-none"
+          className="min-h-24 rounded-[12px] border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[13px] leading-[1.3] shadow-none"
           aria-invalid={error ? true : undefined}
           aria-describedby={help ? describedBy : undefined}
           onChange={(event) => onChange(event.target.value)}
@@ -96,7 +96,7 @@ function DraftField({
           id={describedBy}
           role={error ? "alert" : undefined}
           className={cn(
-            "text-[13px] leading-[18px]",
+            "text-[12px] leading-[1.3]",
             error
               ? "text-destructive"
               : "text-[color:var(--app-secondary-label)]",
@@ -185,7 +185,7 @@ export function WalletCardSetup({
   return (
     <form
       ref={formRef}
-      className="w-full space-y-6"
+      className="w-full space-y-6 font-[family-name:var(--font-app-body)] [--type-input-value-size:13px] [--type-button-label-size:13px]"
       data-testid="wallet-card-setup-form"
       onSubmit={(event) => {
         event.preventDefault();
@@ -199,7 +199,7 @@ export function WalletCardSetup({
         <h2
           id="wallet-card-shared-information-heading"
           data-wallet-grid-item="shared-information-heading"
-          className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]"
+          className="text-[15px] font-semibold leading-[1.2] text-[color:var(--app-primary-label)]"
         >
           Shared information
         </h2>
@@ -217,10 +217,10 @@ export function WalletCardSetup({
             </Avatar>
           </div>
           <div className="min-w-0">
-            <p className="text-[15px] font-semibold leading-[20px] text-[color:var(--app-primary-label)]">
+            <p className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]">
               Photo
             </p>
-            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+            <p className="text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
               {WALLET_CARD_OWNER_COPY.fromYourProfile}
             </p>
           </div>
@@ -242,10 +242,10 @@ export function WalletCardSetup({
 
         <div className="space-y-3" data-wallet-grid-item="primary-contact">
           <div className="space-y-1">
-            <Label className="text-[14px] font-semibold leading-[18px] text-[color:var(--app-primary-label)]">
+            <Label className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]">
               Primary contact
             </Label>
-            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+            <p className="text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
               Shown first after a scan.
             </p>
           </div>
@@ -285,11 +285,11 @@ export function WalletCardSetup({
           onClick={() => setOptionalOpen((open) => !open)}
         >
           <span className="min-w-0">
-            <span className="block text-[15px] font-semibold leading-[20px] text-[color:var(--app-primary-label)]">
+            <span className="block text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]">
               {WALLET_CARD_OWNER_COPY.optionalDisclosure}
             </span>
           </span>
-          <span className="flex shrink-0 items-center gap-2 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+          <span className="flex shrink-0 items-center gap-2 text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
             {moreDetailsCount} added
             <ChevronDown
               className={cn(
@@ -325,11 +325,11 @@ export function WalletCardSetup({
       >
         <h2
           id="wallet-card-privacy-heading"
-          className="text-[16px] font-semibold leading-[22px] text-[color:var(--app-primary-label)]"
+          className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]"
         >
           {WALLET_CARD_COPY.privacyAssurance.title}
         </h2>
-        <p className="text-[14px] leading-[20px] text-[color:var(--app-secondary-label)]">
+        <p className="text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
           {WALLET_CARD_COPY.privacyAssurance.description}
         </p>
       </section>
@@ -337,7 +337,7 @@ export function WalletCardSetup({
       <div className="space-y-2 pt-1" data-wallet-grid-item="actions">
         <Button
           type="submit"
-          className="min-h-[52px] w-full rounded-2xl text-[17px] font-semibold leading-[22px]"
+          className="min-h-[52px] w-full rounded-2xl text-[13px] font-semibold leading-[1.2]"
           loading={saving}
           disabled={saving}
         >
@@ -349,7 +349,7 @@ export function WalletCardSetup({
           type="button"
           variant="none"
           effect="fade"
-          className="min-h-11 w-full text-[16px] font-semibold leading-5 text-[color:var(--app-accent)]"
+          className="min-h-11 w-full text-[13px] font-semibold leading-[1.2] text-[color:var(--app-accent)]"
           disabled={saving}
           onClick={onCancel}
         >

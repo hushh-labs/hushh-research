@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ state: vi.fn(), receipts: vi.fn(), revoke: vi.fn(), observe: vi.fn(), disconnect: vi.fn() }));
-vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { state: mocks.state, revoke: mocks.revoke }, CardAccessUnavailableError: class extends Error {} }));
+const mocks = vi.hoisted(() => ({ state: vi.fn(), recipients: vi.fn(), receipts: vi.fn(), revoke: vi.fn(), observe: vi.fn(), disconnect: vi.fn() }));
+vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { state: mocks.state, revoke: mocks.revoke, recipients: mocks.recipients }, CardAccessUnavailableError: class extends Error {} }));
 vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { listCardShareReceipts: mocks.receipts } }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/components/profile/profile-pane-icons", () => ({ ProfilePaneAccountIcon: () => <span data-testid="person-icon" />, ProfilePaneInviteIcon: () => <span />, ProfilePaneSecurityIcon: () => <span /> }));
@@ -26,7 +26,25 @@ beforeEach(() => {
  mocks.receipts.mockResolvedValue([]);
 });
 afterEach(() => vi.unstubAllGlobals());
-it("shows sharing dates and omits an empty sent-copy disclosure", async () => {
+it("limits recipients across searches while allowing deselection", async () => {
+ const people = Array.from({ length: 21 }, (_, i) => ({ personRef: `p${i}`, displayName: `Connection ${i}`, trusted: false }));
+ mocks.recipients.mockResolvedValue({ items: people.slice(0, 20), hasMore: true });
+ render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);
+ await screen.findByText("Person 1");
+ fireEvent.click(screen.getByRole("button", { name: "Share card" }));
+ await screen.findByRole("checkbox", { name: "Share with Connection 0", exact: true });
+ for (let i = 0; i < 20; i++) fireEvent.click(screen.getByRole("checkbox", { name: `Share with Connection ${i}`, exact: true }));
+ mocks.recipients.mockResolvedValue({ items: [people[0], people[20]], hasMore: false });
+ fireEvent.change(screen.getByRole("textbox", { name: "Search connections" }), { target: { value: "Connection" } });
+ const extra = await screen.findByRole("checkbox", { name: "Share with Connection 20", exact: true });
+ expect(extra).toBeDisabled();
+ expect(screen.getByRole("checkbox", { name: "Share with Connection 0", exact: true })).not.toBeDisabled();
+ fireEvent.click(screen.getByRole("checkbox", { name: "Share with Connection 0", exact: true }));
+ expect(extra).not.toBeDisabled();
+ fireEvent.click(extra);
+ expect(screen.getByText(/20 of 20 connections selected/)).toBeVisible();
+});
+it("shows one-person icons and sharing dates while omitting an empty sent-copy disclosure", async () => {
  render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);
  await screen.findByText("Person 1");
  expect(screen.getByTestId("person-icon")).toBeInTheDocument();

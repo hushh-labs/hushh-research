@@ -19,17 +19,18 @@
 
 import { useMemo } from "react";
 import {
-  Briefcase,
   Check,
   ExternalLink,
   Globe,
   Mail,
-  MapPin,
   Phone,
   type LucideIcon,
 } from "@/components/icons";
 
 import { ProfileAccountMailIcon, ProfileAccountPhoneIcon } from "@/components/profile/profile-your-account-icons";
+import { ProfilePaneBriefcaseIcon, ProfilePaneGlobeIcon } from "@/components/profile/profile-pane-icons";
+import { ProfileInnerLinkIcon } from "@/components/profile/profile-inner-icons";
+import { ProfileSecondaryLocationIcon } from "@/components/profile/profile-secondary-icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -457,7 +458,7 @@ function initialsFor(fullName: string | null): string {
 }
 
 function ActionLink({ action }: { action: CardAction }) {
-  const Icon = action.icon === Mail ? ProfileAccountMailIcon : action.icon === Phone ? ProfileAccountPhoneIcon : action.icon;
+  const Icon = action.icon === Mail ? ProfileAccountMailIcon : action.icon === Phone ? ProfileAccountPhoneIcon : action.icon === Globe ? ProfilePaneGlobeIcon : action.icon === ExternalLink ? ProfileInnerLinkIcon : action.icon;
   return (
     <a
       href={action.href}
@@ -466,7 +467,7 @@ function ActionLink({ action }: { action: CardAction }) {
         ? { target: "_blank", rel: "noopener noreferrer" }
         : {})}
     >
-      <Icon className="size-3.5 shrink-0 text-foreground [&_.profile-account-icon-accent]:stroke-[var(--app-accent)]" aria-hidden="true" />
+      <Icon className="size-3.5 shrink-0 text-foreground [&_.profile-account-icon-accent]:stroke-[var(--app-accent)] [&_.profile-pane-icon-accent]:stroke-[var(--app-accent)]" aria-hidden="true" />
       <span className="min-w-0 [overflow-wrap:anywhere]">{action.label}</span>
       {action.external ? (
         <span className="sr-only">(opens in a new tab)</span>
@@ -508,7 +509,7 @@ export function PublicWalletCardView({ card, embedded = false, profileUrl }: {
             <AvatarImage src={card.avatarUrl} alt="" className="object-cover" />
           ) : null}
           <AvatarFallback className="text-xl font-medium">
-            {initials || <Briefcase className="size-7" aria-hidden="true" />}
+            {initials || <ProfilePaneBriefcaseIcon className="size-7" aria-hidden="true" />}
           </AvatarFallback>
         </Avatar>
 
@@ -539,13 +540,13 @@ export function PublicWalletCardView({ card, embedded = false, profileUrl }: {
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm leading-6 text-muted-foreground">
             {card.organisation ? (
               <span className="inline-flex items-center gap-1.5">
-                <Briefcase className="size-3.5 shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
+                <ProfilePaneBriefcaseIcon className="size-3.5 shrink-0" aria-hidden="true" />
                 {card.organisation}
               </span>
             ) : null}
             {card.locationLabel ? (
               <span className="inline-flex items-center gap-1.5">
-                <MapPin className="size-3.5 shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
+                <ProfileSecondaryLocationIcon className="size-3.5 shrink-0 text-foreground [&_.profile-pane-icon-accent]:stroke-[var(--app-accent)]" aria-hidden="true" />
                 {card.locationLabel}
               </span>
             ) : null}

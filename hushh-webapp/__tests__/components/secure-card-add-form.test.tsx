@@ -40,6 +40,21 @@ beforeEach(() => {
 
 describe("Secure manual card entry", () => {
 
+  it("retries failed network options without discarding the draft or disabling auto-detect", async () => {
+    networkApi.supported.mockRejectedValueOnce(new Error("offline"));
+    render(<SecureCardAddForm onSubmit={vi.fn()} />);
+    fillRequired();
+    const retry = await screen.findByRole("button", { name: "Retry network options" });
+    await screen.findByText("Network identified from the card prefix. This does not verify the card or its issuer.");
+    expect(screen.getByTestId("secure-card-save")).not.toBeDisabled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry network options" })).toBeNull());
+    fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+    expect(await screen.findByRole("option", { name: "American Express", exact: true })).toBeVisible();
+    expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+    expect(networkApi.supported).toHaveBeenCalledTimes(2);
+  });
+
   it("offers scanning alongside manual entry and links validation errors", () => {
     const save = vi.fn();
     render(<SecureCardAddForm scanEnabled onSubmit={save} />);

@@ -97,7 +97,7 @@ export function WalletCardScanner({ active, disabled, backRoute, onRead, onBusyC
       </Button>
     </div>
     <Dialog modal open={cameraOpen && active} onOpenChange={setCameraOpen}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className={`${styles.scanDialog} max-w-lg`}>
         <DialogTitle>Scan card</DialogTitle>
         <DialogDescription>Place your card inside the camera view. Details are read on your device.</DialogDescription>
         <video ref={video} autoPlay muted playsInline className="aspect-[1.586] w-full rounded-xl bg-black object-contain" aria-label="Card camera preview" onLoadedData={() => setCameraReady(true)} />
