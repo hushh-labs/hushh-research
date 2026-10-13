@@ -1699,11 +1699,7 @@ describe("SaveLocationModal", () => {
     it("renders the map, editable address, optional details, and category in one screen", async () => {
       render(<SaveLocationModal {...unifiedProps()} />);
 
-      expect(
-        screen.getByRole("navigation", {
-          name: "One Location setup progress",
-        }),
-      ).toHaveTextContent("3 of 4");
+      expect(screen.queryByRole("navigation", { name: "One Location setup progress" })).not.toBeInTheDocument();
       expect(
         screen.getByRole("heading", { level: 1, name: "Save this place" }),
       ).toBeInTheDocument();
