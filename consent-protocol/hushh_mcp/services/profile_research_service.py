@@ -27,21 +27,19 @@ logger = logging.getLogger(__name__)
 async def resolve_profile_research_identity(user_id: str, record, *, conn=None) -> dict[str, Any]:
     name = str(getattr(record, "display_name", None) or "").strip()
     email = getattr(record, "email", None) if getattr(record, "email_verified", False) else None
-    phone = getattr(record, "phone_number", None)
-    if not name or not phone:
-        from hushh_mcp.services.actor_identity_service import ActorIdentityService
+    from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
-        identities = await asyncio.wait_for(
-            ActorIdentityService().get_many(
-                [user_id], **({"conn": conn} if conn is not None else {})
-            ),
-            5,
-        )
-        identity = identities.get(user_id, {})
-        if not name and isinstance(identity.get("display_name"), str):
-            name = identity["display_name"].strip()
-        if not phone and identity.get("phone_verified") is True:
-            phone = identity.get("phone_number")
+    # Firebase may retain a phone after a new OTP owner has claimed it. The
+    # canonical verified binding is the current phone authority; a held claim
+    # transaction also locks this row until the invitation update commits.
+    identities = await asyncio.wait_for(
+        ActorIdentityService().get_many([user_id], **({"conn": conn} if conn is not None else {})),
+        5,
+    )
+    identity = identities.get(user_id, {})
+    if not name and isinstance(identity.get("display_name"), str):
+        name = identity["display_name"].strip()
+    phone = identity.get("phone_number") if identity.get("phone_verified") is True else None
     return {"full_name": name, "email": email, "phone_number": phone}
 
 

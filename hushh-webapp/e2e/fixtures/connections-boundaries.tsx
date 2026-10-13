@@ -1,20 +1,6 @@
 // Synthetic auth/native/Mail/cache boundaries; the production drawer, Drive
 // transport, popup controller, Picker adapter and card actions are unchanged.
 import { createContext, useState } from "react";
-import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
-import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
-
-// Feed preview stays real. Bound cross-feature cache orchestration here so the
-// connector fixture does not pull unrelated encrypted Kai resources into Vite.
-export const CacheSyncService = {
-  onFeedChanged(userId: string) {
-    if (!userId) return;
-    bumpFeedInvalidationEpoch(userId);
-    const cache = CacheService.getInstance();
-    cache.invalidate(CACHE_KEYS.FEED_LIST(userId));
-    cache.invalidate(CACHE_KEYS.FEED_UNREAD_COUNT(userId));
-  },
-};
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];
 export const loadCustomConnectorSnapshot = async () => ({ configurations: [], invalid: [] });

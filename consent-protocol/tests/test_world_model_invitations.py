@@ -34,6 +34,68 @@ async def test_locked_authority_reuses_connection(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_phone_claim_retains_current_binding_until_commit(request, monkeypatch):
+    dsn = request.getfixturevalue("isolated_postgres")
+    import asyncpg
+    from psycopg2.extensions import parse_dsn
+
+    from hushh_mcp.services import actor_identity_service
+    from hushh_mcp.services.profile_research_service import resolve_profile_research_identity
+
+    settings = parse_dsn(dsn)
+    pool = await asyncpg.create_pool(
+        host=settings["host"],
+        port=int(settings["port"]),
+        database=settings["dbname"],
+        user=settings["user"],
+        ssl=False,
+        min_size=2,
+        max_size=2,
+    )
+    monkeypatch.setattr(actor_identity_service, "get_pool", AsyncMock(return_value=pool))
+    record = SimpleNamespace(
+        display_name="Example Owner", email_verified=False, phone_number="+15555550999"
+    )
+    try:
+        await pool.execute("""CREATE TABLE actor_identity_cache (
+            user_id text PRIMARY KEY, display_name text, email text, phone_number text,
+            photo_url text, custom_photo_url text, email_verified bool, phone_verified bool,
+            source text, last_synced_at timestamptz, created_at timestamptz, updated_at timestamptz);
+            INSERT INTO actor_identity_cache(user_id) VALUES ('recipient'), ('new-owner');""")
+        for retain_authority in (True, False):
+            await pool.execute("""UPDATE actor_identity_cache
+                SET phone_number='+15555550123', phone_verified=true WHERE user_id='recipient'""")
+            async with pool.acquire() as reader, reader.transaction():
+                identity = await resolve_profile_research_identity(
+                    "recipient", record, **({"conn": reader} if retain_authority else {})
+                )
+                assert identity["phone_number"] == "+15555550123"
+                async with pool.acquire() as writer:
+
+                    async def transfer():
+                        async with writer.transaction():
+                            await writer.execute("SET LOCAL lock_timeout='100ms'")
+                            await actor_identity_service.ActorIdentityService._lock_and_clear_verified_phone_binding(
+                                writer, user_id="new-owner", phone_number="+15555550123"
+                            )
+
+                    if retain_authority:
+                        with pytest.raises(asyncpg.LockNotAvailableError):
+                            await transfer()
+                    else:
+                        # Negative control: an ordinary read cannot protect a claim.
+                        await transfer()
+            async with pool.acquire() as writer, writer.transaction():
+                await actor_identity_service.ActorIdentityService._lock_and_clear_verified_phone_binding(
+                    writer, user_id="new-owner", phone_number="+15555550123"
+                )
+            identity = await resolve_profile_research_identity("recipient", record)
+            assert identity["phone_number"] is None
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio
 async def test_claim_contract_on_single_connection_postgres(request, monkeypatch):
     if sys.platform == "win32" or os.name != "posix":
         pytest.skip("Disposable PostgreSQL needs Unix sockets")

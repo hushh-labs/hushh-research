@@ -616,6 +616,7 @@ class ActorIdentityService:
         return datetime.now(timezone.utc) - timestamp >= _IDENTITY_STALE_AFTER
 
     async def get_many(self, user_ids: Iterable[str], *, conn=None) -> dict[str, dict[str, Any]]:
+        """Read identities; a caller-owned transaction retains authority until commit."""
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
         normalized_ids = [user_id for user_id in normalized_ids if user_id]
         if not normalized_ids:
@@ -638,7 +639,9 @@ class ActorIdentityService:
                       updated_at
                     FROM actor_identity_cache
                     WHERE user_id = ANY($1::text[])
-                    """,
+                    ORDER BY user_id
+                    """
+                + (" FOR SHARE" if conn is not None else ""),
                 normalized_ids,
                 timeout=5,
             )
