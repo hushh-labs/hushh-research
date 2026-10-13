@@ -18243,6 +18243,121 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location",
+        "review_only": true
+      },
+      "action_id": "setup.finish_location_intro",
+      "surface_id": "one_setup_location",
+      "label": "Finish Location introduction",
+      "aliases": [
+        "finish location introduction",
+        "complete location introduction"
+      ],
+      "search_keywords": [
+        "finish",
+        "location",
+        "introduction"
+      ],
+      "meaning": "Completes the two-screen Location introduction and returns to setup. Device location access and saved places can be enabled later from the Location workspace.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The Location introduction is open and the signed-in setup coordinator is ready."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_location_intro"
+      },
+      "control_ids": [
+        "one-setup-location-intro-terminal"
+      ],
+      "state_exposure": [
+        "Location introduction completion readiness"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_location_intro",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.finish_location_intro",
+            "label": "Finish Location introduction",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "setup.finish_ria",
       "surface_id": "one_setup_ria",
       "label": "Finish RIA setup",

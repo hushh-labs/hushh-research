@@ -392,6 +392,8 @@ export class OneLocationService {
    */
   static async captureCurrentPosition(options?: {
     maxAgeMs?: number;
+    /** Reject a held/restored fix when an action needs a current measurement. */
+    requireMeasurement?: boolean;
     /**
      * "I need a fix that describes where the user is right now" — dropping a
      * pin, saving a place, anchoring a check-in.
@@ -406,22 +408,24 @@ export class OneLocationService {
   }): Promise<PlainLocationPoint> {
     const maxAgeMs =
       options?.maxAgeMs ??
-      (options?.fresh ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
+      (options?.fresh || options?.requireMeasurement ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
 
-    const snapshot = await LocationBus.ensure({ maxAgeMs });
+    const snapshot = await LocationBus.ensure({ maxAgeMs, ...(options?.requireMeasurement ? { requireMeasurement: true } : {}) });
     // Read the state AFTER the await, never a copy taken before it: a watch
     // fix can land while this call is in flight, and the newer answer is the
     // right one to serve.
     const state = LocationBus.getState();
 
-    if (snapshot && state.status === "ready") return toPlainPoint(snapshot);
+    const latestSnapshot = state.status === "ready" ? state.snapshot ?? snapshot : snapshot;
+    if (latestSnapshot && state.status === "ready" &&
+        (!options?.requireMeasurement || withinAge(latestSnapshot.capturedAt, 30_000))) return toPlainPoint(latestSnapshot);
 
     // The device failed and we are holding a position. A failed refresh is not
     // a location we do not have, and until now the two were indistinguishable
     // to every caller on this surface — which is what put "turn on location"
     // in front of people whose location was perfectly well known.
     if (
-      snapshot &&
+      !options?.requireMeasurement && snapshot &&
       withinAge(snapshot.capturedAt, CAPTURE_STALE_FALLBACK_MAX_AGE_MS)
     ) {
       return toPlainPoint(snapshot);
