@@ -151,6 +151,25 @@ final class AppUITests: XCTestCase {
                 let pair = item.split(separator: "=", maxSplits: 1)
                 return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
             }, uniquingKeysWith: { _, newest in newest })
+            let bits = ["hLayout", "hPending", "hEnabled", "hDocument", "hPrivacy", "hViewport", "hAdmitted", "hAllowed", "hIsolated", "hPane", "hHidden", "hTouchBlocked", "hAXHidden"]
+            if fields["hActive"] == "1", fields["hAvailable"] == "1",
+               let sequence = Int(fields["hSeq"] ?? ""), (1...1_000_000).contains(sequence),
+               let phase = fields["hPhase"], ["prepared", "active", "retiring", "retired", "idle", "unknown"].contains(phase),
+               bits.allSatisfy({ ["0", "1"].contains(fields[$0] ?? "") }),
+               let frame = fields["hFrame"], let hits = fields["hHits"] {
+                let frameParts = frame.split(separator: ",", omittingEmptySubsequences: false)
+                let dimensions = frameParts.compactMap { Int($0) }
+                let pairs = hits.split(separator: ",", omittingEmptySubsequences: false)
+                    .map { $0.split(separator: ">", omittingEmptySubsequences: false) }
+                let roles = ["target", "web", "drawer", "privacy", "navigation", "other", "none"]
+                if frameParts.count == 4, dimensions.count == 4, dimensions.allSatisfy({ abs($0) <= 10_000 }),
+                   pairs.count == 5, pairs.allSatisfy({ $0.count == 2 && $0.allSatisfy({ roles.contains(String($0)) }) }) {
+                    let flags = bits.map { "\($0)=\(fields[$0]!)" }.joined(separator: " ")
+                    let publicFrame = dimensions.map(String.init).joined(separator: ",")
+                    let publicHits = pairs.map { $0.map(String.init).joined(separator: ">") }.joined(separator: ",")
+                    print("COHERENT_NATIVE_HIT seq=\(sequence) phase=\(phase) \(flags) frame=\(publicFrame) hits=\(publicHits)")
+                }
+            }
             let stage = fields["stage"] ?? "none", outcome = fields["outcome"] ?? "none", code = fields["code"] ?? "none"
             guard ["none", "skip", "retire", "prepare", "activate", "update"].contains(stage),
                   ["none", "pending", "acknowledged", "rejected"].contains(outcome),

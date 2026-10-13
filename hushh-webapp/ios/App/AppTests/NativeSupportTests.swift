@@ -4,6 +4,39 @@ import WebKit
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    #if DEBUG
+    func testControlHitEvidenceDetectsWindowInterceptionWithoutGrantingAdmission() throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1194, height: 834))
+        let web = WKWebView(frame: window.bounds)
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        window.addSubview(container)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        let control = UIButton(frame: CGRect(x: 24, y: 72, width: 44, height: 44))
+        container.install(control, id: "chat-history-toggle", group: nil)
+        container.setAdmission("chat-history-toggle", admitted: true)
+        let initial = try XCTUnwrap(container.controlHitEvidence("chat-history-toggle"))
+        XCTAssertEqual(initial.containerHits, Array(repeating: .target, count: 5))
+        XCTAssertEqual(initial.windowHits, initial.containerHits)
+        // Negative control: unchanged geometry/admission, but a sibling above
+        // the container intercepts the actual window-level touch target.
+        let interceptor = UIView(frame: control.frame)
+        window.addSubview(interceptor)
+        let covered = try XCTUnwrap(container.controlHitEvidence("chat-history-toggle"))
+        XCTAssertEqual(covered.frame, initial.frame)
+        XCTAssertEqual(covered.containerHits, initial.containerHits)
+        XCTAssertEqual(covered.windowHits, Array(repeating: .other, count: 5))
+        interceptor.removeFromSuperview()
+        container.setAdmission("chat-history-toggle", admitted: false)
+        let withdrawn = try XCTUnwrap(container.controlHitEvidence("chat-history-toggle"))
+        XCTAssertFalse(withdrawn.admitted)
+        XCTAssertTrue(withdrawn.touchBlocked)
+        XCTAssertTrue(withdrawn.axHidden)
+        XCTAssertFalse(withdrawn.windowHits.contains(.target))
+        XCTAssertFalse(control.isUserInteractionEnabled, "Observing a withdrawn lease must not restore its actions")
+    }
+    #endif
+
     func testNativeProfileUsesTheBundledWebArtworkAndRejectsUnknownIds() throws {
         XCTAssertEqual(NativeProfileArtwork.ids.count, 14)
         for id in NativeProfileArtwork.ids {

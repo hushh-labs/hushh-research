@@ -437,13 +437,17 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private var profileBackAdmissionInFlight = false
     private var historyChoiceStage = "none"
     private var historyTapCount = 0
+    private var historyEvidenceSequence = 0
+    private var diagnosticsEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") || NativeDrawerQualificationPolicy.coherentShell
+    }
     #endif
 
     override func load() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             #if DEBUG
-            if self.backAdmitted, ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics"),
+            if self.backAdmitted, self.diagnosticsEnabled,
                let host = self.bridge?.viewController?.view {
                 self.backContinuity = NativeBackContinuityProbe(host: host)
                 if self.chatControlsAdmitted {
@@ -451,6 +455,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     self.profileBackContinuity = NativeBackContinuityProbe(host: host, identifier: "native-profile-back-continuity")
                     let admission = NativeTestStatusLabel(frame: .zero, showOverlay: false)
                     admission.accessibilityIdentifier = "native-profile-back-admission"
+                    admission.currentValue = { [weak self] cached in self?.currentHistoryHitEvidence(cached) ?? "hActive=0" }
                     admission.translatesAutoresizingMaskIntoConstraints = false
                     host.addSubview(admission)
                     NSLayoutConstraint.activate([
@@ -519,6 +524,26 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     #if DEBUG
+    private func currentHistoryHitEvidence(_ cached: String?) -> String {
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        guard privacy.appIsActive, !privacy.shielded else { return "hActive=0" }
+        historyEvidenceSequence = historyEvidenceSequence % 1_000_000 + 1
+        guard let slot = slots["chat-history-toggle"], let evidence = compositor?.controlHitEvidence("chat-history-toggle") else {
+            return "hActive=1;hSeq=\(historyEvidenceSequence);hAvailable=0"
+        }
+        let phase = ["prepared", "active", "retiring", "retired", "idle"].contains(slot.state.phase) ? slot.state.phase : "unknown"
+        func bit(_ value: Bool) -> String { value ? "1" : "0" }
+        let frame = [evidence.frame.minX, evidence.frame.minY, evidence.frame.width, evidence.frame.height]
+            .map { String(Int($0.rounded())) }.joined(separator: ",")
+        let hits = zip(evidence.containerHits, evidence.windowHits).map { "\($0.rawValue)>\($1.rawValue)" }.joined(separator: ",")
+        let documentCurrent = slot.state.identity.map { document == $0.document && HushhSessionPrivacyShield.shared.acceptsDocument($0.document) } ?? false
+        let native = "hActive=1;hSeq=\(historyEvidenceSequence);hAvailable=1;hPhase=\(phase);hLayout=\(bit(slot.layoutConfirmed));hPending=\(bit(slot.pendingLayout != nil));hEnabled=\(bit(slot.presentation?.enabled == true));hDocument=\(bit(documentCurrent));hPrivacy=\(bit(slot.privacyGeneration == privacy.generation));hViewport=\(bit(geometryIsCurrent(slot)));hAdmitted=\(bit(evidence.admitted));hAllowed=\(bit(evidence.allowed));hIsolated=\(bit(evidence.isolated));hPane=\(bit(evidence.pane));hHidden=\(bit(evidence.hidden));hTouchBlocked=\(bit(evidence.touchBlocked));hAXHidden=\(bit(evidence.axHidden));hFrame=\(frame);hHits=\(hits)"
+        let combined = [cached, native].compactMap { $0 }.joined(separator: ";")
+        // Preserve the existing packet bound; native evidence is authoritative
+        // when the older asynchronous WebKit diagnostics do not fit alongside it.
+        return combined.utf8.count <= 1024 ? combined : native
+    }
+
     /// Read only the authored diagnostic/slot, including while a native menu
     /// legitimately excludes WK from AX. No DOM body, identity, draft or URL.
     private func sampleProfileBackAdmission() {
@@ -598,6 +623,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             let contentBacked = self?.compositor?.contentBackedPresentation == true
             let legacyRegions = self?.compositor?.legacyRegionPresentation == true
+            var diagnostics = false
+            #if DEBUG
+            diagnostics = self?.diagnosticsEnabled == true
+            #endif
             var families = [String]()
             if contentBacked {
                 if self?.backAdmitted == true { families.append("back") }
@@ -627,7 +656,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "historyReplacement": self?.chatControlsAdmitted == true,
                           "focusReturn": true,
                           "rehearsalDiagnostics": self?.chatControlsAdmitted == true &&
-                              ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics")])
+                              diagnostics])
         }
     }
 

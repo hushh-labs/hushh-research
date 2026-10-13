@@ -459,7 +459,8 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics"), let parent = self.bridge?.viewController?.view {
+            if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") || NativeDrawerQualificationPolicy.coherentShell,
+               let parent = self.bridge?.viewController?.view {
                 let probe = NativeTestStatusLabel(frame: .zero, showOverlay: false)
                 probe.accessibilityIdentifier = "native-dock-admission"
                 probe.translatesAutoresizingMaskIntoConstraints = false

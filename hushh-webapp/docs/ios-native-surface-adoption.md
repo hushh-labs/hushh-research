@@ -84,6 +84,23 @@ and fails closed before qualification preparation when either editor's empty
 state is unknown or a draft, attachment or action is pending. These are
 diagnostic/preparation controls, not new application action or unlock authority.
 
+The next bounded diagnostic uses the existing Debug admission probe to report
+synchronous native lease, ancestor eligibility and five interior hit targets at
+both container and window level. It emits only fixed roles, flags and bounded
+geometry, without a WebKit completion, account identity or editor contents.
+An explicit coherent-shell qualification launch enables the existing probes;
+ordinary product and Release admission are unchanged. A focused simulator
+negative control passes: a covering window sibling is detected even with an
+unchanged control frame, and observing a withdrawn lease never re-enables it.
+The signed device build passes, but this diagnostic product is not installed.
+
+The owner explicitly chose to preserve the iPhone's drafts and current session.
+No iPhone product update or relaunch is authorized for qualification. The iPad's
+new runner entered XCTest but its editor was unavailable to the preparation
+guard, so empty/idle state could not be proved. Its product also remains
+untouched pending an iPad-only preparation decision. These are safety stops,
+not evidence that the native touch regression is repaired.
+
 Physical acceptance remains pending. This does not enable ordinary custom-native
 admission, qualify iPad material composition or waive visual/accessibility/Release
 performance gates. No push, deployment or distribution occurred.

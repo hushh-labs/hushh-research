@@ -379,6 +379,65 @@ final class NativePresentationContainer: UIView {
         return control.view.convert(control.view.bounds, to: self)
     }
 
+    #if DEBUG
+    enum DiagnosticHit: String { case target, web, drawer, privacy, navigation, other, none }
+    struct ControlHitEvidence {
+        let admitted: Bool
+        let allowed: Bool
+        let isolated: Bool
+        let pane: Bool
+        let hidden: Bool
+        let touchBlocked: Bool
+        let axHidden: Bool
+        let frame: CGRect
+        let containerHits: [DiagnosticHit]
+        let windowHits: [DiagnosticHit]
+    }
+
+    /// Observation, never admission or a dispatched event. Fixed roles replace
+    /// arbitrary labels/identifiers; a window interceptor can differ from this
+    /// container's own hit even when the authored rectangle is unchanged.
+    func controlHitEvidence(_ id: String) -> ControlHitEvidence? {
+        guard let control = controls[id], let window = control.view.window,
+              !privacyConcealed else { return nil }
+        let view = control.view
+        let frame = view.convert(view.bounds, to: window)
+        guard [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite && abs($0) <= 10_000 }),
+              frame.width > 0, frame.height > 0 else { return nil }
+        var hidden = false, touchBlocked = false, axHidden = false
+        var ancestor: UIView? = view
+        while let current = ancestor {
+            hidden = hidden || current.isHidden || current.alpha <= 0.01
+            touchBlocked = touchBlocked || !current.isUserInteractionEnabled
+            axHidden = axHidden || current.accessibilityElementsHidden
+            ancestor = current.superview
+        }
+        func role(_ hit: UIView?) -> DiagnosticHit {
+            guard let hit else { return .none }
+            if hit === view || hit.isDescendant(of: view) { return .target }
+            if hit === webView || hit.isDescendant(of: webView) { return .web }
+            var current: UIView? = hit
+            while let candidate = current {
+                switch candidate.accessibilityIdentifier {
+                case "session-privacy-shield": return .privacy
+                case "native-private-drawer", "native-history-drawer-body", "native-profile-drawer-body", "native-agent-profile-drawer-body": return .drawer
+                case "one-native-navigation": return .navigation
+                default: current = candidate.superview
+                }
+            }
+            return .other
+        }
+        let fractions: [CGPoint] = [.init(x: 0.5, y: 0.5), .init(x: 0.25, y: 0.5),
+            .init(x: 0.75, y: 0.5), .init(x: 0.5, y: 0.25), .init(x: 0.5, y: 0.75)]
+        let points = fractions.map { CGPoint(x: frame.minX + frame.width * $0.x, y: frame.minY + frame.height * $0.y) }
+        return ControlHitEvidence(admitted: control.admitted, allowed: allowsControl(id),
+            isolated: interactionIsolated, pane: contentPane != nil, hidden: hidden,
+            touchBlocked: touchBlocked, axHidden: axHidden, frame: frame,
+            containerHits: points.map { role(hitTest(convert($0, from: window), with: nil)) },
+            windowHits: points.map { role(window.hitTest($0, with: nil)) })
+    }
+    #endif
+
     /// Called synchronously by the complete native drawer owner. Covering a
     /// base surface changes eligibility, never its paint or retained identity.
     func isolateForOwnedDrawer(_ covered: Bool) {
