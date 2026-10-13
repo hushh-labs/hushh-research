@@ -113,9 +113,9 @@ final class NativeSupportTests: XCTestCase {
             "Rendered age must extend the title's own text flow, not disappear or occupy another track")
         XCTAssertEqual(inlineAge.title.height, titleOnly.title.height, accuracy: 1,
             "Short title and age share one rendered line")
-        let wrapped = try await measure("A public conversation title that wraps naturally without changing the More track", age: "2h")
-        XCTAssertGreaterThan(wrapped.title.height, inlineAge.title.height + 5,
-            "A long title must wrap rather than truncate at the More track")
+        let long = try await measure("A public conversation title that remains available without changing the More track", age: "2h")
+        XCTAssertEqual(long.row.height, inlineAge.row.height, accuracy: 1,
+            "Long titles and timestamps must not create uneven default row heights")
         let enlarged = try await measure("Weekend", age: "2h", size: .accessibility3)
         XCTAssertGreaterThan(enlarged.title.height, inlineAge.title.height + 5,
             "Dynamic Type must enlarge the rendered title while preserving centering and menu geometry")

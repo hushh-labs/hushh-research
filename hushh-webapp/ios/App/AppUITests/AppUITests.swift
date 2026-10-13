@@ -922,6 +922,19 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(close.frame.minX, openerFrame.minX, accuracy: 1, "COHERENT_HISTORY_CLOSE_HORIZONTAL_ALIGNMENT")
                 XCTAssertEqual(close.frame.minY, openerFrame.minY, accuracy: 1, "COHERENT_HISTORY_CLOSE_VERTICAL_ALIGNMENT")
                 if cycle == 0 {
+                    let scroll = app.scrollViews["native-history-chats-scroll"].firstMatch
+                    guard scroll.waitForExistence(timeout: 5) else { XCTFail("COHERENT_HISTORY_SCROLL_OWNER_MISSING"); return }
+                    let footer = app.otherElements["native-history-footer"].firstMatch
+                    let footerFrame = footer.exists ? footer.frame : nil
+                    let closeFrame = close.frame
+                    scroll.swipeUp()
+                    scroll.swipeDown()
+                    XCTAssertEqual(close.frame.minY, closeFrame.minY, accuracy: 1,
+                        "History scrolling must not move its header")
+                    if let footerFrame {
+                        XCTAssertEqual(footer.frame.minY, footerFrame.minY, accuracy: 1,
+                            "History scrolling must not move its footer")
+                    }
                     let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "native-history-actions-")).firstMatch
                     guard waitForAdmittedControl(actions) else { XCTFail("COHERENT_HISTORY_ACTION_FIXTURE_MISSING"); return }
                     let rowIdentifier = actions.identifier.replacingOccurrences(of: "native-history-actions-", with: "native-history-row-")

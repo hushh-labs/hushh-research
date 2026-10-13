@@ -421,6 +421,7 @@ struct NativeDrawerContent: View {
     @ScaledMetric(relativeTo: .subheadline) private var profileGroupFont: CGFloat = 14
     @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 22
     @ScaledMetric(relativeTo: .body) private var historyTitleFont: CGFloat = 15
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var detailedRow: NativeDrawerRow? {
         model.projection.sections.flatMap(\.rows).first { $0.id == model.detailRow }
     }
@@ -446,47 +447,35 @@ struct NativeDrawerContent: View {
             } else if model.projection.family == "profile" {
                 profileContent
             } else {
+                ForEach(model.projection.sections.filter { $0.id == "create" }) { section in
+                    ForEach(section.rows) { historyRow($0) }
+                }.padding(.horizontal, 16).padding(.bottom, 8)
                 if model.projection.searchable == true {
                     searchField.padding(.horizontal, 16).padding(.bottom, 4)
                 }
                 if model.projection.loading == true { ProgressView("Loading chats").padding() }
-                List {
-                ForEach(model.projection.sections) { section in
-                    Section {
-                        ForEach(section.rows.filter { row in model.search.isEmpty || row.renameActionId == nil || row.label.localizedCaseInsensitiveContains(model.search) }) { row in
-                          HStack(spacing: 0) {
-                            Button { model.choice("row", row: row.id) } label: {
-                                HStack(spacing: 12) {
-                                    if let symbol = row.symbol { Image(systemName: symbol).frame(width: 24).accessibilityHidden(true) }
-                                    // Match the web row: age follows the title's
-                                    // text flow. It owns neither a trailing
-                                    // column nor a second vertical padding track.
-                                    Text("\(Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary))\(historyAge(row.detail))")
-                                        .font(.system(size: historyTitleFont)).fixedSize(horizontal: false, vertical: true)
-                                        .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .title))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    Spacer(minLength: 8)
-                                    if row.pending == true { ProgressView() }
-                                    else if row.selected == true { Image(systemName: "checkmark").accessibilityHidden(true) }
-                                }.frame(minHeight: 44).contentShape(Rectangle())
-                            }.disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
-                                .accessibilityAddTraits(row.selected == true ? .isSelected : [])
-                                .accessibilityIdentifier("native-\(model.projection.family)-row-\(row.id)")
-                                .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .row))
-                            if row.renameActionId != nil || row.deleteActionId != nil {
-                                NativeDrawerRowMenu(model: model, row: row).frame(width: 44, height: 44)
-                                    .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .more))
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(model.projection.sections.filter { !["create", "footer"].contains($0.id) }) { section in
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let title = section.title {
+                                    Text(title).font(.caption).foregroundStyle(.secondary)
+                                        .padding(.horizontal, 12).padding(.top, 6)
+                                        .accessibilityAddTraits(.isHeader)
+                                }
+                                ForEach(section.rows.filter { row in model.search.isEmpty || row.renameActionId == nil || row.label.localizedCaseInsensitiveContains(model.search) }) { historyRow($0) }
                             }
-                          }
-                          // Automatic List buttons can invoke the row as well
-                          // as More. Each button owns only its authored action.
-                          .buttonStyle(.borderless)
-                          .listRowInsets(model.projection.family == "history" ?
-                              EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 4) : nil)
                         }
-                    } header: { if let title = section.title { Text(title) } }
+                    }.padding(.horizontal, 16).padding(.vertical, 4)
+                }.accessibilityIdentifier("native-history-chats-scroll")
+                    .scrollDismissesKeyboard(.interactively)
+                ForEach(model.projection.sections.filter { $0.id == "footer" }) { section in
+                    VStack(spacing: 0) {
+                        Divider()
+                        ForEach(section.rows) { historyRow($0) }
+                    }.padding(.horizontal, 16).padding(.vertical, 8)
+                        .accessibilityIdentifier("native-history-footer")
                 }
-                }.listStyle(.insetGrouped).scrollContentBackground(.hidden)
             }
         }.background {
             if model.projection.family == "history" {
@@ -502,6 +491,34 @@ struct NativeDrawerContent: View {
     private func historyAge(_ detail: String?) -> Text {
         guard let detail, !detail.isEmpty else { return Text("") }
         return Text("  \(detail)").font(.caption2).foregroundStyle(.secondary)
+    }
+    private func historyRow(_ row: NativeDrawerRow) -> some View {
+        HStack(spacing: 0) {
+            Button { model.choice("row", row: row.id) } label: {
+                HStack(spacing: 12) {
+                    if let symbol = row.symbol { Image(systemName: symbol).frame(width: 22).accessibilityHidden(true) }
+                    // One compact baseline at standard text sizes. Age never
+                    // creates another padding track; AX retains the full label.
+                    Text("\(Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary))\(historyAge(row.detail))")
+                        .font(.system(size: historyTitleFont))
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .title))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if row.pending == true { ProgressView() }
+                }.padding(.leading, 12).padding(.trailing, 4)
+                    .frame(minHeight: 44).contentShape(Rectangle())
+            }.disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
+                .accessibilityLabel(row.label).accessibilityValue(row.detail ?? "")
+                .accessibilityAddTraits(row.selected == true ? .isSelected : [])
+                .accessibilityIdentifier("native-\(model.projection.family)-row-\(row.id)")
+                .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .row))
+            if row.renameActionId != nil || row.deleteActionId != nil {
+                NativeDrawerRowMenu(model: model, row: row).frame(width: 44, height: 44)
+                    .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .more))
+            }
+        }.buttonStyle(.borderless)
+            .background(row.selected == true ? Color(uiColor: .tertiarySystemFill) : .clear, in: RoundedRectangle(cornerRadius: 12))
     }
     /// Mirrors the shared Profile roster, not List's platform-specific default
     /// paddings. React owns grouping, availability and actions; native owns its
