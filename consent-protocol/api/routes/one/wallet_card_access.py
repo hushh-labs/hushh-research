@@ -136,6 +136,7 @@ class SharingHistoryItem(BaseModel):
 
 class SharingHistory(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    recipientCount: int = Field(default=0, ge=0)
     items: list[SharingHistoryItem]
     hasMore: bool
     nextCursor: str | None
