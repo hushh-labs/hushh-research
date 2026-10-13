@@ -13,6 +13,7 @@ import time
 from collections import Counter
 
 from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
+from hushh_mcp.services.drive_document_targets import document_targets
 from hushh_mcp.services.drive_packet_contract import PacketVerification
 from hushh_mcp.services.drive_packet_intelligence import (
     EvidenceValidationError,
@@ -124,10 +125,12 @@ class DrivePacketWorker:
         if self.policy() != expected:
             raise DriveReadError("packet_policy_changed")
 
-    async def run_facts_one(self, *, user_id):
+    async def run_facts_one(self, *, user_id, document_ids=None):
+        targets = document_targets(document_ids)
+        targeted = {"document_ids": targets} if targets is not None else {}
         policy = self.policy()
-        await self.facts_store.enqueue(user_id=user_id, policy_version=policy)
-        job = await self.facts_store.claim(user_id=user_id, policy_version=policy)
+        await self.facts_store.enqueue(user_id=user_id, policy_version=policy, **targeted)
+        job = await self.facts_store.claim(user_id=user_id, policy_version=policy, **targeted)
         if not job:
             return "idle"
         stage, started = "page_facts", time.monotonic()

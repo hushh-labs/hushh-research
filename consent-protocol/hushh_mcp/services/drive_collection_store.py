@@ -487,6 +487,178 @@ class DriveCollectionStore(DriveLivePreferences):
                 {"user": user_id, "id": identity},
             )
 
+    def _upsert_files_locked(self, connection, *, user_id, generation, revision, files, epoch=None):
+        """One source-registration path for discovery and bounded request candidates."""
+        invalidated, document_ids = [], []
+        for metadata in files:
+            fingerprint = self.cipher.fingerprint(user_id, metadata.file_id)
+            old = self._row(
+                connection,
+                "SELECT * FROM connected_documents WHERE user_id=:user AND source_fingerprint=:source FOR UPDATE",
+                {"user": user_id, "source": fingerprint},
+            )
+            if old and old["connection_generation"] != generation:
+                raise DriveReadError("connection_changed")
+            identity = old["document_id"] if old else uuid4()
+            document_ids.append(str(identity))
+            if old and epoch:
+                connection.execute(
+                    text(
+                        "UPDATE connected_documents SET collection_seen_epoch=:epoch WHERE document_id=:id"
+                    ),
+                    {"epoch": epoch, "id": old["document_id"]},
+                )
+            if old and old["source_profile"] == "selected":
+                # The separate collection disclosure explicitly admits this
+                # existing owner source. A selected vector index is not full
+                # page evidence; only the current complete extraction can
+                # be reused. The document identity stays stable.
+                from hushh_mcp.services.drive_document_page_store import DriveDocumentPageStore
+
+                same_source = (
+                    old["source_version"] == metadata.version
+                    and self.cipher.open(dict(old)) == asdict(metadata)
+                    and old["last_error_code"] != "source_unavailable"
+                )
+                progress = (
+                    DriveDocumentPageStore(cipher=self.cipher).progress(
+                        connection, old, metadata.version
+                    )
+                    if same_source
+                    else None
+                )
+                if progress and progress["complete"]:
+                    connection.execute(
+                        text("""UPDATE connected_documents SET source_profile='live',
+                          processing_enabled=TRUE,processing_disclosure_version=:disclosure,
+                          processing_accepted_at=clock_timestamp(),processing_revision=processing_revision+1,
+                          collection_revision=:revision,status='ready',active_version=:version,
+                          lease_id=NULL,lease_expires_at=NULL,attempt_count=0,last_error_code=NULL,
+                          next_attempt_at=clock_timestamp(),updated_at=clock_timestamp()
+                          WHERE document_id=:id AND user_id=:user AND connection_generation=:generation"""),
+                        {
+                            "id": old["document_id"],
+                            "user": user_id,
+                            "generation": generation,
+                            "disclosure": COLLECTION_DISCLOSURE,
+                            "revision": revision,
+                            "version": progress["extraction_version"],
+                        },
+                    )
+                    continue
+            if (
+                old
+                and old["source_profile"] == "live"
+                and old["source_version"] == metadata.version
+                and self.cipher.open(dict(old)) == asdict(metadata)
+                and old["last_error_code"] != "source_unavailable"
+            ):
+                continue
+            envelope = self.cipher.seal(
+                metadata,
+                user_id=user_id,
+                document_id=str(identity),
+                generation=generation,
+            )
+            if old:
+                invalidated.append(identity)
+            connection.execute(
+                text("""
+                INSERT INTO connected_documents(document_id,user_id,connection_generation,source_fingerprint,
+                  metadata_envelope,source_version,processing_enabled,processing_disclosure_version,
+                  processing_accepted_at,processing_revision,source_profile,collection_revision,collection_seen_epoch)
+                VALUES (:id,:user,:generation,:fingerprint,CAST(:envelope AS jsonb),:version,TRUE,:disclosure,
+                  clock_timestamp(),1,'live',:revision,:epoch)
+                ON CONFLICT (user_id,connector_id,source_fingerprint) DO UPDATE SET
+                  metadata_envelope=EXCLUDED.metadata_envelope,source_version=EXCLUDED.source_version,
+                  source_profile='live',processing_disclosure_version=EXCLUDED.processing_disclosure_version,
+                  processing_accepted_at=EXCLUDED.processing_accepted_at,
+                  status='queued',active_version=NULL,source_changed_at=clock_timestamp(),lease_id=NULL,lease_expires_at=NULL,
+                  processing_enabled=TRUE,collection_revision=EXCLUDED.collection_revision,
+                  processing_revision=connected_documents.processing_revision+1,attempt_count=0,
+                  next_attempt_at=clock_timestamp(),last_error_code=NULL,updated_at=clock_timestamp()
+            """),
+                {
+                    "id": identity,
+                    "user": user_id,
+                    "generation": generation,
+                    "fingerprint": fingerprint,
+                    "envelope": json.dumps(envelope),
+                    "version": metadata.version,
+                    "disclosure": COLLECTION_DISCLOSURE,
+                    "revision": revision,
+                    "epoch": epoch,
+                },
+            )
+        return document_ids, invalidated
+
+    async def candidate_authority(self, *, user_id):
+        def operation(connection):
+            active = self.live_active(connection, user_id=user_id)
+            row, preference = self._processing(connection, user_id, active["connection_generation"])
+            return {
+                "user_id": user_id,
+                "connection_generation": active["connection_generation"],
+                "revision": row["revision"],
+                "background_revision": preference["revision"],
+            }
+
+        return await self._transaction(operation)
+
+    def _candidate_current(self, connection, authority):
+        self.live_active(
+            connection, user_id=authority["user_id"], generation=authority["connection_generation"]
+        )
+        row, preference = self._processing(
+            connection,
+            authority["user_id"],
+            authority["connection_generation"],
+            authority["revision"],
+        )
+        if preference["revision"] != authority["background_revision"]:
+            raise DriveReadError("collection_superseded")
+        return row
+
+    async def require_candidates_current(self, authority):
+        await self._transaction(lambda connection: self._candidate_current(connection, authority))
+
+    async def enqueue_candidates(self, authority, *, files):
+        """Register verified live candidates without advancing or acquiring discovery."""
+        from hushh_mcp.services.google_drive_adapter import DriveMetadata
+
+        if (
+            not isinstance(files, (list, tuple))
+            or not 1 <= len(files) <= 50
+            or any(not isinstance(item, DriveMetadata) for item in files)
+            or len({item.file_id for item in files}) != len(files)
+        ):
+            raise DriveReadError("invalid_argument")
+
+        def operation(connection):
+            row = self._candidate_current(connection, authority)
+            checkpoint = self.checkpoint(row)
+            # A fresh provider observation is valid evidence of presence in this
+            # bootstrap epoch. The discovery cursor and lease are untouched.
+            epoch = (
+                checkpoint.get("bootstrap_epoch")
+                if row["phase"] == "bootstrap" or checkpoint.get("reconcile_epoch")
+                else None
+            )
+            identities, invalidated = self._upsert_files_locked(
+                connection,
+                user_id=authority["user_id"],
+                generation=authority["connection_generation"],
+                revision=row["revision"],
+                files=files,
+                epoch=epoch,
+            )
+            self._invalidate_locked(
+                connection, user_id=authority["user_id"], document_ids=invalidated
+            )
+            return identities
+
+        return await self._transaction(operation)
+
     async def commit_page(
         self,
         job,
@@ -502,111 +674,19 @@ class DriveCollectionStore(DriveLivePreferences):
     ):
         def operation(connection):
             row = self._job(connection, job)
-            invalidated = []
-            for metadata in files:
-                fingerprint = self.cipher.fingerprint(job["user_id"], metadata.file_id)
-                old = self._row(
-                    connection,
-                    "SELECT * FROM connected_documents WHERE user_id=:user AND source_fingerprint=:source FOR UPDATE",
-                    {"user": job["user_id"], "source": fingerprint},
-                )
-                if old and old["connection_generation"] != job["connection_generation"]:
-                    raise DriveReadError("connection_changed")
-                epoch = (
-                    checkpoint.get("bootstrap_epoch")
-                    if (phase or row["phase"]) == "bootstrap" or checkpoint.get("reconcile_epoch")
-                    else None
-                )
-                if old and epoch:
-                    connection.execute(
-                        text(
-                            "UPDATE connected_documents SET collection_seen_epoch=:epoch WHERE document_id=:id"
-                        ),
-                        {"epoch": epoch, "id": old["document_id"]},
-                    )
-                if old and old["source_profile"] == "selected":
-                    # The separate collection disclosure explicitly admits this
-                    # existing owner source. A selected vector index is not full
-                    # page evidence; only the current complete extraction can
-                    # be reused. The document identity stays stable.
-                    from hushh_mcp.services.drive_document_page_store import DriveDocumentPageStore
-
-                    same_source = (
-                        old["source_version"] == metadata.version
-                        and self.cipher.open(dict(old)) == asdict(metadata)
-                        and old["last_error_code"] != "source_unavailable"
-                    )
-                    progress = (
-                        DriveDocumentPageStore(cipher=self.cipher).progress(
-                            connection, old, metadata.version
-                        )
-                        if same_source
-                        else None
-                    )
-                    if progress and progress["complete"]:
-                        connection.execute(
-                            text("""UPDATE connected_documents SET source_profile='live',
-                              processing_enabled=TRUE,processing_disclosure_version=:disclosure,
-                              processing_accepted_at=clock_timestamp(),processing_revision=processing_revision+1,
-                              collection_revision=:revision,status='ready',active_version=:version,
-                              lease_id=NULL,lease_expires_at=NULL,attempt_count=0,last_error_code=NULL,
-                              next_attempt_at=clock_timestamp(),updated_at=clock_timestamp()
-                              WHERE document_id=:id AND user_id=:user AND connection_generation=:generation"""),
-                            {
-                                "id": old["document_id"],
-                                "user": job["user_id"],
-                                "generation": job["connection_generation"],
-                                "disclosure": COLLECTION_DISCLOSURE,
-                                "revision": row["revision"],
-                                "version": progress["extraction_version"],
-                            },
-                        )
-                        continue
-                if (
-                    old
-                    and old["source_profile"] == "live"
-                    and old["source_version"] == metadata.version
-                    and self.cipher.open(dict(old)) == asdict(metadata)
-                    and old["last_error_code"] != "source_unavailable"
-                ):
-                    continue
-                identity = old["document_id"] if old else uuid4()
-                envelope = self.cipher.seal(
-                    metadata,
-                    user_id=job["user_id"],
-                    document_id=str(identity),
-                    generation=job["connection_generation"],
-                )
-                if old:
-                    invalidated.append(identity)
-                connection.execute(
-                    text("""
-                    INSERT INTO connected_documents(document_id,user_id,connection_generation,source_fingerprint,
-                      metadata_envelope,source_version,processing_enabled,processing_disclosure_version,
-                      processing_accepted_at,processing_revision,source_profile,collection_revision,collection_seen_epoch)
-                    VALUES (:id,:user,:generation,:fingerprint,CAST(:envelope AS jsonb),:version,TRUE,:disclosure,
-                      clock_timestamp(),1,'live',:revision,:epoch)
-                    ON CONFLICT (user_id,connector_id,source_fingerprint) DO UPDATE SET
-                      metadata_envelope=EXCLUDED.metadata_envelope,source_version=EXCLUDED.source_version,
-                      source_profile='live',processing_disclosure_version=EXCLUDED.processing_disclosure_version,
-                      processing_accepted_at=EXCLUDED.processing_accepted_at,
-                      status='queued',active_version=NULL,source_changed_at=clock_timestamp(),lease_id=NULL,lease_expires_at=NULL,
-                      processing_enabled=TRUE,collection_revision=EXCLUDED.collection_revision,
-                      processing_revision=connected_documents.processing_revision+1,attempt_count=0,
-                      next_attempt_at=clock_timestamp(),last_error_code=NULL,updated_at=clock_timestamp()
-                """),
-                    {
-                        "id": identity,
-                        "user": job["user_id"],
-                        "generation": job["connection_generation"],
-                        "fingerprint": fingerprint,
-                        "envelope": json.dumps(envelope),
-                        "version": metadata.version,
-                        "disclosure": COLLECTION_DISCLOSURE,
-                        "revision": row["revision"],
-                        "epoch": epoch,
-                    },
-                )
+            epoch = (
+                checkpoint.get("bootstrap_epoch")
+                if (phase or row["phase"]) == "bootstrap" or checkpoint.get("reconcile_epoch")
+                else None
+            )
+            _, invalidated = self._upsert_files_locked(
+                connection,
+                user_id=job["user_id"],
+                generation=job["connection_generation"],
+                revision=row["revision"],
+                files=files,
+                epoch=epoch,
+            )
             for file_id in removed:
                 old = self._row(
                     connection,

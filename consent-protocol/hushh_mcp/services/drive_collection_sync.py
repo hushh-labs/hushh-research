@@ -71,6 +71,43 @@ class DriveCollectionSync:
         self.store = store or DriveCollectionStore(db=self.oauth.lifecycle.db)
         self.adapter = adapter or GoogleDriveAdapter()
 
+    async def enqueue_candidates(self, *, user_id, file_ids):
+        """Resolve a bounded search result through normal collection authority.
+
+        Request retrieval and operator evaluation may accelerate specific sources;
+        the scheduled FIFO and the background discovery cursor remain unchanged.
+        Source bytes still pass through the ordinary version-fenced ingestion.
+        """
+        if (
+            not isinstance(file_ids, (list, tuple))
+            or not 1 <= len(file_ids) <= 50
+            or any(
+                not isinstance(identity, str) or not FILE_ID.fullmatch(identity)
+                for identity in file_ids
+            )
+            or len(set(file_ids)) != len(file_ids)
+        ):
+            raise DriveReadError("invalid_argument")
+        authority = await self.store.candidate_authority(user_id=user_id)
+        async with asyncio.timeout(100):
+            row, credential = await self.oauth.current_credential(
+                user_id=user_id, required_profile="live"
+            )
+            if row["connection_generation"] != authority["connection_generation"]:
+                raise DriveReadError("connection_changed")
+            files = []
+            for identity in file_ids:
+                await self.store.require_candidates_current(authority)
+                files.append(
+                    await self.adapter.get_metadata(
+                        file_id=identity,
+                        access_token=credential["accessToken"],
+                        require_app_authorized=False,
+                    )
+                )
+                await self.store.require_candidates_current(authority)
+            return await self.store.enqueue_candidates(authority, files=files)
+
     async def run_one(self, *, user_id):
         job = None
         started = time.monotonic()

@@ -20,6 +20,7 @@ from hushh_mcp.services.connector_feature_admission import connector_feature_own
 from hushh_mcp.services.drive_collection_store import DriveCollectionStore
 from hushh_mcp.services.drive_document_page_store import DriveDocumentPageStore
 from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
+from hushh_mcp.services.drive_document_targets import document_targets
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
     DocumentPageFacts,
@@ -141,7 +142,8 @@ class DriveDocumentFactsStore(DriveCollectionStore):
             )
         return len(rows)
 
-    async def enqueue(self, *, user_id, policy_version):
+    async def enqueue(self, *, user_id, policy_version, document_ids=None):
+        targets = document_targets(document_ids)
         if not isinstance(policy_version, str) or not 1 <= len(policy_version) <= 200:
             raise DriveReadError("invalid_argument")
 
@@ -162,6 +164,7 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                 ON e.document_id=d.document_id AND e.user_id=d.user_id
                 AND e.connection_generation=d.connection_generation AND e.source_version=d.source_version
               WHERE d.user_id=:user AND d.connection_generation=:generation
+                AND (:all_documents OR d.document_id=ANY(CAST(:document_ids AS uuid[])))
                 AND d.source_profile='live' AND d.processing_enabled
                 AND d.collection_revision=:revision AND d.status='ready' AND d.active_version IS NOT NULL
                 AND e.complete AND e.extraction_profile=:profile
@@ -176,6 +179,8 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                     "revision": collection["revision"],
                     "profile": EXTRACTION_PROFILE,
                     "policy": policy_version,
+                    "all_documents": targets is None,
+                    "document_ids": list(targets or ()),
                 },
             ).mappings()
             count = 0
@@ -314,7 +319,9 @@ class DriveDocumentFactsStore(DriveCollectionStore):
             raise DriveReadError("facts_superseded")
         return row, document, extraction
 
-    async def claim(self, *, user_id, policy_version):
+    async def claim(self, *, user_id, policy_version, document_ids=None):
+        targets = document_targets(document_ids)
+
         def operation(connection):
             active, collection, preference = self._authority(connection, user_id=user_id)
             row = self._row(
@@ -323,6 +330,7 @@ class DriveDocumentFactsStore(DriveCollectionStore):
               SELECT f.*,d.source_fingerprint,d.processing_revision FROM drive_document_facts f
               JOIN connected_documents d ON d.document_id=f.document_id AND d.user_id=f.user_id
               WHERE f.user_id=:user AND f.connection_generation=:generation AND f.facts_profile=:policy
+                AND (:all_documents OR f.document_id=ANY(CAST(:document_ids AS uuid[])))
                 AND NOT EXISTS(SELECT 1 FROM drive_document_facts busy
                   WHERE busy.user_id=:user AND busy.connection_generation=:generation
                     AND busy.facts_profile=:policy AND busy.status='running'
@@ -340,6 +348,8 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                     "generation": active["connection_generation"],
                     "policy": policy_version,
                     "revision": collection["revision"],
+                    "all_documents": targets is None,
+                    "document_ids": list(targets or ()),
                 },
             )
             if not row:

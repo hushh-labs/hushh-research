@@ -1260,3 +1260,39 @@ async def test_late_old_policy_membership_is_reconciled_from_current_facts(reusa
             ).scalar_one()
             == current["updated_at"]
         )
+
+
+async def test_request_priority_facts_use_exact_targets_and_reuse_complete_evidence(reusable):
+    await originals(reusable, count=3)
+    with reusable.collection.db.engine.connect() as connection:
+        ids = [
+            str(identity)
+            for identity in connection.execute(
+                text("SELECT document_id FROM connected_documents ORDER BY document_id")
+            ).scalars()
+        ]
+    target = ids[-1]
+    assert (
+        await reusable.worker.run_facts_one(user_id="owner", document_ids=[target])
+        == "facts_complete"
+    )
+    with reusable.collection.db.engine.connect() as connection:
+        rows = list(
+            connection.execute(
+                text("SELECT document_id,status FROM drive_document_facts")
+            ).mappings()
+        )
+    assert [(str(row["document_id"]), row["status"]) for row in rows] == [(target, "complete")]
+    assert await reusable.worker.run_facts_one(user_id="owner", document_ids=[target]) == "idle"
+    assert await reusable.facts.enqueue(user_id="owner", policy_version=POLICY) == 2
+    claim = await reusable.facts.claim(
+        user_id="owner", policy_version=POLICY, document_ids=[ids[1]]
+    )
+    assert str(claim["document_id"]) == ids[1]
+    assert (
+        await reusable.facts.claim(user_id="owner", policy_version=POLICY, document_ids=[ids[0]])
+        is None
+    )
+    await reusable.facts.release(claim)
+    next_claim = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    assert str(next_claim["document_id"]) == ids[0]

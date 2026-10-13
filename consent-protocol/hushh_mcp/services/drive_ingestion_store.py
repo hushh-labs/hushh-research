@@ -22,6 +22,7 @@ from hushh_mcp.services.drive_document_store import (
     PROCESSING_DISCLOSURE_VERSION,
     DriveDocumentStore,
 )
+from hushh_mcp.services.drive_document_targets import document_targets
 from hushh_mcp.services.google_drive_adapter import DriveMetadata, DriveReadError
 
 LEASE_SECONDS = 190
@@ -67,7 +68,8 @@ class DriveIngestionStore(DriveDocumentStore):
         self._selection_policy(connection, user_id, feature="drive_document_indexing")
         return dict(current)
 
-    async def claim(self, *, user_id: str, generation: int) -> dict | None:
+    async def claim(self, *, user_id: str, generation: int, document_ids=None) -> dict | None:
+        targets = document_targets(document_ids)
         self.cipher._key()
 
         def operation(connection):
@@ -112,6 +114,7 @@ class DriveIngestionStore(DriveDocumentStore):
                 WITH candidate AS (
                   SELECT document_id FROM connected_documents
                   WHERE user_id=:user AND connection_generation=:generation
+                    AND (:all_documents OR document_id=ANY(CAST(:document_ids AS uuid[])))
                     AND source_profile=:profile
                     AND processing_enabled AND processing_disclosure_version=:disclosure
                     AND status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
@@ -133,6 +136,8 @@ class DriveIngestionStore(DriveDocumentStore):
                     if profile == "live"
                     else PROCESSING_DISCLOSURE_VERSION,
                     "profile": profile,
+                    "all_documents": targets is None,
+                    "document_ids": list(targets or ()),
                 },
             )
             return (
