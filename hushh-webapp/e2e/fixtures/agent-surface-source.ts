@@ -446,7 +446,7 @@ export const AGENT_SURFACE_SOURCE = {
             containerClass: "",
             className: one(
               read("components/agent/one-presence-avatar.tsx"),
-              /<canvas[\s\S]*?className="([^"]+)"/,
+              /const compactClassName = "([^"]+)"/,
               "One presence canvas",
               "components/agent/one-presence-avatar.tsx",
             )[1],
