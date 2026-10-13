@@ -32,6 +32,7 @@ describe("executeAgentGatewayAction connected systems", () => {
 
     expect(input.router.push).toHaveBeenCalledWith(ROUTES.CONNECTED_SYSTEMS);
     expect(result.status).toBe("started");
+    expect(result.effectState).toBe("started");
     expect(result.screenAfter).toBe("connected_systems");
   });
 
@@ -42,6 +43,20 @@ describe("executeAgentGatewayAction connected systems", () => {
 
     expect(input.router.push).not.toHaveBeenCalled();
     expect(result.status).toBe("blocked");
+    expect(result.effectState).toBe("not_started");
     expect(result.reason).toBe("crm_delete_manual_only");
+  });
+
+  it("records missing actions as provably not started", async () => {
+    const input = baseInput("missing.action");
+
+    const result = await executeAgentGatewayAction(input);
+
+    expect(input.router.push).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "invalid",
+      effectState: "not_started",
+      reason: "missing_action",
+    });
   });
 });

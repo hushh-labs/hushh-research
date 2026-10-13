@@ -33,6 +33,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
+import { AgentActionRecoveryCard } from "@/components/agent/agent-action-recovery-card";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
@@ -46,6 +47,10 @@ import {
   executeAgentGatewayAction,
   type AgentActionRuntimeResult,
 } from "@/lib/agent/agent-action-runtime";
+import {
+  buildAgentActionRecoveryPlan,
+  type AgentActionRecoveryPlan,
+} from "@/lib/agent/agent-action-recovery-plan";
 import {
   addToPKM,
   clearAgentPkmContext,
@@ -93,7 +98,10 @@ import {
   type AgentChatToolEvent,
 } from "@/lib/services/agent-chat-client";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  buildKaiAnalysisPreviewRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
@@ -756,6 +764,8 @@ export function AgentChatWorkspace({
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
+  const [actionRecoveryPlan, setActionRecoveryPlan] =
+    useState<AgentActionRecoveryPlan | null>(null);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
   const [voiceState, setVoiceState] = useState<AgentVoiceStatus>("idle");
   const [voiceTranscriptReview, setVoiceTranscriptReview] =
@@ -987,7 +997,7 @@ export function AgentChatWorkspace({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, pkmReviews]);
+  }, [actionRecoveryPlan, messages, pkmReviews]);
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
@@ -1115,6 +1125,7 @@ export function AgentChatWorkspace({
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
     setPkmReviews([]);
+    setActionRecoveryPlan(null);
     setPkmActivity([]);
     setVoiceState("idle");
     setVoiceTranscriptReview(null);
@@ -1223,6 +1234,7 @@ export function AgentChatWorkspace({
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
       setPkmActivity([]);
       setPkmReviews([]);
+    setActionRecoveryPlan(null);
     },
     []
   );
@@ -1247,6 +1259,7 @@ export function AgentChatWorkspace({
     setMessages([createGreetingMessage()]);
     setInput("");
     setPkmReviews([]);
+    setActionRecoveryPlan(null);
     setPkmActivity([]);
   }, [abortAgentTurnWork]);
 
@@ -1489,12 +1502,64 @@ export function AgentChatWorkspace({
     [appendDebugEvent, getVaultOwnerToken, pkmReviews, user?.uid, vaultKey]
   );
 
+  const handleCancelActionRecovery = useCallback(() => {
+    setActionRecoveryPlan(null);
+  }, []);
+
+  const handleContinueActionRecovery = useCallback(() => {
+    if (!actionRecoveryPlan) {
+      return;
+    }
+
+    const executeStep = actionRecoveryPlan.steps.find(
+      (step) => step.kind === "execute_action",
+    );
+
+    if (!executeStep || executeStep.kind !== "execute_action") {
+      setActionRecoveryPlan(null);
+      toast.error("This recovery is no longer available.");
+      return;
+    }
+
+    const symbol = executeStep.slots.symbol;
+    const target = buildKaiAnalysisPreviewRoute({
+      ticker: symbol,
+    });
+
+    setAnalysisParams(null);
+    setActionRecoveryPlan(null);
+    router.push(target);
+
+    onNavigationActionComplete?.({
+      status: "started",
+      effectState: "started",
+      actionId: null,
+      label: "Open Analysis workspace",
+      routeBefore: pathname,
+      routeAfter: target,
+      resultSummary: `Opened the ${symbol} comparison preview after recovery approval.`,
+      data: {
+        symbol,
+        recoveryId: actionRecoveryPlan.id,
+        originalActionId: actionRecoveryPlan.originalActionId,
+      },
+    });
+  }, [
+    actionRecoveryPlan,
+    onNavigationActionComplete,
+    pathname,
+    router,
+    setAnalysisParams,
+  ]);
+
   const runAgentTurn = async (
     textInput: string,
     options: AgentRunTurnOptions = { source: "typed" }
   ) => {
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
+
+    setActionRecoveryPlan(null);
 
     const userId = user.uid;
     const token = getVaultOwnerToken();
@@ -1935,6 +2000,23 @@ export function AgentChatWorkspace({
           setAnalysisParams,
         });
         appendDebugEvent(debugTurnId, "tool_result", result);
+
+        const recoveryPlan = buildAgentActionRecoveryPlan({
+          result,
+          slots: toolEvent.slots,
+        });
+
+        setActionRecoveryPlan(recoveryPlan);
+
+        if (recoveryPlan) {
+          appendDebugEvent(debugTurnId, "action_recovery_proposed", {
+            recovery_id: recoveryPlan.id,
+            original_action_id: recoveryPlan.originalActionId,
+            policy_reason: recoveryPlan.policyDecision.reason,
+            requires_fresh_consent: recoveryPlan.requiresFreshConsent,
+          });
+        }
+
         upsertToolStatusMessage(result.resultSummary, toolResultStatus(result));
         if (voiceReceiptSpoken === false) {
           speakVoiceReceipt(result.resultSummary);
@@ -2753,6 +2835,7 @@ export function AgentChatWorkspace({
       return;
     }
     setPkmReviews([]);
+    setActionRecoveryPlan(null);
     setPkmActivity([]);
     void runAgentTurn(retryText, {
       source: "typed",
@@ -3059,6 +3142,14 @@ export function AgentChatWorkspace({
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
               ))}
+              {actionRecoveryPlan ? (
+                <AgentActionRecoveryCard
+                  plan={actionRecoveryPlan}
+                  onContinue={handleContinueActionRecovery}
+                  onCancel={handleCancelActionRecovery}
+                />
+              ) : null}
+
               <div ref={messagesEndRef} />
             </div>
           </div>

@@ -73,6 +73,7 @@ describe("executeAgentGatewayAction", () => {
     expect(router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?ticker=NVDA`);
     expect(result).toMatchObject({
       status: "started",
+      effectState: "started",
       actionId: "analysis.start",
       routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
       screenAfter: "kai_analysis",
