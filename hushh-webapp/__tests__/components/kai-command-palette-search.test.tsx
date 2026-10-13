@@ -8,11 +8,9 @@ import {
   KaiCommandPalette,
 } from "@/components/kai/kai-command-palette";
 import {
-  evaluateKaiActionAvailability,
   getKaiActionById,
   listKaiActionsForSurface,
   searchKaiActions,
-  searchKaiActionsSemantic,
 } from "@/lib/kai/actions/kai-action-gateway";
 import {
   clearActionUsage,
@@ -28,20 +26,11 @@ vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => mobile.value,
 }));
 
-vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ vaultOwnerToken: "vault-owner-token" }),
-}));
-
 vi.mock("@/lib/kai/ticker-universe-cache", () => ({
   getTickerUniverseSnapshot: () => null,
   preloadTickerUniverse: vi.fn(async () => []),
   searchTickerUniverse: () => [],
   searchTickerUniverseRemote: vi.fn(async () => []),
-}));
-
-vi.mock("@/lib/kai/actions/kai-action-gateway", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/kai/actions/kai-action-gateway")>()),
-  searchKaiActionsSemantic: vi.fn(async () => []),
 }));
 
 // Signed in, vault open, standing on Profile -- outside Finance, so the
@@ -77,7 +66,11 @@ const runtimeState: AppRuntimeState = {
 
 function renderPalette(
   initialQuery: string,
-  options: { state?: AppRuntimeState; userId?: string } = {},
+  options: {
+    state?: AppRuntimeState;
+    userId?: string;
+    surfaceMetadata?: { deadEnd?: { reason: string; remedyActionId: string } | null };
+  } = {},
 ) {
   const onSelectAction = vi.fn();
   const onSubmitPrompt = vi.fn();
@@ -89,6 +82,7 @@ function renderPalette(
       onSubmitPrompt={onSubmitPrompt}
       initialQuery={initialQuery}
       appRuntimeState={options.state ?? runtimeState}
+      surfaceMetadata={options.surfaceMetadata}
       userId={options.userId ?? null}
     />,
   );
@@ -103,7 +97,6 @@ function renderedLabels(): string[] {
 
 beforeEach(() => {
   mobile.value = false;
-  vi.mocked(searchKaiActionsSemantic).mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -154,36 +147,6 @@ describe("typed search on desktop", () => {
       "how did my portfolio do this week",
     );
   });
-
-  it("lists related-by-meaning results after the wording matches", async () => {
-    const consents = getKaiActionById("route.consents")!;
-    vi.mocked(searchKaiActionsSemantic).mockImplementation(async ({ query }) =>
-      query === "dashboard"
-        ? [
-            {
-              action: consents,
-              availability: evaluateKaiActionAvailability({
-                action: consents,
-                appRuntimeState: runtimeState,
-              }),
-            },
-          ]
-        : [],
-    );
-
-    renderPalette("dashboard");
-
-    // No shared letters with "dashboard": cmdk's own fuzzy filter used to
-    // drop rows like this before anyone saw them.
-    await waitFor(() =>
-      expect(renderedLabels()).toContain("Open Consent Center"),
-    );
-    const labels = renderedLabels();
-    expect(labels.indexOf("Open Portfolio Dashboard")).toBeLessThan(
-      labels.indexOf("Open Consent Center"),
-    );
-    expect(labels.at(-1)).toBe("Open Consent Center");
-  });
 });
 
 describe("typed search on phones", () => {
@@ -202,7 +165,7 @@ describe("typed search on phones", () => {
   });
 });
 
-describe("habit in ranking", () => {
+describe("habit in ranking (gateway, not Search's own catalog)", () => {
   it("adds to matches without letting an unmatched action in", () => {
     const plain = searchKaiActions({
       query: "dashboard",
@@ -235,18 +198,6 @@ describe("habit in ranking", () => {
 });
 
 describe("what search offers", () => {
-  // The home screen (/one) as reported on 2026-09-27: search offered agent
-  // hand-offs, a chat-only widget and an action that needs a proposal id, none
-  // of which a tap can run.
-  const homeState: AppRuntimeState = {
-    ...runtimeState,
-    route: { pathname: "/one", screen: "one_agents", subview: null },
-  };
-
-  afterEach(() => {
-    clearActionUsage("user_1");
-  });
-
   it("leaves out actions only One itself can run", () => {
     for (const actionId of [
       "consent.chat.turn",
@@ -274,8 +225,27 @@ describe("what search offers", () => {
       );
     }
   });
+});
 
-  it("does not bring agent-only actions back as habits", () => {
+describe("idle suggestions", () => {
+  // The home screen (/one) as reported on 2026-09-27: search offered agent
+  // hand-offs, a chat-only widget and an action that needs a proposal id, none
+  // of which a tap can run. The fix at the time was gateway-side filtering;
+  // Search's own catalog carries the same guarantee structurally, since it
+  // only ever lists destinations a tap can run.
+  const homeState: AppRuntimeState = {
+    ...runtimeState,
+    route: { pathname: "/one", screen: "one_agents", subview: null },
+  };
+
+  afterEach(() => {
+    clearActionUsage("user_1");
+  });
+
+  it("is the same curated list regardless of recorded usage", () => {
+    // Recording usage of actions that were never in Search's catalog --
+    // including agent-only ones -- must not promote them. Search's idle row
+    // stopped personalizing when it stopped being gateway-derived.
     for (const actionId of [
       "wallet.reveal",
       "consent.request",
@@ -288,15 +258,32 @@ describe("what search offers", () => {
     renderPalette("", { state: homeState, userId: "user_1" });
 
     const labels = renderedLabels();
-    expect(labels).toContain("Ask for someone's location");
+    expect(labels).toContain("Open Location");
     for (const label of [
       "Reveal a card",
       "Request someone's information",
       "Ask Consent (Nav)",
-      "Ask Location",
+      "Ask for someone's location",
     ]) {
       expect(labels).not.toContain(label);
     }
+  });
+
+  it("leads with the current screen's dead-end remedy when one is set", () => {
+    renderPalette("", {
+      state: homeState,
+      surfaceMetadata: {
+        deadEnd: {
+          reason: "Connect your wallet to see Hussh Coins.",
+          remedyActionId: "route.one_wallet",
+        },
+      },
+    });
+
+    const labels = renderedLabels();
+    expect(labels[0]).toBe(
+      "Open WalletConnect your wallet to see Hussh Coins.",
+    );
   });
 
   it("does not answer a typed query with an agent hand-off", () => {
