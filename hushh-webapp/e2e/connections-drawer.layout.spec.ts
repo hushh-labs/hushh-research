@@ -1416,6 +1416,7 @@ test.describe("One profile artwork and mapped work frames", () => {
     const trigger = page.getByRole("button", { name: "Open One profile", exact: true });
     await trigger.hover();
     await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(trigger).toHaveCSS("border-radius", "0px");
     // Tailwind composes shadow-none with zero-alpha ring/shadow slots.
     await expect(trigger).toHaveCSS("box-shadow", /^(?:none|rgba\(0, 0, 0, 0\) 0px 0px 0px 0px(?:, rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)*)$/);
     await trigger.click();
@@ -1436,6 +1437,7 @@ test.describe("One profile artwork and mapped work frames", () => {
       await expect(profile).toHaveAttribute("data-one-presence-state", phase.state);
       await expect(profile).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       expect(await profile.evaluate(element => getComputedStyle(element.parentElement!).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+      expect(await profile.evaluate(element => getComputedStyle(element.parentElement!).borderRadius)).toBe("0px");
       const bounds = (await profile.boundingBox())!;
       expect(bounds.width).toBe(192); expect(bounds.height).toBe(192);
       if (phase.state === "connected") {
