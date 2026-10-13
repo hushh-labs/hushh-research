@@ -2597,8 +2597,24 @@ describe("native chrome presentation lease", () => {
     // A negative owner binding cannot invoke Close a second time.
     act(() => bridge.callbacks.get("choiceRequested")?.({ ...projection, ownerEpoch: "retired-owner", sequence: 2, updateSequence, privacyGeneration: 0 }));
     expect(close).toHaveBeenCalledOnce();
+    const originalPane = view.getByRole("dialog", { name: "Preferences" });
+    bridge.activate.mockImplementation(() => new Promise(() => undefined));
+    view.rerender(<NativeFeaturePage pane open title="Voice" owner="owner-a" context="pane:voice"
+      onBack={vi.fn()} onClose={close} onReady={ready}><p>Public voice settings</p></NativeFeaturePage>);
+    expect(view.getByRole("dialog", { name: "Voice" })).toBe(originalPane);
+    expect(originalPane).toBeVisible();
+    expect(bridge.acquireContentPane).toHaveBeenCalledOnce();
+    expect(bridge.releaseContentPane).not.toHaveBeenCalled();
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...projection, sequence: 3, updateSequence, privacyGeneration: 0 }));
+    // Close keeps its lifetime binding; only nested Back changes authority.
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(2));
+    view.rerender(<NativeFeaturePage pane open title="Voice" owner="owner-b" context="pane:voice"
+      onBack={vi.fn()} onClose={close} onReady={ready}><p>Public voice settings</p></NativeFeaturePage>);
+    expect(originalPane).not.toBeVisible();
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...projection, sequence: 4, updateSequence, privacyGeneration: 0 }));
+    expect(close).toHaveBeenCalledTimes(2);
     view.unmount();
-    await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalledOnce());
+    await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
   });
   it("keeps moving Profile controls React across inner routes and ownership changes", async () => {
     measureSlot();

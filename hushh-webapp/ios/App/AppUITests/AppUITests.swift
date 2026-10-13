@@ -987,9 +987,29 @@ final class AppUITests: XCTestCase {
                     guard app.textFields["native-history-rename"].firstMatch.waitForExistence(timeout: 10) else {
                         XCTFail("COHERENT_HISTORY_RENAME_NOT_OPENED"); return
                     }
+                    XCTAssertTrue(app.textFields["native-history-search"].firstMatch.exists,
+                        "COHERENT_HISTORY_RENAME_REPLACED_LIST")
+                    XCTAssertTrue(footer.exists, "COHERENT_HISTORY_RENAME_REPLACED_FOOTER")
                     app.buttons["Cancel"].firstMatch.tap() // No rename/delete mutation.
                     guard app.textFields["native-history-search"].firstMatch.waitForExistence(timeout: 10) else {
                         XCTFail("COHERENT_HISTORY_ACTION_RETURN_FAILED"); return
+                    }
+                    actions.tap()
+                    let delete = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Delete")).firstMatch
+                    guard waitForAdmittedControl(delete) else { XCTFail("COHERENT_HISTORY_DELETE_MENU_UNAVAILABLE"); return }
+                    delete.tap()
+                    let confirmation = app.alerts["Delete chat?"].firstMatch
+                    guard confirmation.waitForExistence(timeout: 10) else { XCTFail("COHERENT_HISTORY_DELETE_CONFIRMATION_UNAVAILABLE"); return }
+                    confirmation.buttons["Cancel"].tap() // Never delete a reviewer record.
+                    guard waitForAdmittedControl(close) else { XCTFail("COHERENT_HISTORY_CONFIRMATION_DID_NOT_RETIRE"); return }
+                    app.buttons["native-history-row-connectors"].firstMatch.tap()
+                    let connectorsBack = app.buttons["Back to chats"].firstMatch
+                    guard waitForAdmittedControl(connectorsBack) else { XCTFail("COHERENT_HISTORY_CONNECTORS_HANDOFF_FAILED"); return }
+                    XCTAssertFalse(close.isHittable, "COHERENT_HISTORY_ROSTER_OVERLAPS_CONNECTORS")
+                    XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+                    connectorsBack.tap()
+                    guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
+                        XCTFail("COHERENT_HISTORY_CONNECTORS_RETURN_FAILED"); return
                     }
                 }
                 XCTAssertFalse(editor.isHittable)
@@ -3583,13 +3603,12 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(waitForAdmittedControl(detailClose), "PROFILE_DETAIL_CLOSE_UNAVAILABLE")
             XCTAssertEqual(detailClose.frame.width, 44, accuracy: 1)
             XCTAssertEqual(detailClose.frame.height, 44, accuracy: 1)
-            // Radix names the dialog through its current DialogTitle. In
-            // WebKit that aria-labelledby takes precedence over aria-label;
-            // do not replace the real accessible title for a test locator.
+            // The real dialog is named by its current title. Do not infer
+            // full-pane bounds from a clipped descendant's AX rectangle.
             let detailTitles = ["account": "Account", "preferences": "Appearance & preferences",
                 "security": "Security & privacy", "devices": "Trusted devices", "connectors": "Connectors",
                 "support": "Help & feedback", "privacy": "Privacy Policy", "terms": "Terms of Use"]
-            let containers = web.descendants(matching: .any).containing(.any, identifier: detailTitles[id] ?? "Profile")
+            let containers = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", detailTitles[id] ?? "Profile"))
             _ = containers.firstMatch.waitForExistence(timeout: 5)
             let frames = containers.allElementsBoundByIndex.filter {
                 ![XCUIElement.ElementType.application, .window, .webView].contains($0.elementType)
@@ -3605,6 +3624,7 @@ final class AppUITests: XCTestCase {
                 print("PROFILE_DETAIL_FRAME_PROBE candidates=\(containers.count) admitted=\(frames.count)")
                 XCTFail("PROFILE_DETAIL_FRAME_UNAVAILABLE"); return
             }
+            print("PROFILE_DETAIL_PUBLIC_FRAME top=\(Int(detailFrame.minY)) bottom=\(Int(detailFrame.maxY)) expected_top=\(Int(app.frame.minY)) expected_bottom=\(Int(app.frame.maxY))")
             XCTAssertEqual(detailFrame.minY, app.frame.minY, accuracy: 1, "PROFILE_DETAIL_TOP_GAP")
             XCTAssertEqual(detailFrame.maxY, app.frame.maxY, accuracy: 1, "PROFILE_DETAIL_BOTTOM_GAP")
             // Touch isolation is proven by the root's absence below; Back and

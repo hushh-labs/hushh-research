@@ -17,30 +17,6 @@ describe("private-agent chat shell contract", () => {
 
     expect(workspace).not.toContain("<DriveBackgroundSearches");
   });
-  // Connectors is a Profile section (founder, 2026-10-02): every chat entry
-  // opens it in the Profile pane over the chat, never in a drawer of its own,
-  // and the chat lends the pane its draft saver for sign-ins that leave.
-  it("opens Connectors from chat in the Profile pane, never in its own drawer", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
-    expect(workspace).toContain("<AgentConnectionsDrawer");
-    expect(workspace).toContain("connections={null}");
-    expect(workspace).not.toContain("<ConnectorsPanel");
-    expect(workspace).not.toContain('setDrawerMode("connections")');
-    expect(workspace).toContain("openProfilePane(");
-    expect(workspace).toContain("profileConnectorsLocation(");
-    expect(workspace).toContain("registerChatConnectorRecoveryHost(");
-  });
-  it("keeps the connector manager bounded, scrollable, and on the shared modal scrim", () => {
-    const drawer = read("components/agent/agent-connections-drawer.tsx");
-    const panel = read("components/agent/connectors-panel.tsx");
-    const dialog = read("components/ui/dialog.tsx");
-
-    expect(drawer).toContain('contentDragDismiss={false}');
-    expect(drawer).toContain('className="agent-connections-dialog h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md"');
-    expect(panel).toContain("min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain");
-    expect(dialog).toContain("[backdrop-filter:var(--app-scrim-filter)]");
-    expect(dialog).toContain("[-webkit-backdrop-filter:var(--app-scrim-filter)]");
-  });
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const providers = read("app/providers.tsx");

@@ -13,6 +13,30 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Retained nested panes and History actions — 2026-10-13
+
+The follow-up separates a pane's revealed lifetime from its changing Back
+binding. Initial plane/header admission still gates first paint; nested Profile
+push/pop retains the visible pane while obsolete Back choices are invalidated.
+Owner, privacy and failed plane admission remain fail-closed. Close is bound to
+the pane lifetime, not every nested query.
+
+History's Connectors footer now opens a leading child pane and Back restores
+Chats. It reuses the existing Profile connector/OAuth owner, without another
+provider flow or transcript. Web retains one leading drawer and mounted connector
+panel; native stages the destination before withdrawing the History roster.
+Inline Chat cards retain their existing Profile destination.
+
+Native Rename edits its own row while search, other chats and footer remain
+mounted. Delete uses an owned UIKit destructive confirmation; retirement waits
+for real dismissal and captured identity/privacy/update fences reject late
+choices. Device tests cancel these actions without mutating reviewer records.
+
+Source tests cover retained visibility, owner changes and the web connector
+round trip. Physical acceptance is pending for this exact candidate. This does
+not enable ordinary custom-native admission, qualify iPad material composition
+or waive visual/accessibility/Release performance gates.
+
 ### Compact header and owned Profile content plane — 2026-10-12
 
 The follow-up keeps Chat's mark, title/activity, History and One/Puppy on one

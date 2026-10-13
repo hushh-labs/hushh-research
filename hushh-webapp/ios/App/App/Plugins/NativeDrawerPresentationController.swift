@@ -32,6 +32,7 @@ final class NativeDrawerModel: ObservableObject {
     var pendingSequence: Int?
     var choose: ((String, String?, String?) -> Bool)?
     var close: (() -> Void)?
+    var requestDelete: ((NativeDrawerRow, NativeDrawerProjection) -> Void)?
     private let menus = NSHashTable<NativeDrawerMenuControl>.weakObjects()
     private var retiringMenus = [ObjectIdentifier: NativeDrawerMenuControl]()
     func registerMenu(_ menu: NativeDrawerMenuControl) { menus.add(menu) }
@@ -79,6 +80,11 @@ final class NativeDrawerModel: ObservableObject {
         guard projection.identity == state.identity, projection.privacyGeneration == state.privacyGeneration,
               projection.updateSequence == state.updateSequence,
               projection.sections.contains(where: { $0.rows.contains(where: { $0.id == row.id && $0.enabled && $0.pending != true }) }) else { return }
+        if mode == "delete" {
+            guard row.deleteActionId != nil, interactionEnabled, !choicePending else { return }
+            requestDelete?(row, state)
+            return
+        }
         details(row)
         if detailRow == row.id { detailMode = mode }
     }
@@ -107,6 +113,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     private var intentTimeout: DispatchWorkItem?
     private var retirementCompletions = [() -> Void]()
     private var detached = false
+    private var deleteConfirmation: HushhNativeChromePresenter?
     var isolation: ((Bool) -> Void)?
     var invalidateInteractions: (() -> Void)?
     var leadingHeaderFrame: (() -> CGRect?)?
@@ -147,6 +154,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         pan.delegate = self
         view.addGestureRecognizer(pan)
         model.close = { [weak self] in self?.close() }
+        model.requestDelete = { [weak self] row, state in self?.confirmDelete(row, from: state) }
         applyAppearance()
         pose(0)
     }
@@ -186,6 +194,9 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
 
     func update(_ projection: NativeDrawerProjection) {
         guard !motion.retired, model.projection.identity == projection.identity else { return }
+        if projection.updateSequence != model.projection.updateSequence || !projection.open || !projection.enabled {
+            deleteConfirmation?.retire {}
+        }
         let changedOpen = model.projection.open != projection.open
         if changedOpen { view.endEditing(true) }
         let withdrawn = model.projection.enabled && !projection.enabled
@@ -277,6 +288,27 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         guard !intentPending, !awaitingReadmission, model.projection.allows(action: "close", row: nil) else { return }
         settle(open: false, userIntent: true)
     }
+    private func confirmDelete(_ row: NativeDrawerRow, from state: NativeDrawerProjection) {
+        guard deleteConfirmation == nil, presentedViewController == nil, model.interactionEnabled,
+              let action = row.deleteActionId, model.projection.allows(action: "row", row: action) else { return }
+        view.endEditing(true)
+        let alert = UIAlertController(title: "Delete chat?", message: "This chat will be removed from your history.", preferredStyle: .alert)
+        let presenter = HushhNativeChromePresenter(parent: self, controller: alert, updateSequence: state.updateSequence) { [weak self] _, sequence in
+            guard let self, !self.motion.retired, self.model.interactionEnabled,
+                  self.model.projection.identity == state.identity,
+                  self.model.projection.privacyGeneration == state.privacyGeneration,
+                  self.model.projection.updateSequence == sequence else { return }
+            _ = self.model.choice("row", row: action)
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak presenter] _ in presenter?.choose(nil) })
+        alert.addAction(UIAlertAction(title: "Delete chat", style: .destructive) { [weak presenter] _ in presenter?.choose("delete") })
+        alert.overrideUserInterfaceStyle = model.projection.appearance == "dark" ? .dark : .light
+        deleteConfirmation = presenter
+        presenter.didRetire = { [weak self, weak presenter] in
+            if self?.deleteConfirmation === presenter { self?.deleteConfirmation = nil }
+        }
+        presenter.present()
+    }
     func settle(open: Bool, userIntent: Bool) {
         guard !motion.retired, !userIntent || model.projection.enabled else { return }
         dragging = false
@@ -351,13 +383,17 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         view.endEditing(true)
         model.choose = nil
         model.close = nil
+        model.requestDelete = nil
         model.search = ""; model.clearDetails()
         invalidateInteractions = nil
         model.update(model.projection.cleared)
         model.interactionEnabled = false
         // Removing a trigger/host does not prove UIKit's menu disappeared.
         // Keep containment until its disappearance animator completes.
-        model.dismissMenus { [self] in detachRetiredPresentation() }
+        model.dismissMenus { [self] in
+            if let deleteConfirmation { deleteConfirmation.retire { [self] in detachRetiredPresentation() } }
+            else { detachRetiredPresentation() }
+        }
     }
     private func detachRetiredPresentation() {
         host.willMove(toParent: nil)
@@ -421,18 +457,14 @@ struct NativeDrawerContent: View {
     @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 22
     @ScaledMetric(relativeTo: .body) private var historyTitleFont: CGFloat = 15
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    private var detailedRow: NativeDrawerRow? {
-        model.projection.sections.flatMap(\.rows).first { $0.id == model.detailRow }
-    }
+    @FocusState private var renameFocused: String?
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 if model.projection.family == "history" {
                     control("xmark", "Close chat history") { model.close?() }
                 }
-                if model.detailRow != nil {
-                    control("arrow.left", "Back") { model.clearDetails() }
-                } else if model.projection.backEnabled {
+                if model.projection.backEnabled {
                     control("arrow.left", "Back") { model.choice("back") }
                 }
                 Text(model.projection.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
@@ -442,9 +474,7 @@ struct NativeDrawerContent: View {
                 }
             }.padding(model.projection.family == "history" ? model.headerInsets :
                 EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
-            if let row = detailedRow {
-                details(row)
-            } else if model.projection.family != "history" {
+            if model.projection.family != "history" {
                 profileContent
             } else {
                 ForEach(model.projection.sections.filter { $0.id == "create" }) { section in
@@ -463,7 +493,7 @@ struct NativeDrawerContent: View {
                                         .padding(.horizontal, 12).padding(.top, 6)
                                         .accessibilityAddTraits(.isHeader)
                                 }
-                                ForEach(section.rows.filter { row in model.search.isEmpty || row.renameActionId == nil || row.label.localizedCaseInsensitiveContains(model.search) }) { historyRow($0) }
+                                ForEach(section.rows.filter { row in row.id == model.detailRow || model.search.isEmpty || row.renameActionId == nil || row.label.localizedCaseInsensitiveContains(model.search) }) { historyRow($0) }
                             }
                         }
                     }.padding(.horizontal, 16).padding(.vertical, 4)
@@ -494,7 +524,26 @@ struct NativeDrawerContent: View {
         guard let detail, !detail.isEmpty else { return Text("") }
         return Text("  \(detail)").font(.caption2).foregroundStyle(.secondary)
     }
-    private func historyRow(_ row: NativeDrawerRow) -> some View {
+    @ViewBuilder private func historyRow(_ row: NativeDrawerRow) -> some View {
+        if row.id == model.detailRow, model.detailMode == "rename", let action = row.renameActionId {
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Chat name", text: $model.renameDraft)
+                    .textFieldStyle(.plain).font(.system(size: historyTitleFont))
+                    .padding(.horizontal, 12).frame(minHeight: 44)
+                    .focused($renameFocused, equals: row.id)
+                    .accessibilityLabel("Rename chat").accessibilityIdentifier("native-history-rename")
+                    .submitLabel(.done).onSubmit { saveRename(action) }
+                HStack(spacing: 12) {
+                    Button("Cancel") { model.clearDetails() }.frame(minWidth: 44, minHeight: 44)
+                    Spacer(minLength: 0)
+                    Button("Save chat name") { saveRename(action) }.frame(minWidth: 44, minHeight: 44)
+                        .disabled(!renameValid)
+                }.padding(.horizontal, 12)
+            }.buttonStyle(.borderless)
+                .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+                .disabled(!model.interactionEnabled || model.choicePending || !row.enabled || row.pending == true)
+                .onAppear { renameFocused = row.id }
+        } else {
         HStack(spacing: 0) {
             Button { model.choice("row", row: row.id) } label: {
                 HStack(spacing: 12) {
@@ -521,6 +570,14 @@ struct NativeDrawerContent: View {
             }
         }.buttonStyle(.borderless)
             .background(row.selected == true ? Color(uiColor: .tertiarySystemFill) : .clear, in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+    private var renameValid: Bool {
+        !model.renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.renameDraft.utf16.count <= 160
+    }
+    private func saveRename(_ action: String) {
+        guard renameValid, model.interactionEnabled, !model.choicePending else { return }
+        _ = model.choice("row", row: action, text: model.renameDraft)
     }
     /// Mirrors the shared Profile roster, not List's platform-specific default
     /// paddings. React owns grouping, availability and actions; native owns its
@@ -626,26 +683,6 @@ struct NativeDrawerContent: View {
         if #available(iOS 26.0, *) {
             searchContent.glassEffect(.regular, in: Capsule())
         } else { searchContent.background(.regularMaterial, in: Capsule()) }
-    }
-    private func details(_ row: NativeDrawerRow) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(row.label).font(.headline).lineLimit(3)
-            if model.detailMode == "rename", let action = row.renameActionId {
-                TextField("Chat name", text: $model.renameDraft).textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Rename chat").accessibilityIdentifier("native-history-rename")
-                Button("Save chat name") { _ = model.choice("row", row: action, text: model.renameDraft) }
-                    .disabled(model.renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.renameDraft.utf16.count > 160)
-            } else if model.detailMode == "delete", let action = row.deleteActionId {
-                Text("This chat will be removed from your history.").foregroundStyle(.secondary)
-            Button("Delete chat", role: .destructive) { _ = model.choice("row", row: action) }
-            } else {
-                if row.renameActionId != nil { Button("Rename") { model.detailMode = "rename" } }
-                if row.deleteActionId != nil { Button("Delete", role: .destructive) { model.detailMode = "delete" } }
-            }
-            Button("Cancel") { model.clearDetails() }
-            Spacer(minLength: 0)
-        }.buttonStyle(.borderless).padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading).disabled(!model.interactionEnabled || model.choicePending || !row.enabled || row.pending == true)
     }
     @ViewBuilder private func control(_ symbol: String, _ label: String, identifier: String = "", action: @escaping () -> Void) -> some View {
         if #available(iOS 26.0, *) {

@@ -18,9 +18,9 @@ export function contentPaneAcknowledged(receipt: NativeContentPaneReceipt, ident
 
 /** The existing overlay registry owns touch isolation through the actual DOM
  * exit. This hook owns only the acknowledged WK/native paint-plane lifetime. */
-export function useNativeContentPane(node: HTMLElement | null, owner: string | null, enabled: boolean) {
+export function useNativeContentPane(node: HTMLElement | null, owner: string | null, enabled: boolean, layer = "profile-pane") {
   const [state, setState] = useState<{ phase: "preparing" | "web" | "native" | "blocked"; identity?: NativeContentPaneIdentity }>({ phase: "preparing" });
-  useNativeNavigationBlocked(!!node && enabled, "profile-pane");
+  useNativeNavigationBlocked(!!node && enabled, layer);
   useLayoutEffect(() => {
     if (!owner || !enabled || !customNativePresentationEnabled()) { setState({ phase: "web" }); return; }
     if (!node) { setState({ phase: "preparing" }); return; }

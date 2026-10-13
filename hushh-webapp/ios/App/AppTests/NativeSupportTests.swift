@@ -268,12 +268,22 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(retired)
         XCTAssertTrue(controller.children.isEmpty)
         XCTAssertFalse(acted, "Retirement cancels a pending action before its popup completes")
-        let model = NativeDrawerModel(privateDrawerState(family: "history"))
+        let editable = NativeDrawerRow(id: "row-handle", label: "Public title", detail: nil, symbol: nil,
+            enabled: true, destructive: nil, selected: nil, pending: nil, renameActionId: "rename", deleteActionId: "delete")
+        let model = NativeDrawerModel(privateDrawerState(family: "history", sampleRow: editable))
         model.interactionEnabled = true
         let oldState = model.projection
-        model.update(privateDrawerState(family: "history", update: 2))
+        model.update(privateDrawerState(family: "history", update: 2, sampleRow: editable))
         model.showDetails(oldState.sections[0].rows[0], mode: "rename", from: oldState)
         XCTAssertNil(model.detailRow, "An old menu cannot open a replacement owner's editor")
+        var confirmations = 0
+        model.requestDelete = { _, _ in confirmations += 1 }
+        model.showDetails(editable, mode: "delete", from: oldState)
+        XCTAssertEqual(confirmations, 0, "An old menu cannot present a destructive confirmation")
+        model.showDetails(editable, mode: "delete", from: model.projection)
+        XCTAssertEqual(confirmations, 1)
+        XCTAssertNil(model.detailRow, "Delete confirmation retains History rather than replacing it")
+        XCTAssertFalse(model.choicePending, "Opening confirmation is not permission to delete")
 
         // List filtering/removal uses the real representable teardown, not
         // whole-drawer retirement. A vanished trigger still owns its popup.

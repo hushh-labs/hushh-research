@@ -33,9 +33,13 @@ type RecoveryInput = {
 export function ProfileConnectorsSection({
   connectorId,
   onConnectorChange,
+  open = true,
+  onExternalModalChange,
 }: {
   connectorId: string | null;
   onConnectorChange: (connectorId: string | null) => void;
+  open?: boolean;
+  onExternalModalChange?: (open: boolean) => void;
 }) {
   const { user } = useAuth();
   // A sign-in that leaves the app must not lose what is underneath the pane.
@@ -81,10 +85,11 @@ export function ProfileConnectorsSection({
   return (
     <div className={styles.connectors}>
       <ConnectorsPanel
-        open
+        open={open}
         surface="profile"
         activeConnector={connectorId}
         onActiveConnectorChange={onConnectorChange}
+        onExternalModalChange={onExternalModalChange}
         onBack={stayInProfile}
         onPrepareRecovery={prepareSignInReturn}
         onClearRecovery={clearSignInReturn}
