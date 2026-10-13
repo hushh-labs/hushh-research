@@ -726,6 +726,162 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
+    // MARK: - Invocation-local Google Contacts grant
+    private func rejectGoogleContacts(_ capture: GoogleContactsCapture, code: String) {
+        guard !capture.settled else { return }
+        capture.settled = true
+        capture.timeout?.cancel()
+        capture.timeout = nil
+        if !capture.providerOutstanding && googleContactsCapture === capture {
+            googleContactsCapture = nil
+        }
+        capture.call.reject("Google Contacts access is unavailable. You can continue.", code)
+    }
+
+    private func drainGoogleContactsProvider(_ capture: GoogleContactsCapture) -> Bool {
+        capture.providerOutstanding = false
+        if capture.settled {
+            if googleContactsCapture === capture { googleContactsCapture = nil }
+            return false
+        }
+        return googleContactsCapture === capture
+    }
+
+    private func captureGoogleContactsToken(_ capture: GoogleContactsCapture, subject: String) {
+        guard let google = capture.googleUser else {
+            rejectGoogleContacts(capture, code: "contacts_authorization_unavailable")
+            return
+        }
+        capture.providerOutstanding = true
+        google.refreshTokensIfNeeded { [weak self] refreshed, error in
+            DispatchQueue.main.async {
+                guard let self = self, self.drainGoogleContactsProvider(capture) else { return }
+                let scope = "https://www.googleapis.com/auth/contacts.readonly"
+                guard Auth.auth().currentUser === capture.user,
+                      ProcessInfo.processInfo.systemUptime < capture.deadline,
+                      capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
+                      GIDSignIn.sharedInstance.currentUser === google,
+                      error == nil, let refreshed = refreshed,
+                      refreshed.userID == subject,
+                      (refreshed.grantedScopes ?? []).contains(scope),
+                      let expiration = refreshed.accessToken.expirationDate,
+                      expiration > Date(), !refreshed.accessToken.tokenString.isEmpty else {
+                    self.rejectGoogleContacts(capture, code: "session_changed")
+                    return
+                }
+                capture.settled = true
+                capture.timeout?.cancel()
+                capture.timeout = nil
+                self.googleContactsCapture = nil
+                capture.call.resolve([
+                    "accessToken": refreshed.accessToken.tokenString,
+                    "googleSubject": subject,
+                    "grantedScopes": refreshed.grantedScopes ?? [],
+                    "authority": "ios-sdk-grant",
+                    "expiresAt": expiration.timeIntervalSince1970 * 1000
+                ])
+            }
+        }
+    }
+
+    private func continueGoogleContactsCapture(_ capture: GoogleContactsCapture, subject: String) {
+        let scope = "https://www.googleapis.com/auth/contacts.readonly"
+        guard googleContactsCapture === capture, !capture.settled,
+              Auth.auth().currentUser === capture.user,
+              ProcessInfo.processInfo.systemUptime < capture.deadline,
+              capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
+              let google = capture.googleUser, google.userID == subject,
+              GIDSignIn.sharedInstance.currentUser === google else {
+            rejectGoogleContacts(capture, code: "session_changed")
+            return
+        }
+        guard !(google.grantedScopes ?? []).contains(scope) else {
+            captureGoogleContactsToken(capture, subject: subject)
+            return
+        }
+        guard capture.call.getBool("requestMissingScope") == true else {
+            rejectGoogleContacts(capture, code: "contacts_not_granted")
+            return
+        }
+        guard let presenter = bridge?.viewController else {
+            rejectGoogleContacts(capture, code: "contacts_authorization_unavailable")
+            return
+        }
+        capture.providerOutstanding = true
+        google.addScopes([scope], presenting: presenter) { [weak self] result, error in
+            DispatchQueue.main.async {
+                guard let self = self, self.drainGoogleContactsProvider(capture) else { return }
+                guard Auth.auth().currentUser === capture.user,
+                      ProcessInfo.processInfo.systemUptime < capture.deadline,
+                      GIDSignIn.sharedInstance.currentUser === google,
+                      error == nil, let granted = result?.user,
+                      granted === google, granted.userID == subject,
+                      capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
+                      (granted.grantedScopes ?? []).contains(scope) else {
+                    let code = (error as NSError?)?.code == -5 ? "USER_CANCELLED" : "contacts_not_granted"
+                    self.rejectGoogleContacts(capture, code: code)
+                    return
+                }
+                self.captureGoogleContactsToken(capture, subject: subject)
+            }
+        }
+    }
+
+    @objc func authorizeGoogleContacts(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard self.googleContactsCapture == nil, self.driveAuthorization == nil,
+                  self.drivePickerAuthorization == nil, self.identityReauthentication == nil,
+                  !self.googleInteractiveInFlight, self.appleSignInCall == nil else {
+                call.reject("Google Contacts access is already in progress.", "identity_busy")
+                return
+            }
+            guard self.ensureFirebaseConfigured(),
+                  let expected = call.getString("expectedUserId"), !expected.isEmpty,
+                  let user = Auth.auth().currentUser, user.uid == expected,
+                  let provider = user.providerData.first(where: { $0.providerID == "google.com" }),
+                  !provider.uid.isEmpty else {
+                call.reject("Google Contacts access is unavailable.", "contacts_authorization_unavailable")
+                return
+            }
+            let subject = provider.uid
+            let interactive = call.getBool("requestMissingScope") == true
+            let google = GIDSignIn.sharedInstance.currentUser
+            let capture = GoogleContactsCapture(call: call, user: user, googleUser: google, interactive: interactive)
+            self.googleContactsCapture = capture
+            let timeout = DispatchWorkItem { [weak self] in
+                self?.rejectGoogleContacts(capture, code: "contacts_authorization_timeout")
+            }
+            capture.timeout = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + (interactive ? 120 : 30), execute: timeout)
+            if google != nil {
+                self.continueGoogleContactsCapture(capture, subject: subject)
+            } else if interactive {
+                // Restore only the SDK's previous session on explicit retry. Reserve
+                // the operation until its callback drains because restoration updates
+                // shared SDK state, including after a timeout or sign-out.
+                capture.providerOutstanding = true
+                GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] restored, error in
+                    DispatchQueue.main.async {
+                        guard let self = self, self.drainGoogleContactsProvider(capture) else { return }
+                        guard Auth.auth().currentUser === capture.user,
+                              ProcessInfo.processInfo.systemUptime < capture.deadline,
+                              capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
+                              error == nil, let restored = restored, restored.userID == subject,
+                              GIDSignIn.sharedInstance.currentUser === restored else {
+                            self.rejectGoogleContacts(capture, code: "contacts_authorization_unavailable")
+                            return
+                        }
+                        capture.googleUser = restored
+                        self.continueGoogleContactsCapture(capture, subject: subject)
+                    }
+                }
+            } else {
+                self.rejectGoogleContacts(capture, code: "contacts_authorization_unavailable")
+            }
+        }
+    }
+
     // MARK: - Native Drive OAuth
     @objc func connectDrive(_ call: CAPPluginCall) {
         guard Thread.isMainThread else {
@@ -994,162 +1150,6 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             "attemptId": operation.fence.expectedAttemptID,
             "outcome": outcome
         ])
-    }
-
-    // MARK: - Invocation-local Google Contacts grant
-    private func rejectGoogleContacts(_ capture: GoogleContactsCapture, code: String) {
-        guard !capture.settled else { return }
-        capture.settled = true
-        capture.timeout?.cancel()
-        capture.timeout = nil
-        if !capture.providerOutstanding && googleContactsCapture === capture {
-            googleContactsCapture = nil
-        }
-        capture.call.reject("Google Contacts access is unavailable. You can continue.", code)
-    }
-
-    private func drainGoogleContactsProvider(_ capture: GoogleContactsCapture) -> Bool {
-        capture.providerOutstanding = false
-        if capture.settled {
-            if googleContactsCapture === capture { googleContactsCapture = nil }
-            return false
-        }
-        return googleContactsCapture === capture
-    }
-
-    private func captureGoogleContactsToken(_ capture: GoogleContactsCapture, subject: String) {
-        guard let google = capture.googleUser else {
-            rejectGoogleContacts(capture, code: "contacts_authorization_unavailable")
-            return
-        }
-        capture.providerOutstanding = true
-        google.refreshTokensIfNeeded { [weak self] refreshed, error in
-            DispatchQueue.main.async {
-                guard let self = self, self.drainGoogleContactsProvider(capture) else { return }
-                let scope = "https://www.googleapis.com/auth/contacts.readonly"
-                guard Auth.auth().currentUser === capture.user,
-                      ProcessInfo.processInfo.systemUptime < capture.deadline,
-                      capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
-                      GIDSignIn.sharedInstance.currentUser === google,
-                      error == nil, let refreshed = refreshed,
-                      refreshed.userID == subject,
-                      (refreshed.grantedScopes ?? []).contains(scope),
-                      let expiration = refreshed.accessToken.expirationDate,
-                      expiration > Date(), !refreshed.accessToken.tokenString.isEmpty else {
-                    self.rejectGoogleContacts(capture, code: "session_changed")
-                    return
-                }
-                capture.settled = true
-                capture.timeout?.cancel()
-                capture.timeout = nil
-                self.googleContactsCapture = nil
-                capture.call.resolve([
-                    "accessToken": refreshed.accessToken.tokenString,
-                    "googleSubject": subject,
-                    "grantedScopes": refreshed.grantedScopes ?? [],
-                    "authority": "ios-sdk-grant",
-                    "expiresAt": expiration.timeIntervalSince1970 * 1000
-                ])
-            }
-        }
-    }
-
-    private func continueGoogleContactsCapture(_ capture: GoogleContactsCapture, subject: String) {
-        let scope = "https://www.googleapis.com/auth/contacts.readonly"
-        guard googleContactsCapture === capture, !capture.settled,
-              Auth.auth().currentUser === capture.user,
-              ProcessInfo.processInfo.systemUptime < capture.deadline,
-              capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
-              let google = capture.googleUser, google.userID == subject,
-              GIDSignIn.sharedInstance.currentUser === google else {
-            rejectGoogleContacts(capture, code: "session_changed")
-            return
-        }
-        guard !(google.grantedScopes ?? []).contains(scope) else {
-            captureGoogleContactsToken(capture, subject: subject)
-            return
-        }
-        guard capture.call.getBool("requestMissingScope") == true else {
-            rejectGoogleContacts(capture, code: "contacts_not_granted")
-            return
-        }
-        guard let presenter = bridge?.viewController else {
-            rejectGoogleContacts(capture, code: "contacts_authorization_unavailable")
-            return
-        }
-        capture.providerOutstanding = true
-        google.addScopes([scope], presenting: presenter) { [weak self] result, error in
-            DispatchQueue.main.async {
-                guard let self = self, self.drainGoogleContactsProvider(capture) else { return }
-                guard Auth.auth().currentUser === capture.user,
-                      ProcessInfo.processInfo.systemUptime < capture.deadline,
-                      GIDSignIn.sharedInstance.currentUser === google,
-                      error == nil, let granted = result?.user,
-                      granted === google, granted.userID == subject,
-                      capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
-                      (granted.grantedScopes ?? []).contains(scope) else {
-                    let code = (error as NSError?)?.code == -5 ? "USER_CANCELLED" : "contacts_not_granted"
-                    self.rejectGoogleContacts(capture, code: code)
-                    return
-                }
-                self.captureGoogleContactsToken(capture, subject: subject)
-            }
-        }
-    }
-
-    @objc func authorizeGoogleContacts(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            guard self.googleContactsCapture == nil, self.driveAuthorization == nil,
-                  self.drivePickerAuthorization == nil, self.identityReauthentication == nil,
-                  !self.googleInteractiveInFlight, self.appleSignInCall == nil else {
-                call.reject("Google Contacts access is already in progress.", "identity_busy")
-                return
-            }
-            guard self.ensureFirebaseConfigured(),
-                  let expected = call.getString("expectedUserId"), !expected.isEmpty,
-                  let user = Auth.auth().currentUser, user.uid == expected,
-                  let provider = user.providerData.first(where: { $0.providerID == "google.com" }),
-                  !provider.uid.isEmpty else {
-                call.reject("Google Contacts access is unavailable.", "contacts_authorization_unavailable")
-                return
-            }
-            let subject = provider.uid
-            let interactive = call.getBool("requestMissingScope") == true
-            let google = GIDSignIn.sharedInstance.currentUser
-            let capture = GoogleContactsCapture(call: call, user: user, googleUser: google, interactive: interactive)
-            self.googleContactsCapture = capture
-            let timeout = DispatchWorkItem { [weak self] in
-                self?.rejectGoogleContacts(capture, code: "contacts_authorization_timeout")
-            }
-            capture.timeout = timeout
-            DispatchQueue.main.asyncAfter(deadline: .now() + (interactive ? 120 : 30), execute: timeout)
-            if google != nil {
-                self.continueGoogleContactsCapture(capture, subject: subject)
-            } else if interactive {
-                // Restore only the SDK's previous session on explicit retry. Reserve
-                // the operation until its callback drains because restoration updates
-                // shared SDK state, including after a timeout or sign-out.
-                capture.providerOutstanding = true
-                GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] restored, error in
-                    DispatchQueue.main.async {
-                        guard let self = self, self.drainGoogleContactsProvider(capture) else { return }
-                        guard Auth.auth().currentUser === capture.user,
-                              ProcessInfo.processInfo.systemUptime < capture.deadline,
-                              capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
-                              error == nil, let restored = restored, restored.userID == subject,
-                              GIDSignIn.sharedInstance.currentUser === restored else {
-                            self.rejectGoogleContacts(capture, code: "contacts_authorization_unavailable")
-                            return
-                        }
-                        capture.googleUser = restored
-                        self.continueGoogleContactsCapture(capture, subject: subject)
-                    }
-                }
-            } else {
-                self.rejectGoogleContacts(capture, code: "contacts_authorization_unavailable")
-            }
-        }
     }
 
     // MARK: - Fresh same-user Google proof

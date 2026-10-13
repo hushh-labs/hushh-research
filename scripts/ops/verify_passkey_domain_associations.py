@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -18,6 +19,7 @@ UNIVERSAL_LINK_PATHS = (
     "/one/kai/plaid/oauth/return",
     "/one/profile/google/oauth/return",
     "/one/profile/gmail/oauth/return",
+    "/one/profile/connectors/oauth/return",
     "/kai/plaid/oauth/return",
     "/profile/google/oauth/return",
     "/profile/gmail/oauth/return",
@@ -87,22 +89,28 @@ def _origin(value: str) -> str:
 def _fetch(url: str, timeout_seconds: int) -> _HttpResponse:
     opener = urllib.request.build_opener(_NoRedirect)
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
-    try:
-        with opener.open(request, timeout=timeout_seconds) as response:
+    for attempt in range(3):
+        try:
+            with opener.open(request, timeout=timeout_seconds) as response:
+                return _HttpResponse(
+                    status=response.status,
+                    content_type=response.headers.get_content_type(),
+                    body=response.read(),
+                )
+        except urllib.error.HTTPError as error:
             return _HttpResponse(
-                status=response.status,
-                content_type=response.headers.get_content_type(),
-                body=response.read(),
+                status=error.code,
+                content_type=error.headers.get_content_type(),
+                body=error.read(),
             )
-    except urllib.error.HTTPError as error:
-        return _HttpResponse(
-            status=error.code,
-            content_type=error.headers.get_content_type(),
-            body=error.read(),
-        )
-    except urllib.error.URLError as error:
-        reason = str(error.reason).strip() or "network error"
-        raise RuntimeError(f"Could not fetch {url}: {reason}") from error
+        except (TimeoutError, urllib.error.URLError) as error:
+            if attempt == 2:
+                reason = str(getattr(error, "reason", error)).strip() or "network error"
+                raise RuntimeError(
+                    f"Could not fetch {url} after 3 attempts: {reason}"
+                ) from error
+            time.sleep(attempt + 1)
+    raise AssertionError("Fetch retry loop exhausted without a result")
 
 
 def _json(response: _HttpResponse, label: str) -> Any:

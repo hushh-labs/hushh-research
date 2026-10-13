@@ -71,6 +71,9 @@ phone verification, setup completion or Continue.
    user choices. Invitations are explicit: Circle code/link joins Contacts;
    personal referral/generic link invites to One; individual contact invitations
    reuse the existing review/share flow. A full Circle disables its join CTA.
+   Removing someone uses the shared confirmation dialog and branded promise
+   feedback. Cancelling or Back keeps the roster open and makes no mutation;
+   Trusted selection remains a separate explicit action.
 
 Only sparse lifecycle facts persist: selected source, nullable welcome
 acknowledgment, and a server-owned Circle reference. NULL acknowledgment means

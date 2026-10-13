@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Button } from "@/components/ui/button";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
@@ -28,6 +29,7 @@ import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
 import { shareLink } from "@/lib/share/share-link";
 import { ROUTES, initialContactsWelcomeDestination } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import type { InvitationShare } from "@/lib/services/contact-invitations-service";
@@ -58,6 +60,7 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
   const [hasMore, setHasMore] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<OneLocationCircleMember | null>(null);
   const [picker, setPicker] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [continuing, setContinuing] = useState(false);
@@ -141,6 +144,31 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
     }
     return false;
   });
+  useBackLayer(ROUTES.ONE_WELCOME, 4, () => {
+    if (!removeTarget) return false;
+    if (!busy) setRemoveTarget(null);
+    return true;
+  });
+
+  async function confirmRemoval() {
+    if (!removeTarget || !circleId || busy || !currentOwner()) return;
+    const targetId = removeTarget.userId;
+    setBusy(true);
+    const removal = actions.removeMember(circleId, targetId);
+    morphyToast.promise(removal, {
+      loading: "Removing from this circle…", success: "Removed from this circle.",
+      error: "Could not remove this person. Try again.", variant: "destructive",
+    });
+    try {
+      await removal;
+      if (!currentOwner()) return;
+      setMembers((current) => current.filter((entry) => entry.userId !== targetId));
+      setRemoveTarget(null);
+      setRefresh((value) => value + 1);
+    } catch {
+      // Keep the confirmation available for retry; the branded toast owns feedback.
+    } finally { if (currentOwner()) setBusy(false); }
+  }
 
   async function loadMembers(page: number) {
     if (!circleId || busy || !currentOwner()) return;
@@ -150,19 +178,25 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
       if (!currentOwner()) return;
       setMembers((current) => page === 1 ? result.items : [...current, ...result.items]);
       setMemberPage(page); setHasMore(result.hasMore);
-    } catch { toast.error("Could not load your circle. Try again."); }
+    } catch { if (currentOwner()) toast.error("Could not load your circle. Try again."); }
     finally { setBusy(false); }
   }
 
   async function chooseTrusted() {
     if (busy || !currentOwner()) return;
     setBusy(true);
+    const opening = OneLocationService.ensureTrustedSystemCircle({ vaultOwnerToken, summaryOnly: true });
+    morphyToast.promise(opening, {
+      loading: "Opening Trusted…", success: "Choose your trusted people.",
+      error: "Could not open Trusted. Try again.",
+    });
     try {
-      const circle = await OneLocationService.ensureTrustedSystemCircle({ vaultOwnerToken, summaryOnly: true });
+      const circle = await opening;
       if (!currentOwner()) return;
       setPicker({ id: circle.id, name: circle.name });
-    } catch { toast.error("Could not open Trusted. You can choose people later."); }
-    finally { setBusy(false); }
+    } catch {
+      // The branded toast owns feedback; Continue remains available.
+    } finally { if (currentOwner()) setBusy(false); }
   }
 
   const checking = ["reading", "waiting_for_phone", "matching"].includes(snapshot.status);
@@ -182,7 +216,7 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
       description={summary} accent="neutral" /></AppPageHeaderRegion>
     <AppPageContentRegion className="space-y-4">
       {people.length ? <SettingsGroup title="People you know" density="compact" separatorInset headingClassName="mt-0"
-        titleAction={<Button variant="ghost" className="min-h-11" disabled={!circleId} onClick={() => { setRosterOpen(true); void loadMembers(1); }}>See Contacts</Button>}>
+        titleAction={<Button variant="ghost" className="min-h-11" aria-label="See your Contacts" disabled={!circleId} onClick={() => { setRosterOpen(true); void loadMembers(1); }}>See all</Button>}>
         {people.map((person) => <SettingsRow key={person.userId} density="comfortable"
           leading={<ConnectionPersonAvatar photoUrl={person.photoUrl} label={person.displayName ?? "One member"} size="comfortable" verified={person.isRia === true} />}
           title={<span dir="auto">{person.displayName ?? "One member"}</span>}
@@ -192,7 +226,7 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
         <SettingsRow title={overview?.name ?? "Contacts"} description={peers === null ? "Your shared circle is being prepared." : "Members can see the shared roster."}
           trailing="Manage" chevron disabled={!circleId} onClick={() => { setRosterOpen(true); void loadMembers(1); }} />
         <SettingsRow title="Trusted" description="Choose your closest people when you’re ready."
-          trailing="Choose people" chevron disabled={busy} onClick={() => void chooseTrusted()} />
+          trailing="Choose" chevron disabled={busy} onClick={() => void chooseTrusted()} />
         <SettingsRow title="Invite someone" description="Missing someone? Bring them along."
           trailing="Invite" chevron onClick={() => setInviteOpen(true)} />
       </SettingsGroup>
@@ -219,17 +253,25 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
           trailing={member.userId === user.uid ? "You" : overview?.viewerCapabilities?.canManageCircle ?
             <Button variant="ghost" disabled={busy} className="min-h-11" onClick={() => {
               if (!currentOwner()) return;
-              setBusy(true);
-              void actions.removeMember(circleId!, member.userId).then(() => {
-                if (!currentOwner()) return;
-                setMembers((current) => current.filter((entry) => entry.userId !== member.userId));
-                setRefresh((value) => value + 1); toast.success("Removed from this circle.");
-              }).catch(() => toast.error("Could not remove this person.")).finally(() => setBusy(false));
+              setRemoveTarget(member);
             }}>Remove</Button> : undefined} trailingInteractive />)}
       </SettingsGroup></div>
       {hasMore ? <Button variant="ghost" disabled={busy} onClick={() => void loadMembers(memberPage + 1)}>Load more</Button> : null}
       {overview?.viewerCapabilities?.canInviteMembers ? <Button variant="outline" disabled={full}
         onClick={() => setPicker({ id: circleId!, name: overview.name })}>Add people</Button> : null}
+
+    <AlertDialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open && !busy) setRemoveTarget(null); }}>
+      <AlertDialogContent size="sm">
+        <AlertDialogHeader><AlertDialogTitle>Remove from {overview?.name ?? "Contacts"}?</AlertDialogTitle>
+          <AlertDialogDescription>{removeTarget?.displayName ?? "This person"} will leave this shared circle.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Keep person</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" disabled={busy} onClick={(event) => { event.preventDefault(); void confirmRemoval(); }}>
+            {busy ? "Removing…" : "Remove"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </SheetContent></Sheet>
 
     <Sheet open={inviteOpen} onOpenChange={setInviteOpen}><SheetContent side="bottom">

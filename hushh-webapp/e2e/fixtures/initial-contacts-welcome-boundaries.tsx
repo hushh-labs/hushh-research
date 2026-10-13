@@ -16,7 +16,7 @@ export const isValidatedAuthSessionOwnerCurrent = () => true;
 export const snapshotValidatedAuthSessionOwner = () => ({ userId: "owner", generation: 1 });
 export const useOneConversationSession = (select: (state: any) => unknown) => select({ queueEntryWelcome: () => { document.body.dataset.queued = "yes"; } });
 const circle = { id: "circle", name: "Contacts", memberCount: 100, memberLimit: 100, viewerCapabilities: { canManageCircle: true, canInviteMembers: true } };
-const actions = { loadCircleOverview: async () => circle, loadCircleMembersPage: async () => ({ items: Array.from({ length: 50 }, (_, i) => ({ userId: i === 0 ? "owner" : `friend-${i}`, displayName: `Very long friendly contact name ${i}` })), hasMore: true }), removeMember: async () => {}, copyCode: async () => {}, shareCode: async () => {}, inviteConnections: async () => {}, cancelMemberInvite: async () => {} };
+const actions = { loadCircleOverview: async () => circle, loadCircleMembersPage: async () => ({ items: Array.from({ length: 50 }, (_, i) => ({ userId: i === 0 ? "owner" : `friend-${i}`, displayName: `Very long friendly contact name ${i}` })), hasMore: true }), removeMember: async (_circle: string, member: string) => { document.body.dataset.removed = member; }, copyCode: async () => {}, shareCode: async () => {}, inviteConnections: async () => {}, cancelMemberInvite: async () => {} };
 export const createConnectCircleActions = () => actions;
 export const OneLocationService = { ensureTrustedSystemCircle: async () => ({ id: "trusted", name: "Trusted" }) };
 export const ReferralService = { getSummary: async () => ({ link: "https://one.example.test/invite/aarav" }) };
