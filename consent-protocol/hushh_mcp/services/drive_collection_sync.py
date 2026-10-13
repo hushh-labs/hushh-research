@@ -15,6 +15,7 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveMetadata,
     DriveReadError,
     GoogleDriveAdapter,
+    valid_metadata_name,
 )
 
 
@@ -40,8 +41,7 @@ def _metadata(value):
     if (
         not isinstance(identity, str)
         or not FILE_ID.fullmatch(identity)
-        or not isinstance(name, str)
-        or not 1 <= len(name) <= 1024
+        or not valid_metadata_name(name)
         or not isinstance(mime, str)
         or not 1 <= len(mime) <= 255
         or not isinstance(version, str)

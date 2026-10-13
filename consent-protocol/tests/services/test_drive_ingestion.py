@@ -754,6 +754,56 @@ async def test_collection_bootstrap_captures_token_and_replays_new_files(collect
         assert collection.checkpoint(dict(stored))["changes_token"] == "end"
 
 
+async def test_collection_long_provider_name_keeps_every_row_and_advances_page(collection):
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+    from hushh_mcp.services.drive_collection_sync import DriveCollectionSync
+
+    await collection.set_processing(user_id="owner", enabled=True, disclosure=COLLECTION_DISCLOSURE)
+    values = [
+        {
+            "id": f"synthetic-file-{number}",
+            "name": "अ" * 9500 if number == 66 else f"Synthetic file {number}",
+            "mimeType": "application/vnd.google-apps.document",
+            "version": "1",
+            "modifiedTime": "2026-10-14T00:00:00Z",
+        }
+        for number in range(100)
+    ]
+    adapter = SimpleNamespace(
+        collection_start_token=AsyncMock(return_value="before-bootstrap"),
+        collection_files=AsyncMock(
+            return_value={
+                "files": values,
+                "nextPageToken": "following-page",
+                "incompleteSearch": False,
+            }
+        ),
+    )
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(
+            return_value=({"connection_generation": 1}, {"accessToken": "synthetic"})
+        )
+    )
+    sync = DriveCollectionSync(store=collection, oauth=oauth, adapter=adapter)
+    assert await sync.run_one(user_id="owner") == {"status": "queued"}
+    assert await sync.run_one(user_id="owner") == {"status": "queued"}
+    with collection.db.engine.connect() as conn:
+        rows = conn.execute(text("SELECT * FROM connected_documents")).mappings().all()
+        saved = [collection.cipher.open(dict(row)) for row in rows]
+        checkpoint = dict(
+            conn.execute(text("SELECT * FROM drive_collection_sync")).mappings().one()
+        )
+    assert len(saved) == len(values) == 100
+    assert {(row["file_id"], row["name"]) for row in saved} == {
+        (row["id"], row["name"]) for row in values
+    }
+    assert collection.checkpoint(checkpoint)["page_token"] == "following-page"
+    assert checkpoint["phase"] == "bootstrap"
+    assert checkpoint["last_error_code"] is None
+    assert checkpoint["attempt_count"] == 0
+    assert checkpoint["last_synced_at"] is None
+
+
 async def test_collection_disconnect_purges_checkpoint_and_extraction(collection, ingestion, drive):
     await seed_collection(collection)
     current = await ingestion.claim(user_id="owner", generation=1)
