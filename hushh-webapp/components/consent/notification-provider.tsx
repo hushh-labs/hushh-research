@@ -1354,6 +1354,28 @@ export function ConsentNotificationProvider({
       let connectedAt: number | null = null;
       try {
         const idToken = await user.getIdToken(reconnectAttempt > 0);
+        const availability = await ApiService.apiFetch(
+          `/api/consent/events/${encodeURIComponent(user.uid)}?capabilities=1`,
+          {
+            method: "GET",
+            headers: { Authorization: `Bearer ${idToken}` },
+            signal: abortController.signal,
+            cache: "no-store",
+          },
+        );
+        if (!availability.ok) {
+          throw new ConsentSseError("consent_delivery_discovery_failed", availability.status);
+        }
+        const capability = await availability.json() as { enabled?: unknown };
+        if (cancelled || abortController.signal.aborted) return;
+        if (typeof capability.enabled !== "boolean") {
+          throw new ConsentSseError("consent_delivery_discovery_invalid", 502);
+        }
+        if (!capability.enabled) {
+          disabledSseUser.current = user.uid;
+          setDeliveryMode(initStatus === "push_blocked" ? "push_blocked" : "inbox_only");
+          return;
+        }
         const response = await ApiService.apiFetchStream(
           `/api/consent/events/${encodeURIComponent(user.uid)}`,
           {

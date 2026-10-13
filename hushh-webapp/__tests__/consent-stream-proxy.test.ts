@@ -25,6 +25,44 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
     });
   }
 
+  it("forwards authenticated discovery and returns only the availability flag", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ enabled: false, private_detail: "must not escape" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await proxyConsentStream(
+      new Request("https://app.example.test/api/consent/events/user-1?capabilities=1&ignored=private", {
+        headers: { authorization: "Bearer test-token" },
+      }), "user-1", "events",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://backend.example.test/api/consent/events/user-1?capabilities=1",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer test-token" }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ enabled: false });
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("rejects malformed discovery flags before forwarding", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await proxyConsentStream(new Request(
+      "https://app.example.test/api/consent/events/user-1?capabilities=anything",
+      { headers: { authorization: "Bearer test-token" } },
+    ), "user-1", "events");
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an invalid upstream discovery response without reflecting its contents", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ enabled: "false", private_detail: "private" })));
+    const response = await proxyConsentStream(new Request(
+      "https://app.example.test/api/consent/events/user-1?capabilities=1",
+      { headers: { authorization: "Bearer test-token" } },
+    ), "user-1", "events");
+    expect(response.status).toBe(502);
+    expect(await response.text()).not.toContain("private_detail");
+  });
+
   it("preserves detail.error_code from a disabled-lane 410 instead of discarding it", async () => {
     vi.stubGlobal(
       "fetch",
