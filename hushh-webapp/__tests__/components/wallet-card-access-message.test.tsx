@@ -1,20 +1,20 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ view: vi.fn(), verify: vi.fn(), reauthenticate: vi.fn(), token: vi.fn(), openCard: vi.fn(), vaultKey: null as string | null }));
+const mocks = vi.hoisted(() => ({ view: vi.fn(), verify: vi.fn(), reauthenticate: vi.fn(), token: vi.fn(), openCard: vi.fn(), vaultKey: null as string | null, native: false }));
 const user = { uid: "recipient", getIdToken: mocks.token, providerData: [{ providerId: "google.com" }] };
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.vaultKey, getVaultOwnerToken: () => "consent" }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: () => null }));
 vi.mock("@/lib/one-location/service", () => ({ OneLocationService: { getState: async () => ({}) } }));
 vi.mock("@/lib/wallet/wallet-card-share", () => ({ openWalletCardShare: mocks.openCard }));
-vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
+vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => mocks.native } }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { reauthenticateIdentity: mocks.reauthenticate } }));
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { view: mocks.view, verify: mocks.verify } }));
 vi.mock("@/components/profile/settings-ui", () => ({ SettingsDetailPanel: ({ open, children }: any) => open ? <div>{children}</div> : null, SettingsPresentationProvider: ({ children }: any) => children }));
 import { WalletCardAccessMessage } from "@/components/wallet/wallet-card-access-message";
 const pending = { status: "verification_required", senderName: "Sender", expiresAt: "2030-01-01T00:15:00Z", serverNow: "2030-01-01T00:00:00Z" };
 const active = { ...pending, status: "active", card: { brand: "visa", last4: "1234", expiryMonth: 6, expiryYear: 2030, issuingRegion: "IN" } };
-beforeEach(() => { vi.resetAllMocks(); mocks.vaultKey = null; mocks.token.mockResolvedValue("token"); mocks.view.mockResolvedValue(pending); mocks.verify.mockResolvedValue(active); });
+beforeEach(() => { vi.resetAllMocks(); mocks.native = false; mocks.vaultKey = null; mocks.token.mockResolvedValue("token"); mocks.view.mockResolvedValue(pending); mocks.verify.mockResolvedValue(active); });
 afterEach(() => vi.restoreAllMocks());
 it("reveals the decrypted number only while the authorized recipient wallet is unlocked", async () => {
   mocks.vaultKey = "unlocked";
@@ -77,4 +77,52 @@ it("discards authentication after page navigation", async () => {
   await act(async () => finish("fresh-token"));
   expect(mocks.verify).not.toHaveBeenCalled();
   expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+});
+
+it.each(["blur", "beforeprint", "pagehide"])("clears an open card on %s and requires explicit reopening", async event => {
+  mocks.view.mockResolvedValue(active);
+  render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  await screen.findByTestId("wallet-card-face");
+  fireEvent(window, new Event(event));
+  expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+  fireEvent(window, new Event("focus"));
+  expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  expect(await screen.findByTestId("wallet-card-face")).toHaveTextContent("1234");
+});
+
+it.each(["blur", "beforeprint", "pagehide"])("discards pending decrypted details after %s", async event => {
+  let finish!: (value: unknown) => void;
+  mocks.vaultKey = "unlocked";
+  mocks.view.mockResolvedValue({ ...active, encryptedCard: "ciphertext", senderUserId: "sender" });
+  mocks.openCard.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  fireEvent(window, new Event(event));
+  await act(async () => finish({ pan: "4111111111111234", cardholderName: "Test", ...active.card }));
+  expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+});
+
+it("allows identity verification to finish without revealing into an unfocused window", async () => {
+  let finish!: (value: string) => void;
+  mocks.reauthenticate.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Verify identity" }));
+  fireEvent(window, new Event("blur"));
+  mocks.view.mockResolvedValue(active);
+  await act(async () => finish("fresh-token"));
+  expect(mocks.verify).toHaveBeenCalledWith("fresh-token", "grant");
+  expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+  fireEvent(window, new Event("focus"));
+  expect(await screen.findByTestId("wallet-card-face")).toHaveTextContent("1234");
+});
+
+it("does not offer a native reveal without capture protection", () => {
+  mocks.native = true;
+  render(<WalletCardAccessMessage grantId="grant" />);
+  expect(screen.queryByRole("button", { name: "View card" })).toBeNull();
+  expect(mocks.view).not.toHaveBeenCalled();
 });
