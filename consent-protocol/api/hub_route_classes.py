@@ -171,6 +171,7 @@ GET /api/one/personal-agent/verification-keys
 POST /api/one/pod/consent/verify
 POST /api/one/pod/mcp-approval/consume
 POST /api/one/pod/mcp-approval/issue
+POST /api/one/pod/mcp-approval/rebind
 POST /api/one/u/{hushh_id}/chat-grants
 POST /api/one/u/{hushh_id}/memory/provider-consent
 POST /api/one/u/{hushh_id}/memory/revoke

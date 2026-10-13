@@ -15,6 +15,7 @@ async def pending_reviews(owner, session) -> list[dict]:
     remap = session.state.get("lro_tool_call_id_remap", {})
     if (
         not isinstance(pending, list)
+        or not pending
         or len(pending) > 32
         or not isinstance(remap, dict)
         or len(remap) > 128

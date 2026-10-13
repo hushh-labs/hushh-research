@@ -288,6 +288,10 @@ def test_flag_off_payment_helper_keeps_default_and_isolated_provider_mounts() ->
                 "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "STRIPE_CONNECT_TEST_WEBHOOK_SECRET",
                 "_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET": "PKM_ANSWER_STRIPE_SECRET_KEY",
                 "_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET": "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
+                "_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET": "PKM_ANSWER_STRIPE_TEST_SECRET_KEY",
+                "_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET": "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
+                "_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET": "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY",
+                "_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET": "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET",
             },
             text=True,
             capture_output=True,
@@ -304,6 +308,10 @@ def test_flag_off_payment_helper_keeps_default_and_isolated_provider_mounts() ->
             "STRIPE_CONNECT_TEST_WEBHOOK_SECRET",
             "PKM_ANSWER_STRIPE_SECRET_KEY",
             "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
+            "PKM_ANSWER_STRIPE_TEST_SECRET_KEY",
+            "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
+            "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY",
+            "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET",
         )
         assert result.stdout.splitlines() == [f"{name}={prefix}{name}" for name in names]
 

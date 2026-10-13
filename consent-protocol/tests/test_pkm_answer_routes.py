@@ -261,7 +261,9 @@ async def test_incomplete_exact_approved_facts_never_reach_composer(monkeypatch,
     composer.assert_not_called()
 
 
-async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(monkeypatch):
+async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(
+    monkeypatch, shared_hub_owner
+):
     from hushh_mcp.services.answer_composer import AnswerComposer
 
     service = Mock(
@@ -396,7 +398,7 @@ async def test_composer_refuses_unapproved_or_unbounded_freshness_before_model(
     ],
 )
 async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receipt(
-    monkeypatch, scope, value
+    monkeypatch, shared_hub_owner, scope, value
 ):
     from hushh_mcp.services.answer_composer import AnswerComposer
     from hushh_mcp.services.answer_composition_receipt import verify_composition_receipt

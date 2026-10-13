@@ -16745,7 +16745,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_commerce_preview_target.py",
       "symbol": null,
-      "value": 511
+      "value": 519
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22393,7 +22393,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pkm_answer_routes.py",
       "symbol": null,
-      "value": 704,
+      "value": 706,
       "ratchet_reason": "new finding"
     },
     {
@@ -38014,6 +38014,26 @@
           "1d691714135e"
         ],
         "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring."
+      }
+    ]
+  },
+  "browser_schedule_core_fixture_review_20261013": {
+    "parent": "3b5a5ea84d4d08907ca3a06fd990fc4053cc8f4d",
+    "review": "Parent static review against owning admission guard and deployment executor; nearest combined route/recovery suites. Budgets, scanner and all unrelated ceilings unchanged.",
+    "findings": [
+      {
+        "key": "module_size|consent-protocol/tests/test_commerce_preview_target.py||module exceeds the advisory operon budget",
+        "before": 511,
+        "after": 519,
+        "source_sha256": "2d1a87201e89f00323c1ca816b6a5f36e2df7e51ecc9efac70b66f75f1101e0e",
+        "reason": "Nearest existing core fixture now exercises explicit Shared admission or all four retained Stripe bindings after the integrated authority/deployment changes; no assertion, gate or negative control removed."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pkm_answer_routes.py||module exceeds the advisory operon budget",
+        "before": 704,
+        "after": 706,
+        "source_sha256": "7cd0e775f974586074ae2a696d257b36e3490f0ba5e5d2d521bfe4437c61666a",
+        "reason": "Nearest existing core fixture now exercises explicit Shared admission or all four retained Stripe bindings after the integrated authority/deployment changes; no assertion, gate or negative control removed."
       }
     ]
   }
