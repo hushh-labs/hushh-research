@@ -45,6 +45,11 @@ def history(
                 )
             )
         union = " UNION ALL ".join(queries)
+        recipient_count = one(
+            conn,
+            f"SELECT COUNT(DISTINCT recipient_user_id) AS count FROM ({union}) g",  # nosec B608
+            {"viewer": viewer},
+        )["count"]
         values = {"viewer": viewer, "limit": limit + 1}
         predicate = ""
         if cursor:
@@ -201,6 +206,7 @@ def history(
         return {
             "items": items,
             "hasMore": more,
+            "recipientCount": int(recipient_count),
             "nextCursor": f"{rows[limit - 1]['card_type']}:{rows[limit - 1]['id']}"
             if more
             else None,
