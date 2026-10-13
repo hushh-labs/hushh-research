@@ -445,7 +445,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     private var admitted: Bool {
         guard HushhNativePresentationPolicy.customControlsEnabled else { return false }
         #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
-        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone {
+        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.deviceEligible {
             return NativeDrawerQualificationPolicy.coherentShell
         }
         #endif

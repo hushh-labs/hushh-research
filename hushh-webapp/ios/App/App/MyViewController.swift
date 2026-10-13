@@ -107,7 +107,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     override open func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
         let eligible: Bool
         if #available(iOS 26.0, *) {
-            eligible = NativeDrawerQualificationPolicy.enabled && UIDevice.current.userInterfaceIdiom == .phone
+            eligible = NativeDrawerQualificationPolicy.deviceEligible
         } else { eligible = false }
         // Capacitor replaces userContentController after its configuration
         // hook. Install against the final controller before WK creates the
@@ -333,8 +333,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
         #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
-        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
-           NativeDrawerQualificationPolicy.enabled, let existing = webView, view === existing {
+        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.deviceEligible,
+           let existing = webView, view === existing {
             view = NativePresentationContainer(webView: existing, basePresentation: .coherentDrawers)
         }
         #endif

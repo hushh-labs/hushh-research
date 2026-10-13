@@ -738,7 +738,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func prepare(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
+            guard #available(iOS 26.0, *), NativeDrawerQualificationPolicy.deviceEligible,
                   let parent = self.bridge?.viewController, let identity = self.identity(call),
                   let kind = call.getString("kind"), self.admits(kind, controlId: identity.controlId),
                   self.compositor?.contentBackedPresentation != true ||
@@ -1267,7 +1267,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         // Debug pilot only; release and iPad retain accepted controls until
         // their physical visual/accessibility acceptance has been recorded.
         #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
-        if #available(iOS 26.0, *) { return UIDevice.current.userInterfaceIdiom == .phone }
+        if #available(iOS 26.0, *) { return NativeDrawerQualificationPolicy.deviceEligible }
         #endif
         return false
     }

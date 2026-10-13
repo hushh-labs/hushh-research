@@ -4,6 +4,36 @@ import WebKit
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    func testNativeProfileUsesTheBundledWebArtworkAndRejectsUnknownIds() throws {
+        XCTAssertEqual(NativeProfileArtwork.ids.count, 14)
+        for id in NativeProfileArtwork.ids {
+            let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
+            XCTAssertEqual(artwork.base.size, CGSize(width: 22, height: 22))
+            XCTAssertEqual(artwork.base.renderingMode, .alwaysTemplate)
+            XCTAssertEqual(artwork.accent != nil, ["payouts", "request-pricing"].contains(id))
+        }
+        XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
+        XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")
+        XCTAssertNil(NativeProfileArtwork.resolve("../../private"))
+        XCTAssertNil(NativeProfileArtwork.resolve("unknown"))
+    }
+    func testCoherentDeviceAdmissionAndProfileGeometryPreservePlatformFallbacks() {
+        XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: false))
+        XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.phone, enabled: false, coherentShell: false))
+        XCTAssertTrue(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: true))
+        XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.tv, enabled: true, coherentShell: true))
+        for bounds in [CGRect(x: 0, y: 0, width: 390, height: 844), CGRect(x: 0, y: 0, width: 844, height: 390)] {
+            XCTAssertEqual(NativeDrawerLayout.frame(family: "profile", in: bounds, phone: true), bounds)
+            XCTAssertEqual(NativeDrawerLayout.frame(family: "history", in: bounds, phone: true), bounds)
+        }
+        let compact = CGRect(x: 0, y: 0, width: 639, height: 834)
+        XCTAssertEqual(NativeDrawerLayout.frame(family: "profile", in: compact, phone: false), compact)
+        let tablet = CGRect(x: 0, y: 0, width: 1194, height: 834)
+        let frame = NativeDrawerLayout.frame(family: "profile", in: tablet, phone: false)
+        XCTAssertEqual(frame.width, 430)
+        XCTAssertEqual(tablet.maxX - frame.maxX, 18)
+        XCTAssertTrue(tablet.contains(frame))
+    }
     @MainActor
     func testDrawerBootstrapUsesTheFinalCapacitorContentController() {
         let controller = MyViewController()
@@ -411,6 +441,8 @@ final class NativeSupportTests: XCTestCase {
         controller.activateInitialPresentation()
         XCTAssertFalse(isolated)
         XCTAssertNil(controller.view.hitTest(CGPoint(x: 100, y: 100), with: nil))
+        XCTAssertGreaterThanOrEqual(controller.host.view.frame.minX, controller.view.bounds.maxX,
+            "A closed inset Profile must travel past its outer gutter, not leave a visible sliver")
         controller.retire()
     }
 

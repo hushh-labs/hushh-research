@@ -1877,9 +1877,18 @@ final class AppUITests: XCTestCase {
             perfTapNav(app, label: "One")
             let dock = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch
             XCTAssertTrue(dock.waitForExistence(timeout: 10), "NATIVE_DOCK_VOICE_PRESENTATION_UNAVAILABLE")
+            let history = app.buttons["chat-history-toggle"].firstMatch
+            let selector = app.segmentedControls["chat-agent-surface"].firstMatch
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !history.exists && !selector.exists
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [retired], timeout: 5), .completed,
+                "NATIVE_CHAT_CONTROLS_LEAKED_TO_ONE")
             print("NATIVE_DOCK_STAGE stage=chat_route cycle=\(cycle + 1)")
             perfTapNav(app, label: "Chat")
             XCTAssertTrue(editor.waitForExistence(timeout: 10) && editor.isHittable, "NATIVE_DOCK_ROUTE_RETURN_UNAVAILABLE")
+            XCTAssertTrue(history.waitForExistence(timeout: 5) && selector.waitForExistence(timeout: 5),
+                "NATIVE_CHAT_CONTROLS_NOT_RESTORED")
             XCTAssertTrue((editor.value as? String) == draft, "NATIVE_DOCK_ROUTE_RETURN_LOST_DRAFT")
             XCTAssertFalse(web.textViews["Message One"].firstMatch.isHittable, "An interactive web duplicate must not appear")
             XCTAssertEqual(hosts.count, 1)

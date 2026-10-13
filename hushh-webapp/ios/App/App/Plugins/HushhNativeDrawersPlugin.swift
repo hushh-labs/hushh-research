@@ -2,6 +2,17 @@ import Capacitor
 import UIKit
 
 enum NativeDrawerQualificationPolicy {
+    static func admits(_ idiom: UIUserInterfaceIdiom, enabled: Bool, coherentShell: Bool) -> Bool {
+        switch idiom {
+        case .phone: return enabled
+        case .pad: return coherentShell
+        default: return false
+        }
+    }
+    static var deviceEligible: Bool {
+        guard #available(iOS 26.0, *) else { return false }
+        return admits(UIDevice.current.userInterfaceIdiom, enabled: enabled, coherentShell: coherentShell)
+    }
     static var coherentShell: Bool {
         #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         return ProcessInfo.processInfo.arguments.contains("--hushh-native-shell-qualification")
@@ -40,7 +51,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var container: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
     private var supported: Bool {
         if #available(iOS 26.0, *) {
-            return NativeDrawerQualificationPolicy.enabled && UIDevice.current.userInterfaceIdiom == .phone && container?.wholeNativeDrawers == true
+            return NativeDrawerQualificationPolicy.deviceEligible && container?.wholeNativeDrawers == true
         }
         return false
     }

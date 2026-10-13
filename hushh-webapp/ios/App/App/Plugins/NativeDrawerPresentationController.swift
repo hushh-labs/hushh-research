@@ -1,6 +1,21 @@
 import SwiftUI
 import UIKit
 
+enum NativeDrawerLayout {
+    static func frame(family: String, in bounds: CGRect, phone: Bool) -> CGRect {
+        if phone || bounds.width < 640 { return bounds }
+        if family == "profile" {
+            let gutter: CGFloat = 18
+            let width = min(430, max(0, bounds.width - 2 * gutter))
+            let height = min(820, max(0, bounds.height - 2 * gutter))
+            return CGRect(x: bounds.maxX - gutter - width, y: bounds.midY - height / 2,
+                          width: width, height: height)
+        }
+        return CGRect(x: bounds.minX, y: bounds.minY,
+                      width: min(360, bounds.width * 0.88), height: bounds.height)
+    }
+}
+
 @MainActor
 final class NativeDrawerModel: ObservableObject {
     @Published private(set) var projection: NativeDrawerProjection
@@ -11,6 +26,7 @@ final class NativeDrawerModel: ObservableObject {
     @Published var renameDraft = ""
     @Published var choicePending = false
     @Published var headerInsets = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+    @Published var panelCornerRadius: CGFloat = 0
     var pendingSequence: Int?
     var choose: ((String, String?, String?) -> Bool)?
     var close: (() -> Void)?
@@ -93,6 +109,10 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     var invalidateInteractions: (() -> Void)?
     var leadingHeaderFrame: (() -> CGRect?)?
     private var direction: CGFloat { model.projection.family == "history" ? -1 : 1 }
+    // Keep the last committed layout's travel while reconstructing a drag
+    // during resize. Reading the new viewport against the old frame would
+    // reinterpret the same visual pose and jump its edge on rotation.
+    private var travel: CGFloat = 1
 
     init(_ projection: NativeDrawerProjection) {
         model = NativeDrawerModel(projection)
@@ -136,7 +156,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         let changed = lastSize != view.bounds.size
         if changed {
             let initial = lastSize == .zero
-            let previousWidth = max(1, host.view.bounds.width)
+            let previousWidth = travel
             let transform = host.view.layer.presentation()?.affineTransform() ?? host.view.transform
             let visible = initial ? motion.progress : min(1, max(0, 1 - abs(transform.tx) / previousWidth))
             _ = motion.begin(at: visible)
@@ -147,9 +167,12 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             animator?.stopAnimation(true); animator = nil
             lastSize = view.bounds.size
             host.view.transform = .identity
-            let width = min(360, view.bounds.width * 0.88)
-            host.view.frame = CGRect(x: direction > 0 ? view.bounds.width - width : 0,
-                y: 0, width: width, height: view.bounds.height)
+            host.view.frame = NativeDrawerLayout.frame(family: model.projection.family, in: view.bounds,
+                phone: UIDevice.current.userInterfaceIdiom == .phone)
+            let halfWidth = host.view.bounds.width / 2
+            travel = max(1, direction > 0 ? view.bounds.maxX - host.view.center.x + halfWidth :
+                host.view.center.x + halfWidth - view.bounds.minX)
+            model.panelCornerRadius = host.view.frame == view.bounds ? 0 : model.projection.family == "history" ? 24 : 25
             pose(visible)
             // Invalidating geometry cancels a drag without committing its
             // unconfirmed intent or snapping the visible edge to an endpoint.
@@ -208,7 +231,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
     func beginDrag() {
         guard !motion.retired else { return }
-        let width = max(1, host.view.bounds.width)
+        let width = travel
         let transform = host.view.layer.presentation()?.affineTransform() ?? host.view.transform
         let current = min(1, max(0, 1 - abs(transform.tx) / width))
         _ = motion.begin(at: current)
@@ -237,7 +260,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         case .began: beginDrag(); dragging = true
         case .changed:
             guard dragging else { return }
-            motion.move(to: origin - direction * pan.translation(in: view).x / max(1, host.view.bounds.width))
+            motion.move(to: origin - direction * pan.translation(in: view).x / travel)
             pose(motion.progress)
         case .ended:
             guard dragging else { return }
@@ -285,7 +308,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         next.startAnimation()
     }
     private func pose(_ progress: CGFloat) {
-        host.view.transform = CGAffineTransform(translationX: direction * (1 - progress) * host.view.bounds.width, y: 0)
+        host.view.transform = CGAffineTransform(translationX: direction * (1 - progress) * travel, y: 0)
         scrim.alpha = progress * 0.24
         reconcileIsolation()
     }
@@ -467,10 +490,11 @@ struct NativeDrawerContent: View {
         }.background {
             if model.projection.family == "history" {
                 UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 24, topTrailingRadius: 24, style: .continuous)
+                    bottomTrailingRadius: model.panelCornerRadius, topTrailingRadius: model.panelCornerRadius, style: .continuous)
                     .fill(Color(uiColor: .systemBackground))
             } else {
-                Color(uiColor: .systemGroupedBackground)
+                RoundedRectangle(cornerRadius: model.panelCornerRadius, style: .continuous)
+                    .fill(Color(uiColor: .systemGroupedBackground))
             }
         }
     }
@@ -517,7 +541,7 @@ struct NativeDrawerContent: View {
                                 ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
                                     profileRow(row)
                                     if index < section.rows.count - 1 {
-                                        Divider().padding(.leading, 60).padding(.trailing, 16)
+                                        Divider().padding(.leading, 50).padding(.trailing, 16)
                                     }
                                 }
                             }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
@@ -533,7 +557,16 @@ struct NativeDrawerContent: View {
     private func profileRow(_ row: NativeDrawerRow) -> some View {
         Button { model.choice("row", row: row.id) } label: {
             HStack(spacing: 12) {
-                if let symbol = row.symbol {
+                if let artwork = NativeProfileArtwork.resolve(row.id) {
+                    ZStack {
+                        Image(uiImage: artwork.base).resizable()
+                            .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.colorHex) ?? .label))
+                        if let accent = artwork.accent {
+                            Image(uiImage: accent).resizable()
+                                .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
+                        }
+                    }.frame(width: 22, height: 22).accessibilityHidden(true)
+                } else if let symbol = row.symbol {
                     Image(systemName: symbol).symbolRenderingMode(.hierarchical).font(.system(size: 28))
                         .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(row.iconHex) ?? .label))
                         .frame(width: 32, height: 28).accessibilityHidden(true)
