@@ -1918,7 +1918,7 @@ test.describe("One profile artwork and mapped work frames", () => {
 
 // The account pane's legacy 24-unit stroke overrides must not distort
 // Phosphor's filled 256-unit reset glyph. Mount the real row and pane styles.
-test("Reset icon keeps its native geometry in the account pane", async ({ page }) => {
+test("Reset icon colors only its arrowhead and keeps native geometry in the account pane", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("http://localhost/connections-fixture?reset-icon=1");
   await page.addScriptTag({ content: script });
@@ -1940,6 +1940,47 @@ test("Reset icon keeps its native geometry in the account pane", async ({ page }
     expect(geometry.height).toBe(22);
     expect(geometry.stroke).toBe("none");
     expect(geometry.fill).not.toBe("none");
+    const pixels = await icon.evaluate(async element => {
+      const svg = element as SVGSVGElement;
+      const copy = svg.cloneNode(true) as SVGSVGElement;
+      copy.setAttribute("width", "256");
+      copy.setAttribute("height", "256");
+      copy.style.color = getComputedStyle(svg).color;
+      const paintedNodes = svg.querySelectorAll("[fill]");
+      // Standalone SVG images cannot inherit the page's theme variables.
+      copy.querySelectorAll("[fill]").forEach((node, index) => {
+        const fill = getComputedStyle(paintedNodes[index]).fill;
+        if (!fill.startsWith("url(")) node.setAttribute("fill", fill);
+      });
+      const image = new Image();
+      image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(copy))}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 256;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      const sample = (x: number, y: number) => Array.from(context.getImageData(x, y, 1, 1).data);
+      const color = (value: string) => {
+        context.fillStyle = value;
+        context.fillRect(0, 0, 1, 1);
+        return sample(0, 0);
+      };
+      return {
+        verticalHead: sample(24, 64), horizontalHead: sample(60, 104),
+        diagonal: sample(48, 84), arc: sample(216, 128), bottom: sample(128, 216),
+        accent: color(getComputedStyle(svg).getPropertyValue("--account-accent")),
+        ink: color(getComputedStyle(svg).color),
+      };
+    });
+    expect(pixels.accent).toEqual([0, 122, 255, 255]);
+    expect(pixels.verticalHead).toEqual(pixels.accent);
+    expect(pixels.horizontalHead).toEqual(pixels.accent);
+    for (const sample of [pixels.diagonal, pixels.arc, pixels.bottom]) {
+      expect(sample).toEqual(pixels.ink);
+    }
+    const inkChannels = pixels.ink.slice(0, 3);
+    if (theme === "light") expect(Math.max(...inkChannels)).toBeLessThan(64);
+    else expect(Math.min(...inkChannels)).toBeGreaterThan(220);
     await expect(row.getByText("Clears saved details")).toBeVisible();
     await page.screenshot({ path: test.info().outputPath(`reset-icon-${theme}.png`) });
   }
