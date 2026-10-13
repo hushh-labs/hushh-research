@@ -166,7 +166,7 @@ function record(value: unknown): Record<string, unknown> {
 function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[] } | null {
   const root = record(data);
   if (typeof root.markdown !== "string") {
-    if (Object.keys(root).length) throw new Error("Soul.md document is invalid.");
+    if (Object.keys(root).length) throw new Error("memory.md document is invalid.");
     return null;
   }
   const markdown = normalizeSoulDocument(omitCredentialsFromMemory(root.markdown));
@@ -352,7 +352,7 @@ async function readMarkdownMemory(params: {
     !isMarkdownMemoryGenerationCurrent(generation)
   ) return null;
   const stored = snapshot ? readStoredDocument(snapshot.data) : null;
-  if (snapshot && !stored) throw new Error("Soul.md document is invalid.");
+  if (snapshot && !stored) throw new Error("memory.md document is invalid.");
   // A local fact may have arrived while this cold/remote read was in flight.
   const pendingJobs = syncQueues.get(params.userId)?.jobs ?? [];
   const current = peekMarkdownMemory(params.userId);
@@ -774,13 +774,13 @@ export async function replaceMarkdownMemoryDocument(params: {
   beforeEffect: () => Promise<void>;
 }): Promise<{ success: boolean; conflict?: boolean; markdown?: string; message?: string }> {
   const local = peekMarkdownMemory(params.userId);
-  if (local && local.markdown !== params.expectedMarkdown) return { success: false, conflict: true, message: "Soul.md changed while you were editing. Your draft is still here." };
+  if (local && local.markdown !== params.expectedMarkdown) return { success: false, conflict: true, message: "memory.md changed while you were editing. Your draft is still here." };
   const previousQueue = syncQueues.get(params.userId);
   if (previousQueue?.running || previousQueue?.jobs.length) return { success: false, message: "Your latest memories haven't finished syncing. Your draft is still here; retry sync before saving changes." };
   const cleaned = omitCredentialsFromMemory(params.markdown).trim();
   const markdown = cleaned ? `${cleaned}\n` : "";
   if (markdown.length > MAX_MARKDOWN_MEMORY_CHARS) {
-    return { success: false, message: "Soul.md is too long. Shorten it before saving." };
+    return { success: false, message: "memory.md is too long. Shorten it before saving." };
   }
   const epoch = snapshotVaultSessionEpoch();
   const seed = peekMarkdownMemory(params.userId)?.markdown ?? "";
@@ -829,11 +829,11 @@ export async function replaceMarkdownMemoryDocument(params: {
   }).catch(error => { releaseQueue(); throw error; });
   if (conflict) {
     releaseQueue();
-    return { success: false, conflict: true, message: "Soul.md changed while you were editing. Your draft is still here. Copy your changes, then reload the latest version." };
+    return { success: false, conflict: true, message: "memory.md changed while you were editing. Your draft is still here. Copy your changes, then reload the latest version." };
   }
   if (!result.success) { releaseQueue(); return { success: false, message: result.message }; }
   try { await params.beforeEffect(); } catch (error) { releaseQueue(); throw error; }
-  if (!isVaultSessionEpochCurrent(epoch)) { releaseQueue(); return { success: false, message: "Unlock your vault to reopen Soul.md." }; }
+  if (!isVaultSessionEpochCurrent(epoch)) { releaseQueue(); return { success: false, message: "Unlock your vault to reopen memory.md." }; }
   const pending = applyPendingMemory(markdown, sourceSummaries, queue.jobs);
   cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, deletedFactLabels, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
     kycIntakeCompletedAt: queue.jobs.some(job => job.completeKycIntake)

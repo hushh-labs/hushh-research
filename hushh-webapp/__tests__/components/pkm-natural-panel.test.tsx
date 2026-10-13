@@ -396,10 +396,10 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     return screen.findByTestId("memory-recently-learned-row");
   }
 
-  it("opens Soul.md as the first tab and keeps Saved, Add, and Sharing available", () => {
+  it("opens memory.md as the first tab and keeps Saved, Add, and Sharing available", () => {
     render(<PkmNaturalPanel />);
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map(tab => tab.textContent)).toEqual(["Soul.md", "Saved", "Add", "Sharing"]);
+    expect(tabs.map(tab => tab.textContent)).toEqual(["memory.md", "Saved", "Add", "Sharing"]);
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Soul document")).toBeVisible();
   });

@@ -194,7 +194,7 @@ function ProfileCards({ close }: { close: () => void }) {
       <SettingsPresentationProvider density="compact" separatorInset>
         <div data-app-pane-card>
           <SettingsGroup>
-            <SettingsRow icon={Heart} iconTone="capability" title="soul.md"
+            <SettingsRow icon={Heart} iconTone="capability" title="memory.md"
               description={<>Voice, values, and personality.<br /><span>Identity preview</span></>} />
             <SettingsRow asChild icon={Fingerprint} iconTone="capability" title="memory.md"
               description="What you’ve chosen to remember." chevron>
