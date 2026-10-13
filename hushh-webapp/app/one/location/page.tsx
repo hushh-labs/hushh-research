@@ -4592,6 +4592,8 @@ export function OneLocationAgentPageContent({
       capturePoint?: boolean;
       autoOpenSettings?: boolean;
       requestNativePrompt?: boolean;
+      /** Passive panel warm-up may use granted access but never request it. */
+      allowPermissionPrompt?: boolean;
       /**
        * Lets a caller whose request has been superseded discard the fix instead
        * of applying it. A capture can outlive the intent that started it, and
@@ -4666,6 +4668,10 @@ export function OneLocationAgentPageContent({
 
       const currentPermission = await refreshLocationPermission();
       if (options?.isStale?.()) return { ready: false };
+
+      if (options?.allowPermissionPrompt === false && currentPermission.state !== "granted") {
+        return { ready: false };
+      }
 
       // Only two things stop us before we have tried, and neither can be fixed
       // by asking: the OS location service is off, or the platform forbids the
@@ -5795,14 +5801,17 @@ export function OneLocationAgentPageContent({
     [runEmergencyLookup, vaultOwnerToken],
   );
 
-  const resolveSosLocation = useCallback(() => {
+  const resolveSosLocation = useCallback((options?: { allowPermissionPrompt?: boolean }) => {
     const inFlight = sosLocationResolutionRef.current;
     if (inFlight) return inFlight;
 
     const resolution = (async (): Promise<PlainLocationPoint | null> => {
       try {
         const result = await ensureForegroundLocationReady({
-          capturePoint: true,
+          capturePoint: options?.allowPermissionPrompt !== false,
+          requirePoint: true,
+          requireMeasurement: true,
+          allowPermissionPrompt: options?.allowPermissionPrompt,
           autoOpenSettings: false,
           // This runs when Save my Soul is merely OPENED. Nobody has asked for
           // anything yet, so a failure here has nothing to tell them — and on
@@ -14101,6 +14110,7 @@ export function OneLocationAgentPageContent({
           // the workspace lands on the Location hub. Naming the destination beats
           // a generic "Done" that leaves the person guessing.
           completeLabel={mode === "setup" ? "Finish" : "Open One Location"}
+          completeControlId={mode === "setup" ? "one-setup-location-intro-terminal" : undefined}
           onBack={handleOnboardingBack}
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}

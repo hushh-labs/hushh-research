@@ -4447,6 +4447,19 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("does not prompt for location merely by opening Save My Soul", async () => {
+    mockGetPermissionState.mockResolvedValue({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    mockCaptureCurrentPosition.mockClear();
+    mockRequestLocationPermission.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
+    expect(await screen.findByRole("heading", { name: "Save My Soul", level: 1 })).toBeTruthy();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    expect(mockRequestLocationPermission).not.toHaveBeenCalled();
+  });
+
   it("resolves a fresh local emergency number as Save My Soul opens", async () => {
     const { unmount } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();

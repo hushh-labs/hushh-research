@@ -134,7 +134,7 @@
     {
       "action_id": "setup.finish_location",
       "label": "Finish Location setup",
-      "meaning": "Completes the two-screen Location introduction and returns to setup. Device location access and saved places can be enabled later from the Location workspace.",
+      "meaning": "Requests final verification after the Location onboarding runtime has settled permission, position, place or explicit skip, and personal Circle provisioning.",
       "aliases": [
         "finish location setup",
         "finish location",
@@ -155,7 +155,9 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "The Location introduction is open and the signed-in setup coordinator is ready."
+          "The active Location onboarding run has verified permission and position evidence.",
+          "A saved-place settlement or explicit place-skip settlement exists.",
+          "The personal Circle was provisioned or reused and verified."
         ]
       },
       "guard_ids": [
@@ -168,11 +170,15 @@
         "path": "local_handler",
         "target": "setup.finish_location"
       },
+      "command": {
+        "permission": "location"
+      },
       "control_ids": [
         "one-setup-location-terminal"
       ],
       "state_exposure": [
-        "Location introduction completion readiness"
+        "bounded Location onboarding run status",
+        "verified settlement readiness"
       ]
     },
     {
@@ -214,6 +220,48 @@
       ],
       "state_exposure": [
         "bounded Location onboarding run status"
+      ]
+    },
+    {
+      "action_id": "setup.finish_location_intro",
+      "label": "Finish Location introduction",
+      "meaning": "Completes the two-screen Location introduction and returns to setup. Device location access and saved places can be enabled later from the Location workspace.",
+      "aliases": [
+        "finish location introduction",
+        "complete location introduction"
+      ],
+      "search_keywords": [
+        "finish",
+        "location",
+        "introduction"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The Location introduction is open and the signed-in setup coordinator is ready."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_location_intro"
+      },
+      "control_ids": [
+        "one-setup-location-intro-terminal"
+      ],
+      "state_exposure": [
+        "Location introduction completion readiness"
       ]
     }
   ],

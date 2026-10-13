@@ -133,6 +133,7 @@ type OneLocationOnboardingFlowProps = {
    * person guessing where the button goes.
    */
   completeLabel?: string;
+  completeControlId?: string;
   /**
    * Whether this device can read an address book at all.
    *
@@ -192,8 +193,10 @@ function PrimaryButton({
   busy = false,
   inverse = false,
   className,
+  voiceControlId,
 }: {
   children: ReactNode;
+  voiceControlId?: string;
   onClick: () => void;
   disabled?: boolean;
   busy?: boolean;
@@ -207,6 +210,7 @@ function PrimaryButton({
       onClick={onClick}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
+      data-voice-control-id={voiceControlId}
       className={cn(
         "mx-auto flex w-full max-w-[244px] disabled:cursor-not-allowed disabled:opacity-50",
         inverse
@@ -1178,6 +1182,7 @@ function ReadyScreen({
   onContinue,
   leaving,
   completeLabel,
+  completeControlId,
   completing,
   settlementRetryCount,
   joinCode,
@@ -1219,6 +1224,7 @@ function ReadyScreen({
   onContinue: () => void;
   leaving: boolean;
   completeLabel: string;
+  completeControlId?: string;
   completing: boolean;
   settlementRetryCount: number;
   joinCode: string;
@@ -1617,9 +1623,10 @@ function ReadyScreen({
           ) : null}
           {/* Always the completion CTA. A code that failed to load is not a
               reason to record the whole capability as skipped -- the person
-              granted permission and saved a place, so finishing is the honest
+              finished the introduction, so opening Location is the honest
               outcome. Retrying the code lives inside the card above. */}
           <PrimaryButton
+            voiceControlId={completeControlId}
             className="mx-auto flex max-w-[244px]"
             onClick={onContinue}
             busy={completing}
@@ -1665,6 +1672,7 @@ export function OneLocationOnboardingFlow({
   onComplete,
   onSkip = onComplete,
   completeLabel = "Open One Location",
+  completeControlId,
   mapPoint = null,
   contactsStepAvailable = true,
   contactsSource = "device",
@@ -2153,6 +2161,7 @@ export function OneLocationOnboardingFlow({
             onContinue={finishFromInvite}
             leaving={leaving}
             completeLabel={completeLabel}
+            completeControlId={completeControlId}
             completing={completionBusy}
             settlementRetryCount={settlementRetryCount}
             joinCode={joinCode}

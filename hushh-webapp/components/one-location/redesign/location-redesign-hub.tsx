@@ -716,7 +716,7 @@ export type LocationHubViewModel = {
   sosStartedAtLabel: string | null;
   sosEmergency: EmergencyInfo | null;
   sosEmergencyStatus: EmergencyNumberLookupStatus;
-  onResolveSosLocation: () => void;
+  onResolveSosLocation: (options?: { allowPermissionPrompt?: boolean }) => void;
   // Promise-returning on purpose: SosPanel awaits it to tell a real send from
   // an early bail-out, so narrowing it back to `void` here would strip the
   // signal the panel needs to release its fired latch.
@@ -4904,7 +4904,7 @@ function SosFlow({
   const onRefreshSmsContacts = vm.onRefreshSmsContacts;
   const [lookupStartedForMount, setLookupStartedForMount] = useState(false);
   useEffect(() => {
-    onResolveSosLocation();
+    onResolveSosLocation({ allowPermissionPrompt: false });
     void onRefreshSmsContacts();
     setLookupStartedForMount(true);
   }, [onRefreshSmsContacts, onResolveSosLocation]);

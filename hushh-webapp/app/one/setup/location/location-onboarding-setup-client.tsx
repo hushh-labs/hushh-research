@@ -25,7 +25,7 @@ export function LocationOnboardingSetupClient() {
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "location",
     isOperationallyReady: ready,
-    finishActionId: "setup.finish_location",
+    finishActionId: "setup.finish_location_intro",
     skipActionId: "setup.skip_location",
     terminalPresentation: "automatic",
   });
