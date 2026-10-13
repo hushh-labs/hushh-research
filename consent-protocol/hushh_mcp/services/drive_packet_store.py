@@ -241,7 +241,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
             connection.execute(
                 text("""SELECT EXISTS(SELECT 1 FROM drive_collection_sync
           WHERE user_id=:user AND connection_generation=:generation AND processing_enabled
-            AND initial_completed_at IS NOT NULL AND last_synced_at>=clock_timestamp()-interval '900 seconds'
+            AND last_synced_at>=clock_timestamp()-interval '900 seconds'
             AND phase='changes' AND NOT incomplete_search AND last_error_code IS NULL)"""),
                 {"user": user_id, "generation": generation},
             ).scalar_one()

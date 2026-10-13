@@ -408,6 +408,88 @@ async def test_progressive_packets_do_not_wait_for_unrelated_indexing(reusable, 
         assert recovered["canList"] and recovered["version"] == 1
 
 
+@pytest.mark.parametrize(
+    "change", ["stale", "revoked", "paused", "incomplete", "provider_error", "bootstrap"]
+)
+async def test_ready_packet_listing_uses_provider_freshness_while_extraction_pending(
+    reusable, change
+):
+    files = [source("verified-source"), source("unrelated-pending-source")]
+    await seed_collection(reusable.collection, files=files)
+    job = await reusable.ingestion.claim(user_id="owner", generation=1)
+    metadata = next(
+        item
+        for item in files
+        if reusable.collection.cipher.fingerprint("owner", item.file_id)
+        == job["source_fingerprint"]
+    )
+    await reusable.ingestion.publish_pages(job, metadata=metadata, batch=collection_pages())
+    with reusable.facts.db.engine.connect() as connection:
+        sync = connection.execute(text("SELECT * FROM drive_collection_sync")).mappings().one()
+        assert sync["initial_completed_at"] is None
+        assert sync["phase"] == "changes" and sync["last_synced_at"] is not None
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM connected_documents WHERE status='queued'")
+            ).scalar_one()
+            == 1
+        )
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    for _ in range(3):
+        result = await reusable.worker.run_packet_one(user_id="owner")
+    assert result == "ready"
+    view = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+    assert view["canList"] and view["freshness"] == "current" and view["documentCount"] == 1
+    assert "Other Drive files remain unverified" in view["description"]
+    manifest = await reusable.packets.current_packet_manifest(
+        owner_user_id="owner", packet_id=view["packetId"], version=1
+    )
+    assert not manifest["collection_complete"]
+    assert manifest["coverage_scope"] == "verified_observed_span"
+    assert len(manifest["sources"]) == 1
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=view["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=125,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+
+    if change == "paused":
+        await reusable.collection.set_processing(user_id="owner", enabled=False)
+    else:
+        statements = {
+            "stale": "UPDATE drive_collection_sync SET last_synced_at=clock_timestamp()-interval '901 seconds'",
+            "revoked": """UPDATE connected_documents SET active_version=NULL,status='unsupported',
+                last_error_code='source_unavailable',processing_enabled=false
+                WHERE document_id=:id""",
+            "incomplete": "UPDATE drive_collection_sync SET incomplete_search=true",
+            "provider_error": "UPDATE drive_collection_sync SET last_error_code='provider_unavailable'",
+            "bootstrap": "UPDATE drive_collection_sync SET phase='bootstrap'",
+        }
+        with reusable.facts.db.engine.begin() as connection:
+            connection.execute(text(statements[change]), {"id": job["document_id"]})
+    blocked = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+    assert not blocked["canList"]
+    assert blocked["freshness"] == ("paused" if change == "paused" else "stale")
+    with pytest.raises(DriveReadError):
+        await reusable.packets.current_packet_manifest(
+            owner_user_id="owner", packet_id=view["packetId"], version=1
+        )
+    with pytest.raises(DriveReadError):
+        await reusable.packets.set_listing(
+            user_id="owner",
+            packet_id=view["packetId"],
+            version=1,
+            decision="allow",
+            price_cents=125,
+            expected_revision=1,
+            disclosure=LISTING_DISCLOSURE,
+        )
+
+
 async def test_all_46_members_construct_and_verify_before_ready(reusable):
     packet = await ready_packet(reusable, 46)
     assert packet["documentCount"] == 46 and packet["state"] == "ready"
