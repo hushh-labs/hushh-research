@@ -75,7 +75,7 @@ function isNavigableRoute(action) {
   return target.status === "wired" && target.path === "route";
 }
 
-export function verifySearchCatalog({ strict = false } = {}) {
+export function verifySearchCatalog() {
   const catalogText = fs.readFileSync(CATALOG_PATH, "utf8");
   const sourceFile = ts.createSourceFile(CATALOG_PATH, catalogText, ts.ScriptTarget.Latest, true);
   const idleIds = readStringArrayLiteral(sourceFile, "IDLE_SUGGESTION_IDS");
@@ -112,16 +112,14 @@ export function verifySearchCatalog({ strict = false } = {}) {
     .sort();
 
   if (untriaged.length) {
-    console.warn(
-      `Search catalog has not triaged ${untriaged.length} navigable action(s) added to the gateway since it was last reviewed:`,
+    console.error(
+      `FAIL: a new page/action added ${untriaged.length} reachable destination(s) the search catalog has not triaged yet:`,
     );
-    for (const id of untriaged) console.warn(`  - ${id}`);
-    console.warn(
-      "Add each to SEARCH_CATALOG (and IDLE_SUGGESTION_IDS if it belongs in the idle row), or leave it out deliberately -- this is a manual-triage flag, not an auto-add.",
+    for (const id of untriaged) console.error(`  - ${id}`);
+    console.error(
+      "Add each to SEARCH_CATALOG (and IDLE_SUGGESTION_IDS if it belongs in the idle row) in lib/search/search-suggestions-catalog.ts, or add it to EXCLUDED_ACTION_IDS with a one-line reason if it should not be searchable.",
     );
-    if (strict) return false;
-  } else {
-    console.log("Search catalog: no untriaged navigable actions.");
+    return false;
   }
 
   console.log(`Search catalog: ${catalogIds.length} entries (${idleIds.length} idle), all resolve against the generated gateway.`);
@@ -129,6 +127,5 @@ export function verifySearchCatalog({ strict = false } = {}) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const ok = verifySearchCatalog({ strict: process.argv.includes("--strict") });
-  process.exitCode = ok ? 0 : 1;
+  process.exitCode = verifySearchCatalog() ? 0 : 1;
 }
