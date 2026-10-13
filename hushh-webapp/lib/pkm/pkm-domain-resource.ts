@@ -13,6 +13,10 @@ import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
+// A mutation doorbell mid-flight is expected to need one re-read; a domain
+// under continuous write pressure must not turn that into unbounded recursion.
+const MAX_REFRESH_RETRY_ATTEMPTS = 3;
+const REFRESH_RETRY_BACKOFF_MS = 150;
 const inflightRefreshes = new Map<string, Promise<PkmDomainResourceSnapshot | null>>();
 const domainRevisions = new Map<string, number>();
 const deviceEvictions = new Map<string, Promise<void>>();
@@ -426,6 +430,24 @@ export class PkmDomainResourceService {
   static async refresh(
     params: PkmDomainResourceParams
   ): Promise<PkmDomainResourceSnapshot | null> {
+    return this.refreshAttempt(params, 0);
+  }
+
+  /**
+   * A mutation doorbell mid-flight re-reads once the dust settles -- correct,
+   * because the stale response must not repopulate the cache. But a domain
+   * under continuous write pressure (another failed writer retrying the same
+   * domain, or simply one that will keep 404ing because it was never
+   * created) bumped the revision again before the re-read landed, and this
+   * recursed with no cap and no backoff: one page load produced well over a
+   * hundred identical network fetches for an address that was never there.
+   * MAX_REFRESH_RETRY_ATTEMPTS bounds that; the final attempt's own result
+   * (snapshot or null) is returned rather than recursing past it.
+   */
+  private static async refreshAttempt(
+    params: PkmDomainResourceParams,
+    attempt: number,
+  ): Promise<PkmDomainResourceSnapshot | null> {
     if (!params.userId || !params.domain || !params.vaultKey) {
       return null;
     }
@@ -467,7 +489,9 @@ export class PkmDomainResourceService {
           if (inflightRefreshes.get(inflightKey) === request) {
             inflightRefreshes.delete(inflightKey);
           }
-          return await this.refresh(params);
+          if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) return null;
+          await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_BACKOFF_MS * (attempt + 1)));
+          return await this.refreshAttempt(params, attempt + 1);
         }
         if (!data) {
           CacheService.getInstance().invalidate(toCacheKey(params));
@@ -528,7 +552,9 @@ export class PkmDomainResourceService {
             if (inflightRefreshes.get(inflightKey) === request) {
               inflightRefreshes.delete(inflightKey);
             }
-            return await this.refresh(params);
+            if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) return snapshot;
+            await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_BACKOFF_MS * (attempt + 1)));
+            return await this.refreshAttempt(params, attempt + 1);
           }
         }
         return snapshot;
