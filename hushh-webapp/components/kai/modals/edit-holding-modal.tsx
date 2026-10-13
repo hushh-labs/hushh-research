@@ -702,6 +702,7 @@ export function EditHoldingModal({
               </Button>
             </DrawerClose>
             <Button
+              type="button"
               onClick={handleSave}
               variant="none"
               effect="fill"
