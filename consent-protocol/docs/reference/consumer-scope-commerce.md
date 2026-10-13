@@ -39,6 +39,14 @@ preservation receipt remains unchanged. Release replay and schema checks remain
 required; this source relocation does not authorize rewriting accepted history.
 Main migration 330 has no rollback registration, an inherited recovery gap.
 
+The combined `39a5477aca6a` core run passed 18,870 protocol cases and exposed
+five missing route classifications, one missing Shared-placement test fixture
+and an unused frontend test import. The narrow corrections retain production
+admission and all permission-write negative controls. Feed presentation controls
+are owner metadata authority; delivery acknowledgements and invitation rotation
+remain person-to-person network operations. All 97 nearest checks pass. Fresh
+combined core and hosted CI remain required before Dev deployment.
+
 Candidate `80df81d7e2ce` passed canonical core in 587 seconds. The combined
 source preserves separate scope, document and answer financial contracts and
 fixes obsolete Memory publication after bounded encrypted-write retries. Consent

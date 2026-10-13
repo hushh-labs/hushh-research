@@ -265,6 +265,7 @@ POST /api/one/messages/route-token
 DELETE,POST /api/one/messages/blocks
 GET /api/one/messages/conversations
 GET /api/one/messages/conversations/{conversation_id}/messages
+POST /api/one/messages/conversations/{conversation_id}/delivered
 POST /api/one/messages/conversations/{conversation_id}/read
 GET /api/one/messages/events
 GET /api/one/messages/stream
@@ -288,6 +289,7 @@ POST /api/one/profile-discovery/start
 POST /api/one/referrals/bind
 GET /api/one/referrals/events
 POST /api/one/referrals/resolve
+POST /api/one/referrals/rotate
 GET /api/one/referrals/summary
 DELETE,GET,POST /api/one/wallet-card
 POST /api/one/wallet-card/ensure

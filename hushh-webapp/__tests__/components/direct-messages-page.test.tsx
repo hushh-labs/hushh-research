@@ -8,7 +8,6 @@ import {
 } from "@/components/agent/agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { DirectMessagesPage as ProductionDirectMessagesPage } from "@/components/direct-messages/direct-messages-page";
-import { ROUTES } from "@/lib/navigation/routes";
 import type { ComponentProps } from "react";
 import type { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { DirectMessageVoiceRecorder } from "@/components/direct-messages/direct-message-voice-recorder";

@@ -369,7 +369,7 @@ async def test_summary_push_has_no_file_or_account_identifiers(shared_hub_owner)
 
 
 @pytest.mark.asyncio
-async def test_package_grant_checks_evaluated_version_before_any_permission_write():
+async def test_package_grant_checks_evaluated_version_before_any_permission_write(shared_hub_owner):
     worker, store, adapter = _worker()
     job = _job()
     job["file"].update(packageDigest="a" * 64, sourceVersion="7", contentFingerprint="b" * 64)

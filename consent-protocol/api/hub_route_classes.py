@@ -155,6 +155,9 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+POST /api/one/feed/clear
+POST /api/one/feed/{item_id}/dismiss
+POST /api/one/feed/{item_id}/restore
 POST /api/one/business/suggestion/complete
 POST /api/one/profile-research/complete
 POST /api/one/email/send/status/{action_id}
