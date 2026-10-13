@@ -35,6 +35,16 @@ afterEach(() => {
 });
 
 describe("ReferralService.getSummary", () => {
+  it("revokes the presented referral link with authenticated owner authority", async () => {
+    const payload = { slug: "new-link", link_open_count: 0, qualified_count: 3 };
+    const spy = stubFetch(payload);
+    await expect(ReferralService.rotateShareLink({ idToken: "owner-token", slug: "old-link" })).resolves.toEqual(payload);
+    const [path, init] = spy.mock.calls[0];
+    expect(path).toBe("/api/one/referrals/rotate");
+    expect(init?.method).toBe("POST");
+    expect(headerValue(init, "Authorization")).toBe("Bearer owner-token");
+    expect(JSON.parse(String(init?.body))).toEqual({ slug: "old-link" });
+  });
   it("carries the caller's Firebase ID token as a bearer token", async () => {
     const spy = stubFetch();
     await ReferralService.getSummary({ idToken: "id-token-abc" });

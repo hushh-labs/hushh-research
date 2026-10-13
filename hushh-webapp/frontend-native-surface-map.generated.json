@@ -4708,7 +4708,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
-          "purpose": "Memory opens on Soul.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the Soul.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
+          "purpose": "Memory opens on memory.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the memory.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
           "screen": "pkm",
           "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
           "proactivity": "on_entry",
@@ -8553,7 +8553,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.people.person_profile",
-          "purpose": "Review a person, request information, browse permitted document packets, and manage existing access.",
+          "purpose": "Help the signed-in viewer understand relationship, requestable information, grants, and request history without exposing private values.",
           "screen": "one_person_profile",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -8563,8 +8563,7 @@
             "people.profile.review_information_request",
             "people.profile.cancel_connection_request",
             "people.profile.remove_connection",
-            "people.profile.manage_consent",
-            "people.profile.browse_packets"
+            "people.profile.manage_consent"
           ],
           "required_inputs": [],
           "recoveries": {
@@ -8604,7 +8603,6 @@
       },
       "voice_action_contract_file": "app/people/[personRef]/page.voice-action-contract.json",
       "voice_action_contract_ids": [
-        "people.profile.browse_packets",
         "people.profile.cancel_connection_request",
         "people.profile.connect",
         "people.profile.manage_consent",
@@ -10128,5 +10126,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "9db5f8ec88062f3fc9a6e318f2b5a65e78cd34c4dee9596b3342ec0ff4c5da03"
+  "content_sha256": "df66e0f25acee984777f7e884407dc24a3c70e4ceb7c7b4c67c8e00706d8a572"
 }
