@@ -128,6 +128,12 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:working|thinking|answering)\.riv$/, route =>
+    route.fulfill({ contentType: "application/octet-stream", body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)) }),
+  );
+  await page.route("http://localhost/one-presence/rive.wasm", route =>
+    route.fulfill({ contentType: "application/wasm", body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/rive.wasm")) }),
+  );
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
     route.fulfill({
       contentType: "image/webp",
@@ -804,7 +810,7 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
 });
 
-test("Picker focus, explicit admission, removal, and independent disconnect", async ({
+test("Picker focus, explicit admission, and removal", async ({
   page,
 }) => {
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
@@ -850,6 +856,12 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
   await expect(
     page.getByRole("list", { name: "Selected Drive files" }),
   ).toHaveCount(0);
+});
+
+test("failed Drive revocation preserves the independent Mail connection", async ({ page }) => {
+  await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await expect(page.getByText(/Existing Google sharing stays active until you revoke it/)).toBeVisible();
   await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
@@ -1397,13 +1409,13 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
 
 async function presencePixels(artwork: Locator) {
   return artwork.evaluate((canvas: HTMLCanvasElement) => {
-    const pixels = canvas.getContext("2d")!.getImageData(0, 0, 128, 128).data;
+    const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
     let hash = 0, opaque = 0;
     for (let i = 0; i < pixels.length; i += 1) {
       hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
       if (i % 4 === 3 && pixels[i]! > 0) opaque += 1;
     }
-    return { hash, opaque, cornerAlpha: [3, (128 - 1) * 4 + 3, (128 * 127) * 4 + 3, pixels.length - 1].map(i => pixels[i]) };
+    return { hash, opaque, cornerAlpha: [3, (canvas.width - 1) * 4 + 3, (canvas.width * (canvas.height - 1)) * 4 + 3, pixels.length - 1].map(i => pixels[i]) };
   });
 }
 
@@ -1447,7 +1459,9 @@ test.describe("One profile artwork and mapped work frames", () => {
         await expect(header).toHaveAttribute("src", "/one-presence/profile-hd.png");
         await expect.poll(() => profile.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
       } else {
-        for (const artwork of [header, profile]) {
+        for (const container of [header, profile]) {
+          const artwork = container.locator("canvas");
+          await expect(artwork).toBeVisible();
           await expect.poll(async () => (await presencePixels(artwork)).opaque).toBeGreaterThan(0);
           expect((await presencePixels(artwork)).cornerAlpha).toEqual([0, 0, 0, 0]);
           const first = (await presencePixels(artwork)).hash;
@@ -1466,12 +1480,15 @@ test.describe("One profile artwork and mapped work frames", () => {
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
-    const profile = panel.locator("canvas[data-one-presence-state]");
+    const profile = panel.locator("[data-one-presence-state] canvas");
+    const poster = panel.locator("[data-one-presence-state] img");
     await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect(profile).toHaveCSS("background-image", /drafting-hd\.png/);
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBe(0);
+    await expect(profile).toBeHidden();
+    await expect(poster).toBeVisible();
+    await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
     await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect(profile).toBeVisible();
     await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
     const paused = (await presencePixels(profile)).hash;
