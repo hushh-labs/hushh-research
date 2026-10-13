@@ -623,6 +623,7 @@ class ActorIdentityService:
             return {}
 
         async def read(connection):
+            # Both query variants are authored constants; IDs remain bound in $1.
             return await connection.fetch(
                 """
                     SELECT
@@ -641,7 +642,7 @@ class ActorIdentityService:
                     WHERE user_id = ANY($1::text[])
                     ORDER BY user_id
                     """
-                + (" FOR SHARE" if conn is not None else ""),
+                + (" FOR SHARE" if conn is not None else ""),  # nosec B608
                 normalized_ids,
                 timeout=5,
             )
