@@ -31,8 +31,8 @@ are separately verified below; they do not prove a consumer purchase or payout.
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
 owner; PR #7555 and issue #7587 remain active. The remote pod-release and Android
 corrections are preserved. Main `337c4759e1b2` was merged normally at `9e5e58982b1c`;
-the continuation incorporates main through `a05166ee86` and the concurrent branch's
-`e04b76c614` through normal merges. Shared
+the continuation incorporates main through `073333ee70` and the concurrent branch's
+`49074b1f72` through normal merges. Shared
 history, unrelated workspace edits and the frozen migration preservation receipt
 remain intact. Main's 315–325 registrations retain their existing numbers. This lane's six
 registrations move to 326–331 with byte-identical forward and rollback SQL;
@@ -143,7 +143,13 @@ zero new regressions. The inherited Gmail workflow helper baseline is qualified
 against exact incoming source/AST; budgets and unrelated entries are unchanged.
 The final full core, hosted CI and Dev promotion remain required.
 
-The last qualified Dev observation at `23:26:31Z` served source `0d00ceaf1e1b` and retained two funding records,
+The latest legal/proxy selection passes all 41 cases, preserving the published
+October 12 Terms/Privacy versions, private-route indexing and strict hosted
+returns. The 447 Back cases pass on the combined source. Exact action retirement
+records retain both entry-handoff and card-scanning behavior; source contracts
+are regenerated together rather than selecting standalone branch digests.
+
+The last qualified Dev observation at `2026-10-13T00:14:00Z` served source `e04b76c614` and retained two funding records,
 three journals, zero purchases and zero withdrawals. Counterpart funding totals
 $10.50 ($0.50 plus $10), and the tagged $5 operating Topup was already settled;
 never repeat either. Reconcile fresh provider/application receipts before any
