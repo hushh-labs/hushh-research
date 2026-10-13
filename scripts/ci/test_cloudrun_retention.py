@@ -823,6 +823,9 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             inventory = [revision(2), revision(3)] + ([revision(1)] if present else [])
             with (
                 self.subTest(present=present),
+                mock.patch.object(
+                    MAINTENANCE.subprocess, "run", return_value=mock.Mock(returncode=0)
+                ),
                 mock.patch.object(MAINTENANCE, "command", return_value=known_good),
                 mock.patch.object(
                     MAINTENANCE.retention, "revision_state", return_value=inventory
