@@ -25,7 +25,7 @@ from hushh_mcp.services.drive_sharing_contract import (
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_request_bulk_postgres import _recipient, _search
-from tests.services.test_drive_request_package_store import (  # noqa: F401
+from tests.services.test_drive_request_package_store_postgres import (  # noqa: F401
     MIGRATIONS,
     assessment,
     connector_postgres_url,
