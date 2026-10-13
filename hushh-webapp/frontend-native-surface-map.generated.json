@@ -4708,7 +4708,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
-          "purpose": "Memory opens on Soul.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the Soul.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
+          "purpose": "Memory opens on memory.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the memory.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
           "screen": "pkm",
           "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
           "proactivity": "on_entry",
@@ -10201,5 +10201,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "24db26028b7f451961e39eea3d4b2d39c43d5e0a013b5a35e6ce0feb6fae81c9"
+  "content_sha256": "a00a1eb35ddff69978ea9746020ab657b78dd5c99d0310cf13689cf447a65c90"
 }
