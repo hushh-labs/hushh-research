@@ -16,6 +16,7 @@ import GmailInformationRequestsSection from "@/components/gmail/gmail-informatio
 import { GmailRecentReceipts } from "@/components/gmail/gmail-recent-receipts";
 import { GmailReceiptMemorySave } from "@/components/gmail/gmail-receipt-memory-save";
 import { captureReceiptSnapshot, receiptSnapshotRows, type ReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
+import { resolveSavedReceiptMerchantBrand } from "@/lib/mail/receipt-merchant-registry";
 import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
 import { loadReceiptSnapshot, receiptStoreVersion, writeReceiptSnapshot } from "@/lib/mail/receipt-store";
 import { GmailVerificationOnboarding } from "@/components/gmail/gmail-verification-onboarding";
@@ -711,7 +712,7 @@ export default function GmailReceiptsPage({
         status: saved!.status, recurrence: saved!.recurrence, identifiers: saved!.identifiers.map(i => ({ ...i })),
         transaction_date: saved!.transaction_date, document_kind: saved!.document_kind,
         classification_confidence: saved!.confidence, category_confidence: saved!.category ? 1 : null,
-        merchant_domain: saved!.brand ? { myntra: "myntra.com", amazon: "amazon.com", apple: "apple.com", paypal: "paypal.com" }[saved!.brand] : null,
+        merchant_domain: resolveSavedReceiptMerchantBrand(saved!.brand, saved!.merchant)?.logoDomain ?? null,
       } satisfies ReceiptListItem, source_evidence: [], email_excerpt: null,
       live_unavailable: "Saved receipt details are available. Reconnect Mail or sync again to load the original email and source evidence." });
       if (saved && (!locator || !gmail.presentation.isConnected || (typeof navigator !== "undefined" && navigator.onLine === false))) {

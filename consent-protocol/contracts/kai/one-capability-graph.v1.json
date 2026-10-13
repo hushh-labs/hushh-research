@@ -3050,6 +3050,151 @@
     },
     {
       "aliases": [
+        "Visit merchant",
+        "visit merchant",
+        "visit merchant website"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.gmail.visit_merchant",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the selected receipt merchant's reviewed official HTTPS homepage in an external browser, preserving the receipt detail sheet.",
+      "execution": {
+        "binding_ref": "render:profile.gmail.visit_merchant",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.gmail.visit_merchant",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Visit merchant",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "merchant website"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Receipts Page",
         "open receipts",
         "open gmail receipts"
@@ -39104,7 +39249,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "6b5a440218975a8f67c08c033aec9eef8a66cd758dc4cd965df8a13c42281290",
+      "projection_digest": "d1ffb5a3e2fbf874f619ffda76384f86ca585c5553f09a7e8e6bddba15a80393",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39123,7 +39268,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "9d5d8ccd75c7d202",
+      "source_revision": "4b63581cd41944f9",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -40641,7 +40786,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "9d5d8ccd75c7d202",
+    "source_revision": "4b63581cd41944f9",
     "web": {
       "actions": [
         {
@@ -40684,7 +40829,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "ecc85824adfbbf191242022d50dde117032ed13d2f2b81f032c004ccbedb2b5c",
+      "projection_digest": "cf15a178a74f3d01330658f9ec4bd0cc3e8abef45e55cd4021115a9dc2f48e70",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -40703,7 +40848,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "9d5d8ccd75c7d202",
+      "source_revision": "4b63581cd41944f9",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -42260,7 +42405,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "9d5d8ccd75c7d202",
+  "revision": "4b63581cd41944f9",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -44082,12 +44227,14 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.gmail.visit_merchant"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "b9a924f682184910",
+    "from_revision": "9d5d8ccd75c7d202",
     "migrated": [],
     "removed": []
   },
@@ -46317,7 +46464,7 @@
     "capability_graph_evolution": "9132c66a43ca0e87d087192af7b2564a0f9dc543949da0125c1c518518f6b596",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "90aeb16b26130b20c40dbbaf6da7c013b6ec2bcd94ccc607d8f164dc5811abba",
+    "kai_action_gateway": "4b26134d23a9f6e0306cfa63f0ac3c73f2132a456e5185754833577c9deeffca",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -46326,9 +46473,9 @@
     "route_orchestration_index": "966eced19cd6ec65c93c76c102ba4bdc3deb2db15635d45195081d9af2de6abd",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "9d5d8ccd75c7d202",
+  "source_revision": "4b63581cd41944f9",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "9d5d8ccd75c7d202",
+    "current_graph_revision": "4b63581cd41944f9",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -46413,6 +46560,7 @@
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
           "9c797354f3ce3b52",
+          "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e8a734a41be8c78",
@@ -46564,6 +46712,7 @@
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
           "9c797354f3ce3b52",
+          "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e8a734a41be8c78",
@@ -46679,6 +46828,7 @@
           "8e7504c56c6fdfc8",
           "934f53f787f43981",
           "9685a4f3c74e2591",
+          "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e8a734a41be8c78",
           "a4be6b9f6bd5e161",
@@ -46867,6 +47017,7 @@
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
           "9c797354f3ce3b52",
+          "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e8a734a41be8c78",
@@ -47018,6 +47169,7 @@
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
           "9c797354f3ce3b52",
+          "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e8a734a41be8c78",
@@ -47169,6 +47321,7 @@
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
           "9c797354f3ce3b52",
+          "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e8a734a41be8c78",
@@ -47320,6 +47473,7 @@
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
           "9c797354f3ce3b52",
+          "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e8a734a41be8c78",

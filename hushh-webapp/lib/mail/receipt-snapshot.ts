@@ -2,11 +2,11 @@
 import { buildRecentReceiptRows, receiptDocumentLabel, receiptAttentionLabel, receiptStatusLabel, type RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
+import { resolveSavedReceiptMerchantBrand, isVerifiedReceiptMerchantKey, type VerifiedReceiptMerchantKey } from "@/lib/mail/receipt-merchant-registry";
 
 export const RECEIPT_SNAPSHOT_MAX_BYTES = 2 * 1024 * 1024;
 export const RECEIPT_MEMORY_MAX_BYTES = 16 * 1024;
 export const RECEIPT_SNAPSHOT_PREFIX = "mail_receipts.v1:";
-const BRANDS = { myntra: "myntra.com", amazon: "amazon.com", apple: "apple.com", paypal: "paypal.com" } as const;
 type Event = {
   ref: string; locator: string | null; document_kind: ReceiptListItem["document_kind"];
   status: RecentReceiptRow["status"]; kind: NonNullable<ReceiptListItem["event_type"]>;
@@ -14,7 +14,7 @@ type Event = {
 };
 export type SnapshotRow = {
   ref: string; display_id: string; primary_event_ref: string; merchant: string; category: RecentReceiptRow["category"];
-  display_kind: RecentReceiptRow["displayKind"]; brand: keyof typeof BRANDS | null;
+  display_kind: RecentReceiptRow["displayKind"]; brand: VerifiedReceiptMerchantKey | null;
   amount: string | null; currency: string | null; transaction_date: string | null;
   identifiers: RecentReceiptRow["identifiers"]; status: RecentReceiptRow["status"];
   recurrence: RecentReceiptRow["recurrence"]; attention_state: RecentReceiptRow["attentionState"];
@@ -56,7 +56,7 @@ export function validateReceiptSnapshot(v: unknown): ReceiptSnapshot {
   const rowRefs = new Set<string>(); const eventRefs = new Set<string>();
   for (const r of v.rows) {
     record(r, ["ref", "display_id", "primary_event_ref", "merchant", "category", "display_kind", "brand", "amount", "currency", "transaction_date", "identifiers", "status", "recurrence", "attention_state", "attention_reason", "attention_is_prediction", "attention_date", "document_kind", "confidence", "events"]);
-    if ((typeof r.ref !== "string" || !REF.test(r.ref)) || rowRefs.has(String(r.ref)) || typeof r.display_id !== "string" || !/^group-[a-z0-9]{1,64}$/.test(r.display_id) || !text(r.merchant, 100) || !member(r.category, CATEGORIES) || !oneOf(r.display_kind, ["merchant", "category", "generic"]) || !member(r.brand, Object.keys(BRANDS)) ||
+    if ((typeof r.ref !== "string" || !REF.test(r.ref)) || rowRefs.has(String(r.ref)) || typeof r.display_id !== "string" || !/^group-[a-z0-9]{1,64}$/.test(r.display_id) || !text(r.merchant, 100) || !member(r.category, CATEGORIES) || !oneOf(r.display_kind, ["merchant", "category", "generic"]) || (r.brand !== null && !isVerifiedReceiptMerchantKey(r.brand)) ||
       (r.amount !== null && (typeof r.amount !== "string" || !DECIMAL.test(r.amount))) || !member(r.currency, ["USD", "INR", "EUR", "GBP", "$"]) || !date(r.transaction_date) || !date(r.attention_date) || !identifiers(r.identifiers) || !member(r.status, STATUSES) || !oneOf(r.recurrence, ["recurring", "one_time", "unknown"]) ||
       !oneOf(r.attention_state, ["none", "needs_attention", "coming_up", "needs_review"]) || !member(r.attention_reason, ["overdue", "payment_failed", "suspended", "renewal_due", "low_confidence"]) || typeof r.attention_is_prediction !== "boolean" || !member(r.document_kind, DOCS) ||
       (r.confidence !== null && (typeof r.confidence !== "number" || !Number.isFinite(r.confidence) || r.confidence < 0 || r.confidence > 1)) || !Array.isArray(r.events) || !r.events.length || r.events.length > 300) throw new Error("Invalid canonical receipt.");
@@ -88,7 +88,7 @@ export async function captureReceiptSnapshot(items: readonly ReceiptListItem[], 
     rows.push({
       ref: await receiptAccountBinding(`group:${row.id}`), display_id: row.id, primary_event_ref: refs.get(row.primaryReceiptKey)!,
       merchant: row.merchantName, category: row.category, display_kind: row.displayKind,
-      brand: (Object.entries(BRANDS).find(([, domain]) => domain === row.logoDomain)?.[0] as keyof typeof BRANDS) ?? null,
+      brand: row.brandKey ?? null,
       amount: decimal(primary), currency: row.currency, transaction_date: row.receiptDate,
       identifiers: row.identifiers.map(i => ({ kind: i.kind, value: i.value })), status: row.status, recurrence: row.recurrence,
       attention_state: row.attentionState, attention_reason: row.attentionReason, attention_is_prediction: row.attentionIsPrediction,
@@ -104,11 +104,12 @@ export async function captureReceiptSnapshot(items: readonly ReceiptListItem[], 
 /** Restore the already-decided groups. No new grouping, inference or provider read. */
 export function receiptSnapshotRows(snapshot: ReceiptSnapshot): RecentReceiptRow[] {
   return validateReceiptSnapshot(snapshot).rows.map((r, index) => {
+    const brand = resolveSavedReceiptMerchantBrand(r.brand, r.merchant);
     const secondaryText = [r.display_kind === "merchant" ? r.category === "Other" ? "Uncategorized" : r.category : r.category === "Other" || r.category === "Uncategorized" ? "Uncategorized" : null,
       receiptAttentionLabel(r.attention_state, r.attention_reason, r.attention_is_prediction) || receiptStatusLabel(r.status),
       formatLocalDateTime(r.transaction_date, { month: "short", day: "numeric" })].filter(Boolean).join(" · ");
     return { id: r.display_id, primaryReceiptId: index, primaryReceiptKey: r.primary_event_ref,
-      merchantName: r.merchant, category: r.category, displayKind: r.display_kind, logoDomain: r.brand ? BRANDS[r.brand] : null,
+      merchantName: r.merchant, category: r.category, displayKind: r.display_kind, brandKey: brand?.merchantId ?? null, logoDomain: brand?.logoDomain ?? null,
       amount: r.amount === null ? null : Number(r.amount), currency: r.currency,
       searchText: [r.merchant, r.category, r.status, r.recurrence, r.document_kind, r.attention_state, r.attention_reason, ...r.events.flatMap(e => [e.status, e.document_kind]), ...r.identifiers.map(i => i.value)].filter(Boolean).join(" "),
       secondaryText, secondaryDetail: r.display_kind === "merchant" && r.category !== "Other" && r.category !== "Uncategorized" ? r.category : null,

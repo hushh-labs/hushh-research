@@ -23,6 +23,43 @@ const receipt = (id: number, extra: Partial<ReceiptListItem> = {}): ReceiptListI
 beforeEach(() => { vi.restoreAllMocks(); publishValidatedAuthSessionOwner("owner"); Object.defineProperty(window, "indexedDB", { value: new IDBFactory(), configurable: true }); Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true }); });
 
 describe("canonical receipt storage boundary", () => {
+  it("roundtrips every reviewed merchant using only stable brand keys without URLs", async () => {
+    const brands = [
+      ["Myntra", "myntra.com", "myntra"], ["Amazon", "amazon.in", "amazon"],
+      ["Apple", "apple.com", "apple"], ["PayPal", "paypal.com", "paypal"],
+      ["Plaid", "plaid.com", "plaid"], ["Supabase", "supabase.com", "supabase"],
+      ["Kyari", "kyari.co", "kyari"], ["Anthropic", "anthropic.com", "anthropic"],
+      ["Google Play", "google.com", "google-play"], ["IndiGo", "goindigo.in", "indigo"],
+    ] as const;
+    const items = brands.map(([merchant_name, merchant_domain], index) => receipt(index + 1, { merchant_name, merchant_domain }));
+    const snapshot = await captureReceiptSnapshot(items, "account", coverage);
+    expect(snapshot.rows.map(row => row.brand)).toEqual(brands.map(([, , key]) => key));
+    const restored = receiptSnapshotRows(snapshot);
+    expect(restored.map(row => row.brandKey)).toEqual(brands.map(([, , key]) => key));
+    expect(restored.map(row => row.logoDomain)).toEqual(buildRecentReceiptRows(items, "account").map(row => row.logoDomain));
+    const serialized = JSON.stringify(snapshot);
+    for (const raw of ["https:", "homepageUrl", "logoDomain", "logoUrl", "plaid.com", "supabase.com", "kyari.co", "anthropic.com", "play.google.com", "goindigo.in"]) expect(serialized).not.toContain(raw);
+    expect(() => validateReceiptSnapshot({ ...snapshot, rows: [{ ...snapshot.rows[0], brand: "unreviewed" }] })).toThrow();
+    expect(() => validateReceiptSnapshot({ ...snapshot, rows: [{ ...snapshot.rows[0], homepageUrl: "https://plaid.com" }] })).toThrow();
+  });
+  it("reconciles legacy platform keys to the reviewed seller while keeping null and unknown brands closed", async () => {
+    const snapshot = await captureReceiptSnapshot([
+      receipt(1, { merchant_name: "Kyari.co", merchant_domain: "kyari.co" }),
+      receipt(2, { merchant_name: "Plaid", merchant_domain: "plaid.com" }),
+      receipt(3, { merchant_name: "Local Shop", merchant_domain: "amazon.com" }),
+    ], "account", coverage);
+    snapshot.rows[0].brand = "amazon"; // Existing sender-only branding selected the carrier.
+    snapshot.rows[1].brand = null; // No retained domain evidence can distinguish an old gap from a rejection.
+    snapshot.rows[2].brand = "amazon";
+    const before = JSON.stringify(snapshot);
+    const restored = receiptSnapshotRows(snapshot);
+    expect(restored.map(row => [row.merchantName, row.brandKey, row.logoDomain])).toEqual([
+      ["Kyari.co", "kyari", "kyari.co"], ["Plaid", null, null], ["Local Shop", null, null],
+    ]);
+    expect(restored.map(row => row.id)).toEqual(snapshot.rows.map(row => row.display_id));
+    expect(restored.map(row => row.primaryReceiptKey)).toEqual(snapshot.rows.map(row => row.primary_event_ref));
+    expect(JSON.stringify(snapshot)).toBe(before);
+  });
   it("roundtrips grouped UI projections without any raw email fields or provider identities", async () => {
     const items = [receipt(1), receipt(2, { identifiers: [{ kind: "order", value: "ORDER-1" }], event_type: "fulfillment", status: "delivered", document_kind: "fulfillment" }), receipt(3)];
     const snapshot = await captureReceiptSnapshot(items, "raw@example.com", coverage);
