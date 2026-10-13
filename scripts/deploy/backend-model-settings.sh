@@ -21,6 +21,7 @@ for _pair in "${_model_pairs[@]}"; do
     calendar_narration) _ONE_VOICE_CALENDAR_NARRATION_ENABLED="${_value}" ;;
     voice_model) _VERTEX_LIVE_MODEL_ID="${_value}" ;;
     voice_location) _VERTEX_LIVE_LOCATION="${_value}" ;;
+    pwm_tavily_secret) _PWM_TAVILY_API_KEY_SECRET="${_value}" ;;
     *) echo "_MODEL_SETTINGS carries an unknown key: ${_key}" >&2; exit 1 ;;
   esac
 done

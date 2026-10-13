@@ -232,3 +232,13 @@ export function ProfilePaneHistoryIcon(props: ProfilePaneIconProps) {
 export function ProfilePaneSearchIcon(props: ProfilePaneIconProps) {
   return <PaneIcon {...props}><circle cx="10.5" cy="10.5" r="6.5" /><path className="profile-pane-icon-accent" d="m15.5 15.5 5 5" /></PaneIcon>;
 }
+
+export function ProfilePaneWorldModelIcon(props: ProfilePaneIconProps) {
+  return (
+    <PaneIcon {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.5 12h17M12 3.5c4 4.5 4 12.5 0 17-4-4.5-4-12.5 0-17Z" />
+      <circle className="profile-pane-icon-accent-fill" cx="17.8" cy="5.8" r="2.3" stroke="none" />
+    </PaneIcon>
+  );
+}

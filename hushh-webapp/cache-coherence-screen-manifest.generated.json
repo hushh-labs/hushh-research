@@ -10,10 +10,10 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 156,
-    "physical_page_count": 155,
-    "route_contract_count": 156,
-    "surface_map_count": 156,
+    "total_screens": 157,
+    "physical_page_count": 156,
+    "route_contract_count": 157,
+    "surface_map_count": 157,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
@@ -22,7 +22,7 @@
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 2,
-      "PKM-secure": 6,
+      "PKM-secure": 7,
       "public/static": 1
     },
     "pages_missing_route_contract": [],
@@ -5037,6 +5037,54 @@
       ]
     },
     {
+      "route": "/one/profile/world-model",
+      "page_file": "app/one/profile/world-model/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "secure-resource",
+      "cache_keys": [],
+      "resource_classes": [
+        "pkm_metadata",
+        "pkm_projection"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
+      "warm_source": "Vault unlock plus secure resource cache",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fworld-model",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/puppy",
       "page_file": "app/one/puppy/page.tsx",
       "route_contract_mode": "standard",
@@ -7009,5 +7057,5 @@
       ]
     }
   ],
-  "content_sha256": "c670b26a95a65832db13c7437aadb49200f5cdf9ed0ad635d3d8d47f9a03d58b"
+  "content_sha256": "ddd471be861136d861b2c6999e827c9881089e20ee06df9c208c0b32915e65b6"
 }

@@ -1,9 +1,7 @@
-"""Environment contract for One Live Voice.
+"""One Live Voice uses the shared managed AI profile and an explicit enable flag.
 
-One explicit model id, one regional Vertex location, one server-side flag.
-There are no aliases and no fallbacks: when the flag is on and the model or
-location is missing or malformed, the process fails closed by naming the
-variable, never by picking a different model.
+Hosted model/project/region values come from the packaged profile. Local
+experiments may override them; malformed settings fail closed.
 """
 
 from __future__ import annotations
@@ -79,18 +77,24 @@ class OneVoiceLiveConfig:
         if not enabled:
             # Disabled: never touch the model contract, never construct a client.
             return cls(enabled=False, model_id="", location="")
-        model_id = _clean(VERTEX_LIVE_MODEL_ID_ENV)
+        from hushh_mcp.runtime_settings import managed_ai_settings
+
+        try:
+            managed = managed_ai_settings()
+        except RuntimeError as exc:
+            raise OneVoiceConfigError(str(exc)) from exc
+        model_id = managed.live_model
         if not model_id or not _MODEL_ID_RE.fullmatch(model_id):
             raise OneVoiceConfigError(
                 f"{VERTEX_LIVE_MODEL_ID_ENV} must name one explicit Vertex Live model id"
             )
-        location = _clean(VERTEX_LIVE_LOCATION_ENV).lower()
+        location = managed.live_location
         if not location or not _REGIONAL_LOCATION_RE.fullmatch(location):
             raise OneVoiceConfigError(
                 f"{VERTEX_LIVE_LOCATION_ENV} must be one regional Vertex location "
                 "(for example us-central1); global/us/eu are not Live endpoints"
             )
-        vertex_project = _clean(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV)
+        vertex_project = managed.project
         if vertex_project and not _PROJECT_ID_RE.fullmatch(vertex_project):
             raise OneVoiceConfigError(
                 f"{HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV} must be a valid Google Cloud project id"

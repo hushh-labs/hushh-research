@@ -26,6 +26,42 @@ complete Sandbox/live financial acceptance, native browser returns, or legal/tax
 approval. Signed capital and the first requester funding settlement on shared Dev
 are separately verified below; they do not prove a consumer purchase or payout.
 
+### Latest main composition — 2026-10-13 UTC
+
+The same infrastructure branch now composes main `06180616be38`, including its
+Personal World Model and canonical managed-AI profiles. Main migrations 335–336
+remain intact; the seven unaccepted task registrations move to 342–348 with
+identical forward/rollback SQL. Release and schema contracts use head 348;
+private migrations and the original preservation receipt remain unchanged.
+The immediately preceding candidate `78e118a69a76` passed canonical core in
+585 seconds. The new composition has passed 201 focused backend checks,
+66 frontend checks, 451 Back cases, 123 Files/Azure/runtime-provider cases,
+12 Chromium/WebKit layout cases, type checking and regenerated UI contracts;
+its completed-candidate core and hosted CI are still required.
+
+Research now uses existing private-placement admission before checkpoint reads,
+provider dispatch and result release. Invitation requests revalidate the owner
+and vault session after asynchronous key preparation; claims evaluate expiry
+after database lock waits. Exact owner-token lineage uses the claim's current
+transaction. Owner-GCP ADC follows the rendered owner project and matching CMEK
+custody, while shared managed AI retains the environment profile. Files binding
+retains the capability's explicitly approved Dev model bridge
+and rejects generic, mismatched or malformed project overrides; the general
+model factory remains pinned to its verified runtime topology. The immutable
+incoming source fails the corresponding placement, invitation-retirement,
+expiry and owner-ADC regression controls. Account reset retains financial
+fences and performs one sealed-packet purge.
+
+The read-only owner-target Azure observation on 2026-10-13 finds the primary's
+selected subscription enabled with all six providers registered, but its setup
+remains failed with `PROVIDER_REGISTRATION_PENDING` and no deployed private
+runtime or usable vault. Selection is retained; a fresh owner-bound Azure return
+is required because its provisioning credential was memory-only. The
+counterpart's private runtime and vault remain active. Existing two funding
+settlements and the $5 Sandbox Topup must not be repeated. Reviewer purchases,
+withdrawals and One's authenticated Stripe account/balance reads remain
+unverified. These source checks do not complete financial acceptance.
+
 ### Main integration verification — 2026-10-13 UTC
 
 The current continuation integrates main `03fb1e66eeff` on the same
@@ -474,7 +510,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/336_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/343_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -819,7 +855,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/336_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/343_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 

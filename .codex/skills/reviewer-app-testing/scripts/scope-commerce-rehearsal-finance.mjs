@@ -12,14 +12,14 @@ export async function proveExternalFunding(runtime, role, amountCents) {
     ["paid", "refund_pending", "refunded"].includes(item.status) && item.providerVerified === true && item.creditedOnce === true &&
     (!retained || item.fundingId === retained.id));
   if (!candidates.length) {
-    runtime.externalStep = { type: "hostedCheckout", role, amountCents, destination: "/one/profile/account",
+    runtime.externalStep = { type: "hostedCheckout", role, amountCents, destination: "/one/profile/payouts",
       maximumAggregateCents: COMMERCE_REHEARSAL.fundingCapCents };
     throw new CommerceRehearsalWait("EXTERNAL_HUMAN_CHECKOUT_AND_RECEIPT_REQUIRED");
   }
   commerceEvidence(candidates.length === 1 && uuid(candidates[0].fundingId), "EXACT_FUNDING_ATTEMPT_AMBIGUOUS");
   if (retained) return;
   const actor = runtime.actors[role], id = candidates[0].fundingId;
-  const destination = `/one/profile/account?commerceReturn=1&commerceAttemptId=${id}`;
+  const destination = `/one/profile/payouts?commerceReturn=1&commerceAttemptId=${id}`;
   await coldCommerceRecovery(runtime, role, destination);
   const account = await checkedCall(actor.session, "/api/scope-commerce/account");
   commerceEvidence(account.managed_balances === true && account.funding_lots.some(lot => lot.id === id), "FUNDED_BALANCE_LOT_UNAVAILABLE");
@@ -32,7 +32,7 @@ export async function requireSellerOnboarding(runtime) {
   for (const role of ["primary", "counterpart"]) {
     const account = await checkedCall(runtime.actors[role].session, "/api/scope-commerce/account");
     if (!account.seller.onboarded || !account.seller.eligible || account.seller.country !== "US") {
-      runtime.externalStep = { type: "hostedConnectOnboarding", role, destination: "/one/profile/account", country: "US" };
+      runtime.externalStep = { type: "hostedConnectOnboarding", role, destination: "/one/profile/payouts", country: "US" };
       throw new CommerceRehearsalWait("EXTERNAL_ELIGIBLE_CONNECT_ONBOARDING_REQUIRED");
     }
   }
@@ -45,12 +45,19 @@ function transferPreview(preview) {
     preview.net_cents >= (preview.minimum_net_cents || 0), "NET_WITHDRAWAL_THRESHOLD_OR_BACKING_BLOCKED");
 }
 
+async function openFinanceSection(page, name) {
+  const section = page.getByRole("button", { name, exact: true });
+  await section.waitFor({ state: "visible" });
+  if (await section.getAttribute("aria-expanded") !== "true") await section.click();
+}
+
 export async function requestManualWithdrawal(runtime) {
   runtime.boundary = "human-manual-withdrawal-and-durable-intent";
   const retained = runtime.state.withdrawals.primary[0];
   if (retained) return;
   const actor = runtime.actors.primary;
-  await actor.harness.navigateInApp(actor.session.page, "/one/profile/account");
+  await actor.harness.navigateInApp(actor.session.page, "/one/profile/payouts");
+  await openFinanceSection(actor.session.page, "Withdraw information-access earnings");
   const response = commercialResponse(actor.session.page, runtime.options.appOrigin, "GET", "/api/scope-commerce/withdrawals/preview");
   await actor.session.page.getByRole("button", { name: "Review withdrawal", exact: true }).click();
   const received = await response;
@@ -107,7 +114,8 @@ export async function refundUnusedFunding(runtime, role) {
   const lot = lots[0];
   const prefix = `/api/scope-commerce/funding/${lot.id}`;
   actor.admission.replace({ type: "refundPreview", pathname: `${prefix}/refund-preview`, expected: { amountCents: lot.refundable_cents } });
-  await actor.harness.navigateInApp(actor.session.page, "/one/profile/account");
+  await actor.harness.navigateInApp(actor.session.page, "/one/profile/payouts");
+  await openFinanceSection(actor.session.page, "Refund unused balance");
   const response = commercialResponse(actor.session.page, runtime.options.appOrigin, "POST", `${prefix}/refund-preview`);
   const review = actor.session.page.getByRole("button", { name: commerceMoneyButtonName("refund", lot.refundable_cents) });
   commerceEvidence(await review.count() === 1, "EXACT_SOURCE_REFUND_SELECTION_AMBIGUOUS");

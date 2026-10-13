@@ -481,6 +481,7 @@ async def test_organization_uses_real_adk_task_completion(monkeypatch, terminal_
             )
             yield LlmResponse(content=types.Content(role="model", parts=[part]))
 
+    monkeypatch.setenv("HUSSH_POD_MODE", "true")
     monkeypatch.setenv("HUSSH_POD_USER_ADC_ENABLED", "true")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "synthetic-project")
     monkeypatch.delenv("GENAI_GOOGLE_CLOUD_PROJECT", raising=False)
@@ -535,6 +536,7 @@ def test_background_model_cannot_escape_owner_project_through_genai_override(mon
     names = coordinates("synthetic-owner", "owner-project", "us-central1")
     settings = {
         "HUSSH_ID": "synthetic-owner",
+        "HUSSH_POD_MODE": "true",
         "HUSHH_DEPLOY_ENV": "dev",
         "HUSSH_POD_USER_ADC_ENABLED": "true",
         "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
@@ -554,9 +556,24 @@ def test_background_model_cannot_escape_owner_project_through_genai_override(mon
         organization_model_status()["backgroundProvider"]
         == "Google Vertex AI in your cloud project"
     )
+    for pod_mode in ("false", ""):
+        monkeypatch.setenv("HUSSH_POD_MODE", pod_mode)
+        with pytest.raises(FilesRefused, match="FILES_MODEL_UNAVAILABLE"):
+            organization_model_binding()
+    monkeypatch.setenv("HUSSH_POD_MODE", "true")
     monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "approved-dev-project")
     with pytest.raises(FilesRefused, match="FILES_MODEL_UNAVAILABLE"):
         organization_model_binding()
+    for invalid_bridge in ("another-dev-project", "malformed/project"):
+        monkeypatch.setenv("POD_FILES_DEV_MODEL_PROJECT", invalid_bridge)
+        with pytest.raises(FilesRefused, match="FILES_MODEL_UNAVAILABLE"):
+            organization_model_binding()
+    for invalid_project in ("malformed/project", "a" * 31):
+        monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", invalid_project)
+        monkeypatch.setenv("POD_FILES_DEV_MODEL_PROJECT", invalid_project)
+        with pytest.raises(FilesRefused, match="FILES_MODEL_UNAVAILABLE"):
+            organization_model_binding()
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "approved-dev-project")
     monkeypatch.setenv("POD_FILES_DEV_MODEL_PROJECT", "approved-dev-project")
     assert organization_model_binding().project == "approved-dev-project"
     assert (

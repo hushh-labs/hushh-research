@@ -97,6 +97,50 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "route.profile_world_model",
+      "label": "Open Personal World Model",
+      "meaning": "Opens your Personal World Model in Profile.",
+      "aliases": [
+        "open personal world model",
+        "open PWM"
+      ],
+      "search_keywords": [
+        "personal world model",
+        "PWM",
+        "public profile",
+        "preferences"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/world-model"
+      },
+      "control_ids": [
+        "profile_world_model"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/profile/world-model/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile_request_pricing",
       "label": "Open Request pricing",
       "meaning": "Opens the default price for document requests.",

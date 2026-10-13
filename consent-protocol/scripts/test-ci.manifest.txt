@@ -1215,6 +1215,12 @@ tests/test_drive_request_terms_migrations_postgres.py
 tests/test_pkm_answer_catalog.py
 tests/test_answer_center_surface_integration.py
 
+tests/test_world_model.py
+
+tests/test_world_model_invitations.py
+
+tests/test_one_chat_service_only_release.py
+
 tests/services/test_drive_packet_intelligence.py
 
 tests/services/test_drive_document_pages_postgres.py

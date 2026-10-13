@@ -1420,7 +1420,7 @@ async function presencePixels(artwork: Locator) {
   });
 }
 
-test.describe("One profile artwork and mapped work frames", () => {
+test.describe("One profile artwork and animated presence", () => {
   test.use({ deviceScaleFactor: 3 });
   test("keeps header and profile presence in sync through drafting, answering and idle", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1461,6 +1461,7 @@ test.describe("One profile artwork and mapped work frames", () => {
         await expect.poll(() => profile.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
       } else {
         for (const artwork of [header, profile]) {
+          await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
           const canvas = artwork.locator("canvas");
           await expect(canvas).toBeVisible();
           await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
@@ -1472,7 +1473,7 @@ test.describe("One profile artwork and mapped work frames", () => {
       await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
     }
   });
-  test("keeps HD reduced-motion artwork and pauses mapped frames for app lifecycle changes", async ({ page }) => {
+  test("keeps HD reduced-motion artwork and pauses rendering for app lifecycle changes", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.goto("http://localhost/connections-fixture?one-profile=1");

@@ -14,15 +14,23 @@ class OwnerIdentityUnavailable(RuntimeError):
 
 
 async def owner_setup_resolved(
-    user_id: str, *, pool_provider: Callable[[], Awaitable[Any]] | None = None
+    user_id: str, *, pool_provider: Callable[[], Awaitable[Any]] | None = None, conn: Any = None
 ) -> bool:
     """Read canonical completion without writes or feature-specific eligibility."""
-    pool = await (pool_provider or get_pool)()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
+
+    async def read(connection):
+        return await connection.fetchrow(
             "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1",
             user_id,
+            timeout=5,
         )
+
+    if conn is not None:
+        row = await read(conn)
+    else:
+        pool = await (pool_provider or get_pool)()
+        async with pool.acquire() as connection:
+            row = await read(connection)
     return bool(row and row["setup_completed"] is True and row["vault_status"] == "active")
 
 

@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import base64
 
+import pytest
+
 from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
@@ -146,3 +148,36 @@ def test_vertex_is_still_addressed_at_all(monkeypatch) -> None:
     assert env.get("GOOGLE_CLOUD_PROJECT"), "the pod has no Vertex project at all"
     assert env.get("GOOGLE_CLOUD_LOCATION"), "the pod has no Vertex location at all"
     assert env.get("GOOGLE_GENAI_USE_VERTEXAI") == "true"
+
+
+@pytest.mark.parametrize("defect", [None, "identity", "kms", "project", "azure", "hub"])
+def test_hosted_owner_adc_uses_rendered_custody_without_cross_project_override(monkeypatch, defect):
+    from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSSH_POD_MODE", "true")
+    monkeypatch.delenv("BACKEND_RUNTIME_CONFIG_JSON", raising=False)
+    monkeypatch.delenv("HUSSH_POD_KEY_VAULT_KEY", raising=False)
+    for key, value in _env_of(
+        UserGcpBackend(user_project=USER_PROJECT, live=False).render_deploy_config(_spec())
+    ).items():
+        monkeypatch.setenv(key, value)
+    if defect == "identity":
+        monkeypatch.delenv("HUSSH_ID")
+    if defect == "kms":
+        monkeypatch.setenv("HUSSH_POD_KMS_KEY", "not-a-resource")
+    if defect == "project":
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", HUSHH_PROJECT)
+    if defect == "azure":
+        monkeypatch.setenv(
+            "HUSSH_POD_KEY_VAULT_KEY", "https://synthetic.vault.azure.net/keys/key/1"
+        )
+    if defect == "hub":
+        monkeypatch.setenv("HUSSH_POD_MODE", "false")
+    if defect:
+        with pytest.raises(RuntimeError, match="Owner ADC topology"):
+            ManagedGeminiRuntimeBinding.from_environment()
+    else:
+        assert ManagedGeminiRuntimeBinding.from_environment().project == USER_PROJECT
+        with pytest.raises(ValueError, match="central configuration"):
+            ManagedGeminiRuntimeBinding.from_environment(vertex_project=HUSHH_PROJECT)

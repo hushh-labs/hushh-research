@@ -22,7 +22,7 @@ describe("top shell back action", () => {
     );
   });
 
-  it.each(["payouts", "request-pricing"])("returns %s to Profile while retaining its Feed origin", (panel) => {
+  it.each(["payouts", "request-pricing", "world-model"])("returns %s to Profile while retaining its Feed origin", (panel) => {
     expect(resolveTopShellBackAction({
       pathname: `/one/profile/${panel}`,
       searchParams: new URLSearchParams("from=%2Fone%2Ffeed&documentPayouts=done"),

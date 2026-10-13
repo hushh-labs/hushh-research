@@ -738,17 +738,17 @@ class ActorIdentityService:
                 timestamp = timestamp.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc) - timestamp >= _IDENTITY_STALE_AFTER
 
-    async def get_many(self, user_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+    async def get_many(self, user_ids: Iterable[str], *, conn=None) -> dict[str, dict[str, Any]]:
+        """Read identities; a caller-owned transaction retains authority until commit."""
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
         normalized_ids = [user_id for user_id in normalized_ids if user_id]
         if not normalized_ids:
             return {}
 
-        pool = await get_pool()
-        try:
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """
+        async def read(connection):
+            # Both query variants are authored constants; IDs remain bound in $1.
+            return await connection.fetch(
+                """
                     SELECT
                       user_id,
                       display_name,
@@ -763,13 +763,29 @@ class ActorIdentityService:
                       updated_at
                     FROM actor_identity_cache
                     WHERE user_id = ANY($1::text[])
-                    """,
-                    normalized_ids,
-                )
+                    ORDER BY user_id
+                    """
+                + (" FOR SHARE" if conn is not None else ""),  # nosec B608
+                normalized_ids,
+                timeout=5,
+            )
+
+        try:
+            if conn is not None:
+                rows = await read(conn)
+            else:
+                pool = await get_pool()
+                async with pool.acquire() as connection:
+                    rows = await read(connection)
+
         except asyncpg.UndefinedTableError:
+            if conn is not None:
+                raise
             logger.debug("actor_identity_cache missing; using legacy identity fallback")
             return await self._get_many_fallback(normalized_ids)
         except asyncpg.UndefinedColumnError as exc:
+            if conn is not None:
+                raise
             message = str(exc)
             phone_missing = "phone_number" in message or "phone_verified" in message
             custom_photo_missing = "custom_photo_url" in message

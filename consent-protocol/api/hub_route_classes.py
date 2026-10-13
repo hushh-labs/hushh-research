@@ -53,6 +53,9 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+DELETE,GET,POST /api/one/world-model/jobs
+POST /api/one/world-model/complete
+POST /api/one/world-model/research
 POST /api/one/profile-research
 GET,POST /api/one/profile-research/jobs
 POST /api/one/answer-requests/{request_id}/compose
@@ -155,6 +158,9 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+GET,POST /api/one/world-model/invitations
+DELETE /api/one/world-model/invitations/{invitation_id}
+POST /api/one/world-model/claims
 POST /api/connectors/google_drive/collection/processing
 POST /api/connectors/google_drive/sharing/packets/{packet_id}/listing
 POST /api/one/feed/clear

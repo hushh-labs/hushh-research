@@ -197,17 +197,14 @@ for _required in _ACCOUNT_DELETION_CLEANUP_AUDIENCE _ACCOUNT_DELETION_CLEANUP_SE
   fi
 done
 # The runtime-IAM preflight -- runtime service-account validity, the cross-project
-# managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
+# managed Vertex profile, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
 # so it is not repeated here. This body only needs the resolved genai project id,
 # which the deployed service carries as GENAI_GOOGLE_CLOUD_PROJECT.
 # GOOGLE_CLOUD_PROJECT remains the native runtime project for non-model services.
 genai_project_id="${_GENAI_PROJECT_ID}"
 if [[ -z "${genai_project_id}" ]]; then
-  genai_project_id="$PROJECT_ID"
-  if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
-    genai_project_id="hushh-vertex-personal54"
-  fi
+  genai_project_id="$(python3 -c 'import json,sys; print(json.load(open("consent-protocol/config/managed-ai-runtime.json"))["environments"][sys.argv[1]]["project"])' "${_DEPLOY_ENV}")"
 fi
 
 secrets="APP_SIGNING_KEY=$(commerce_secret_name "${_APP_SIGNING_KEY_SECRET}"):latest,VAULT_DATA_KEY=$(commerce_secret_name "${_VAULT_DATA_KEY_SECRET}"):latest,FIREBASE_ADMIN_CREDENTIALS_JSON=$(commerce_secret_name "${_FIREBASE_ADMIN_CREDENTIALS_SECRET}"):latest,APP_FRONTEND_ORIGIN=$(commerce_secret_name "${_APP_FRONTEND_ORIGIN_SECRET}"):latest,BACKEND_RUNTIME_CONFIG_JSON=$(commerce_secret_name "${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}"):latest,DB_USER=$(commerce_secret_name DB_USER):latest,DB_PASSWORD=$(commerce_secret_name DB_PASSWORD):latest"
@@ -235,6 +232,7 @@ append_optional_secret "${_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET}" "GOOGLE_DRIVE_O
 append_optional_secret "${_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET}" "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"
 # Names are derived from reviewed curated connector manifests by the workflow.
 # Refuse malformed substitutions before constructing runtime secret bindings.
+
 for s in $(echo "${_CURATED_CONNECTOR_SECRETS}" | tr '+' ' '); do
   if [[ ! "$s" =~ ^[A-Z][A-Z0-9_]{1,127}$ ]]; then
     echo "Invalid curated connector secret name." >&2; exit 1
@@ -899,6 +897,7 @@ append_optional_env "OWNER_FEED_SIGNING_ALG" "${owner_feed_signing_alg}"
 append_optional_env "OWNER_FEED_ED25519_KID" "${owner_feed_ed25519_kid}"
 append_optional_secret "${dev_owner_feed_private_secret}" "OWNER_FEED_ED25519_PRIVATE_KEY"
 append_optional_secret "${dev_owner_feed_public_keys_secret}" "OWNER_FEED_ED25519_PUBLIC_KEYS"
+append_optional_secret "${_PWM_TAVILY_API_KEY_SECRET:-}" "PWM_TAVILY_API_KEY"
 if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
     GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED GOOGLE_CONNECTOR_OAUTH_PROJECT; do

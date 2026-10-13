@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-10",
-  "total_routes": 137,
-  "native_required_routes": 110,
+  "generated_at": "2026-10-13",
+  "total_routes": 138,
+  "native_required_routes": 111,
   "excluded_routes": 27,
   "routes": [
     {
@@ -1558,6 +1558,21 @@
       "route": "/wallet/open",
       "classification": "excluded-web-only",
       "reason": "Anonymous browser reader for externally shared encrypted files; no app installation or signed-in native route is required."
+    },
+    {
+      "route": "/one/profile/world-model",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fworld-model",
+      "expectedMarker": "native-route-profile-world-model",
+      "expectedRoute": "/one/profile/world-model",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     }
   ]
 }

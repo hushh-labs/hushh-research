@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from enum import Enum
 from typing import Mapping, Optional
@@ -440,10 +439,13 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 FLEET_TEXT_MODEL_DEFAULT = "gemini-3.6-flash"
 
 
-def fleet_text_model_from_env(environ: "Mapping[str, str] | None" = None) -> str:
+def fleet_text_model_from_env(overrides: "Mapping[str, str] | None" = None) -> str:
     """The switched fleet text model: HUSSH_GEMINI_TEXT_MODEL, else the proven default."""
-    source = os.environ if environ is None else environ
-    return (source.get("HUSSH_GEMINI_TEXT_MODEL") or "").strip() or FLEET_TEXT_MODEL_DEFAULT
+    if overrides is not None:
+        return (overrides.get("HUSSH_GEMINI_TEXT_MODEL") or "").strip() or FLEET_TEXT_MODEL_DEFAULT
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    return managed_ai_settings().text_model
 
 
 GEMINI_MODEL = fleet_text_model_from_env()

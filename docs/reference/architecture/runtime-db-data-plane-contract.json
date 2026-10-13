@@ -1962,10 +1962,40 @@
       ],
       "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences.",
       "retention_policy": "Current collection cursors and workflow state are replaced as progress commits. Versioned extraction, facts and packet evidence are retained while their parent records exist; background pause stops processing without deleting evidence. Historical packet manifests preserve exact approval and purchase evidence. A time-based purge of superseded evidence is not implemented.",
-      "deletion_behavior": "Connection generation invalidation removes connected documents; their extraction, page and fact children cascade. Packet availability is fenced by active connection, consent, generation, source versions and freshness. Connection deletion cascades packet heads and versions. Account deletion removes owner-bound state; request packet foreign keys become null while independently encrypted approved request and financial records retain their established lifecycle.",
+      "deletion_behavior": "Connection generation invalidation removes connected documents; their extraction, page and fact children cascade. Packet availability is fenced by active connection, consent, generation, source versions and freshness. Connection deletion cascades packet heads and versions. Account reset and deletion explicitly remove owner packet heads and cascade their encrypted versions, sources and listings; reset retains only the connector generation fence. Account deletion removes remaining owner-bound state; request packet foreign keys become null while independently encrypted approved request and financial records retain their established lifecycle.",
       "trust_boundary": "Source identifiers, filenames, page text, document facts, citations, packet membership, assessments and provider checkpoints remain owner/resource/purpose-bound encrypted evidence. Plaintext contains opaque IDs, versions, keyed digests, work statuses, timestamps, bounded pricing and explicit listing policy. Preparation consent never authorizes publication or buyer access. Provider/model I/O occurs outside database transactions.",
       "plaintext_posture": "encrypted_document_and_packet_evidence_with_opaque_workflow_metadata_and_explicit_listing_policy",
       "expected_row_growth": "Proportional to consented accessible files, pages and source versions; canonical membership avoids every possible file combination. Superseded-version storage requires operational growth monitoring."
+    },
+    {
+      "id": "pwm_invitation_authority",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_claim_invitations"
+      ],
+      "primary_access_path": "Authenticated PWM invitation create/list/revoke/claim routes. Shared account graph locks and existing transaction connection for strict owner authority.",
+      "retention_policy": "Seven-day authorization expiry; expired rows removed on subsequent invitation creation. Explicit revocation deletes immediately.",
+      "deletion_behavior": "Delete either participant rows on account reset; actor_profiles cascading foreign keys delete on account erasure. Migration refreshes canonical deleted-identity guards.",
+      "trust_boundary": "Keyed contact commitment and random token hash only; no raw contact, findings, names or passwords. Claim grants no sharing or research.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "bounded_twenty_pending_per_owner"
+    },
+    {
+      "id": "pwm_provider_budget",
+      "owner": "backend-agents-operons",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_provider_budget"
+      ],
+      "primary_access_path": "Atomic monthly provider credit charge before dispatch.",
+      "retention_policy": "One aggregate counter per provider/month; retained for operational cost audit.",
+      "deletion_behavior": "No owner data or identifiers; account deletion does not alter shared quota.",
+      "trust_boundary": "Provider name, UTC month and numeric credits only; never queries or contact identifiers.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one_row_per_provider_month"
     }
   ]
 }

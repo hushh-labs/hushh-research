@@ -1155,6 +1155,7 @@ class ConsentDBService:
         agent_id: Optional[str] = None,
         *,
         token_id: Optional[str] = None,
+        conn: Any = None,
     ) -> bool:
         """Check the exact grant under its principal's revocation policy.
 
@@ -1172,6 +1173,12 @@ class ConsentDBService:
         if normalized_agent_id == "self" and normalized_scope == "vault.owner" and token_id:
             # One statement sees exact grant + subsequent revocations together.
             # No fallback to a different ledger or a merely newer owner grant.
+            if conn is not None:
+                from hushh_mcp.services.consent_event_authority import (
+                    owner_lineage_active_in_transaction,
+                )
+
+                return await owner_lineage_active_in_transaction(conn, user_id, token_id, now_ms)
             return await asyncio.to_thread(
                 owner_lineage_is_active, self._get_db(), user_id, token_id, now_ms
             )

@@ -1,4 +1,4 @@
-// Synthetic auth/native/Mail boundaries only; the production drawer, Drive
+// Synthetic auth/native/Mail/cache boundaries; the production drawer, Drive
 // transport, popup controller, Picker adapter and card actions are unchanged.
 import { createContext, useState } from "react";
 // This layout fixture has no unlocked encrypted custom-connector catalog.

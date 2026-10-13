@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from hushh_mcp.runtime_providers.factory import (
@@ -72,16 +72,21 @@ def organization_model_binding() -> ManagedGeminiRuntimeBinding | AzureOrganizat
     except (ValueError, RuntimeError):
         raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503) from None
     approved_bridge = os.getenv("POD_FILES_DEV_MODEL_PROJECT", "")
+    model_project = os.getenv("GENAI_GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
     bridge_allowed = (
         os.getenv("HUSHH_DEPLOY_ENV") == "dev"
-        and bool(approved_bridge)
-        and binding.project == approved_bridge
+        and re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", approved_bridge) is not None
+        and model_project == approved_bridge
     )
-    if binding.auth_mode != VERTEX_ADC_AUTH_MODE or (
-        binding.project != project and not bridge_allowed
+    if (
+        binding.project != project
+        or binding.auth_mode != VERTEX_ADC_AUTH_MODE
+        or (model_project != project and not bridge_allowed)
     ):
         raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
-    return binding
+    # The installed Files capability alone authorizes its exact dev bridge.
+    # The shared factory remains pinned to its central or owner-cloud topology.
+    return replace(binding, project=approved_bridge) if bridge_allowed else binding
 
 
 def organization_model_status() -> dict:

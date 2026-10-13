@@ -55,6 +55,7 @@ import {
   ProfilePaneSecurityIcon,
   ProfilePaneSignOutIcon,
   ProfilePaneWalletIcon,
+  ProfilePaneWorldModelIcon,
 } from "@/components/profile/profile-pane-icons";
 import {
   ProfileInnerPeopleIcon,
@@ -191,6 +192,7 @@ import {
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
 import {
+  buildProfilePaneCloseHref,
   popProfilePaneLocation,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
@@ -4579,6 +4581,21 @@ function ProfilePageContent({
                 voiceLabel="Memory"
                 voicePurpose="Opens saved details and sharing."
                 onClick={() => openVaultBackedPanel("my-data")}
+              />
+              <SettingsRow
+                icon={ProfilePaneWorldModelIcon}
+                iconTone="capability"
+                title="Personal World Model"
+                chevron
+                voiceControlId="profile_world_model"
+                voiceActionId="route.profile_world_model"
+                voiceLabel="Personal World Model"
+                voicePurpose="Opens your Personal World Model."
+                onClick={() => {
+                  const from = normalizeInternalRouteHref(searchParams.get("from")) ??
+                    (isPanePresentation ? normalizeInternalRouteHref(buildProfilePaneCloseHref(pathname, searchParams)) : null);
+                  router.push(from ? `${ROUTES.PROFILE_WORLD_MODEL}?${new URLSearchParams({ from })}` : ROUTES.PROFILE_WORLD_MODEL);
+                }}
               />
               <SettingsRow
                 icon={
