@@ -44,8 +44,15 @@ catalog reads have the same guard; the existing consented cross-owner listing
 authority remains separate. All 224 nearest backend checks pass; the tightened
 nine-case boundary check passes, while all eight private/unknown refusal cases
 fail against the immutable unguarded incoming source. Locked-dependency frontend
-checks pass 196 cases, and the combined Back pack passes 450 cases. Full core,
-hosted CI, Dev release and financial/OAuth acceptance remain required.
+checks pass 196 cases, and the combined Back pack passes 450 cases. The next core
+run exposed schema column-order drift and phone fixtures missing the current
+ownership lookup. Restored canonical ordering and narrowly corrected fixtures
+pass 250 focused checks, preserving occupied-number and owner-mismatch controls.
+The erasure inventory now proves seven existing Drive FK cascades. A separate
+reset gap is corrected in the existing cleanup transaction: sealed packet keys,
+versions and listings are erased after financial fences; 34 packet/retention
+checks pass, and the immutable predecessor fails the reset negative control.
+Full core, hosted CI, Dev release and financial/OAuth acceptance remain required.
 
 The preceding continuation integrated main `460a68d4b908` through normal merge
 `49d29b86ac99` on the preserved infrastructure branch. Main migrations 327–331

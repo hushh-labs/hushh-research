@@ -5855,7 +5855,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_retention.py",
       "symbol": "erase_drive_account_in_transaction",
-      "value": 406
+      "value": 410
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -23055,7 +23055,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 568
+      "value": 597
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -40666,5 +40666,26 @@
     "retained_parent": "a1b0a6ed3b",
     "review": "Independent ci_registry_review qualifies exactly seven incoming/retained composition spans. Signed-settlement AST is unchanged; the restored ADK progress test retains its positive control and uses the canonical timeout category. Wallet backend classification is composed with existing owner, vault and Back checks. Preserve every other entry, multiplicity, budget, scanner and future-growth gate. Stop HTTP coverage was moved to its existing 488-line test owner instead of accepting growth in the generic fetch suite. Source qualification does not establish deployed acceptance."
   },
-  "status": "advisory"
+  "status": "advisory",
+  "scope_commerce_packet_reset_privacy_20261013": {
+    "source_revision": "3cf500486eece51830bde9b138530901c92ad90a",
+    "reason": "Canonical reset removes sealed packet material after financial fences; nearest PostgreSQL regression also verifies late-worker refusal and original request-term preservation. Independent source review qualifies only these two existing size slots.",
+    "qualified_updates": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_retention.py|erase_drive_account_in_transaction|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": 406,
+        "value": 410,
+        "source_sha256": "576672bdf800fcf2a6ac71a1347dd5b7ea0e7c8e2a12c881d241fcdc3d451cfd"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 568,
+        "value": 597,
+        "source_sha256": "f2d600d1caae6cfcd2c5e71c958b3939bdee873a794be55dc83b95ec59e55874"
+      }
+    ],
+    "verification": "34 packet/retention cases pass; immutable predecessor retains a packet head and fails the reset negative control, while connector-deletion control passes."
+  }
 }

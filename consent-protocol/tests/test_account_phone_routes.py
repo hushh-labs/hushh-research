@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -9,6 +11,11 @@ from fastapi.testclient import TestClient
 from api.middleware import require_firebase_auth
 from api.routes import account
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+
+@pytest.fixture(autouse=True)
+def unclaimed_phone_number(monkeypatch):
+    monkeypatch.setattr(ActorIdentityService, "can_claim_test_phone", AsyncMock(return_value=True))
 
 
 def _build_app() -> FastAPI:

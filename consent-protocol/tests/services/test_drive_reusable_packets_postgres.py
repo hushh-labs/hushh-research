@@ -16,6 +16,7 @@ from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStor
 from hushh_mcp.services.drive_packet_store import LISTING_DISCLOSURE, DrivePacketStore
 from hushh_mcp.services.drive_packet_worker import DrivePacketWorker
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_ingestion import (
     collection,
@@ -417,10 +418,20 @@ async def test_independent_checker_failure_prevents_ready_and_listing(reusable):
         )
 
 
+@pytest.mark.parametrize("erasure", ["connector", "reset"])
 async def test_reference_fk_does_not_block_connector_deletion_or_mutate_request_terms(
-    reusable, sharing
+    reusable, sharing, erasure
 ):
     packet = await ready_packet(reusable)
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=51,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
     created = await request(sharing)
     with reusable.facts.db.engine.begin() as connection:
         connection.execute(
@@ -432,11 +443,22 @@ async def test_reference_fk_does_not_block_connector_deletion_or_mutate_request_
             text("SELECT request_envelope FROM drive_share_requests WHERE request_id=:id"),
             {"id": created["requestId"]},
         ).scalar_one()
-        connection.execute(
-            text(
-                "DELETE FROM user_external_connector_connections WHERE user_id='owner' AND connector_id='google_drive'"
+        connection.execute(text("UPDATE drive_packet_heads SET dirty=TRUE WHERE user_id='owner'"))
+    late_job = await reusable.packets.claim_packet(user_id="owner", policy_version=POLICY)
+    assert late_job
+    with reusable.facts.db.engine.begin() as connection:
+        if erasure == "reset":
+            erase_drive_account_in_transaction(
+                connection, user_id="owner", permanent=False, cipher=sharing.cipher
             )
-        )
+        else:
+            connection.execute(
+                text(
+                    "DELETE FROM user_external_connector_connections WHERE user_id='owner' AND connector_id='google_drive'"
+                )
+            )
+        for table in ("drive_packet_heads", "drive_packet_versions", "drive_packet_listings"):
+            assert connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one() == 0
         row = (
             connection.execute(
                 text(
@@ -445,10 +467,17 @@ async def test_reference_fk_does_not_block_connector_deletion_or_mutate_request_
                 {"id": created["requestId"]},
             )
             .mappings()
-            .one()
+            .one_or_none()
         )
-    assert row["request_envelope"] == before
-    assert row["reusable_packet_id"] is None and row["reusable_packet_version"] is None
+    if erasure == "connector":
+        assert row["request_envelope"] == before
+        assert row["reusable_packet_id"] is None and row["reusable_packet_version"] is None
+    else:
+        assert row is None
+    with pytest.raises(DriveReadError):
+        await reusable.packets.commit_build(
+            late_job, build={"assessment": {}}, after_document_id=None, phase="verify"
+        )
 
 
 async def test_expired_fact_lease_cannot_commit_after_reclaim(reusable):

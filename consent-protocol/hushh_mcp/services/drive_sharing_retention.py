@@ -465,6 +465,10 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
     # selection. Recreating generation 1 could activate a stale callback.
     if _exists(connection, "drive_picker_sessions"):
         connection.execute(text("DELETE FROM drive_picker_sessions WHERE user_id=:user"), params)
+    # Reset retains the connector row, so its FK cannot erase sealed packet
+    # keys, versions or listings. Remove that parent after the financial fences.
+    if _exists(connection, "drive_packet_heads"):
+        connection.execute(text("DELETE FROM drive_packet_heads WHERE user_id=:user"), params)
     if _exists(connection, "connected_documents"):
         connection.execute(text("DELETE FROM connected_documents WHERE user_id=:user"), params)
     connection.execute(
