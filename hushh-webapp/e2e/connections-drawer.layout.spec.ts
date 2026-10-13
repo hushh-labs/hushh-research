@@ -36,9 +36,12 @@ test.beforeAll(async () => {
     ],
     resolve: {
       alias: [
+        ...["next/navigation", "@/lib/vault/vault-context", "@/components/profile/profile-workspace-page"].map(find => ({
+          find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+          replacement: path.join(root, "e2e/fixtures/profile-legal-connectors-boundaries.tsx"),
+        })),
         ...[
           "@/hooks/use-auth",
-          "@/lib/vault/vault-context",
           "@/lib/services/api-service",
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
@@ -47,7 +50,6 @@ test.beforeAll(async () => {
           "@/lib/pkm/pkm-domain-resource",
           "@/lib/kai/plaid-vault/vault-sync",
           "@/lib/connections/custom-connector-configuration",
-          "next/navigation",
         ].map((find) => ({
           // Vite string aliases match subpaths; every boundary mock is exact.
           find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
@@ -66,6 +68,7 @@ test.beforeAll(async () => {
     build: {
       outDir,
       emptyOutDir: false,
+      copyPublicDir: false,
       lib: {
         entry: path.join(root, "e2e/fixtures/connections-drawer.tsx"),
         name: "Fixture",
@@ -103,6 +106,7 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() +
     fs.readdirSync(outDir).filter(name => name.endsWith(".css"))
       .map(name => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
+  fs.writeFileSync(path.join(outDir, "fixture-full.css"), css);
 });
 
 test.beforeEach(async ({ page }) => {
@@ -252,9 +256,12 @@ async function profileFrame(page: import("@playwright/test").Page) {
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
     document.body.append(reference);
     const bounds = reference.getBoundingClientRect();
+    const style = getComputedStyle(reference);
     const result = { x: innerWidth - bounds.right, y: bounds.y,
       width: bounds.width, height: bounds.height,
-      radius: getComputedStyle(reference).borderTopLeftRadius };
+      radius: style.borderTopLeftRadius,
+      material: { background: style.backgroundColor, border: style.borderColor,
+        shadow: style.boxShadow, filter: style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter") } };
     reference.remove();
     return result;
   });
@@ -286,20 +293,17 @@ for (const width of [390, 768])
       return { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
     });
     expect(titleStyle).toEqual({ size: "20px", line: "23px", weight: "700" });
-    // WebKit cannot reliably blur behind the transformed card. Its own
-    // material must remain opaque so chat content never reads through it.
+    // Profile is the material authority in both themes, including WebKit.
+    // A matching frame alone hid the old opaque Chats override.
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
+      const reference = await profileFrame(page);
       const material = await chats.evaluate(element => {
-        const probe = document.createElement("div");
-        probe.style.backgroundColor = "var(--background)";
-        element.append(probe);
-        const result = { actual: getComputedStyle(element).backgroundColor,
-          opaque: getComputedStyle(probe).backgroundColor };
-        probe.remove();
-        return result;
+        const style = getComputedStyle(element);
+        return { background: style.backgroundColor, border: style.borderColor,
+          shadow: style.boxShadow, filter: style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter") };
       });
-      expect(material.actual).toBe(material.opaque);
+      expect(material).toEqual(reference.material);
     }
   });
 
@@ -1389,6 +1393,121 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
 });
 
 test.describe("One profile Retina artwork", () => {
+
+  for (const width of [390, 1440]) {
+    test(`Chats and One match the mounted Profile material and row scale at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.route("**/api/one/feed**", route => route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ items: [{ id: "100", event_type: "connection_accepted", source_domain: "connections",
+          actor_label: "Synthetic person", metadata: {}, read: true, created_at: "2026-10-13T08:00:00Z" },
+          { id: "99", event_type: "unknown_event", source_domain: "connections", actor_label: null, metadata: {}, read: true,
+            created_at: "2026-10-13T07:00:00Z" }], next_cursor: null, unread_count: 0 }),
+      }));
+      await page.goto("http://localhost/connections-fixture?one-profile=1&panel-parity=1&perf=1");
+      await page.addScriptTag({ content: script });
+      await awaitProductFont(page);
+      const material = (panel: import("@playwright/test").Locator) => panel.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { background: style.backgroundColor, border: style.borderColor, shadow: style.boxShadow,
+          filter: style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter"), radius: style.borderRadius };
+      });
+      const type = (label: import("@playwright/test").Locator) => label.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight,
+          weight: style.fontWeight, tracking: style.letterSpacing, color: style.color };
+      });
+      for (const dark of [false, true]) {
+        await page.evaluate(() => window.__hushhPerf?.scenario("profile-panels-parity"));
+        await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
+        await page.getByRole("button", { name: "Open reference Profile", exact: true }).click();
+        const profile = page.getByTestId("profile-pane");
+        const profileRow = profile.getByTestId("profile-account-row");
+        await expect(profileRow).toBeVisible();
+        await expect.poll(() => profile.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+        const reference = {
+          material: await material(profile), title: await type(profile.getByRole("heading", { name: "Profile", exact: true })),
+          row: await type(profileRow.locator('[data-slot="settings-row-title"]')),
+          description: await type(profileRow.locator('[data-slot="settings-row-description"]')),
+          section: await type(profile.getByRole("heading", { name: "Your settings", exact: true })),
+          icon: (await profileRow.locator('[data-slot="settings-row-icon"]').boundingBox())!.width,
+          chevron: (await profileRow.locator('[data-slot="settings-row-chevron"]').boundingBox())!.width,
+          headerPadding: await profile.locator(".profile-pane-header").evaluate(element => getComputedStyle(element).padding),
+          rowPadding: await profileRow.locator("button").evaluate(element => getComputedStyle(element).padding),
+          separator: await profileRow.evaluate(element => ({ left: getComputedStyle(element, "::after").left, right: getComputedStyle(element, "::after").right })),
+        };
+        await profileRow.getByRole("button").click();
+        const inner = profile.locator('[data-profile-stack-content="true"] [data-slot="settings-group-shell"]');
+        await expect(inner).toBeVisible();
+        const innerMaterial = await material(inner);
+        await profile.getByRole("button", { name: "Close Profile", exact: true }).click();
+        await expect(profile).not.toBeVisible();
+
+        await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+        const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+        await expect.poll(() => chats.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+        expect(await material(chats)).toEqual(reference.material);
+        expect(await type(chats.getByRole("heading", { name: "Chats", exact: true }))).toEqual(reference.title);
+        expect(await type(chats.locator('[data-agent-history-row-title]').first())).toEqual(reference.row);
+        expect(await type(chats.locator('[data-agent-history-row-description]').first())).toEqual(reference.description);
+        expect(await type(chats.locator('[data-agent-history-section-label]').first())).toEqual(reference.section);
+        expect(await chats.locator('[data-agent-history-header]').evaluate(element => getComputedStyle(element).padding)).toBe(reference.headerPadding);
+        expect(await chats.locator('[data-agent-history-row] button').first().evaluate(element => getComputedStyle(element).padding)).toBe(reference.rowPadding);
+        expect((await chats.getByRole("button", { name: "Open Connectors" }).locator("svg").boundingBox())!.width).toBe(reference.icon);
+        await expect(chats.getByRole("button", { name: /^A longer conversation title/ })).toBeVisible();
+        await chats.getByRole("button", { name: "Close chat history" }).click();
+
+        await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+        const one = page.getByRole("dialog", { name: "One", exact: true });
+        await one.getByRole("tab", { name: "Feed", exact: true }).click();
+        const feedRow = one.getByTestId("feed-row").first();
+        await expect(feedRow).toBeVisible();
+        await expect.poll(() => one.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+        expect(await material(one)).toEqual(reference.material);
+        expect(await type(one.getByRole("heading", { name: "One", exact: true }))).toEqual(reference.title);
+        expect(await type(feedRow.locator('[data-slot="settings-row-title"]'))).toEqual(reference.row);
+        expect(await type(feedRow.locator('[data-slot="settings-row-description"]'))).toEqual(reference.description);
+        expect(await type(one.getByRole("heading", { name: "Latest activity" }))).toEqual(reference.section);
+        expect(await feedRow.locator("button").evaluate(element => getComputedStyle(element).padding)).toBe(reference.rowPadding);
+        expect((await feedRow.locator('[data-slot="settings-row-leading"]').boundingBox())!.width).toBe(reference.icon);
+        expect((await feedRow.locator('[data-slot="settings-row-chevron"]').boundingBox())!.width).toBe(reference.chevron);
+        expect(await feedRow.evaluate(element => ({ left: getComputedStyle(element, "::after").left, right: getComputedStyle(element, "::after").right }))).toEqual(reference.separator);
+        expect(await feedRow.locator("button").evaluate(element => getComputedStyle(element).minHeight)).toBe("44px");
+        expect((await feedRow.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        const passiveRow = one.getByTestId("feed-row").nth(1);
+        await expect(passiveRow.locator("button")).toHaveCount(0);
+        expect(await passiveRow.locator(":scope > div").evaluate(element => ({ height: getComputedStyle(element).minHeight, padding: getComputedStyle(element).padding })))
+          .toEqual({ height: "44px", padding: reference.rowPadding });
+        await one.getByRole("tab", { name: "Profile", exact: true }).click();
+        await expect(one.getByRole("link", { name: "Open memory.md in Memory" })).toBeVisible();
+        expect(await one.locator('[data-row-layout="settings"]').first().locator(":scope > div").evaluate(element => getComputedStyle(element).minHeight)).toBe("44px");
+        expect(await material(one.locator("[data-app-pane-card]").first())).toEqual(innerMaterial);
+        await page.screenshot({ path: test.info().outputPath(`panel-parity-${dark ? "dark" : "light"}.png`) });
+        await one.getByRole("button", { name: "Close One profile" }).click();
+        await expect(one).not.toBeVisible();
+        await page.evaluate(() => window.__hushhPerf?.scenario(null));
+      }
+      const perfPath = test.info().outputPath("pane-frame-pacing.json");
+      fs.writeFileSync(perfPath, await page.evaluate(() => window.__hushhPerf?.export() ?? "{}"));
+      await test.info().attach("pane-frame-pacing", { path: perfPath, contentType: "application/json" });
+      // Android intentionally disables backdrop filters. A supported CSS
+      // property must not leave translucent panes over readable chat text.
+      await page.evaluate(() => document.documentElement.classList.add("native-android"));
+      await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+      const androidOne = page.getByRole("dialog", { name: "One", exact: true });
+      await expect(androidOne).toBeVisible();
+      expect((await material(androidOne)).background).toBe(await androidOne.evaluate(element => {
+        const probe = document.createElement("div");
+        probe.style.background = "var(--app-card-surface-default-solid)";
+        element.append(probe);
+        const color = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return color;
+      }));
+      const androidReference = await profileFrame(page);
+      expect(await material(androidOne)).toEqual({ ...androidReference.material, radius: androidReference.radius });
+    });
+  }
   test.use({ deviceScaleFactor: 3 });
   test("keeps header and profile presence in sync through drafting, answering and idle", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AgentConnectionsDrawer,
@@ -12,9 +12,12 @@ import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
+import { ProfilePane } from "../../components/app-ui/profile-pane";
+import { closeProfilePane, openProfilePane, resolveProfilePaneUrlState } from "../../lib/navigation/profile-pane";
 import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
 import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
 import { ProfileAccountResetIcon } from "../../components/profile/profile-your-account-icons";
+import { startFramePacingProbe } from "../../lib/perf/frame-pacing";
 import accountStyles from "../../components/profile/profile-your-account.module.css";
 import {
   readGoogleOAuthPopupAttempt,
@@ -195,6 +198,12 @@ function ChatConnectCards() {
 }
 
 function Fixture() {
+  const query = useSyncExternalStore(listener => {
+    window.addEventListener("popstate", listener);
+    return () => window.removeEventListener("popstate", listener);
+  }, () => window.location.search, () => "");
+  const panelParity = new URLSearchParams(query).has("panel-parity");
+  const referenceProfileOpen = resolveProfilePaneUrlState(query).open;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const transcriptRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
@@ -248,6 +257,8 @@ function Fixture() {
       >
         Open drawer
       </button>
+      {panelParity ? <button onClick={() => openProfilePane(window.location.pathname, window.location.search)}>Open reference Profile</button> : null}
+      <ProfilePane open={referenceProfileOpen} onOpenChange={next => { if (!next) closeProfilePane(window.location.pathname, window.location.search); }} />
       {new URLSearchParams(window.location.search).has("one-profile") ? <button data-testid="one-presence-header" ref={oneProfileTrigger} onClick={() => setOneProfileOpen(true)}>
         <OnePresenceAvatar state={onePresenceState} /> Open One profile
       </button> : null}
@@ -262,7 +273,11 @@ function Fixture() {
         externalModalOpen={external}
         chats={
           <AgentHistorySidebar
-            conversations={[]}
+            conversations={panelParity ? Array.from({ length: 20 }, (_, i) => ({
+              id: `synthetic-chat-${i}`, title: i === 0 ? "A longer conversation title that wraps on a phone" : `Synthetic conversation ${i + 1}`,
+              status: "active", message_count: 2,
+              created_at: "2026-10-13T08:00:00Z", updated_at: "2026-10-13T08:00:00Z",
+            })) : []}
             activeConversationId={null}
             onCreateNew={() => {}}
             onSelectConversation={() => {}}
@@ -311,6 +326,7 @@ function Fixture() {
 }
 const root = createRoot(document.getElementById("root")!);
 root.render(<Fixture />);
+if (new URLSearchParams(window.location.search).has("perf")) startFramePacingProbe({ hud: false });
 // Profile's shipped Connectors section inside its shipped reading-width shell.
 Object.assign(window, {
   __renderConnectorsSettingsPage: () => root.render(

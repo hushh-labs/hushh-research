@@ -52,6 +52,11 @@
   margin-inline: var(--page-inline-gutter-standard);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: var(--profile-pane-card-surface);
+  border-color: var(--profile-pane-card-border);
+  box-shadow: inset 0 1px 0 var(--profile-pane-card-highlight);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .tabList button {
   min-height: 44px;
@@ -67,6 +72,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding-inline: var(--app-side-pane-row-inset);
 }
 .sectionHeading h3 {
   font-size: var(--app-side-pane-section-size);
@@ -82,7 +88,7 @@
   color: var(--app-accent-deep);
 }
 .notice {
-  color: var(--muted-foreground);
+  color: var(--ios-account-secondary-label);
   font-size: var(--app-side-pane-row-title-size);
   padding: 16px 0;
 }
@@ -96,26 +102,28 @@
   align-items: center;
   gap: 10px;
   padding: 40px 12px;
-  color: var(--muted-foreground);
+  color: var(--ios-account-secondary-label);
   text-align: center;
 }
 .empty p {
-  font-weight: 500;
-  color: var(--foreground);
+  font-size: var(--app-side-pane-row-title-size);
+  font-weight: var(--app-side-pane-row-title-weight);
+  line-height: var(--app-side-pane-row-title-line);
+  color: var(--ios-account-label);
 }
 .empty span {
-  font-size: 13px;
+  font-size: var(--app-side-pane-row-description-size);
+  line-height: var(--app-side-pane-row-description-line);
 }
 .identityNote {
-  padding: 12px;
-  border-radius: var(--app-card-radius-feature);
-  background: var(--app-card-surface-compact);
+  padding: 14px;
 }
 .eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--muted-foreground);
+  font-size: var(--app-side-pane-section-size);
+  font-weight: var(--app-side-pane-section-weight);
+  line-height: var(--app-side-pane-section-line);
+  letter-spacing: var(--app-side-pane-section-tracking);
+  color: var(--ios-account-secondary-label);
 }
 .identityNote h3 {
   margin: 8px 0;
@@ -123,70 +131,10 @@
   font-weight: 600;
 }
 .identityNote p {
-  color: var(--muted-foreground);
-  font-size: var(--app-side-pane-row-title-size);
-  line-height: var(--app-side-pane-row-description-line);
-}
-.cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.fileCard {
-  min-width: 0;
-  min-height: 172px;
-  padding: 12px;
-  border-radius: 15px;
-  color: white;
-  --app-side-pane-row-color: white;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 28px;
-}
-.soul {
-  background: linear-gradient(
-    145deg,
-    color-mix(in oklab, var(--app-destructive) 80%, black),
-    color-mix(in oklab, var(--app-destructive) 60%, black)
-  );
-}
-.memory {
-  background: linear-gradient(
-    145deg,
-    color-mix(in oklab, var(--app-accent) 70%, black),
-    color-mix(in oklab, var(--app-accent) 50%, black)
-  );
-}
-.fileCard h4 {
-  margin: 12px 0 8px;
-  font-size: var(--app-side-pane-row-title-size);
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.fileCard p {
+  color: var(--ios-account-secondary-label);
   font-size: var(--app-side-pane-row-description-size);
   line-height: var(--app-side-pane-row-description-line);
-  opacity: 0.85;
 }
-.cardFooter {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--app-side-pane-row-description-size);
-}
-.memory:hover {
-  filter: brightness(1.05);
-}
-.memory:focus-visible {
-  outline: 2px solid var(--app-accent-deep);
-  outline-offset: 4px;
-}
-@container one-profile-content (max-width: 270px) {
-  .cards { grid-template-columns: 1fr; }
-}
-.scroll { container: one-profile-content / inline-size; }
 
 .artwork {
   position: absolute;

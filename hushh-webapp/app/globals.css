@@ -2175,6 +2175,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --app-side-pane-header-padding: 20px 68px 15px 20px;
   --app-side-pane-row-inset: 6px;
   --app-side-pane-row-gap: 5px;
+  --app-side-pane-row-height: 44px;
+  --app-side-pane-row-icon-size: 22px;
   --app-side-pane-row-title-size: 13px;
   --app-side-pane-row-title-line: 1.2;
   --app-side-pane-row-title-weight: 500;
@@ -2245,7 +2247,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color-scheme: light;
 }
 
-.profile-pane-sheet[data-slot="sheet-content"]::after {
+.profile-pane-sheet[data-slot="sheet-content"]::after,
+[data-app-side-pane]::after,
+[data-agent-history-drawer]::after {
   content: "";
   position: absolute;
   z-index: 5;
@@ -2295,16 +2299,6 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   color-scheme: dark;
 }
 
-/* WKWebView cannot reliably blur a transformed pane's own backdrop. */
-@supports (-webkit-backdrop-filter: blur(1px)) {
-  [data-app-side-pane],
-  .dark [data-app-side-pane] {
-    --profile-pane-surface: var(--background);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-}
-
 [data-app-side-pane] [data-slot="settings-row-icon"],
 [data-app-side-pane] [data-slot="settings-row-icon"] > *,
 [data-app-side-pane] [data-slot="settings-row-icon"] svg {
@@ -2316,13 +2310,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
  * the inner sidebar only owns content and scrolling. */
 [data-agent-history-drawer],
 .dark [data-agent-history-drawer] {
-  /* A transformed WKWebView surface cannot reliably blur its backdrop.
-   * Keep the bounded frame and shared scrim, but make chat text independent
-   * of backdrop-filter support during and after the slide. */
-  --profile-pane-surface: var(--background);
   --agent-history-shadow-clearance: 48px;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   right: auto !important;
   left: var(--app-side-pane-left-inset) !important;
   overflow: hidden;
@@ -2336,6 +2324,20 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   background: transparent !important;
   padding-block: 0;
   box-shadow: none;
+}
+
+/* This child declares its own chat palette; bind it to Profile rather than
+ * inheriting the persistent desktop column's unrelated surface colours. */
+[data-agent-history-drawer] [data-agent-history-sidebar="drawer"],
+.dark [data-agent-history-drawer] [data-agent-history-sidebar="drawer"] {
+  --one-chat-field: var(--profile-pane-surface-soft);
+  --one-chat-field-strong: var(--profile-pane-surface-strong);
+  --one-chat-search-bg: transparent;
+  --one-chat-search-border: var(--profile-pane-hair);
+  --one-chat-row-hover: var(--profile-pane-surface-soft);
+  --one-chat-row-active: var(--profile-pane-surface-strong);
+  --one-chat-meta: var(--ios-account-secondary-label);
+  --one-chat-divider: var(--profile-pane-hair);
 }
 
 [data-agent-history-drawer] [data-agent-history-title] {
@@ -2371,15 +2373,33 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 [data-agent-history-drawer] [data-drive-sharing-row],
 [data-agent-history-drawer] [data-agent-history-footer] button,
 [data-agent-history-drawer] [data-chat-new-button] {
-  min-height: 44px;
+  min-height: var(--app-side-pane-row-height);
   padding: var(--app-side-pane-row-inset);
   gap: var(--app-side-pane-row-gap);
 }
 
 [data-agent-history-drawer] [data-chat-new-button] > svg,
-[data-agent-history-drawer] [data-drive-sharing-row] > :first-child {
-  height: 22px;
-  width: 22px;
+[data-agent-history-drawer] [data-drive-sharing-row] > :first-child,
+[data-agent-history-drawer] [data-agent-history-footer] svg {
+  height: var(--app-side-pane-row-icon-size);
+  width: var(--app-side-pane-row-icon-size);
+  color: var(--ios-account-label);
+}
+
+[data-agent-history-drawer] [data-agent-history-row] > div {
+  padding-right: var(--app-side-pane-row-inset);
+}
+
+[data-agent-history-drawer] [data-agent-history-row] > div > div,
+[data-agent-history-drawer] [data-agent-history-row] [data-slot="dropdown-menu-trigger"] {
+  width: var(--app-side-pane-row-height);
+  height: var(--app-side-pane-row-height);
+}
+
+[data-agent-history-drawer] [data-drive-sharing-row] > svg:last-child {
+  width: 15px;
+  height: 15px;
+  opacity: 0.68;
 }
 
 [data-agent-history-drawer] [data-agent-history-section-label] {
@@ -2608,35 +2628,52 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"],
-[data-app-side-pane] [data-row-layout="settings"] {
+[data-app-side-pane] [data-row-layout] {
   --settings-row-px: var(--app-side-pane-row-inset) !important;
   --settings-row-py: var(--app-side-pane-row-inset) !important;
   --settings-row-gap: var(--app-side-pane-row-gap) !important;
-  min-height: 43px !important;
+  min-height: var(--app-side-pane-row-height) !important;
   padding: 0 !important;
   transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1), color 200ms ease;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] > button:not([data-slot="settings-row-action"]),
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"],
-[data-app-side-pane] [data-row-layout="settings"] [data-slot="settings-row-content"] {
-  min-height: 43px !important;
-  padding: 6px !important;
+[data-app-side-pane] [data-row-layout] > button,
+[data-app-side-pane] [data-row-layout] > a,
+[data-app-side-pane] [data-row-layout] > div,
+[data-app-side-pane] [data-row-layout] [data-slot="settings-row-content"] {
+  min-height: var(--app-side-pane-row-height) !important;
+  padding: var(--app-side-pane-row-inset) !important;
 }
 
-[data-app-side-pane] [data-row-layout="settings"],
-[data-app-side-pane] [data-row-layout="settings"] [data-slot="settings-row-content"] {
-  min-height: 44px !important;
+[data-app-side-pane] [data-slot="settings-row-leading"],
+[data-app-side-pane] [data-slot="settings-row-leading"] > *,
+[data-app-side-pane] [data-slot="feed-domain-icon"] svg {
+  width: var(--app-side-pane-row-icon-size) !important;
+  height: var(--app-side-pane-row-icon-size) !important;
+}
+
+[data-app-side-pane] [data-slot="avatar-fallback"] {
+  font-size: var(--app-side-pane-row-description-size);
+}
+
+[data-app-side-pane] [data-row-layout]::after {
+  background: var(--profile-pane-hair) !important;
+  left: calc(var(--app-side-pane-row-inset) + var(--app-side-pane-row-icon-size) + var(--app-side-pane-row-gap)) !important;
+  right: var(--app-side-pane-row-inset) !important;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]::after {
   background: var(--profile-pane-hair) !important;
-  left: 37px !important;
-  right: 6px !important;
+  left: calc(var(--app-side-pane-row-inset) + var(--app-side-pane-row-icon-size) + var(--app-side-pane-row-gap)) !important;
+  right: var(--app-side-pane-row-inset) !important;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:hover),
-.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:focus-visible) {
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:focus-visible),
+[data-app-side-pane] [data-row-layout]:has(:is(button, a):hover),
+[data-app-side-pane] [data-row-layout]:has(:focus-visible) {
   transform: translateX(3px);
 }
 
@@ -2644,7 +2681,9 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
    including keyboard focus on preference fields. The sheet owns the blur. */
 .profile-pane-scroll-root [data-row-layout="settings"]:has(:is(button, input, textarea):not(:disabled):hover)::before,
 .profile-pane-scroll-root [data-row-layout="settings"]:has(:focus-visible)::before,
-.profile-pane-scroll-root [data-row-layout="settings"][data-state="active"]::before {
+.profile-pane-scroll-root [data-row-layout="settings"][data-state="active"]::before,
+[data-app-side-pane] [data-row-layout]:has(:is(button, a):not(:disabled):hover)::before,
+[data-app-side-pane] [data-row-layout]:has(:focus-visible)::before {
   content: "";
   position: absolute;
   z-index: 0;
@@ -2707,7 +2746,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   line-height: 1.2 !important;
 }
 
-.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-chevron"] {
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-chevron"],
+[data-app-side-pane] [data-slot="settings-row-chevron"] {
   height: 15px !important;
   width: 15px !important;
   color: var(--ios-account-secondary-label) !important;
@@ -2731,7 +2771,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   padding-top: 22px !important;
 }
 
-.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-group-shell"] {
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-group-shell"],
+[data-app-side-pane] [data-app-pane-card] {
   border: 1px solid var(--profile-pane-card-border) !important;
   border-radius: 17px !important;
   background: var(--profile-pane-card-surface) !important;
@@ -2814,28 +2855,52 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 @media (prefers-reduced-transparency: reduce) {
   .profile-pane-sheet[data-slot="sheet-content"],
+  [data-app-side-pane],
   [data-agent-history-drawer] {
     background: var(--app-card-surface-default-solid) !important;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
 
-  .profile-pane-sheet[data-slot="sheet-content"]::after {
+  .profile-pane-sheet[data-slot="sheet-content"]::after,
+  [data-app-side-pane]::after,
+  [data-agent-history-drawer]::after {
     display: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .profile-pane-sheet[data-slot="sheet-content"]::after {
+  .profile-pane-sheet[data-slot="sheet-content"]::after,
+  [data-app-side-pane]::after,
+  [data-agent-history-drawer]::after {
     animation: none;
   }
 
   .profile-pane-close,
   .app-side-pane-close,
   [data-agent-history-drawer] [data-agent-history-close],
-  .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
+  .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"],
+  [data-app-side-pane] [data-row-layout] {
     transition: none !important;
   }
+}
+
+/* Unsupported filters degrade every pane together, rather than forcing only
+ * Chats/One opaque on engines that support the reference's glass material. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .profile-pane-sheet[data-slot="sheet-content"],
+  [data-app-side-pane],
+  [data-agent-history-drawer] {
+    background: var(--app-card-surface-default-solid) !important;
+  }
+}
+
+/* Android's existing performance policy disables backdrop filters even when
+ * its CSS engine supports them. Use the same readable fallback for all panes. */
+html.native-android .profile-pane-sheet[data-slot="sheet-content"],
+html.native-android [data-app-side-pane],
+html.native-android [data-agent-history-drawer] {
+  background: var(--app-card-surface-default-solid) !important;
 }
 
 html:has(.profile-home-screen:not(.profile-pane-sheet *)),
@@ -9040,6 +9105,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     [data-slot="settings-row-title"],
   [data-agent-history-drawer] [data-agent-history-row-title],
   [data-app-side-pane] [data-slot="settings-row-title"],
+  [data-app-side-pane] [data-row-layout="person"][data-settings-density="compact"] [data-slot="settings-row-title"].ui-text-row-label-compact,
   [data-app-side-pane] [data-slot="tabs-trigger"],
   [data-app-side-pane] [data-app-pane-row-title] {
     font-family: var(--font-app-body) !important;
@@ -9052,7 +9118,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   .profile-pane-scroll-root .app-page-shell .profile-home-content
     [data-slot="settings-row-description"],
   [data-agent-history-drawer] [data-agent-history-row-description],
-  [data-app-side-pane] [data-slot="settings-row-description"] {
+  [data-app-side-pane] [data-slot="settings-row-description"],
+  [data-app-side-pane] [data-row-layout="person"] [data-slot="settings-row-description"] {
     font-family: var(--font-app-body) !important;
     color: var(--ios-account-secondary-label) !important;
     font-size: var(--app-side-pane-row-description-size) !important;
@@ -9120,7 +9187,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
       select,
       [data-slot="select-trigger"],
       [role="combobox"]
-    ) {
+    ),
+  [data-agent-history-drawer] input[type="search"] {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
     font-weight: 400 !important;

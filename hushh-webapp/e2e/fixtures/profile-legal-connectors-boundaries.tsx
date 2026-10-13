@@ -9,6 +9,7 @@ import { ProfileStackNavigator } from "@/components/profile/profile-stack-naviga
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
+import { ProfilePaneAccountIcon } from "@/components/profile/profile-pane-icons";
 import {
   buildProfileLegalStackEntries,
   ProfileLegalRows,
@@ -92,14 +93,14 @@ export function ProfilePage({ paneLocation }: { paneLocation?: ProfilePaneLocati
   }
   return (
     <SettingsPresentationProvider density="compact">
-      <AppPageShell as="div" width="reading" fitContent>
+      <AppPageShell as="div" width="reading" fitContent className="profile-home-screen profile-home-screen--pane">
       <ProfileStackNavigator
         resetScroll={false}
         entries={entries}
         rootContent={
-          <div className="flex flex-col gap-6 pt-6">
+          <div className="profile-home-content flex flex-col gap-6 pt-6">
             <SettingsGroup title="Your settings" separatorInset>
-              <SettingsRow title="Account" chevron testId="profile-account-row" onClick={() => updateView({ panel: "account", detail: null }, "push")} />
+              <SettingsRow icon={ProfilePaneAccountIcon} iconTone="capability" title="Account" description="Account preferences" chevron testId="profile-account-row" onClick={() => updateView({ panel: "account", detail: null }, "push")} />
               <SettingsRow
                 title="Connectors"
                 chevron

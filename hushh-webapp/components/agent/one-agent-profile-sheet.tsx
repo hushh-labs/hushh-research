@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
+  SettingsRow,
 } from "@/components/app-ui/settings-ui";
 import { FeedRow } from "@/components/feed/feed-row";
 import {
@@ -128,43 +129,23 @@ function OneFeedPreview({
 function ProfileCards({ close }: { close: () => void }) {
   return (
     <div className={styles.profile}>
-      <div className={styles.identityNote}>
+      <div className={styles.identityNote} data-app-pane-card>
         <span className={styles.eyebrow}>ONE</span>
         <h3 data-app-pane-row-title>Identity</h3>
         <p>A place for One’s identity and what you’ve chosen to remember.</p>
       </div>
-      <div className={styles.cards}>
-        <article
-          className={`${styles.fileCard} ${styles.soul}`}
-          aria-label="soul.md preview"
-        >
-          <div>
-            <Heart className="size-5" aria-hidden />
-            <h4 data-app-pane-row-title>soul.md</h4>
-            <p>Voice, values, and personality.</p>
-          </div>
-          <div className={styles.cardFooter}>
-            <span>Identity preview</span>
-            <Heart className="size-5" fill="currentColor" aria-hidden />
-          </div>
-        </article>
-        <Link
-          href={ROUTES.PKM}
-          onClick={close}
-          className={`${styles.fileCard} ${styles.memory}`}
-          aria-label="Open memory.md in Memory"
-        >
-          <div>
-            <Fingerprint className="size-5" aria-hidden />
-            <h4 data-app-pane-row-title>memory.md</h4>
-            <p>What you’ve chosen to remember.</p>
-          </div>
-          <div className={styles.cardFooter}>
-            <span>Open Memory</span>
-            <ArrowUpRight className="size-5" aria-hidden />
-          </div>
-        </Link>
-      </div>
+      <SettingsPresentationProvider density="compact" separatorInset>
+        <div data-app-pane-card>
+          <SettingsGroup>
+            <SettingsRow icon={Heart} iconTone="capability" title="soul.md"
+              description={<>Voice, values, and personality.<br /><span>Identity preview</span></>} />
+            <SettingsRow asChild icon={Fingerprint} iconTone="capability" title="memory.md"
+              description="What you’ve chosen to remember." chevron>
+              <Link href={ROUTES.PKM} onClick={close} aria-label="Open memory.md in Memory" />
+            </SettingsRow>
+          </SettingsGroup>
+        </div>
+      </SettingsPresentationProvider>
     </div>
   );
 }

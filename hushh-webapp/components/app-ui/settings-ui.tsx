@@ -594,6 +594,7 @@ export function SettingsRow({
     >
       {leading ? (
         <span
+          data-slot="settings-row-leading"
           className={cn(
             "inline-flex shrink-0 self-center",
             layout === "person" && "w-10 justify-center",
