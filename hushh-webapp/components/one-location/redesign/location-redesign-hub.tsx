@@ -840,16 +840,22 @@ const SOS_FLOW_SOURCE = "sos";
  * document navigation. Writing the URL in the same turn as the local state
  * removes that stale-navigation window while preserving push/replace history
  * semantics and the memory-only vault session.
+ *
+ * The state argument must be `null`. Next's patched History API only syncs
+ * `useSearchParams` for calls that do NOT carry its own `__NA` marker, and
+ * `window.history.state` does. Passing it through left the shell's top bar on
+ * the stale URL, so Back from Share/Ask resolved as the Location hub and
+ * jumped to the One dashboard.
  */
-function commitLocationFlowHistory(
+export function commitLocationFlowHistory(
   href: string,
   navigation: "push" | "replace",
 ): boolean {
   if (typeof window === "undefined") return false;
   if (navigation === "replace") {
-    window.history.replaceState(window.history.state, "", href);
+    window.history.replaceState(null, "", href);
   } else {
-    window.history.pushState(window.history.state, "", href);
+    window.history.pushState(null, "", href);
   }
   return true;
 }
