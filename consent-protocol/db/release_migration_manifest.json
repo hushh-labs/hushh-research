@@ -291,7 +291,8 @@
     "323_wallet_sharing_owner_index.sql",
     "324_wallet_sharing_recipient_index.sql",
     "325_wallet_sharing_audit_index.sql",
-    "326_answer_scope_resolution_lease.sql"
+    "326_answer_scope_resolution_lease.sql",
+    "327_wallet_share_longer_durations.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -455,7 +456,8 @@
       "322_wallet_universal_sharing.sql",
       "323_wallet_sharing_owner_index.sql",
       "324_wallet_sharing_recipient_index.sql",
-      "325_wallet_sharing_audit_index.sql"
+      "325_wallet_sharing_audit_index.sql",
+      "327_wallet_share_longer_durations.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
