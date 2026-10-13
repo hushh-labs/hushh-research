@@ -8637,7 +8637,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-11 md:!size-[72px] !border-0 !bg-transparent !shadow-none hover:!bg-transparent focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                    className="!size-11 md:!size-[72px] !rounded-none !border-0 !bg-transparent !shadow-none hover:!bg-transparent focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
                     <OnePresenceAvatar state={onePresenceState} />
                   </ShellActionSurface>
