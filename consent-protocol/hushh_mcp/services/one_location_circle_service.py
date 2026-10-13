@@ -514,6 +514,10 @@ class OneLocationCircleService:
         Postgres is the shared coordination tier today. This row-lock seam can
         later move to a Redis/Memorystore distributed lock without changing the
         Circle API contract.
+
+        NO KEY UPDATE still serializes membership changes and blocks deletion,
+        while allowing the KEY SHARE checks from Circle chat-event foreign keys.
+        FOR UPDATE here would deadlock reciprocal member additions.
         """
 
         actor = _first(
@@ -523,7 +527,7 @@ class OneLocationCircleService:
                     SELECT user_id
                     FROM actor_profiles
                     WHERE user_id = :user_id
-                    FOR UPDATE
+                    FOR NO KEY UPDATE
                     """
                 ),
                 {"user_id": user_id},
@@ -546,6 +550,9 @@ class OneLocationCircleService:
         two paths that disagree about that order deadlock on the one pair they
         have in common.
 
+        Keep this compatible with the KEY SHARE checks made by membership and
+        chat-event foreign keys when another person holds their own profile lock.
+
         A missing profile is someone who has not finished setting up One. They
         are not named: which of your connections has finished onboarding is
         their business, not the business of whoever is adding them.
@@ -561,7 +568,7 @@ class OneLocationCircleService:
                     FROM actor_profiles
                     WHERE user_id = ANY(CAST(:user_ids AS TEXT[]))
                     ORDER BY user_id
-                    FOR UPDATE
+                    FOR NO KEY UPDATE
                     """
                 ),
                 {"user_ids": sorted(user_ids)},
@@ -2339,6 +2346,73 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("create_code", exc) from exc
 
+    def bootstrap_signup_contacts_circle(self, *, user_id: str) -> dict[str, Any]:
+        """Bind one empty shared circle to the owner's enrolled signup journey.
+
+        This uses the same Postgres lifecycle authority as root setup. The row
+        lock is the distributed idempotency mechanism; no process-local cache
+        or Redis mirror is authoritative. Membership writes remain vault gated.
+        """
+        owner = str(user_id or "").strip()
+        if not owner:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_OWNER_REQUIRED", "Sign in first.", status_code=401
+            )
+        with self._db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(conn, user_ids=[owner])
+            # Use circle membership coordination before locking lifecycle state,
+            # matching the existing owner create/delete lock order.
+            self._lock_user_circle_memberships(conn, user_id=owner)
+            state = _first(
+                conn.execute(
+                    text("""
+                SELECT initial_contacts_welcome_acknowledged, initial_contacts_circle_id
+                FROM vault_keys WHERE user_id=:owner FOR UPDATE
+            """),
+                    {"owner": owner},
+                )
+            )
+            if not state or state.get("initial_contacts_welcome_acknowledged") is not False:
+                raise OneLocationCircleError(
+                    "INITIAL_CONTACTS_CLOSED",
+                    "Initial contacts setup is unavailable.",
+                    status_code=409,
+                )
+            circle_id = str(state.get("initial_contacts_circle_id") or "")
+            if circle_id:
+                circle = _first(
+                    conn.execute(
+                        text("""
+                    SELECT id,name FROM one_location_circles
+                    WHERE id=CAST(:circle AS UUID) AND owner_user_id=:owner
+                      AND status='active' AND NOT is_system AND system_kind IS NULL
+                """),
+                        {"circle": circle_id, "owner": owner},
+                    )
+                )
+                if not circle:
+                    raise OneLocationCircleError(
+                        "INITIAL_CONTACTS_CIRCLE_UNAVAILABLE",
+                        "Your Contacts circle is no longer available.",
+                        status_code=409,
+                    )
+                name = str(circle.get("name") or "Contacts")
+            else:
+                circle_id = self.create_circle_in_transaction(
+                    conn, owner_user_id=owner, name="Contacts", kind="other"
+                )
+                conn.execute(
+                    text("""
+                    UPDATE vault_keys SET initial_contacts_circle_id=CAST(:circle AS UUID)
+                    WHERE user_id=:owner
+                """),
+                    {"circle": circle_id, "owner": owner},
+                )
+                name = "Contacts"
+        # Code failure cannot orphan a new circle: retry uses the durable ref.
+        invite = self.create_invite_code(actor_user_id=owner, circle_id=circle_id, rotate=False)
+        return {"circleId": circle_id, "circleName": name, "code": str(invite.get("code") or "")}
+
     def bootstrap_first_circle(
         self,
         *,
@@ -3393,6 +3467,7 @@ class OneLocationCircleService:
         batch_count: int = 1,
         _connection: Any = None,
         _emit_notifications: bool = True,
+        signup_insert_only: bool = False,
     ) -> dict[str, Any]:
         """Atomically add eligible connections, with optional command batch receipt."""
 
@@ -3420,6 +3495,13 @@ class OneLocationCircleService:
             with (
                 nullcontext(_connection) if _connection is not None else self._db.engine.begin()
             ) as conn:
+                if signup_insert_only:
+                    # Existing Circle writers use shared deletion barriers.
+                    # An exclusive graph gate here would invert their profile
+                    # locks against membership INSERT's shared trigger guards.
+                    AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                        conn, user_ids={actor_user_id, *cleaned_invitee_user_ids}
+                    )
                 receipt = None
                 if operation_id:
                     from hushh_mcp.services.location_command_membership_receipts import (
@@ -3507,11 +3589,35 @@ class OneLocationCircleService:
                 circle_row["inviter_display_name"] = actor_membership_row.get(
                     "inviter_display_name"
                 )
+                # Profile locks precede lifecycle locks, as in bootstrap, so
+                # two mutual-contact welcomes cannot hold each other's vault
+                # row while waiting for the other's profile.
+                self._lock_invitees(conn, user_ids=cleaned_invitee_user_ids)
+                if signup_insert_only:
+                    state = _first(
+                        conn.execute(
+                            text("""
+                        SELECT initial_contacts_welcome_acknowledged,
+                               initial_contacts_circle_id
+                        FROM vault_keys WHERE user_id=:owner FOR UPDATE
+                    """),
+                            {"owner": actor_user_id},
+                        )
+                    )
+                    if (
+                        not state
+                        or state.get("initial_contacts_welcome_acknowledged") is not False
+                        or str(state.get("initial_contacts_circle_id") or "") != cleaned_circle_id
+                    ):
+                        raise OneLocationCircleError(
+                            "INITIAL_CONTACTS_CLOSED",
+                            "Initial contacts setup is unavailable.",
+                            status_code=409,
+                        )
                 # Before the connection rows below, not after: see
                 # `_lock_invitees`. Everyone named in the request is locked,
                 # including anyone who turns out to be ineligible further
                 # down -- eligibility is decided after the lock, never by it.
-                self._lock_invitees(conn, user_ids=cleaned_invitee_user_ids)
                 conn.execute(
                     text(
                         """
@@ -3580,6 +3686,8 @@ class OneLocationCircleService:
                         continue
                     if str(row.get("status") or "") == "active":
                         blocked_reasons[blocked_user_id] = "already_member"
+                    elif signup_insert_only:
+                        blocked_reasons[blocked_user_id] = "previous_membership"
                     elif bool(row.get("left_recently")):
                         blocked_reasons[blocked_user_id] = "left_recently"
                         left_recently_remaining_seconds.append(
@@ -3592,6 +3700,17 @@ class OneLocationCircleService:
                         if user_id not in blocked_reasons
                     ]
                 if not cleaned_invitee_user_ids:
+                    if signup_insert_only:
+                        result = {
+                            "invites": [],
+                            "createdInviteIds": [],
+                            "addedUserIds": [],
+                            "skippedUserIds": sorted(blocked_reasons),
+                            "skippedReasons": blocked_reasons,
+                        }
+                        if receipt:
+                            receipt.save(result)
+                        return result
                     # Nobody addable. Report the reason that applies to
                     # everyone named, so a single-person add still gets
                     # the precise error it always did.
@@ -3886,9 +4005,26 @@ class OneLocationCircleService:
                     # Sorted to match the order `_lock_invitees` already took
                     # these people in, so the membership writes cannot reorder
                     # what the locks settled.
-                    conn.execute(
+                    membership_write = conn.execute(
                         text(
                             """
+                            INSERT INTO one_location_circle_memberships (
+                              circle_id, user_id, role, status, joined_at,
+                              updated_at, ended_at, metadata
+                            )
+                            VALUES (
+                              CAST(:circle_id AS UUID), :user_id, 'member',
+                              'active', NOW(), NOW(), NULL,
+                              jsonb_build_object(
+                                'addedVia', :added_via,
+                                'addedBy', :actor_user_id
+                              )
+                            )
+                            ON CONFLICT (circle_id, user_id) DO NOTHING
+                            RETURNING user_id
+                            """
+                            if signup_insert_only
+                            else """
                             INSERT INTO one_location_circle_memberships (
                               circle_id, user_id, role, status, joined_at,
                               updated_at, ended_at, metadata
@@ -3924,6 +4060,9 @@ class OneLocationCircleService:
                             ),
                         },
                     )
+                    if signup_insert_only and not _first(membership_write):
+                        blocked_reasons[invitee_user_id] = "previous_membership"
+                        continue
                     if is_system_circle:
                         conn.execute(
                             text("""INSERT INTO one_location_sms_contacts(owner_user_id,contact_user_id,created_at,updated_at)
@@ -3944,6 +4083,12 @@ class OneLocationCircleService:
                             inviter_user_id=actor_user_id,
                         )
                     added_user_ids.append(invitee_user_id)
+                if signup_insert_only:
+                    pending_invite_ids = [
+                        str(row.get("id"))
+                        for row in pending_rows
+                        if str(row.get("invitee_user_id")) in added_user_ids
+                    ]
                 if pending_invite_ids:
                     # Whatever invitation was open for these people, the
                     # membership it asked for now exists. Marking it accepted

@@ -3755,6 +3755,7 @@ class ConnectionsService:
         matches: list[dict[str, Any]],
         sync_started_at: datetime | None = None,
         verified_requester_email: str | None = None,
+        allow_reconnect: bool = True,
     ) -> dict[str, Any]:
         """Materialize eligible contact matches without broadening consent.
 
@@ -4094,7 +4095,8 @@ class ConnectionsService:
                     # after an older binary writes a newer revocation.
                     revoked_at = existing.get("revoked_at")
                     if (
-                        existing.get("revoked_by_user_id") == requester_id
+                        allow_reconnect
+                        and existing.get("revoked_by_user_id") == requester_id
                         and isinstance(revoked_at, datetime)
                         and revoked_at.tzinfo is not None
                         and existing.get("revoked_by_at") == revoked_at

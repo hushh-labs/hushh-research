@@ -1,5 +1,10 @@
 # Enable Google Contacts for web contact sync
 
+The existing Connect/Location fallback below remains unchanged. The optional
+[initial signup Contacts welcome](./initial-signup-contacts.md) additionally uses
+Google Contacts during Google signup on web, iOS and Android; native Apple uses
+the phone address book. Its rollout gate and GCP readiness are documented there.
+
 Google Contacts is a browser-only fallback for surfaces that cannot read a
 device address book, especially desktop browsers and iPhone Safari. The access
 token and People API response stay in browser memory. Hussh receives only the
