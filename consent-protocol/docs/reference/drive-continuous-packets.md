@@ -93,7 +93,7 @@ locations. Document facts remain independent of buyer requests. Canonical groupi
 uses issuer, subject/account, type and useful coverage; it does not create every
 possible file combination. Request matching evaluates structured dates together
 with prose. Filename and modification time never establish a statement period.
-Source facts distinguish reporting coverage from event, publication, planned
+Source facts distinguish reporting coverage from event, publication, scheduled
 action, transaction and as-of dates. Packet checks retain those roles through
 construction, compact final review and indexed request reuse. Drafts and other
 useful undated documents can form a packet with no coverage-period claim; an
