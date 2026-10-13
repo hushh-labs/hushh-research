@@ -107,3 +107,13 @@
     line-height: 17px !important;
   }
 }
+
+/* Keep the introduction compact instead of stretching its two text rows. */
+.content .hero { padding: 20px; }
+.content .hero h2 { margin-bottom: 8px; }
+.content .heroCard { max-width: 300px; margin-top: 16px; }
+@media (min-width: 640px) {
+  .content .hero { grid-template-rows: auto 1fr; column-gap: 24px; }
+  .content .hero > p { align-self: start; margin: 0; }
+  .content .heroCard { margin: 0; justify-self: end; }
+}
