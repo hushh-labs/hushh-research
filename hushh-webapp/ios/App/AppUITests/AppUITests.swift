@@ -940,7 +940,7 @@ final class AppUITests: XCTestCase {
                 if cycle == 0 {
                     let scroll = app.scrollViews["native-history-chats-scroll"].firstMatch
                     guard scroll.waitForExistence(timeout: 5) else { XCTFail("COHERENT_HISTORY_SCROLL_OWNER_MISSING"); return }
-                    let footer = app.otherElements["native-history-footer"].firstMatch
+                    let footer = app.descendants(matching: .any).matching(identifier: "native-history-footer").firstMatch
                     let footerFrame = footer.exists ? footer.frame : nil
                     let closeFrame = close.frame
                     scroll.swipeUp()
@@ -990,22 +990,33 @@ final class AppUITests: XCTestCase {
                     XCTAssertTrue(app.textFields["native-history-search"].firstMatch.exists,
                         "COHERENT_HISTORY_RENAME_REPLACED_LIST")
                     XCTAssertTrue(footer.exists, "COHERENT_HISTORY_RENAME_REPLACED_FOOTER")
-                    app.buttons["Cancel"].firstMatch.tap() // No rename/delete mutation.
+                    let renameCancel = app.buttons["Cancel"].firstMatch
+                    guard waitForAdmittedControl(renameCancel) else { XCTFail("COHERENT_HISTORY_RENAME_CANCEL_UNAVAILABLE"); return }
+                    renameCancel.tap() // No rename/delete mutation.
+                    print("COHERENT_HISTORY_ACTION_STAGE stage=rename_cancelled")
                     guard app.textFields["native-history-search"].firstMatch.waitForExistence(timeout: 10) else {
                         XCTFail("COHERENT_HISTORY_ACTION_RETURN_FAILED"); return
                     }
+                    guard waitForAdmittedControl(actions) else { XCTFail("COHERENT_HISTORY_MORE_NOT_RESTORED"); return }
                     actions.tap()
+                    print("COHERENT_HISTORY_ACTION_STAGE stage=delete_menu_opened")
                     let delete = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Delete")).firstMatch
                     guard waitForAdmittedControl(delete) else { XCTFail("COHERENT_HISTORY_DELETE_MENU_UNAVAILABLE"); return }
                     delete.tap()
                     let confirmation = app.alerts["Delete chat?"].firstMatch
                     guard confirmation.waitForExistence(timeout: 10) else { XCTFail("COHERENT_HISTORY_DELETE_CONFIRMATION_UNAVAILABLE"); return }
-                    confirmation.buttons["Cancel"].tap() // Never delete a reviewer record.
+                    let deleteCancel = confirmation.buttons["Cancel"].firstMatch
+                    guard waitForAdmittedControl(deleteCancel) else { XCTFail("COHERENT_HISTORY_DELETE_CANCEL_UNAVAILABLE"); return }
+                    deleteCancel.tap() // Never delete a reviewer record.
+                    print("COHERENT_HISTORY_ACTION_STAGE stage=delete_cancelled")
                     guard waitForAdmittedControl(close) else { XCTFail("COHERENT_HISTORY_CONFIRMATION_DID_NOT_RETIRE"); return }
-                    app.buttons["native-history-row-connectors"].firstMatch.tap()
+                    let connectors = app.buttons["native-history-row-connectors"].firstMatch
+                    guard waitForAdmittedControl(connectors) else { XCTFail("COHERENT_HISTORY_CONNECTORS_TRIGGER_UNAVAILABLE"); return }
+                    connectors.tap()
+                    print("COHERENT_HISTORY_ACTION_STAGE stage=connectors_opened")
                     let connectorsBack = app.buttons["Back to chats"].firstMatch
                     guard waitForAdmittedControl(connectorsBack) else { XCTFail("COHERENT_HISTORY_CONNECTORS_HANDOFF_FAILED"); return }
-                    XCTAssertFalse(close.isHittable, "COHERENT_HISTORY_ROSTER_OVERLAPS_CONNECTORS")
+                    XCTAssertFalse(close.exists && close.isHittable, "COHERENT_HISTORY_ROSTER_OVERLAPS_CONNECTORS")
                     XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                     connectorsBack.tap()
                     guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
