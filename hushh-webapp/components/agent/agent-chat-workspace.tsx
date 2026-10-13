@@ -8926,7 +8926,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </>
               ) : null}
 
-              {visibleMessages.map((message, index) => (
+              {visibleMessages.map((message) => (
                 <Fragment key={message.id}>
                   {renderChatOnboarding({ kind: "before", messageId: message.id, visibleMessageIds })}
                   {timeSeparators.has(message.id) ? (

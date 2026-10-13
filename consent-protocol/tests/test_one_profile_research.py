@@ -882,7 +882,9 @@ async def test_personal_profile_admission_does_not_depend_on_business_discovery(
     assert result["status"] == "offered" and result["pkm_written"] is False
     assert [section["kind"] for section in result["report"]["sections"]] == ["career"]
     connection.fetchrow.assert_awaited_once_with(
-        "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1", "owner"
+        "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1",
+        "owner",
+        timeout=5,
     )
 
 

@@ -326,3 +326,28 @@ async def test_pwm_revalidates_receipts_even_after_legacy_save(monkeypatch, ackn
         await completion.complete_magic_intelligence("owner", COMMITS, verify_only=True)
     conn.fetchval.assert_awaited_once()
     conn.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pwm_full_report_receipts_complete_and_overflow_fails(monkeypatch):
+    from uuid import uuid4
+
+    from pydantic import ValidationError
+
+    from api.routes.one.world_model import WorldModelCompletion
+
+    rows = [{"domain": "personal", "plan_id": f"pkm_plan_{uuid4().hex}"} for _ in range(160)]
+    body = WorldModelCompletion(draft_id=uuid4(), commits=rows)
+    commits = [(row.domain, row.plan_id) for row in body.commits]
+    conn = install_pool(monkeypatch, acknowledged=160, saved=True)
+    await completion.complete_magic_intelligence(
+        "owner", commits, verify_only=True, max_commits=160
+    )
+    conn.fetchval.assert_awaited_once()
+    conn.execute.assert_not_awaited()
+    with pytest.raises(ValidationError):
+        WorldModelCompletion(draft_id=uuid4(), commits=rows + [rows[0]])
+    with pytest.raises(completion.MagicReviewNotCommitted):
+        await completion.complete_magic_intelligence(
+            "owner", commits + [("profile", "extra")], verify_only=True, max_commits=160
+        )

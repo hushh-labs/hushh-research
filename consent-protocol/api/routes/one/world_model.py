@@ -9,7 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.middlewares.chat_key import require_vault_owner_chat_key
 from api.middlewares.rate_limit import limiter
-from api.routes.one.profile_research import MagicReviewCompletion, PrivateProfileRoute
+from api.routes.one.profile_research import (
+    MagicReviewCommit,
+    MagicReviewCompletion,
+    PrivateProfileRoute,
+)
 from hushh_mcp.services import world_model_invitations as invitations
 from hushh_mcp.services.magic_intelligence_completion import (
     MagicReviewNotCommitted,
@@ -70,6 +74,7 @@ async def dismiss(
 
 class WorldModelCompletion(MagicReviewCompletion):
     draft_id: UUID
+    commits: list[MagicReviewCommit] = Field(min_length=1, max_length=160)
 
 
 @router.post("/complete")
@@ -82,7 +87,10 @@ async def complete(
     user_id, consent_token = owner(token)
     try:
         await complete_magic_intelligence(
-            user_id, [(row.domain, row.plan_id) for row in body.commits], verify_only=True
+            user_id,
+            [(row.domain, row.plan_id) for row in body.commits],
+            verify_only=True,
+            max_commits=160,
         )
         await world_model_jobs.dismiss(user_id, consent_token, str(body.draft_id))
     except MagicReviewNotCommitted:

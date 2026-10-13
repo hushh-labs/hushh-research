@@ -87,6 +87,7 @@ class AccountService:
         self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "one_adk_sessions": text("DELETE FROM one_adk_sessions WHERE user_id = :user_id"),
             "contact_sync_lookup_budgets": text(
                 "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id"
             ),

@@ -1,9 +1,7 @@
-"""Environment contract for One Live Voice.
+"""One Live Voice uses the shared managed AI profile and an explicit enable flag.
 
-One explicit model id, one regional Vertex location, one server-side flag.
-There are no aliases and no fallbacks: when the flag is on and the model or
-location is missing or malformed, the process fails closed by naming the
-variable, never by picking a different model.
+Hosted model/project/region values come from the packaged profile. Local
+experiments may override them; malformed settings fail closed.
 """
 
 from __future__ import annotations

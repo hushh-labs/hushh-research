@@ -19,14 +19,18 @@ async def magic_intelligence_saved(user_id: str) -> bool:
 
 
 async def complete_magic_intelligence(
-    user_id: str, commits: list[tuple[str, str]], *, verify_only: bool = False
+    user_id: str,
+    commits: list[tuple[str, str]],
+    *,
+    verify_only: bool = False,
+    max_commits: int = 64,
 ) -> None:
     """Mark once, verifying every receipt rather than trusting client saved state.
 
     Personal reviews can contain multiple cards. One event alone
     must never finish a partially saved review. No event-based bulk backfill.
     """
-    if not 1 <= len(commits) <= 64 or len(set(commits)) != len(commits):
+    if not 1 <= len(commits) <= min(max_commits, 160) or len(set(commits)) != len(commits):
         raise MagicReviewNotCommitted()
     try:
         commit_ids = [

@@ -49,6 +49,8 @@ def test_flag_on_rejects_non_regional_locations(monkeypatch, location):
 
 
 def test_flag_on_reads_the_pinned_contract(monkeypatch):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "local")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
     monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
     monkeypatch.setenv(VERTEX_LIVE_MODEL_ID_ENV, "gemini-live-2.5-flash-native-audio")
     monkeypatch.setenv(VERTEX_LIVE_LOCATION_ENV, "US-Central1")
