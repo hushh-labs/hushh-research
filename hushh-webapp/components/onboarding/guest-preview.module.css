@@ -250,7 +250,7 @@
 }
 .agents {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem 0.5rem;
 }
 .agent {
@@ -280,6 +280,13 @@
   justify-content: center;
   flex-direction: column;
   gap: 0.5rem;
+}
+.agentIcon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 3.5rem;
+  height: 3.5rem;
 }
 .agentExplanation {
   text-align: center;
