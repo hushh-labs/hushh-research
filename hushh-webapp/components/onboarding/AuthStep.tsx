@@ -20,6 +20,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
+import { EnterpriseSsoSection } from "@/components/onboarding/EnterpriseSsoSection";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
@@ -1020,6 +1021,11 @@ export function AuthStep({
                   )}
                 />
               ))}
+
+              <EnterpriseSsoSection
+                redirectPath={redirectPath}
+                disabled={providerBusy}
+              />
 
               {showReviewer ? (
                 <AuthProviderButton

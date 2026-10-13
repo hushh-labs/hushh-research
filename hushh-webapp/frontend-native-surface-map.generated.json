@@ -40,6 +40,14 @@
       "file": "app/api/auth/session/route.ts"
     },
     {
+      "template": "/api/auth/sso/exchange",
+      "file": "app/api/auth/sso/exchange/route.ts"
+    },
+    {
+      "template": "/api/auth/sso/start",
+      "file": "app/api/auth/sso/start/route.ts"
+    },
+    {
       "template": "/api/connected-systems",
       "file": "app/api/connected-systems/route.ts"
     },
@@ -10203,5 +10211,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "d476488ab31996e09345da2ec783d09922d22f9b442cc43750efc5ece171cb94"
+  "content_sha256": "d12d5e2a75e886fdc7a77f0d833bcfa8272140f388d46cde80208f965963ca92"
 }
