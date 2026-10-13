@@ -2632,8 +2632,10 @@ export function OneLocationAgentPageContent({
   const [sosEmergency, setSosEmergency] = useState<EmergencyInfo | null>(null);
   const [sosEmergencyStatus, setSosEmergencyStatus] =
     useState<EmergencyNumberLookupStatus>("idle");
-  const sosLocationResolutionRef =
-    useRef<Promise<PlainLocationPoint | null> | null>(null);
+  const sosLocationResolutionRef = useRef<{
+    allowPermissionPrompt: boolean;
+    promise: Promise<PlainLocationPoint | null>;
+  } | null>(null);
   const sosEmergencyLookupIdRef = useRef(0);
   /**
    * The fix the currently displayed emergency number was confirmed at, so a
@@ -4666,7 +4668,15 @@ export function OneLocationAgentPageContent({
         }
       }
 
-      const currentPermission = await refreshLocationPermission();
+      // Passive warm-up must not overwrite an explicit request's newer permission state.
+      const currentPermission = options?.allowPermissionPrompt === false
+        ? await OneLocationService.getPermissionState().catch(() => ({
+            state: "prompt" as const,
+            precise: null,
+            background: "foreground-only" as const,
+            locationServicesEnabled: null,
+          }))
+        : await refreshLocationPermission();
       if (options?.isStale?.()) return { ready: false };
 
       if (options?.allowPermissionPrompt === false && currentPermission.state !== "granted") {
@@ -5802,8 +5812,12 @@ export function OneLocationAgentPageContent({
   );
 
   const resolveSosLocation = useCallback((options?: { allowPermissionPrompt?: boolean }) => {
+    const allowPermissionPrompt = options?.allowPermissionPrompt !== false;
     const inFlight = sosLocationResolutionRef.current;
-    if (inFlight) return inFlight;
+    // An explicit request must not inherit the passive panel's no-prompt limit.
+    if (inFlight && (!allowPermissionPrompt || inFlight.allowPermissionPrompt)) {
+      return inFlight.promise;
+    }
 
     const resolution = (async (): Promise<PlainLocationPoint | null> => {
       try {
@@ -5850,15 +5864,16 @@ export function OneLocationAgentPageContent({
       }
     })();
 
-    sosLocationResolutionRef.current = resolution;
+    const entry = { allowPermissionPrompt, promise: resolution };
+    sosLocationResolutionRef.current = entry;
     void resolution.then(
       () => {
-        if (sosLocationResolutionRef.current === resolution) {
+        if (sosLocationResolutionRef.current === entry) {
           sosLocationResolutionRef.current = null;
         }
       },
       () => {
-        if (sosLocationResolutionRef.current === resolution) {
+        if (sosLocationResolutionRef.current === entry) {
           sosLocationResolutionRef.current = null;
         }
       },

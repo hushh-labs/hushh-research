@@ -8,6 +8,10 @@ import {
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { useAuth } from "@/lib/firebase/auth-context";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { useOptionalOneLocationInteractionSurface } from "@/components/one-location/onboarding/location-onboarding-interaction-surface";
+import { finishVerifiedLocationSetup } from "@/lib/one-location/legacy-setup-finish";
 
 function LocationSetupReturn({ onReturn }: { onReturn: () => void }) {
   const returnedRef = useRef(false);
@@ -21,6 +25,13 @@ function LocationSetupReturn({ onReturn }: { onReturn: () => void }) {
 }
 
 export function LocationOnboardingSetupClient() {
+  const auth = useAuth();
+  const interaction = useOptionalOneLocationInteractionSurface();
+  const sessionRef = useRef({ mounted: true, userId: auth.userId });
+  useEffect(() => {
+    sessionRef.current = { mounted: true, userId: auth.userId };
+    return () => { sessionRef.current.mounted = false; };
+  }, [auth.userId]);
   const [ready, setReady] = useState(false);
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "location",
@@ -29,6 +40,15 @@ export function LocationOnboardingSetupClient() {
     skipActionId: "setup.skip_location",
     terminalPresentation: "automatic",
   });
+  useLocalOnboardingActionHandler("setup.finish_location", (_slots, context) => {
+    const userId = auth.userId;
+    return finishVerifiedLocationSetup({
+      userId,
+      runId: interaction?.currentRun?.runId ?? null,
+      isCurrent: () => sessionRef.current.mounted && sessionRef.current.userId === userId && !context?.signal?.aborted,
+      onVerified: coordinator.returnToSetup,
+    });
+  }, { enabled: coordinator.isReady && Boolean(auth.userId) });
 
   if (!coordinator.isReady)
     return <SetupCapabilityLoading label="Preparing location setup…" />;

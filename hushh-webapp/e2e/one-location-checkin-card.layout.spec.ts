@@ -115,7 +115,6 @@ for (const viewport of VIEWPORTS) {
     const layout = await page.evaluate(() => {
       const sms = document.querySelector('[data-one-feature-card="sms"]')!;
       const cardBox = sms.getBoundingClientRect();
-      const copyBottom = sms.querySelector('[data-one-feature-copy]')!.getBoundingClientRect().bottom;
       const rings = [...sms.querySelectorAll('[data-one-sms-radar-ring]')];
       rings.forEach(ring => {
         const animation = ring.getAnimations()[0];

@@ -608,7 +608,6 @@ vi.mock("sonner", () => {
 import { OneLocationAgentPage } from "@/app/one/location/page";
 import { prepareLocalOnboardingAction, resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
-import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { dispatchOneLocationStateChanged } from "@/lib/one-location/one-location-state-events";
 import { toast } from "sonner";
@@ -970,14 +969,6 @@ async function openLocationPermissionsStep() {
   });
   await waitFor(() => expect(setupButton).toBeEnabled());
   fireEvent.click(setupButton);
-}
-
-async function saveOnboardingPlace() {
-  const saveButton = await screen.findByRole("button", {
-    name: "Save & continue",
-  });
-  await waitFor(() => expect(saveButton).toBeEnabled());
-  fireEvent.click(saveButton);
 }
 
 async function switchLocationTab(
@@ -4458,6 +4449,29 @@ describe("OneLocationAgentPage", () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
+  });
+
+  it("does not let passive SOS warm-up block an explicit emergency alert", async () => {
+    mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    let releasePassive!: (value: { state: "prompt"; precise: null; background: "foreground-only"; locationServicesEnabled: true }) => void;
+    mockGetPermissionState.mockImplementationOnce(() => new Promise((resolve) => { releasePassive = resolve; }));
+    mockCaptureCurrentPosition.mockClear();
+    const writesBefore = mockStoreEnvelope.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
+    const hold = await screen.findByRole("button", { name: /^Press and hold for two seconds/ });
+    await waitFor(() => expect(hold.hasAttribute("disabled")).toBe(false));
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    fireEvent.keyDown(hold, { key: " ", code: "Space" });
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1), { timeout: 3500 });
+    await waitFor(() => expect(mockStoreEnvelope.mock.calls.length).toBeGreaterThan(writesBefore));
+    await screen.findByRole("button", { name: "Stop Save My Soul alert" });
+    const grantsAfter = mockCreateGrant.mock.calls.length;
+    await act(async () => { releasePassive({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true }); });
+    expect(mockCreateGrant).toHaveBeenCalledTimes(grantsAfter);
+    fireEvent.click(screen.getByRole("button", { name: "Stop Save My Soul alert" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
   });
 
   it("resolves a fresh local emergency number as Save My Soul opens", async () => {
