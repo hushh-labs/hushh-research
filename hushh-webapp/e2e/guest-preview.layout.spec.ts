@@ -313,6 +313,10 @@ for (const viewport of [
       for (let step = 1; step <= 4; step++) {
         await expect(screen).toHaveAttribute("data-preview-step", String(step));
         await expect(screen.getByRole("heading", { level: 1 })).toBeVisible();
+        if (step === 3) {
+          for (const content of await screen.locator("[data-agent-tour] [data-preview-intro]").all())
+            await expect(content).toHaveCSS("opacity", "1");
+        }
         const supportingInk = await screen.evaluate((element) => {
           const probe = document.createElement("span");
           probe.style.color = "var(--app-secondary-label)";
@@ -410,6 +414,18 @@ for (const viewport of [
             }
         }
         if (step === 3) {
+          const grid = screen.locator('[aria-label="Explore One’s agents"]');
+          const boxes = await grid.getByRole("button").evaluateAll(buttons => buttons.map(button => {
+            const bounds = button.getBoundingClientRect();
+            return { x: Math.round(bounds.x), y: Math.round(bounds.y) };
+          }));
+          expect(new Set(boxes.map(box => box.x)).size, "three equal columns").toBe(3);
+          expect(new Set(boxes.map(box => box.y)).size, "three rows").toBe(3);
+          const messageIcon = screen.getByTestId("one-agent-icon-preview-messages");
+          await expect(messageIcon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+          await expect(messageIcon).toHaveCSS("box-shadow", "none");
+          await expect(messageIcon.locator('svg [opacity="0.2"]')).toHaveCount(0);
+          await expect(screen.getByTestId("one-agent-icon-preview-location").locator('svg [opacity="0.2"]')).toHaveCount(1);
           await expect
             .poll(() =>
               screen.locator("[data-agent-tour] button").evaluateAll((buttons) =>
