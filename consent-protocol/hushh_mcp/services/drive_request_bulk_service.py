@@ -190,6 +190,17 @@ class DriveRequestBulkService:
         # or an owner in a different timezone can reinterpret it.
         timezone = context.get("requestTimeZone") or timezone
         requested_at = context.get("requestCreatedAt")
+        existing = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
+        if (
+            existing is not None
+            and existing["status"] == "completed"
+            and await self.search.store.clear_legacy_completed_request(
+                user_id=user_id, request_id=request_id
+            )
+        ):
+            # Refresh unfrozen legacy results before takeover can return them.
+            # The store preserves current selections and frozen/paid history.
+            existing = None
         if authority_mode == "owner":
             # This authenticated owner action can explicitly take over an
             # earlier automatic request. Its exact results and frozen batches
@@ -205,14 +216,8 @@ class DriveRequestBulkService:
                 # settle them as never-posted skips so owner recovery appears.
                 await self.wake("sharing")
                 return takeover
-        existing = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
         if existing is not None and existing["status"] not in {"failed", "limited", "stopped"}:
-            if existing[
-                "status"
-            ] != "completed" or not await self.search.store.clear_legacy_completed_request(
-                user_id=user_id, request_id=request_id
-            ):
-                return existing
+            return existing
         plan = await self._plan(
             user_id=user_id,
             purpose=context["purpose"],

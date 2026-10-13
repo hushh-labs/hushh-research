@@ -45,6 +45,7 @@ from hushh_mcp.services.drive_request_requester_store import (
 from hushh_mcp.services.drive_request_requester_store import (
     requester_context as read_requester_context,
 )
+from hushh_mcp.services.drive_request_review_policy import request_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import (
     BROAD_TRUST_DISCLOSURE,
     BROAD_TRUST_SCOPE,
@@ -681,6 +682,21 @@ class DriveSharingStore(DriveDocumentStore):
     def _has_dates(private) -> bool:
         purpose = private["purpose"]
         return bool(purpose.get("periodStart") and purpose.get("periodEnd"))
+
+    async def request_owner_review_required(self, *, user_id: str, request_id: str) -> bool:
+        """Selection policy only; callers separately check current read authority."""
+
+        def operation(connection):
+            request = self._request(connection, user_id, request_id)
+            return request_requires_owner_review(
+                connection,
+                user_id=user_id,
+                request_id=request["request_id"],
+                revision=request["revision"],
+                cipher=self.sharing_cipher,
+            )
+
+        return cast(bool, await self._transaction(operation))
 
     async def trusted_request_authority(self, *, user_id: str, request_id: str) -> dict:
         """Recheck a new trusted request and explicit background Drive authority.
@@ -2214,7 +2230,17 @@ class DriveSharingStore(DriveDocumentStore):
                 **self._summary(row),
                 "purpose": private["purpose"],
                 "trustedAuto": private.get("trusted_auto") is True
-                and row.get("preparation_error_code") != "manual_search_active",
+                and row.get("preparation_error_code") != "manual_search_active"
+                and (
+                    row["bulk_search_started_at"] is None
+                    or not request_requires_owner_review(
+                        connection,
+                        user_id=user_id,
+                        request_id=row["request_id"],
+                        revision=row["revision"],
+                        cipher=self.sharing_cipher,
+                    )
+                ),
                 "recipientEmail": private["recipient"]["email"],
                 "role": "reader",
                 "duration": "until_revoked",

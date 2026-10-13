@@ -24,6 +24,7 @@ from hushh_mcp.services.drive_request_payment_view import (
     order_view_input,
     requester_payment_view,
 )
+from hushh_mcp.services.drive_request_review_policy import request_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -370,7 +371,12 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 if existing is not None and existing["status"] == "refunded":
                     return request, existing, False
                 raise DriveSharingError("date_range_required")
-        if private.get("trusted_auto") is not True:
+        if private.get("trusted_auto") is not True or request_requires_owner_review(
+            connection,
+            user_id=user_id,
+            request_id=request["request_id"],
+            revision=request["revision"],
+        ):
             raise DriveSharingError("payment_not_ready")
         if existing is not None:
             return request, existing, False
@@ -516,6 +522,18 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 # actionable unless the owner actually approved a batch.
                 approved = (
                     private.get("trusted_auto") is True
+                    and (
+                        # Selection policy gates new payment authority without
+                        # reclassifying previously settled charges or refunds.
+                        order is not None
+                        and order["status"] in {"paid", "refunded"}
+                        or not request_requires_owner_review(
+                            connection,
+                            user_id=request["user_id"],
+                            request_id=request["request_id"],
+                            revision=request["revision"],
+                        )
+                    )
                     or request["status"] in {"approved", "partial", "completed"}
                     or self.owner_approved_progressive_batch(connection, request)
                 )
@@ -567,7 +585,12 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 access_stopped=request.get("access_stop_requested_at") is not None,
                 preparation_error_code=request.get("preparation_error_code"),
                 quoted_amount_cents=request.get("quoted_amount_cents"),
-                order=order_view_input(order),
+                order=order_view_input(order)
+                if approved
+                or request_expired
+                or order is not None
+                and order["status"] in {"paid", "refunded"}
+                else None,
                 refund=(
                     {
                         "status": order["refund_status"],

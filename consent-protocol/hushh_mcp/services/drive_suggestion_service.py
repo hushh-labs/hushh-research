@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
@@ -178,6 +178,17 @@ def _utc_text(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _validated_search_terms(terms: list[str]) -> list[str]:
+    """Apply the reader's literal bounds before a plan can be checkpointed."""
+    try:
+        cleaned = [DriveLiveReader._validate_query([term])[0] for term in terms]
+    except DriveReadError as error:
+        raise ValueError("invalid search term") from error
+    if len({term.casefold() for term in cleaned}) != len(cleaned):
+        raise ValueError("duplicate search terms")
+    return cleaned
+
+
 class LiveSearchPlan(BaseModel):
     """What to look for, in the Drive MCP's own terms; the reader compiles it.
 
@@ -186,6 +197,12 @@ class LiveSearchPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     terms: list[str] = Field(default_factory=list, max_length=3)
+    # OR within each concept; AND between concepts. Empty preserves old plans.
+    # Validate inner bounds after parsing to keep the model response schema small.
+    term_groups: list[list[str]] = Field(default_factory=list, max_length=3)
+    # Stored plans predate this audit; new provider answers must supply it.
+    subject_scope: Literal["specific_records", "metadata_listing"] | None = None
+    subject_complete: bool | None = None
     # Omitted intent may discover metadata, but must never trigger a content read.
     mode: Literal["find", "read"] = "find"
     exact_title: str | None = Field(default=None, max_length=1024)
@@ -205,8 +222,32 @@ class LiveSearchPlan(BaseModel):
     # Missing counts preserve older frozen plans and exhaustive discovery.
     result_limit: int | None = Field(default=None, ge=1, le=1000)
 
+    @field_validator("terms")
+    @classmethod
+    def validate_terms(cls, value: list[str]) -> list[str]:
+        return _validated_search_terms(value)
+
+    @field_validator("term_groups")
+    @classmethod
+    def validate_term_groups(cls, value: list[list[str]]) -> list[list[str]]:
+        if any(not 1 <= len(group) <= 4 for group in value):
+            raise ValueError("each search concept requires 1 to 4 variants")
+        cleaned = [_validated_search_terms(group) for group in value]
+        variants = [term.casefold() for group in cleaned for term in group]
+        if len(set(variants)) != len(variants):
+            raise ValueError("duplicate search variants across concepts")
+        return cleaned
+
     @model_validator(mode="after")
     def require_search_boundary(self):
+        if self.subject_complete is False:
+            raise ValueError("requested search subject is incomplete")
+        if self.subject_scope == "specific_records" and not (self.terms or self.exact_title):
+            raise ValueError("specific records require a search subject")
+        if self.subject_scope == "metadata_listing" and (self.terms or self.exact_title):
+            raise ValueError("metadata listing cannot also name a search subject")
+        if self.term_groups and [group[0] for group in self.term_groups] != self.terms:
+            raise ValueError("search concept canonical terms must match terms in order")
         if self.result_limit is not None and self.sort != "recent":
             raise ValueError("a bounded file count requires recent ordering")
         dated = self.date_from is not None or self.date_to is not None
@@ -233,6 +274,10 @@ class LiveSearchPlan(BaseModel):
             ):
                 raise ValueError("the calendar date range is invalid")
         return self
+
+    def search_term_groups(self) -> list[list[str]]:
+        """Return bounded literal alternatives, including legacy singleton terms."""
+        return [list(group) for group in self.term_groups] or [[term] for term in self.terms]
 
     def title_dates(self, now_utc: datetime, timezone: str = "UTC") -> list[str]:
         """Calendar days (at most 3) that a meeting title may carry, e.g. 2026/09/24."""
@@ -322,6 +367,13 @@ PLANNER_TIMEOUT_SECONDS = 30
 SUGGESTIONS_TIMEOUT_SECONDS = 60
 
 
+class LiveSearchModelPlan(LiveSearchPlan):
+    """Require the model's subject audit without invalidating stored plans."""
+
+    subject_scope: Literal["specific_records", "metadata_listing"]
+    subject_complete: bool
+
+
 async def interpret_live_search(*, prompt, user_id):
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
@@ -329,7 +381,7 @@ async def interpret_live_search(*, prompt, user_id):
     gene = next(child for child in manifest.subagents if child.id == "agent_documents_live_search")
     agent = build_single_turn_agent(
         gene,
-        output_schema=LiveSearchPlan,
+        output_schema=LiveSearchModelPlan,
     )
     result = await run_single_turn(
         agent,
@@ -344,17 +396,26 @@ async def interpret_live_search(*, prompt, user_id):
 async def plan_live_search(planner, *, prompt, user_id) -> LiveSearchPlan:
     """The planner's typed plan, asked once more after an invalid answer.
 
-    Only a model failure is retried (a schema-invalid plan or a failed turn),
-    never a valid plan; a second failure stands. Measured on UAT 2026-09-25:
-    date-period requests intermittently failed LiveSearchPlan validation.
+    An empty subject needs an explicit model assessment that the original
+    request only lists metadata. No schema failure may broaden the search.
     """
     for attempt in (1, 2):
         try:
-            return LiveSearchPlan.model_validate(await planner(prompt=prompt, user_id=user_id))
-        except (ValidationError, SpecialistAdkTurnError):
+            plan = LiveSearchPlan.model_validate(await planner(prompt=prompt, user_id=user_id))
+            if not (plan.terms or plan.exact_title) and not (
+                plan.subject_scope == "metadata_listing" and plan.subject_complete is True
+            ):
+                raise DriveReadError("narrow_selection_required")
+            return plan
+        except (ValueError, SpecialistAdkTurnError, DriveReadError):
             if attempt == 2:
                 raise
             logger.info("drive_search_plan.retry reason=invalid_plan")
+            # Feedback contains no provider output or derived interpretation.
+            # The same request goes back to the manifest-owned semantic stage.
+            prompt = (
+                f"{prompt}\n\nplanner_validation_feedback: invalid_plan_or_missing_subject_audit"
+            )
     raise AssertionError("unreachable")
 
 
@@ -536,6 +597,8 @@ class DriveSuggestionService:
                         # "latest" is the planner's sort, as in the chat lane.
                         "recent": plan.sort == "recent",
                     }
+                    if plan.term_groups:
+                        search_args["term_groups"] = plan.search_term_groups()
                     if bounds is not None:
                         search_args.update(
                             time_field=plan.file_time_field,

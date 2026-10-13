@@ -24,7 +24,11 @@ from hushh_mcp.services.drive_sharing_contract import (
 )
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.google_drive_adapter import DriveReadError
-from tests.services.test_drive_request_bulk_postgres import _search, request_bulk
+from tests.services.test_drive_request_bulk_postgres import (
+    FILE_ACTIVITY_SELECTION,
+    _search,
+    request_bulk,
+)
 from tests.services.test_drive_sharing_store import (
     MIGRATIONS,
     connector_postgres_url,
@@ -110,7 +114,7 @@ async def _paid_auto_review(sharing, bulk, *, request_id, job_id):
 
 
 def _auto_job(bulk, *, request_id):
-    job_id = _search(bulk, request_id=request_id, count=1)
+    job_id = _search(bulk, request_id=request_id, count=1, selection=FILE_ACTIVITY_SELECTION)
     with bulk.db.engine.begin() as connection:
         envelope = connection.execute(
             text("SELECT checkpoint_envelope FROM drive_owner_search_jobs WHERE job_id=:job"),
@@ -529,6 +533,7 @@ async def test_removed_trust_stops_search_and_grant_authority(request_bulk, shar
     authority = await sharing.trusted_request_authority(user_id="owner", request_id=request_id)
     synthetic_share = {
         "origin_request_id": request_id,
+        "search_job_id": _auto_job(request_bulk, request_id=request_id),
         "origin_request_revision": item["revision"],
         "progressive_batch": True,
         "approval_source": "trusted_auto",
@@ -554,7 +559,11 @@ async def test_removed_trust_stops_search_and_grant_authority(request_bulk, shar
             connection, synthetic_share, "owner", "recipient"
         )
     auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=AsyncMock())
-    assert (await auto.start_pending())["deferred"] == 1
+    continue_search = await auto.search_authority_for_job(
+        user_id="owner", job_id=synthetic_share["search_job_id"]
+    )
+    with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+        await continue_search()
     review = await sharing.owner_review(user_id="owner", request_id=request_id)
     assert review["preparationError"] == "trusted_relationship_changed"
     assert rows(sharing, "drive_share_permission_operations") == []
@@ -856,6 +865,7 @@ async def test_bounded_auto_batches_continue_past_first_twenty_five(monkeypatch)
     sharing = SimpleNamespace(
         db=object(),
         trusted_request_authority=AsyncMock(return_value={}),
+        request_owner_review_required=AsyncMock(return_value=False),
         request_bulk_context=AsyncMock(
             return_value={
                 "purpose": {
@@ -922,6 +932,7 @@ async def test_frozen_auto_review_waits_for_payment_and_resumes_same_batch(monke
     sharing = SimpleNamespace(
         db=object(),
         trusted_request_authority=AsyncMock(return_value={}),
+        request_owner_review_required=AsyncMock(return_value=False),
         request_bulk_context=AsyncMock(
             return_value={
                 "purpose": {
@@ -956,6 +967,7 @@ async def test_legacy_undated_auto_request_does_not_approve_frozen_batches():
     pending = AsyncMock(return_value=[{"shareId": str(uuid4())}])
     sharing = SimpleNamespace(
         trusted_request_authority=AsyncMock(return_value={}),
+        request_owner_review_required=AsyncMock(return_value=False),
         request_bulk_context=AsyncMock(
             return_value={"purpose": {"purpose": "last 3 days standup notes"}}
         ),
@@ -1010,6 +1022,7 @@ async def test_legacy_queued_search_requires_dates_before_provider_read():
     sharing = SimpleNamespace(
         trusted_request_for_job=AsyncMock(return_value=request_id),
         trusted_request_authority=AsyncMock(return_value={}),
+        request_owner_review_required=AsyncMock(return_value=False),
         request_bulk_context=AsyncMock(
             return_value={"purpose": {"purpose": "last 3 days standup notes"}}
         ),
@@ -1142,6 +1155,7 @@ async def test_committed_request_pages_reach_payment_and_sharing_before_next_pag
     sharing = SimpleNamespace(
         db=object(),
         trusted_request_authority=authority,
+        request_owner_review_required=AsyncMock(return_value=False),
         trusted_request_for_job=AsyncMock(return_value=request_id),
         request_bulk_context=AsyncMock(
             return_value={

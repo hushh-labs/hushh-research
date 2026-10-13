@@ -19,6 +19,10 @@ from sqlalchemy import text
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current
+from hushh_mcp.services.drive_request_review_policy import (
+    checkpoint_requires_owner_review,
+    request_requires_owner_review,
+)
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingCipher,
     DriveSharingError,
@@ -333,6 +337,14 @@ class DriveBulkShareStore(DriveLivePreferences):
                 private.get("trusted_auto") is not True
                 or not share["progressive_batch"]
                 or request["preparation_error_code"] == "manual_search_active"
+                or request_requires_owner_review(
+                    connection,
+                    user_id=owner,
+                    request_id=share["origin_request_id"],
+                    revision=request["revision"],
+                    cipher=self.cipher,
+                    search_job_id=share["search_job_id"],
+                )
             ):
                 return False
             try:
@@ -1383,6 +1395,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             self.live_active(connection, user_id=user_id, generation=row["connection_generation"])
             recipients = self._recipients(connection, row)
             origin = None
+            owner_review_required = False
             if row["origin_request_id"] is not None:
                 origin = self._row(
                     connection,
@@ -1407,13 +1420,6 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 if _request_missing_dates(private):
                     raise DriveSharingError("date_range_required")
-                # A request that was created with the immutable Trusted
-                # authority marker still follows the automatic payment gate,
-                # even if the owner is explicitly approving the batch after
-                # that authority changed.  Manual/non-trusted requests defer
-                # payment until this approval creates the checkout order.
-                if approval_source == "trusted_auto" or private.get("trusted_auto") is True:
-                    self._require_paid_for_origin(connection, origin["request_id"])
                 search = self._row(
                     connection,
                     """SELECT job_id,status,revision,incomplete_search,checkpoint_envelope
@@ -1449,6 +1455,17 @@ class DriveBulkShareStore(DriveLivePreferences):
                     or checkpoint.get("request_shareability_version") != 1
                 ):
                     raise DriveSharingError("search_incomplete")
+                owner_review_required = checkpoint_requires_owner_review(
+                    checkpoint, request_id=origin["request_id"], revision=origin["revision"]
+                )
+                if approval_source == "trusted_auto" and owner_review_required:
+                    raise DriveSharingError("trusted_request_unavailable")
+                # Candidate-only searches follow manual payment ordering even
+                # when the request retains its historical Trusted marker.
+                if approval_source == "trusted_auto" or (
+                    private.get("trusted_auto") is True and not owner_review_required
+                ):
+                    self._require_paid_for_origin(connection, origin["request_id"])
             if len(recipients) != row["recipient_count"] or any(
                 not (
                     self._request_recipient_current(connection, user_id, item["user_id"])
@@ -1516,7 +1533,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 origin is not None
                 and row["progressive_batch"]
                 and approval_source == "owner"
-                and private.get("trusted_auto") is not True
+                and (private.get("trusted_auto") is not True or owner_review_required)
                 and row["file_count"] > 0
             ):
                 # Progressive requests remain pending while later batches are

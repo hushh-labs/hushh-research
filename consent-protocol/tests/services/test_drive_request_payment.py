@@ -60,7 +60,11 @@ from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
 from hushh_mcp.services.feed_service import FeedService
 from hushh_mcp.services.stripe_connect_bank_payouts import StripeConnectBankPayouts
-from tests.services.test_drive_request_bulk_postgres import _search, request_bulk  # noqa: F401
+from tests.services.test_drive_request_bulk_postgres import (  # noqa: F401
+    FILE_ACTIVITY_SELECTION,
+    _search,
+    request_bulk,
+)
 from tests.services.test_drive_sharing_store import (  # noqa: F401
     approve,
     connector_postgres_url,
@@ -254,7 +258,12 @@ async def test_document_payment_delivery_transfer_and_bank_payout_lifecycle(
     )
     review = await bulk.create_review(
         user_id="owner",
-        search_job_id=_search(bulk, request_id=request_id, count=3),
+        search_job_id=_search(
+            bulk,
+            request_id=request_id,
+            count=3,
+            selection=FILE_ACTIVITY_SELECTION if trusted else None,
+        ),
         client_request_id=str(uuid4()),
         origin_request_id=request_id,
         recipients=[
@@ -998,6 +1007,7 @@ def test_first_frozen_batch_orders_at_the_owner_allowed_price(monkeypatch, owner
     participant = {"user_id": "owner", "recipient_user_id": "recipient"}
     request = {
         "request_id": request_id,
+        "revision": 1,
         **participant,
         "payment_required": True,
         "status": "pending",
@@ -1012,7 +1022,21 @@ def test_first_frozen_batch_orders_at_the_owner_allowed_price(monkeypatch, owner
     order = {"status": "awaiting_payment", "amount_cents": amount}
     store = DriveRequestPaymentStore(db=object())
     store._row = Mock(side_effect=[participant, request, None, {"share_id": str(uuid4())}, order])
+    monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"s" * 32).decode())
+    cipher = DriveSharingCipher()
+    job_id = str(uuid4())
+    checkpoint = {
+        **FILE_ACTIVITY_SELECTION,
+        "request_origin_id": request_id,
+        "request_revision": 1,
+    }
     connection = SimpleNamespace(execute=Mock())
+    connection.execute.return_value.mappings.return_value.first.return_value = {
+        "job_id": job_id,
+        "checkpoint_envelope": cipher.seal(
+            checkpoint, user_id="owner", resource_id=job_id, purpose="owner-search-checkpoint"
+        ),
+    }
 
     _, created, notified = store._ensure_ready(
         connection, user_id="owner", request_id=request_id, share_id=None
@@ -2363,7 +2387,9 @@ async def test_owner_allowed_request_pays_the_owner_price_without_trusted_member
     _owner_allow(sharing, request_id, amount_cents=3000)
     review = await request_bulk.create_review(
         user_id="owner",
-        search_job_id=_search(request_bulk, request_id=request_id, count=1),
+        search_job_id=_search(
+            request_bulk, request_id=request_id, count=1, selection=FILE_ACTIVITY_SELECTION
+        ),
         client_request_id=str(uuid4()),
         origin_request_id=request_id,
         recipients=[
