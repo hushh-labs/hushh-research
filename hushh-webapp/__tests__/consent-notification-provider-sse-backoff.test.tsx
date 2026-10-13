@@ -198,6 +198,18 @@ describe("consent SSE stops retrying a permanent refusal", () => {
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes authentication and bounds recovery of an expired 410 stream", async () => {
+    mocks.apiFetchStream.mockResolvedValue(streamResponse(410, JSON.stringify({ detail: { error_code: "STREAM_EXPIRED" } })));
+    const view = render(<ConsentNotificationProvider><div>Feed</div></ConsentNotificationProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
+    expect(mocks.user.getIdToken).toHaveBeenCalledWith(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
+    view.unmount();
+  });
+
   it("aborts the live stream and stops reconnecting when sign-out withdraws the user", async () => {
     let streamSignal: AbortSignal | undefined;
     mocks.apiFetchStream.mockImplementation((_path: string, init: RequestInit) => {

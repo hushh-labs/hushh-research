@@ -18,7 +18,7 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 }));
 const events = vi.hoisted(() => ({
   listener: null as
-    null | ((detail: { userId: string; domain: string }) => void),
+    null | ((detail: { userId: string; domain: string; operation?: string }) => void),
 }));
 vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
   subscribeToPkmDomainChanges: (listener: typeof events.listener) => {
@@ -382,4 +382,16 @@ describe("persisted source-linked Profile memory.md", () => {
       expect(retrieveApprovedMemoryScopes).toHaveBeenCalledTimes(2);
     } finally { vi.useRealTimers(); }
   });
+});
+
+it("persisting derived memory cannot perpetually mark its source document stale", async () => {
+  const stop = watchMemoryFreshness(USER);
+  try {
+    getStaleFirst.mockResolvedValue(domainSnapshot(7, { home_city: "Synthetic city" }));
+    await refreshMemoryDocument({ userId: USER, vaultKey: "key", vaultOwnerToken: "token", domains: ["personal_data"] });
+    events.listener?.({ userId: USER, domain: "one_living_sources", operation: "stored" });
+    expect(peekMemoryView(USER).status).toBe("current");
+    events.listener?.({ userId: USER, domain: "personal_data", operation: "stored" });
+    expect(peekMemoryView(USER).status).toBe("refresh_pending");
+  } finally { stop(); }
 });

@@ -736,3 +736,33 @@ it("keeps unchanged source revisions when an unrelated Soul fact was deleted", a
   expect(result.payload.sourceRevisions[name]).toBe(3);
   expect(result.payload.memory).toContain("Revision 3");
 });
+
+it("concurrent owner preparation joins one composition and one encrypted stage", async () => {
+  answerable.mockResolvedValue([work()]);
+  setScopeProjection({ payload: { trips: [{ destination: "Synthetic city" }] }, sourceContentRevision: 7 });
+  compose.mockResolvedValue({ answerMode: "agent", answer: "Synthetic city.", covers: [], gaps: [], compositionReceipt: "synthetic-composition-receipt" });
+  encrypt.mockResolvedValue({ ciphertext: "synthetic" });
+  deliver.mockResolvedValue(undefined);
+  const selected = { ...params, firebaseIdToken: "id-token", requestId: work().requestId };
+  const results = await Promise.all([runAnswerDeliverySweep(selected), runAnswerDeliverySweep(selected)]);
+  expect(results.map(result => result.delivered)).toEqual([1, 1]);
+  expect(compose).toHaveBeenCalledTimes(1);
+  expect(deliver).toHaveBeenCalledTimes(1);
+});
+
+it("times out visibly and never stages a late Gemini result", async () => {
+  vi.useFakeTimers();
+  let finish!: (value: unknown) => void;
+  try {
+    answerable.mockResolvedValue([work()]);
+    setScopeProjection({ payload: { trips: [{ destination: "Synthetic city" }] }, sourceContentRevision: 7 });
+    compose.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = runAnswerDeliverySweep({ ...params, firebaseIdToken: "id-token", requestId: work().requestId });
+    const rejection = expect(pending).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await rejection;
+    finish({ answerMode: "agent", answer: "Late answer", gaps: [], compositionReceipt: "synthetic-receipt" });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(deliver).not.toHaveBeenCalled();
+  } finally { vi.useRealTimers(); }
+});

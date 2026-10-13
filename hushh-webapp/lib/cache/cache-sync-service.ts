@@ -381,7 +381,7 @@ export class CacheSyncService {
         ...(options?.eventId ? { eventId: options.eventId } : null),
       });
     };
-    bumpPkmInvalidationEpoch(userId);
+    bumpPkmInvalidationEpoch(userId, domain);
     const cache = CacheService.getInstance();
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
@@ -484,7 +484,7 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
       this.invalidateKaiFinancialResource(userId);
     }
-    bumpPkmInvalidationEpoch(userId);
+    bumpPkmInvalidationEpoch(userId, domain);
     if (options?.emitEvent !== false) {
       dispatchPkmDomainChanged({
         userId,
@@ -550,7 +550,7 @@ export class CacheSyncService {
       this.invalidateKaiFinancialResource(userId, { includeDevice: true });
       this.onKaiMarketContextChanged(userId);
     }
-    bumpPkmInvalidationEpoch(userId);
+    bumpPkmInvalidationEpoch(userId, domain);
     if (options?.emitEvent !== false) {
       dispatchPkmDomainChanged({
         userId,

@@ -1477,7 +1477,7 @@ describe("Request scope Needs you", () => {
     expect(row.actions).toEqual([]);
   });
 
-  it("does not price an answer the owner's device has not reported yet", () => {
+  it.each([false, true])("does not price an unstaged answer, including overdue=%s", (overdue) => {
     // Locked, offline or still reading. "Not found" would be a guess and so
     // would a price, so the row says what is actually happening.
     mocks.pendingCount = 1;
@@ -1489,6 +1489,7 @@ describe("Request scope Needs you", () => {
           role: "requester",
           proposed_scope_count: 3,
           answer_staged: false,
+          preparation_overdue: overdue,
           amount_cents: 100,
           question: "What is your age?",
         },
@@ -1498,7 +1499,9 @@ describe("Request scope Needs you", () => {
     const row = result.current.actionables.find(
       (item) => item.id === `consent:${ANSWER_ID}`,
     )!;
-    expect(row.description).toBe("Checking their memory for an answer");
+    expect(row.description).toBe(overdue
+      ? "Ask them to unlock memory and retry preparation"
+      : "Their answer is being prepared");
     expect(row.actions).toEqual([]);
   });
 
