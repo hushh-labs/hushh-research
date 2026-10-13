@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { Lock, ShieldCheck, ArrowUpRight, ArrowLeft, ArrowRight } from "@/components/icons";
+import { Lock, ShieldCheck, ArrowUpRight } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -12,7 +12,6 @@ import { useVault } from "@/lib/vault/vault-context";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import styles from "./wallet-sharing.module.css";
-import { WALLET_DEMO_CARDS, WalletDemoCardFace } from "./wallet-demo-cards";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import type { WalletDemoProfile } from "./wallet-demo-cards";
 import { CONSENT_ACTION_COMPLETE_EVENT, CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
@@ -30,7 +29,7 @@ function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
 
 type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: ConsentCenterEntry[]; incompleteRequests?: boolean; error: boolean };
 
-export function WalletSharing({ cardDetails = false, profile, active = true, getHistoryContext, cards = [] }: { cards?: WalletCardSummary[]; cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null } = {}) {
+export function WalletSharing({ cardDetails = false, active = true, getHistoryContext }: { cards?: WalletCardSummary[]; cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null } = {}) {
   const { user } = useAuth();
   const { vaultKey } = useVault();
   const actions = useConsentActions({ userId: user?.uid });
@@ -45,10 +44,6 @@ export function WalletSharing({ cardDetails = false, profile, active = true, get
 
   const reviewTrigger = useRef<HTMLButtonElement | null>(null);
   const owner = user?.uid;
-  const collection = [...WALLET_DEMO_CARDS, ...cards];
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  const previewIndex = Math.max(0, collection.findIndex(card => card.cardId === previewId));
-  const previewCard = collection[previewIndex]!;
   const current = state?.owner === owner ? state : null;
 
   useEffect(() => {
@@ -152,18 +147,7 @@ export function WalletSharing({ cardDetails = false, profile, active = true, get
   );
 
   return <div className={`${styles.content} mx-auto w-full max-w-[820px] space-y-6 py-4`} data-testid="wallet-sharing-content">
-    {cardDetails ? <p className="text-xs text-muted-foreground">These recipients have Wallet-wide access, including this card.</p> : <section className={styles.hero}>
-      <h2 className="ui-text-section-title">Your cards.<br />Your control.</h2>
-      <p>You choose who can access your Wallet information.</p>
-      <figure className={styles.heroCard}>
-        <WalletDemoCardFace summary={previewCard} profile={profile?.ownerId === owner ? profile : null} />
-        <div className="mt-2 flex items-center justify-between">
-          <Button variant="ghost" size="compact" aria-label="Previous card preview" onClick={() => setPreviewId(collection[(previewIndex - 1 + collection.length) % collection.length]!.cardId)}><ArrowLeft className="size-4" aria-hidden /></Button>
-          <span className="ui-text-caption" aria-live="polite">{previewIndex + 1} / {collection.length}</span>
-          <Button variant="ghost" size="compact" aria-label="Next card preview" onClick={() => setPreviewId(collection[(previewIndex + 1) % collection.length]!.cardId)}><ArrowRight className="size-4" aria-hidden /></Button>
-        </div>
-      </figure>
-    </section>}
+    {cardDetails ? <p className="text-xs text-muted-foreground">These recipients have Wallet-wide access, including this card.</p> : null}
     {cardDetails || !getHistoryContext ? (!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup(cardDetails ? "Wallet access" : "Shared with", current.grants, true)) : null}
     {!cardDetails && owner && getHistoryContext ? <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} /> : null}
     <Dialog modal open={Boolean(selection && current && !current.error)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
