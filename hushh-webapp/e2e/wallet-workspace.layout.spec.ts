@@ -896,6 +896,7 @@ for (const width of [320, 820, 1440]) {
       await page.getByRole("tab", { name: tab, exact: true }).click();
       const panel = page.locator(selector);
       await expect(panel).toBeVisible();
+      await expect(page.getByTestId("one-wallet-add")).toHaveCount(0);
       await expect.poll(async () => page.evaluate((target) => {
         const box = document.querySelector(target)!.getBoundingClientRect();
         const tabs = document.querySelector('[role="tablist"]')!.getBoundingClientRect();
@@ -906,8 +907,13 @@ for (const width of [320, 820, 1440]) {
         if (tab === "Cards") {
           const heading = panel.getByRole("heading", { name: "Your cards", level: 2, exact: true }).first();
           await expect(heading).toHaveClass(/sr-only/);
+        } else if (tab === "Add") {
+          await expect(panel.getByRole("heading", { name: "Add your card" })).toHaveCount(0);
+          await expect(panel.getByLabel("Card number", { exact: true })).toBeVisible();
+          await expect(panel.getByText("Encrypted on this device. Never enters chat.")).toHaveCount(0);
         } else {
-          await expect(panel.locator('h2').first()).toHaveClass(/ui-text-section-title/);
+          await expect(panel.getByRole("button", { name: "Sent cards", exact: true })).toBeVisible();
+          await expect(panel.getByRole("button", { name: "Received cards", exact: true })).toBeVisible();
         }
         await expect(panel).toHaveCSS('background-image', 'none');
       }
