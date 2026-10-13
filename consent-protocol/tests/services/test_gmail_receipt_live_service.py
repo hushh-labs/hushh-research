@@ -1468,8 +1468,7 @@ async def test_durable_source_locator_is_sealed_owner_account_and_connection_bou
     assert locator.startswith("grs1_") and "private-provider-id" not in locator
     sealed = base64.urlsafe_b64decode(locator[5:] + "=" * (-len(locator[5:]) % 4))
     assert "private-provider-id".encode() not in sealed
-    # Changing trailing Base64 characters can preserve the decoded bytes.
-    # Flip an authenticated ciphertext byte so this always tests real tampering.
+    # Flip authenticated bytes; trailing Base64 edits can preserve ciphertext.
     tampered = bytearray(sealed)
     tampered[-1] ^= 1
     tampered_locator = "grs1_" + base64.urlsafe_b64encode(tampered).decode().rstrip("=")
@@ -1484,18 +1483,14 @@ async def test_durable_source_locator_is_sealed_owner_account_and_connection_bou
     from dataclasses import replace
 
     assert service._open_locator(replace(authority, user_id="other-owner"), locator) is None
-    for owner, handle, connection in [
-        (
-            "owner",
-            tampered_locator,
-            "2026-10-04T00:00:00+00:00",
-        ),
-        ("owner", locator, "2026-10-13T00:00:00+00:00"),
+    for handle, connection in [
+        (tampered_locator, "2026-10-04T00:00:00+00:00"),
+        (locator, "2026-10-13T00:00:00+00:00"),
     ]:
         service._gmail.row["connected_at"] = connection
         with pytest.raises(GmailApiError) as rejected:
             await service.detail(
-                user_id=owner,
+                user_id="owner",
                 source_id=handle,
                 consent_token=TEST_CONSENT_TOKEN,
                 require_access=_allowed,
