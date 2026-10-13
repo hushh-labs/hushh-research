@@ -73,7 +73,12 @@ def test_recipient_envelopes_are_forwarded_with_owner_authority(minutes):
         )
         assert response.status_code == 200
         service.create_grants.assert_called_once_with(
-            "owner", "card_one", ID, [ID], minutes, encrypted_cards={ID: "opaque-recipient-envelope"}
+            "owner",
+            "card_one",
+            ID,
+            [ID],
+            minutes,
+            encrypted_cards={ID: "opaque-recipient-envelope"},
         )
 
 
