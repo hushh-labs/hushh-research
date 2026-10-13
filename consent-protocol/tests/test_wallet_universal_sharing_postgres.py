@@ -133,11 +133,13 @@ def test_unified_history_is_paged_scoped_and_survives_source_removal(cards_db):
     service.create_grants("alice", payment, str(uuid.uuid4()), refs(db), 5)
     service.create_grants("alice", profile_card, str(uuid.uuid4()), refs(db), 10)
     first = service.history("alice", limit=1)
+    assert first["recipientCount"] == 2
     assert first["hasMore"] and first["items"][0]["cardType"] == "profile"
     ids = {first["items"][0]["id"]}
     cursor = first["nextCursor"]
     while cursor:
         page = service.history("alice", cursor=cursor, limit=1)
+        assert page["recipientCount"] == 2
         assert page["items"][0]["id"] not in ids
         ids.add(page["items"][0]["id"])
         cursor = page["nextCursor"]

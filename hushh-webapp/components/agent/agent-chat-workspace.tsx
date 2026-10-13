@@ -8812,7 +8812,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <OneAgentProfileSheet presenceState={activeToolCalls.length > 0 || isPkmMemoryWorking ? "working" : isStreaming ? "answering" : isChatLoading ? "thinking" : "connected"} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
+          <OneAgentProfileSheet open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface

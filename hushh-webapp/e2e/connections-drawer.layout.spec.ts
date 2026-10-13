@@ -115,6 +115,12 @@ test.beforeEach(async ({ page }) => {
     return route.continue();
   });
   await page.route(`**${HUSHH_MARK_PATH}`, route => route.fulfill({ contentType: "image/png", body: mark }));
+  await page.route("http://localhost/one-presence/profile-hd.png", route =>
+    route.fulfill({
+      contentType: "image/png",
+      body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/profile-hd.png")),
+    }),
+  );
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
     route.fulfill({
       contentType: "image/webp",
@@ -1382,65 +1388,101 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
   await expectChatIntact(page, navigations);
 });
 
-for (const viewport of [
-  { width: 320, height: 568 },
-  { width: 390, height: 844 },
-  { width: 768, height: 720 },
-  { width: 1440, height: 900 },
-]) {
-  test(`One profile keeps its header and tabs stationary while switching at ${viewport.width}px`, async ({ page }) => {
-    await page.setViewportSize(viewport);
-    await page.route("**/api/one/feed**", route => route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ items: Array.from({ length: 20 }, (_, i) => ({
-        id: String(i + 100), event_type: "connection_accepted", source_domain: "connections",
-        actor_label: `Synthetic person ${i + 1}`, metadata: {}, read: false,
-        created_at: "2026-10-12T08:00:00Z",
-      })), next_cursor: null, unread_count: 20 }),
-    }));
-    await page.goto("http://localhost/connections-fixture?one-profile=1");
-    await page.addScriptTag({ content: script });
-    await awaitProductFont(page);
-    await page.getByRole("button", { name: "Open One profile", exact: true }).click();
-    const panel = page.getByRole("dialog", { name: "One", exact: true });
-    await expect(panel).toBeVisible();
-    await expect(panel.getByTestId("feed-row").first()).toBeVisible();
-    // Geometry is measured after the sheet's entrance motion settles.
-    await expect.poll(() => panel.evaluate(element =>
-      new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
-    const avatar = panel.locator("canvas");
-    await expect(avatar).toBeVisible();
-    // Exercise the production player with its real sheet, not a mock mark.
-    // A mounted canvas alone would pass even when the asset never loaded.
-    await expect.poll(() => avatar.evaluate((canvas: HTMLCanvasElement) => {
-      const pixels = canvas.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height).data;
-      return pixels?.some((channel, index) => index % 4 === 3 && channel > 0) ?? false;
-    })).toBe(true);
-    const rail = panel.getByRole("tablist", { name: "One profile sections" });
-    const initial = (await rail.boundingBox())!;
-    const frame = (await panel.boundingBox())!;
-    const scroll = await panel.getByRole("tabpanel", { name: "Feed" }).evaluate(element => {
-      let node = element.parentElement;
-      while (node && !["auto", "scroll"].includes(getComputedStyle(node).overflowY)) node = node.parentElement;
-      if (!node) throw new Error("Missing active-panel scroller");
-      node.scrollTop = node.scrollHeight;
-      return node.scrollTop;
-    });
-    expect(scroll).toBeGreaterThan(80);
-    expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
-    for (let i = 0; i < 3; i += 1) {
-      if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
-      await panel.getByRole("tab", { name: "Profile", exact: true }).click();
-      await expect(panel.getByRole("link", { name: "Open memory.md in Memory" })).toBeVisible();
-      expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
-      await panel.getByRole("tab", { name: "Feed", exact: true }).click();
+test.describe("One profile Retina artwork", () => {
+  test.use({ deviceScaleFactor: 3 });
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 390, height: 844 },
+    { width: 768, height: 720 },
+    { width: 1440, height: 900 },
+  ]) {
+    test(`One profile keeps its header and tabs stationary while switching at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.route("**/api/one/feed**", route => route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ items: Array.from({ length: 20 }, (_, i) => ({
+          id: String(i + 100), event_type: "connection_accepted", source_domain: "connections",
+          actor_label: `Synthetic person ${i + 1}`, metadata: {}, read: false,
+          created_at: "2026-10-12T08:00:00Z",
+        })), next_cursor: null, unread_count: 20 }),
+      }));
+      await page.goto("http://localhost/connections-fixture?one-profile=1");
+      await page.addScriptTag({ content: script });
+      await awaitProductFont(page);
+      await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+      const panel = page.getByRole("dialog", { name: "One", exact: true });
+      await expect(panel).toBeVisible();
       await expect(panel.getByTestId("feed-row").first()).toBeVisible();
+      // Geometry is measured after the sheet's entrance motion settles.
+      await expect.poll(() => panel.evaluate(element =>
+        new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+      const avatar = panel.locator('img[src="/one-presence/profile-hd.png"]');
+      await expect(avatar).toBeVisible();
+      // A loaded thumbnail still fails: the source must cover the actual
+      // profile presentation at the device's physical pixel density.
+      await expect.poll(() => avatar.evaluate((image: HTMLImageElement) => {
+        const bounds = image.getBoundingClientRect();
+        return image.complete &&
+          image.naturalWidth >= Math.ceil(bounds.width * devicePixelRatio) &&
+          image.naturalHeight >= Math.ceil(bounds.height * devicePixelRatio);
+      })).toBe(true);
+      expect((await avatar.boundingBox())!.width).toBe(192);
+      expect((await avatar.boundingBox())!.height).toBe(192);
+      const rail = panel.getByRole("tablist", { name: "One profile sections" });
+      const initial = (await rail.boundingBox())!;
+      const frame = (await panel.boundingBox())!;
+      const scroll = await panel.getByRole("tabpanel", { name: "Feed" }).evaluate(element => {
+        let node = element.parentElement;
+        while (node && !["auto", "scroll"].includes(getComputedStyle(node).overflowY)) node = node.parentElement;
+        if (!node) throw new Error("Missing active-panel scroller");
+        node.scrollTop = node.scrollHeight;
+        return node.scrollTop;
+      });
+      expect(scroll).toBeGreaterThan(80);
       expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
-    }
-    expect(frame.x).toBeGreaterThan(0);
-    expect(frame.x + frame.width).toBeLessThanOrEqual(viewport.width);
-    expect(frame.y + frame.height).toBeLessThanOrEqual(viewport.height);
-    expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await page.screenshot({ path: test.info().outputPath("one-profile-atd.png") });
-  });
-}
+      for (let i = 0; i < 3; i += 1) {
+        if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
+        await panel.getByRole("tab", { name: "Profile", exact: true }).click();
+        await expect(panel.getByRole("link", { name: "Open memory.md in Memory" })).toBeVisible();
+        expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+        await panel.getByRole("tab", { name: "Feed", exact: true }).click();
+        await expect(panel.getByTestId("feed-row").first()).toBeVisible();
+        expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+      }
+      expect(frame.x).toBeGreaterThan(0);
+      expect(frame.x + frame.width).toBeLessThanOrEqual(viewport.width);
+      expect(frame.y + frame.height).toBeLessThanOrEqual(viewport.height);
+      expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath("one-profile-atd.png") });
+    });
+  }
+});
+
+// The account pane's legacy 24-unit stroke overrides must not distort
+// Phosphor's filled 256-unit reset glyph. Mount the real row and pane styles.
+test("Reset icon keeps its native geometry in the account pane", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("http://localhost/connections-fixture?reset-icon=1");
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+  const row = page.getByRole("button", { name: /Reset account/ });
+  const icon = row.locator('[data-slot="settings-row-icon"] svg');
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate(dark => document.documentElement.classList.toggle("dark", dark), theme === "dark");
+    await expect(icon).toBeVisible();
+    const geometry = await icon.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return { width: bounds.width, height: bounds.height, stroke: style.stroke,
+        fill: style.fill,
+        viewBox: element.getAttribute("viewBox") };
+    });
+    expect(geometry.viewBox).toBe("0 0 256 256");
+    expect(geometry.width).toBe(22);
+    expect(geometry.height).toBe(22);
+    expect(geometry.stroke).toBe("none");
+    expect(geometry.fill).not.toBe("none");
+    await expect(row.getByText("Clears saved details")).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`reset-icon-${theme}.png`) });
+  }
+});

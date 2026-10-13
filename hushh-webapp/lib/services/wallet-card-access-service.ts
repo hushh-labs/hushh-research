@@ -10,7 +10,7 @@ export type CardSharingHistoryItem = CardAccessGrant & {
   verificationMethod: string; verifiedAt: string | null; revokedAt: string | null;
   lastAccessedAt: string | null; permittedFields: string[]; activity: CardSharingActivity[];
 };
-export type CardSharingHistory = { items: CardSharingHistoryItem[]; hasMore: boolean; nextCursor: string | null; serverNow: string };
+export type CardSharingHistory = { recipientCount?: number; items: CardSharingHistoryItem[]; hasMore: boolean; nextCursor: string | null; serverNow: string };
 const listeners = new Map<string, Set<() => void>>();
 function changed(userId: string) { listeners.get(userId)?.forEach(listener => listener()); }
 
