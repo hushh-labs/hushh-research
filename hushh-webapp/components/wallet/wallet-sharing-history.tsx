@@ -1,5 +1,6 @@
 "use client";
 
+import styles from "./wallet-sharing.module.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ProfilePaneAccountIcon } from "@/components/profile/profile-pane-icons";
@@ -103,13 +104,13 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
     catch { /* Toast owns action feedback; confirmed history stays visible. */ }
     finally { if (context.isCurrent()) setBusy(null); }
   };
-  return <SettingsPresentationProvider density="compact"><section aria-label="Card sharing history" className="space-y-4">
+  return <SettingsPresentationProvider density="compact"><section aria-label="Card sharing history" className={`space-y-4 ${styles.history}`}>
     {active && profile?.context.isCurrent() && profile.context.userId === ownerId ? <WalletSavedCardSharing card={{ cardId: profile.cardId }} getContext={getContext} disabled={Boolean(busy)} showHistory={false} /> : null}
     <div className="flex gap-2" role="group" aria-label="Share direction">
       <Button size="compact" className="ui-text-compact-button-label" variant={direction === "outgoing" ? "default" : "secondary"} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Sent cards</Button>
       <Button size="compact" className="ui-text-compact-button-label" variant={direction === "received" ? "default" : "secondary"} aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Received cards</Button>
     </div>
-    <SettingsGroup title={direction === "outgoing" ? "Shared cards" : "Cards shared with you"}>
+    <SettingsGroup title={direction === "outgoing" ? `Shared cards${current?.page.recipientCount != null ? ` · ${current.page.recipientCount}` : ""}` : "Cards shared with you"}>
       {current?.page.items.map(item => <SettingsRow key={`${item.cardType}:${item.id}`} icon={ProfilePaneAccountIcon} iconTone="transparent"
         title={`${item.displayLabel} · ${direction === "outgoing" ? item.recipientName : item.senderName}`}
         description={<div className="space-y-1">
@@ -119,7 +120,7 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
           <p>Expires <time dateTime={item.expiresAt}>{date(item.expiresAt)}</time></p>
           {item.revokedAt ? <p>Revoked {date(item.revokedAt)}</p> : null}
           {item.lastAccessedAt ? <p>Last viewed {date(item.lastAccessedAt)}</p> : null}
-          <details><summary>Activity</summary><ul className="mt-2 space-y-1">{item.activity.map((event, index) => <li key={`${event.event}:${event.at}:${index}`}>{event.event.toLowerCase().replaceAll("_", " ")} · {date(event.at)}</li>)}</ul></details>
+          <details><summary>Activity</summary><ul className="mt-2 space-y-1">{item.activity.filter((event, index, events) => event.event !== "SHARE_OPENED" || index === events.findIndex(candidate => candidate.event === "SHARE_OPENED")).map((event, index) => <li key={`${event.event}:${event.at}:${index}`}>{event.event.toLowerCase().replaceAll("_", " ")} · {date(event.at)}</li>)}</ul></details>
         </div>}
         trailing={direction === "outgoing" && item.status === "active" ? <Button size="compact" variant="secondary" aria-label={`Revoke ${item.displayLabel} shared with ${item.recipientName}`} disabled={Boolean(busy)} onClick={() => setSelection(item)}>Revoke</Button> : undefined} />)}
       {!current && !failed ? <SettingsRow title="Loading shared cards…" /> : null}

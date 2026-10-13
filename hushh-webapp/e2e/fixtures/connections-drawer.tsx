@@ -12,6 +12,9 @@ import { ConnectorReadReceipt } from "../../components/agent/connector-read-rece
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
 import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
+import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
+import { ProfileAccountResetIcon } from "../../components/profile/profile-your-account-icons";
+import accountStyles from "../../components/profile/profile-your-account.module.css";
 import {
   readGoogleOAuthPopupAttempt,
   settleGoogleOAuthPopup,
@@ -209,6 +212,19 @@ function Fixture() {
     setOpen(next.open);
     setMode(next.mode);
   };
+  if (new URLSearchParams(window.location.search).has("reset-icon")) {
+    return (
+      <main className="profile-pane-scroll-root bg-background p-4 text-foreground">
+        <div className={accountStyles.paneAccountContent}>
+          <SettingsGroup title="Account actions">
+            <SettingsRow icon={ProfileAccountResetIcon} iconTone="capability"
+              className="profile-account-reset-row" title="Reset account"
+              description="Clears saved details" chevron onClick={() => {}} />
+          </SettingsGroup>
+        </div>
+      </main>
+    );
+  }
   return (
     <main
       className="relative flex h-dvh flex-col overflow-hidden bg-background text-foreground"

@@ -16,6 +16,16 @@ vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/lib/services/wallet-sharing-service", async (original) => ({ ...await original<object>(), loadWalletSharing: vi.fn() }));
 describe("Wallet Sharing", () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it("cycles through built-in and manually added cards in both directions", () => {
+    render(<WalletSharing cards={[{ cardId: "manual", nickname: "Travel", brand: "visa", last4: "4242", expiryMonth: 12, expiryYear: 2030, issuingRegion: "US", createdAt: "2026-10-13" }]} />);
+    expect(screen.getByText("1 / 4")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Previous card preview" }));
+    expect(screen.getByText("4 / 4")).toBeVisible();
+    expect(screen.getByText("4242", { exact: true })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Next card preview" }));
+    expect(screen.getByText("1 / 4")).toBeVisible();
+  });
+
   it("retains confirmed recipients during background refresh and tab changes", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [{ id: "grant", scope: "attr.wallet.summary.*", kind: "active_grant", status: "active", action: "grant", counterpart_type: "person", counterpart_label: "Alex" }] });
     const view = render(<WalletSharing active />);

@@ -23,8 +23,13 @@ beforeEach(() => {
 });
 describe("Wallet's participant-scoped sharing ledger", () => {
   it("renders real timing, recipient, verification and activity and confirms recipient-specific revocation", async () => {
+    const record = item("First");
+    record.activity.push(...Array.from({ length: 4 }, () => ({ event: "SHARE_OPENED", at: "2026-10-12T10:01:00Z", actor: "recipient", outcome: "opened" })));
+    mocks.history.mockResolvedValue({ ...page(["First"]), items: [record], recipientCount: 7 });
     render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
     expect(await screen.findByText("VISA •••• 4242 · First")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Shared cards · 7" })).toBeVisible();
+    expect(screen.getAllByText(/share opened/)).toHaveLength(1);
     expect(screen.getByText(/15 minutes/)).toBeVisible();
     expect(screen.getByText("Identity verification required")).toBeVisible();
     expect(screen.getByText(/Last viewed/)).toBeVisible();
