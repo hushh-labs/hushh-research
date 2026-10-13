@@ -114,3 +114,12 @@ export const HushhKeychain = {
   set: async () => { throw new Error("Not admitted in layout fixture"); },
   delete: async () => { throw new Error("Not admitted in layout fixture"); },
 };
+
+// The mounted Feed preview reads through the real service/cache/epoch paths.
+// Mutations are outside this fixture; keep their cold resource imports out of
+// its synthetic auth/PKM/Plaid boundaries and reject an unexpected write.
+export const CacheSyncService = {
+  onFeedChanged(_userId: string): never {
+    throw new Error("Feed mutations are not admitted in the read-only Connections layout fixture");
+  },
+};

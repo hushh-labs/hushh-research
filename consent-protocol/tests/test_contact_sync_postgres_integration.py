@@ -26,7 +26,10 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityPhoneClaimConflictError,
+    ActorIdentityService,
+)
 from hushh_mcp.services.connection_graph_service import (
     activate_contact_sync_connections_bulk,
     lock_connection_graph_users,
@@ -510,6 +513,71 @@ def test_signup_phone_survives_ria_deletion_and_passive_provider_conflict(monkey
                 )
                 assert stale["phone_verified"] is False
                 assert (await identity.get_many(["owner"]))["owner"]["phone_verified"] is True
+                # Fixed test codes may retry the same owner, but cannot prove
+                # possession for a different account or undo a committed claim.
+                assert (
+                    await identity.can_claim_test_phone(
+                        user_id="phone-session", phone_number="+919000000001"
+                    )
+                    is False
+                )
+                assert (
+                    await identity.can_claim_test_phone(
+                        user_id="owner", phone_number="+919000000001"
+                    )
+                    is True
+                )
+                with pytest.raises(ActorIdentityPhoneClaimConflictError):
+                    await identity.claim_verified_phone(
+                        user_id="phone-session",
+                        phone_number="+919000000001",
+                        source="uat_test_phone_claim",
+                    )
+                assert (await identity.get_many(["owner"]))["owner"]["phone_verified"] is True
+                retried = await identity.claim_verified_phone(
+                    user_id="owner", phone_number="+919000000001", source="uat_test_phone_claim"
+                )
+                assert retried["phone_verified"] is True
+                # Both start-flow hints can race on an unbound number. Only
+                # one fixed-code claimant may commit; the loser cannot clear it.
+                async with pool.acquire() as fixture_connection:
+                    await fixture_connection.execute(
+                        "INSERT INTO actor_profiles(user_id) VALUES ('test-alpha'), ('test-beta')"
+                    )
+                outcomes = await asyncio.gather(
+                    identity.claim_verified_phone(
+                        user_id="test-alpha",
+                        phone_number="+919000000002",
+                        source="uat_test_phone_claim",
+                    ),
+                    identity.claim_verified_phone(
+                        user_id="test-beta",
+                        phone_number="+919000000002",
+                        source="uat_test_phone_claim",
+                    ),
+                    return_exceptions=True,
+                )
+                assert (
+                    sum(
+                        isinstance(outcome, ActorIdentityPhoneClaimConflictError)
+                        for outcome in outcomes
+                    )
+                    == 1
+                )
+                assert (
+                    sum(
+                        isinstance(outcome, dict) and outcome.get("phone_verified") is True
+                        for outcome in outcomes
+                    )
+                    == 1
+                )
+                async with pool.acquire() as fixture_connection:
+                    assert (
+                        await fixture_connection.fetchval(
+                            "SELECT COUNT(*) FROM actor_identity_cache WHERE phone_number='+919000000002' AND phone_verified=TRUE"
+                        )
+                        == 1
+                    )
                 # Explicit OTP claims retain the established owner-transfer path.
                 claimed = await identity.claim_verified_phone(
                     user_id="phone-session",
