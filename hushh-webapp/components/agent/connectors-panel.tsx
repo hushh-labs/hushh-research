@@ -787,16 +787,18 @@ function OwnerConnectorsPanel({
     return () => window.clearTimeout(timer);
   }, [pending, updatePendingSelection, setActiveConnector]);
   useEffect(() => {
-    if (driveBusy || !restorePickerFocus.current) return;
-    restorePickerFocus.current = false;
+    if (driveBusy || loading || !restorePickerFocus.current) return;
     const frame = requestAnimationFrame(() => {
-      (
+      restorePickerFocus.current = false;
+      const target =
         pendingRef.current?.querySelector<HTMLButtonElement>("button") ??
-        chooseRef.current
-      )?.focus();
+        chooseRef.current;
+      const details = target?.closest("details");
+      if (details) details.open = true;
+      target?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [driveBusy, pending]);
+  }, [driveBusy, loading, pending]);
 
   const runDrive = useCallback(
     async (
@@ -2185,13 +2187,13 @@ function OwnerConnectorsPanel({
       className={
         inProfile
           ? "flex min-w-0 flex-col text-foreground"
-          : "flex h-full min-h-0 flex-col bg-background text-foreground"
+          : "flex h-full min-h-0 flex-col bg-transparent text-foreground"
       }
       data-connections-panel
       data-connection-compact={activeConnector === "google_drive" && statusChecked && !loading && drive?.status === "connected" && !pending ? "" : undefined}
       data-surface={surface}
     >
-      {inProfile ? null : <header className="flex shrink-0 items-center gap-2 px-4 pb-3 pt-4">
+      {inProfile ? null : <header className="profile-pane-header flex shrink-0 items-center gap-2 border-b px-4 pb-3 pt-4">
         {activeConnector ? (
           <ShellActionSurface
             ref={detailBackRef}
@@ -2206,7 +2208,7 @@ function OwnerConnectorsPanel({
           </ShellActionSurface>
         ) : null}
         {activeConnector ? <ConnectorGlyph id={activeConnector} /> : null}
-        <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">
+        <h2 data-app-pane-title className="min-w-0 flex-1 truncate text-lg font-semibold">
           {activeConnector
             ? entries.find((entry) => entry.id === activeConnector)?.name || "Connector"
             : "Connectors"}

@@ -244,9 +244,10 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
       {ordered.length > 3 ? <button type="button" className="min-h-11 px-3 text-[12px] font-medium text-[color:var(--one-chat-meta)] hover:text-foreground"
         onClick={() => setShowAllShares(value => !value)}>{showAllShares ? "Show fewer updates" : `Show all ${ordered.length} updates`}</button> : null}
       <Dialog modal open={!!selected} onOpenChange={open => { if (!open) { setSelectedShareId(null); void loadBulk(); } }}>
-        <DialogContent className="gap-3 p-4 sm:max-w-xl sm:p-5" srDescription="Google Drive sharing progress and available actions."
+        <DialogContent data-app-side-pane className="flex flex-col gap-0 overflow-hidden" srDescription="Google Drive sharing progress and available actions."
           onCloseAutoFocus={event => { if (dismissingDetail.current) { event.preventDefault(); dismissingDetail.current = false; restoreSidebarFocus(); } }}>
-          <DialogTitle>Drive sharing</DialogTitle>
+          <DialogTitle data-app-pane-title className="profile-pane-header shrink-0 border-b">Drive sharing</DialogTitle>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-[var(--page-inline-gutter-standard)]">
           {selected ? <>
             <DriveBulkShareReview key={selected.shareId} searchJobId={selected.searchJobId} initial={selected} getToken={getToken} />
             <Button type="button" variant="muted" size="compact" className="self-start"
@@ -254,6 +255,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
                 requestAnimationFrame(restoreSidebarFocus); }}
               title="Hide this update without changing file access">Hide this update</Button>
           </> : null}
+          </div>
         </DialogContent>
       </Dialog>
     </section>;

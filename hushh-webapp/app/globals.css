@@ -9031,7 +9031,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 @layer base {
   .profile-pane-sheet .profile-pane-header [data-slot="sheet-title"],
   [data-agent-history-drawer] [data-agent-history-title],
-  [data-app-side-pane] [data-slot="sheet-title"] {
+  [data-app-side-pane] [data-slot="sheet-title"],
+  [data-app-side-pane] [data-app-pane-title] {
     font-size: 20px !important;
     line-height: 1.15 !important;
     font-weight: 700 !important;
