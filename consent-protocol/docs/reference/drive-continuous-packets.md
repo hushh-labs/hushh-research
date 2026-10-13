@@ -76,6 +76,12 @@ hold identities, versions, operational states and money needed for policy checks
   deadline; unused semantic capacity can advance further work for the same owner
   without concurrent claims for that owner and phase. No claim of an exact
   indexing duration is made before a collection runs.
+- A bounded internal target API can register up to 50 live provider candidates
+  and prioritize their ordinary extraction and facts jobs. It rechecks current
+  owner authority and metadata, preserves discovery cursor and lease, and reuses
+  valid extraction. Its first consumer is operator evaluation; scheduled FIFO
+  does not yet select targets by predicted semantic value. Callers cannot supply
+  document facts or bypass source/version/permission checks.
 - Status reports distinct discovered, indexed, failed and pending files; initial
   discovery/indexing timestamps, accumulated sync time and per-file indexing time
   remain distinct. Pausing displays freshness and stops further processing.
@@ -87,6 +93,11 @@ locations. Document facts remain independent of buyer requests. Canonical groupi
 uses issuer, subject/account, type and useful coverage; it does not create every
 possible file combination. Request matching evaluates structured dates together
 with prose. Filename and modification time never establish a statement period.
+Source facts distinguish reporting coverage from event, publication, planned
+action, transaction and as-of dates. Packet checks retain those roles through
+construction, compact final review and indexed request reuse. Drafts and other
+useful undated documents can form a packet with no coverage-period claim; an
+event date does not become a posting schedule or financial reporting interval.
 
 Private packets are built progressively from available current facts; unrelated
 files do not have to finish indexing first. Packet content readiness and purchase
@@ -180,13 +191,22 @@ before corrections and append separately identified replays; never overwrite a
 failed baseline with a later passing result. Whole-Drive counts and initial or
 incremental indexing time come from live collection status, not sample timings.
 
-The current 24-document development replay completed all documents. Independent
-agent-authored core-field labels passed for 21 and failed for three; exact source
+The retained v4 development replay completed 24 Drive file records representing
+22 unique byte originals. Independent agent-authored core-field labels passed
+for 21 and failed for three; exact source
 citations passed for all 24. A 208-page original completed in 913.402 seconds over
 136 model calls. The short-document packet replay produced nine independently
 correct Ready groups out of 16 proposed groups, two nonready groups and five
 validation failures; six originals had no proposed canonical packet. These are
 different denominators, and neither result proves the 99.9% target or delivery.
+
+The first audit of actual saved v4 packets found three Ready versions with
+correct membership, but only two with correct packet claims: a social-post draft
+incorrectly used the advertised event dates as document coverage. Seven empty
+historical versions also occurred. Those failed attempts are retained. Empty
+heads are now retired and zero-document versions are hidden from the catalog;
+immutable audit and purchase records are preserved. The v5 date-role replay is
+recorded separately and must not replace or relabel the failed v4 baseline.
 
 ### Earlier development results (October 13, 2026)
 
