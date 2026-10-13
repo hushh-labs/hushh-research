@@ -15,7 +15,7 @@ Allow binds the package revision, digest, exact selected source versions and edi
 - The package store encrypts per-file evidence on those existing result rows and a compact manifest on the search checkpoint. Original document text exists only during bounded reads/model calls.
 - Existing owner review, payment obligations, bulk sharing workers and payout settlement own their established transitions.
 
-## Request-scoped evidence graph
+## Visual Map
 
 ```mermaid
 flowchart LR
@@ -42,7 +42,7 @@ The content excerpt budget is 20 KiB per document; any truncation is explicit. U
 
 ## Evaluation contract
 
-The executable `scripts/eval_drive_package_assessment.py` runs 12 independently labeled synthetic cases, normally with three repetitions. It checks selected identities, decisions, actual content periods, abstention and price bounds. Cases cover generic filenames, a recently modified old statement, wrong issuer, incidental mentions, explicit date formats, incomplete retrieval, partial coverage, missing issuer, truncation and document prompt injection.
+The executable `consent-protocol/scripts/eval_drive_package_assessment.py` runs 12 independently labeled synthetic cases, normally with three repetitions. It checks selected identities, decisions, actual content periods, abstention and price bounds. Cases cover generic filenames, a recently modified old statement, wrong issuer, incidental mentions, explicit date formats, incomplete retrieval, partial coverage, missing issuer, truncation and document prompt injection.
 
 The report records fixture/manifest hashes, model alias/resolved model where available, failures, precision, recall, and two-stage latency. Failed reports are retained. Self-reported confidence never determines whether a test passes. The suite is a regression gate, not proof of whole-Drive recall or confidence calibration. Calibration requires a separate representative labeled holdout corpus.
 
