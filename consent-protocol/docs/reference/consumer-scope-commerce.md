@@ -78,6 +78,13 @@ retirement guard fails its focused regression without changing source files.
 All 447 Back cases pass after contract regeneration. Full core, hosted CI and
 deployed warm/cold behavior remain completion gates.
 
+The bounded authored workflow predecessor list retains the committed
+`9644d2ecdd` branch history after main integration. Its eight workflow definitions
+match the current definitions; its qualified revision policies contain every
+surviving contribution from the replaced predecessor. Existing exact retirements,
+ancestor admission, semantic checks and the eight-reference limit remain intact.
+Generated mirrors are derived from this authored list rather than patched.
+
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
