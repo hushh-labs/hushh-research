@@ -101,7 +101,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
     <p className="text-sm">{senderIsViewer ? "You shared a card." : "A card was shared with you."}</p>
     {!senderIsViewer && !nativeViewerUnavailable ? <Button variant="secondary" size="compact" onClick={() => { setFailed(false); setOpen(true); }}>View card</Button> : null}
     {!senderIsViewer && nativeViewerUnavailable ? <p className="text-xs">Open Messages in your browser to view this card.</p> : null}
-    <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Shared card" mobilePresentation="sheet" surfaceClassName={`${profileStyles.walletContent} print:hidden`} desktopMaxWidth="820px">
+    <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Shared card" mobilePresentation="sheet" surfaceClassName={`${profileStyles.walletContent} print:hidden`} desktopMaxWidth="820px" contentClassName="!bg-[color:var(--app-glass-surface)] backdrop-blur-[var(--blur-standard)] [&_[data-slot=dialog-header]]:text-center [&_[data-slot=dialog-header]>div]:justify-center [&_[data-slot=dialog-header]>div>div]:text-center" bodyClassName="text-center">
       <SettingsPresentationProvider density="compact" separatorInset>
         <div className="select-none" onCopy={event => event.preventDefault()} onContextMenu={event => event.preventDefault()}>
           {failed ? <p role="alert" className="text-xs">Card unavailable. Close and try again.</p> : !view ? <p role="status">Checking access…</p> : null}
