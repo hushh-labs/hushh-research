@@ -327,15 +327,19 @@ describe("getGmailEmailDraftPayload", () => {
     });
   });
 
-  it("falls back to the bounded Email Draft Writer when One did not supply a body", () => {
+  it("retains a resolved recipient while the bounded Email Draft Writer fills the missing body", () => {
     const draft = getGmailEmailDraftPayload(
       makeToolEvent("open_gmail_email_draft", { status: "draft_opened" }, {
         request: "Send a hello email",
+        to: "pat@example.com",
+        cc: "other@example.com",
         subject: "Hello",
       }),
     );
 
-    expect(draft?.initialDraft).toBeNull();
+    expect(draft?.initialDraft).toEqual({
+      to: "pat@example.com", cc: "other@example.com", bcc: "", subject: "Hello", body: "",
+    });
   });
 });
 
