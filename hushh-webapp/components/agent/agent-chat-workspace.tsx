@@ -19,6 +19,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/one-presence-avatar";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
   AgentConsentContinuationContext,
@@ -2439,6 +2440,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     tokenExpiresAt,
     getVaultOwnerToken,
   } = useVault();
+  const oneDisplayName = useOneDisplayName();
   const vaultSessionEpoch = snapshotVaultSessionEpoch();
   // Chat history is sealed with a key derived from this; read it at call time so
   // history requests never capture a stale (or locked) vault.
@@ -8648,7 +8650,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   screen rather than the workspace. */}
               <div className="min-w-0">
                 <div className="truncate text-base font-medium leading-5 text-foreground">
-                  {isPuppySurface ? "Puppy One" : "One"}
+                  {isPuppySurface ? "Puppy One" : oneDisplayName}
                 </div>
                 <ChatAgentSubtitle text={chatHeaderSubtitle({
                   isPuppySurface,
