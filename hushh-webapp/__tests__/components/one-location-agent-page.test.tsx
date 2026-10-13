@@ -4973,6 +4973,38 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
   });
 
+  it("cancels a banner acquisition without reopening its modal when the fix arrives late", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    const release = holdNextCapture();
+    fireEvent.click(screen.getByRole("button", { name: "Save a place" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss saved places reminder" }));
+    await act(async () => { release(); await Promise.resolve(); });
+    expect(screen.queryByTestId("saved-places-banner")).toBeNull();
+    expect(screen.queryByTestId("save-location-modal")).toBeNull();
+    expect(mockAddSavedLocation).not.toHaveBeenCalled();
+  });
+
+  it("ignores a banner denial after the active account changes", async () => {
+    const view = render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    let rejectCapture!: (error: Error) => void;
+    mockCaptureCurrentPosition.mockImplementationOnce(() => new Promise((_, reject) => { rejectCapture = reject; }));
+    fireEvent.click(screen.getByRole("button", { name: "Save a place" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+    const priorAuth = mockUseRequireAuth.mock.results.at(-1)!.value;
+    window.localStorage.setItem("one_location_onboarding_v2:user_b", "1");
+    mockUseRequireAuth.mockReturnValue({ ...priorAuth, userId: "user_b", user: { ...priorAuth.user, uid: "user_b" } });
+    view.rerender(<OneLocationAgentPage />);
+    await screen.findByRole("button", { name: "Save a place" });
+    toast.error.mockClear();
+    await act(async () => { rejectCapture(Object.assign(new Error("Location permission was not granted."), { name: "LocationPermissionDeniedError" })); await Promise.resolve(); });
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("save-location-modal")).toBeNull();
+    expect(window.localStorage.getItem("one_location_places_banner_dismissed_v1:user_b")).toBeNull();
+  });
+
   it("saves the banner place securely and turns the Location preview on", async () => {
     mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
     render(<OneLocationAgentPage />);
@@ -7842,7 +7874,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
-  it("blocks sharing and opens settings when phone location services are off", async () => {
+  it("blocks sharing without acquiring a position when device location services are off", async () => {
     mockGetPermissionState.mockResolvedValue({
       state: "unavailable",
       precise: false,
@@ -7860,7 +7892,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     expect(mockOpenLocationSettings).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
-    await waitFor(() => expect(mockOpenLocationSettings).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Turn location on" })).toHaveAttribute("aria-checked", "false"));
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockCreateGrant).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();

@@ -18011,8 +18011,7 @@
       "command": {
         "domain": "location",
         "review_route": "/one/setup/location",
-        "review_only": true,
-        "permission": "location"
+        "review_only": true
       },
       "action_id": "setup.finish_location",
       "surface_id": "one_setup_location",
@@ -18028,7 +18027,7 @@
         "verify",
         "onboarding"
       ],
-      "meaning": "Requests final verification after the Location onboarding runtime has settled permission, position, place or explicit skip, and personal Circle provisioning.",
+      "meaning": "Completes the two-screen Location introduction and returns to setup. Device location access and saved places can be enabled later from the Location workspace.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -18040,9 +18039,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "The active Location onboarding run has verified permission and position evidence.",
-          "A saved-place settlement or explicit place-skip settlement exists.",
-          "The personal Circle was provisioned or reused and verified."
+          "The Location introduction is open and the signed-in setup coordinator is ready."
         ],
         "active_personas": [
           "investor",
@@ -18068,8 +18065,7 @@
         "one-setup-location-terminal"
       ],
       "state_exposure": [
-        "bounded Location onboarding run status",
-        "verified settlement readiness"
+        "Location introduction completion readiness"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"

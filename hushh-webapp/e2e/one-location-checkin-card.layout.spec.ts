@@ -225,7 +225,7 @@ for (const width of [320, 390, 1440]) {
     expect(box.width).toBeGreaterThanOrEqual(44);
     expect(box.height).toBeGreaterThanOrEqual(44);
     expect(await banner.getByRole("heading").evaluate(node => getComputedStyle(node).fontSize)).toBe("17px");
-    expect(await banner.evaluate(node => ({ radius: getComputedStyle(node).borderRadius, overflow: node.scrollWidth > node.clientWidth + 1 }))).toEqual({ radius: "20px", overflow: false });
+    expect(await banner.evaluate(node => ({ radius: getComputedStyle(node).borderRadius, overflow: node.scrollWidth > node.clientWidth + 1 }))).toEqual({ radius: "18px", overflow: false });
     await expect(page.getByRole("button", { name: "Save a place" })).toBeVisible();
     await banner.screenshot({ path: testInfo.outputPath("places-banner.png") });
     await dismiss.click();
