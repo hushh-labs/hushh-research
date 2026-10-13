@@ -14,7 +14,7 @@ from typing import Literal
 
 from hushh_mcp.constants import GEMINI_MODEL
 
-ProviderId = Literal["gemini", "anthropic", "openai", "grok"]
+ProviderId = Literal["gemini", "anthropic", "openai", "grok", "openai_compatible"]
 
 _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "gemini": "gemini",
@@ -28,6 +28,19 @@ _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "grok": "grok",
     "xai": "grok",
     "x.ai": "grok",
+    # Any server that speaks the OpenAI chat-completions wire format on a host
+    # the operator configures (NVIDIA NIM, vLLM, Ollama, LM Studio, TGI). The
+    # host comes from the environment, never from the alias, so a local alias
+    # can never redirect traffic by name.
+    "openai_compatible": "openai_compatible",
+    "openai-compatible": "openai_compatible",
+    "nim": "openai_compatible",
+    "vllm": "openai_compatible",
+    "ollama": "openai_compatible",
+    "lmstudio": "openai_compatible",
+    "lm_studio": "openai_compatible",
+    "tgi": "openai_compatible",
+    "local": "openai_compatible",
 }
 
 
@@ -131,6 +144,18 @@ _MODELS: tuple[ModelEntry, ...] = (
         aliases=("grok-default", "grok"),
     ),
     ModelEntry(provider="grok", model="grok-4-fast"),
+    # OpenAI-compatible -- same wire adapter as Grok, base URL from the
+    # environment (HUSHH_OPENAI_COMPATIBLE_BASE_URL). The served model is
+    # whatever the operator loaded, so the registry holds one conservative
+    # placeholder: streaming and function calling on, realtime and prompt
+    # caching off. Any other model id passes through resolve_model_entry.
+    ModelEntry(
+        provider="openai_compatible",
+        model="local-default",
+        supports_native_realtime=False,
+        supports_prompt_caching=False,
+        aliases=("local-default",),
+    ),
 )
 
 _DEFAULT_MODEL_BY_PROVIDER: dict[ProviderId, ModelEntry] = {}

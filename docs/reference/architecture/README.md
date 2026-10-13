@@ -48,6 +48,7 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 - [runtime-db-fact-sheet.md](./runtime-db-fact-sheet.md): runtime storage facts and boundaries.
 - [crd-scraping-api.md](./crd-scraping-api.md): CRD scraping and financial-verification provider contract behind the `/api/ria` facade.
 - [one-location-agent.md](./one-location-agent.md): One Location agent v1 implementation contract.
+- [supersales-workforce.md](./supersales-workforce.md): SuperSalesSI, the 🤫 One Workforce, as a business-side counterparty to One: the two doors between a company's agents and a person (the front door and PCHP `request_consent`), the autonomy classes A to F, contact provenance, receipts on both sides, and the runtime substrate.
 - [pkm-storage-adr.md](./pkm-storage-adr.md): decision record for PKM storage shape.
 - [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json): machine-readable table-family ownership, retention, deletion, and trust-boundary contract used by the data-model audit.
 - [data-provenance-ledger.md](./data-provenance-ledger.md): provenance and audit data model.

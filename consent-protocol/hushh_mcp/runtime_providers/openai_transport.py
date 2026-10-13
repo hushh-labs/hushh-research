@@ -1,8 +1,9 @@
 """Native OpenAI-compatible transport adapter.
 
-Serves both OpenAI (native realtime) and Grok/x.ai, which speaks the OpenAI
-wire format on its own host. Grok is configured via ``base_url`` so there is
-one code path for both.
+Serves OpenAI (native realtime), Grok/x.ai, which speaks the OpenAI wire
+format on its own host, and the ``openai_compatible`` provider (NIM, vLLM,
+Ollama, LM Studio, TGI) whose host comes from the environment. Every
+non-OpenAI host is configured via ``base_url`` so there is one code path.
 """
 
 from __future__ import annotations

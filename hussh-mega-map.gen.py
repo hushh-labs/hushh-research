@@ -63,6 +63,9 @@ LAYERS_ALL=[
  ("COMMERCE · PAYMENTS · AGENT ECONOMY","PAY","the value-inversion layer — brands' agents bid; money flows to the user",[
    ("UCP","commerce protocol","Universal Commerce Protocol","join the agent-commerce rails","REST/JSON-RPC · business stays MoR","catalog→cart→checkout","fut",[11]),
    ("AP2","payment-auth protocol","Agent Payments Protocol (FIDO)","prove intent-to-pay; settle money","Intent→Cart→Payment mandate · SCA","agent pays safely","fut",[11,12]),
+   # Business-side workforce (sibling repo hushh-search-console, backend/app/supersales). Its principal is a company
+   # tenant, not a person, so it is NOT a specialist under One: see docs/vision/agent-ontology.md and AGENTS.md doctrine 5.
+   ("SuperSalesSI Workforce","business-side agent workforce","a company's PLG, sales and revenue roles as agents","sell to businesses, never the citizen","held 24h then automatic, one human signs, PCHP request_consent only","SDR brief, quote, collect","fut",[]),
    ("Demand Agent","advertiser agent","brand's buyer-of-attention agent","reach users via their agent","request_consent(scope, BID)","brand bids $12","fut",[12]),
    ("Reverse-Auction Bid","priced consent","value flows to the user","flip the ad economy","PCHP bid + AP2 settle · Nav reserve","user gets PAID","fut",[12]),
    ("Salesforce FSC + MuleSoft Anypoint","enterprise CRM + iPaaS","partner system sync, user-owned","keep CRM current, no mirror","iPaaS proxy · narrow fields","CRM record update","fut",[6]),
