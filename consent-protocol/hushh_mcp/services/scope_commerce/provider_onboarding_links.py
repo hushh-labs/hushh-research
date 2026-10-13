@@ -11,11 +11,15 @@ from .stripe_adapter import CommerceProviderError
 
 
 def onboarding_urls(
-    origin: str, path: str, attempt_id: str, *, source: Literal["documents"] | None = None
+    origin: str,
+    path: str,
+    attempt_id: str,
+    *,
+    source: Literal["documents", "answers"] | None = None,
 ) -> dict[str, str]:
     parameters = {"commerceAttemptId": attempt_id, "commerceReturn": "1"}
     if source is not None:
-        if source != "documents" or path != "/one/profile/payouts":
+        if source not in {"documents", "answers"} or path != "/one/profile/payouts":
             raise ValueError("invalid payout return source")
         parameters["commerceSource"] = source
     base = origin + path + "?"

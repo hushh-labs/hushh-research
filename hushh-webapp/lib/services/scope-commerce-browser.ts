@@ -1,18 +1,18 @@
 import { Capacitor } from "@capacitor/core";
 import { openOAuthWindow } from "@/lib/connections/oauth-window";
 import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
-import { parseCommerceReturn, type CommerceHostedSession, type CommerceReturn } from "./scope-commerce-return";
+import { parseCommerceReturn, type CommerceHostedSession, type CommerceReturn, type CommerceReturnSource } from "./scope-commerce-return";
 export { commerceReturnAction, commerceReturnAttempt } from "./scope-commerce-return";
 export type { CommerceReturn, CommerceReturnAction } from "./scope-commerce-return";
 
 export type CommerceHostedPurpose = "checkout" | "onboarding";
 
 /** Provider destinations are presentation only; their returns never authorize sharing. */
-export function validateCommerceHostedUrl(raw: string, purpose: CommerceHostedPurpose): string {
+export function validateCommerceHostedUrl(raw: string, purpose: CommerceHostedPurpose | "management"): string {
   const url = new URL(raw);
   const hosts = purpose === "checkout"
     ? ["checkout.stripe.com"]
-    : ["connect.stripe.com"];
+    : purpose === "management" ? ["connect.stripe.com", "stripe.com"] : ["connect.stripe.com"];
   if (url.protocol !== "https:" || !hosts.includes(url.hostname) || url.username || url.password || url.port) {
     throw new Error("The payment provider address could not be verified.");
   }
@@ -36,11 +36,11 @@ export function openCommerceHostedWindow(): Window | null {
 const MARKER_PREFIX = "one_commerce_popup_v1:";
 const RETURN_KEY = "one_commerce_popup_return_v1";
 const WINDOW_LIFETIME_MS = 10 * 60_000;
-type PopupMarker = { attemptId: string; purpose: CommerceHostedPurpose; expiresAt: number; source?: "documents" };
+type PopupMarker = { attemptId: string; purpose: CommerceHostedPurpose; expiresAt: number; source?: CommerceReturnSource };
 
-const markerKey = (attemptId: string, source?: "documents") => MARKER_PREFIX + (source ? `${source}:` : "") + attemptId;
+const markerKey = (attemptId: string, source?: CommerceReturnSource) => MARKER_PREFIX + (source ? `${source}:` : "") + attemptId;
 
-function readMarker(attemptId: string, source?: "documents"): PopupMarker | null {
+function readMarker(attemptId: string, source?: CommerceReturnSource): PopupMarker | null {
   try {
     const raw = window.localStorage.getItem(markerKey(attemptId, source));
     if (!raw) return null;
@@ -48,7 +48,7 @@ function readMarker(attemptId: string, source?: "documents"): PopupMarker | null
     return value.attemptId === attemptId && value.source === source && ["checkout", "onboarding"].includes(value.purpose) &&
       Number.isFinite(value.expiresAt) && value.expiresAt > Date.now() &&
       value.expiresAt <= Date.now() + WINDOW_LIFETIME_MS &&
-      (value.source === undefined || (value.source === "documents" && value.purpose === "onboarding")) &&
+      (value.source === undefined || (["documents", "answers"].includes(value.source) && value.purpose === "onboarding")) &&
       Object.keys(value).every(key => ["attemptId", "purpose", "expiresAt", "source"].includes(key)) ? value : null;
   } catch { return null; }
 }

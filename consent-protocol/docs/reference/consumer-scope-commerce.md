@@ -66,6 +66,18 @@ all unrelated measurements, duplicate occurrences, budgets and future-growth
 checks remain enforced. The combined candidate still requires full core and
 terminal hosted CI before Dev promotion and financial acceptance.
 
+Answer payout onboarding now uses the same fenced hosted-return mechanism while
+retaining its distinct settlement owner and mode. Correlated answer and document
+returns use separate opaque markers; neither refreshes scope onboarding. Warm
+returns preserve the initiating vault session, while cold returns require normal
+authentication and unlock and offer answer-specific fresh-link recovery. Bank
+management retires a prepared destination after owner or vault changes. Focused
+checks pass 198 backend cases and 117 web cases across six suites; type checking
+and architecture regression checks pass. Removing the pending-management
+retirement guard fails its focused regression without changing source files.
+All 447 Back cases pass after contract regeneration. Full core, hosted CI and
+deployed warm/cold behavior remain completion gates.
+
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration

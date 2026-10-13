@@ -1,7 +1,8 @@
 /** Opaque arrivals are refresh hints, never financial or information authority. */
 export type CommerceReturnAction = "onboarding_refresh";
-export type CommerceReturn = { attemptId: string; action?: CommerceReturnAction; source?: "documents" };
-export type CommerceHostedSession = { url: string; returnUrl: string; attemptId: string; source?: "documents" };
+export type CommerceReturnSource = "documents" | "answers";
+export type CommerceReturn = { attemptId: string; action?: CommerceReturnAction; source?: CommerceReturnSource };
+export type CommerceHostedSession = { url: string; returnUrl: string; attemptId: string; source?: CommerceReturnSource };
 const RETURN_PATHS = new Set(["/one/profile/account", "/one/profile/payouts"]);
 
 export function parseCommerceReturn(path: string): CommerceReturn | null {
@@ -15,8 +16,8 @@ export function parseCommerceReturn(path: string): CommerceReturn | null {
   const sources = url.searchParams.getAll("commerceSource");
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(id) || actions.length > 1 ||
       (actions.length === 1 && actions[0] !== "onboarding_refresh") || sources.length > 1 ||
-      (sources.length === 1 && (sources[0] !== "documents" || url.pathname !== "/one/profile/payouts"))) return null;
-  return { attemptId: id, ...(actions.length ? { action: "onboarding_refresh" as const } : {}), ...(sources.length ? { source: "documents" as const } : {}) };
+      (sources.length === 1 && (!["documents", "answers"].includes(sources[0] ?? "") || url.pathname !== "/one/profile/payouts"))) return null;
+  return { attemptId: id, ...(actions.length ? { action: "onboarding_refresh" as const } : {}), ...(sources.length ? { source: sources[0] as CommerceReturnSource } : {}) };
 }
 
 export function commerceReturnAttempt(path: string): string | null {
@@ -27,7 +28,7 @@ export function commerceReturnAction(path: string): CommerceReturnAction | null 
   return parseCommerceReturn(path)?.action ?? null;
 }
 
-export function parseCommerceHostedSession(value: Record<string, unknown>, attemptId: string, expectedSource?: "documents"): CommerceHostedSession {
+export function parseCommerceHostedSession(value: Record<string, unknown>, attemptId: string, expectedSource?: CommerceReturnSource): CommerceHostedSession {
   if (typeof value.url !== "string" || typeof value.return_url !== "string") {
     throw new Error("The payment return address could not be verified. Refresh before continuing.");
   }

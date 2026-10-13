@@ -10,18 +10,19 @@ const documentId = "22222222-2222-4222-8222-222222222222";
 function reply(value: unknown) { return Response.json(value); }
 
 describe("scope commerce review boundary", () => {
-  it("admits exact payment destinations and keeps document returns separate from scope returns", async () => {
+  it.each(["documents", "answers"] as const)("admits exact %s payout returns without crossing settlement sources", async source => {
     const original = window;
     vi.stubGlobal("window", { location: { origin: "https://one.hushh.ai" }, localStorage: original.localStorage,
       addEventListener: original.addEventListener.bind(original), removeEventListener: original.removeEventListener.bind(original),
       dispatchEvent: original.dispatchEvent.bind(original), setTimeout: original.setTimeout.bind(original), clearTimeout: original.clearTimeout.bind(original) });
-    const path = `/one/profile/payouts?commerceReturn=1&commerceAttemptId=${requestId}&commerceSource=documents`;
-    expect(parseCommerceReturn(path)?.source).toBe("documents");
+    const path = `/one/profile/payouts?commerceReturn=1&commerceAttemptId=${requestId}&commerceSource=${source}`;
+    expect(parseCommerceReturn(path)?.source).toBe(source);
     const receipt = { url: "https://connect.stripe.com/setup/synthetic", return_url: "https://one.hushh.ai" + path };
-    expect(parseCommerceHostedSession(receipt, requestId, "documents").source).toBe("documents");
+    expect(parseCommerceHostedSession(receipt, requestId, source).source).toBe(source);
     expect(() => parseCommerceHostedSession(receipt, requestId)).toThrow();
-    expect(() => parseCommerceHostedSession({ ...receipt, return_url: receipt.return_url.replace("&commerceSource=documents", "") }, requestId, "documents")).toThrow();
-    for (const bad of [path + "&commerceSource=documents", path + "#private", path.replace("documents", "scope"), path.replace("/payouts", "/account")]) {
+    expect(() => parseCommerceHostedSession(receipt, requestId, source === "answers" ? "documents" : "answers")).toThrow();
+    expect(() => parseCommerceHostedSession({ ...receipt, return_url: receipt.return_url.replace(`&commerceSource=${source}`, "") }, requestId, source)).toThrow();
+    for (const bad of [path + `&commerceSource=${source}`, path + "#private", path.replace(`commerceSource=${source}`, "commerceSource=scope"), path.replace("/payouts", "/account")]) {
       expect(parseCommerceReturn(bad)).toBeNull();
     }
     const popup = { closed: false, location: { replace: vi.fn() }, close: vi.fn() } as unknown as Window;
@@ -29,13 +30,13 @@ describe("scope commerce review boundary", () => {
     const session = { url: "https://connect.stripe.com/setup/synthetic", returnUrl: "https://one.hushh.ai" + path, attemptId: requestId };
     await expect(openCommerceHostedUrl(session, "onboarding", popup, controller.signal)).rejects.toThrow("binding");
     expect(popup.location.replace).not.toHaveBeenCalled();
-    const pending = openCommerceHostedUrl({ ...session, source: "documents" }, "onboarding", popup, controller.signal);
+    const pending = openCommerceHostedUrl({ ...session, source }, "onboarding", popup, controller.signal);
     expect(hasCommercePopupReturn(path)).toBe(true);
-    expect(hasCommercePopupReturn(path.replace("&commerceSource=documents", ""))).toBe(false);
+    expect(hasCommercePopupReturn(path.replace(`&commerceSource=${source}`, ""))).toBe(false);
     controller.abort();
     await pending;
     expect(popup.close).toHaveBeenCalledOnce();
-    expect(original.localStorage.getItem("one_commerce_popup_v1:documents:" + requestId)).toBeNull();
+    expect(original.localStorage.getItem(`one_commerce_popup_v1:${source}:` + requestId)).toBeNull();
   });
   afterEach(() => { vi.unstubAllGlobals(); window.localStorage.clear(); });
   it("binds hosted return metadata to the exact attempt and rejects domain aliases before launch", async () => {

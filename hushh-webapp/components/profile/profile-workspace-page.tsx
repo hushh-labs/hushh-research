@@ -85,7 +85,7 @@ import { toast } from "sonner";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
-import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
+import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 
 import {
   SettingsGroup,
@@ -105,7 +105,6 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
-import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import {
@@ -4181,8 +4180,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <ScopeCommerceAccountPanel key={user?.uid} />
-          <DocumentHashcoinPayouts />
+          <PaymentsAndEarnings key={user?.uid} />
         </div>
       ),
     });

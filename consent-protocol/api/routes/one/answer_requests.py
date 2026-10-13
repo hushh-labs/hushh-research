@@ -1,23 +1,9 @@
-"""Paid answers between two connected people.
+"""Owner-approved paid answers between connected people.
 
-  POST /api/one/answer-requests                        ask a question
-  GET  /api/one/answer-requests/inbox                  owner's queue to review
-  POST /api/one/answer-requests/{id}/approve           owner: exact scopes + price
-  POST /api/one/answer-requests/{id}/decline           owner: refuse (refunds if paid)
-  POST /api/one/answer-requests/{id}/cancel            requester: withdraw (refunds)
-  GET  /api/one/answer-requests/{id}/payment           state + the wait, before checkout
-  POST /api/one/answer-requests/{id}/payment/checkout  hosted Stripe Checkout
-  GET  /api/one/answer-requests/answerable             owner device: preparation and paid recovery
-  POST /api/one/answer-requests/{id}/deliver           owner device: sealed answer
-  GET  /api/one/answer-requests/{id}/answer            requester: sealed envelope
-
-Firebase-authenticated on both sides. No `app/api` proxy for the money path:
-the Stripe webhook needs the exact signed bytes and the status/checkout
-endpoints stay on the same origin as it, matching the Drive lane.
-
-Delivery storage never receives an answer in the clear. The separately gated
-composer receives the approved plaintext projection transiently; it decrypts no PKM. `/deliver` accepts ciphertext
-sealed to the requester's key and refuses anything shaped like plaintext.
+Firebase authorizes the declared financial routes; it grants no information access.
+Delivery accepts recipient-bound ciphertext. Separately authorized composition
+uses an approved transient projection and decrypts no stored PKM. Signed settlement
+and answer fulfillment remain separate from time-limited scope purchases.
 """
 
 from __future__ import annotations
@@ -25,12 +11,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, datetime
-from typing import Any, cast
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Response
 
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
+from api.models.hosted_payouts import OnboardBody
 from hushh_mcp.services.answer_composer import AnswerComposer, AnswerComposerError
 from hushh_mcp.services.answer_composition_receipt import issue_composition_receipt
 from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
@@ -346,7 +333,10 @@ async def answer_payout_account(
 
 @router.post("/payout-account/{action}")
 async def answer_payout_link(
-    action: str, response: Response, user_id: str = Depends(require_firebase_auth)
+    action: str,
+    response: Response,
+    user_id: str = Depends(require_firebase_auth),
+    body: Annotated[OnboardBody | None, Body()] = None,
 ) -> dict[str, Any]:
     _require_payout_mode()
     response.headers["Cache-Control"] = "private, no-store"
@@ -356,7 +346,13 @@ async def answer_payout_link(
         service = _payouts()
         if action == "onboarding":
             return cast(
-                dict[str, Any], await service.onboarding_link(user_id=user_id, surface="answers")
+                dict[str, Any],
+                await service.onboarding_link(
+                    user_id=user_id,
+                    surface="answers",
+                    purpose="verify" if body and body.purpose == "verify" else "onboarding",
+                    **({"attempt_id": str(body.attempt_id)} if body and body.attempt_id else {}),
+                ),
             )
         return cast(dict[str, Any], await service.management_link(user_id=user_id))
     except (PacketOrderError, ValueError):

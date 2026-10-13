@@ -30,7 +30,7 @@ function useOnboardingRefresh({ user, capture, refresh }: ReturnType<typeof useC
   }), []);
   useEffect(() => {
     const onReturn = (event: Event) => {
-      if ((event as CustomEvent<{ source?: string }>).detail?.source === "documents") return;
+      if ((event as CustomEvent<{ source?: string }>).detail?.source !== undefined) return;
       setReturnedRefresh(user && (event as CustomEvent<{ action?: string }>).detail?.action === "onboarding_refresh" ?
         { user, current: capture() } : null);
       void refresh();
