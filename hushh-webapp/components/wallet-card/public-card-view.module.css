@@ -22,6 +22,12 @@
 .contacts { flex: 1 1 10rem; min-width: 0; }
 .qr { width: 7.5rem; flex-shrink: 0; margin: 0; text-align: center; }
 .qr svg { border-radius: .75rem; }
+/* The embedded owner preview shares Profile's compact reading scale. */
+.card[data-embedded] { font-size: 12px; line-height: 1.3; }
+.card[data-embedded] .heading h1 { font-size: 20px; line-height: 1.2; }
+.card[data-embedded] .heading p,
+.card[data-embedded] section > p { font-size: 12px; line-height: 1.3; }
+.card[data-embedded] .contacts a { font-size: 13px; line-height: 1.22; }
 @container (max-width: 25rem) {
   .identity { align-items: flex-start; gap: .75rem; }
   .photo { width: 5rem; height: 5rem; border-radius: 1.25rem; }
