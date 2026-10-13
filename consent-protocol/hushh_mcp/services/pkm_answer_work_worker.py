@@ -283,7 +283,9 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
         if not modes:
             return {"disabled": 1}
 
-        claimed = await self._transaction(lambda connection: _claim_refunds(connection, max_jobs, modes))
+        claimed = await self._transaction(
+            lambda connection: _claim_refunds(connection, max_jobs, modes)
+        )
         outcomes = {"succeeded": 0, "retried": 0, "manual_review": 0}
 
         for row in claimed:
@@ -323,7 +325,9 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
             return {"disabled": 1}
 
         await self._transaction(_promote_due_payouts)
-        claimed = await self._transaction(lambda connection: _claim_payouts(connection, max_jobs, modes))
+        claimed = await self._transaction(
+            lambda connection: _claim_payouts(connection, max_jobs, modes)
+        )
         outcomes = {"transferred": 0, "retried": 0, "awaiting_account": 0}
 
         for row in claimed:
@@ -474,7 +478,9 @@ def _file_refund(connection, request_id: str, reason: str) -> int:
     return 1
 
 
-def _claim_refunds(connection, max_jobs: int, modes: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+def _claim_refunds(
+    connection, max_jobs: int, modes: tuple[str, ...] | None = None
+) -> list[dict[str, Any]]:
     return [
         dict(row)
         for row in connection.execute(
@@ -508,7 +514,9 @@ def _claim_refunds(connection, max_jobs: int, modes: tuple[str, ...] | None = No
             {
                 "limit": max(1, min(int(max_jobs), 25)),
                 "lease": LEASE_SECONDS,
-                "stripe_modes": list(modes if modes is not None else available_answer_payment_modes()),
+                "stripe_modes": list(
+                    modes if modes is not None else available_answer_payment_modes()
+                ),
             },
         ).mappings()
     ]
@@ -587,7 +595,9 @@ def _promote_due_payouts(connection) -> None:
     )
 
 
-def _claim_payouts(connection, max_jobs: int, modes: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+def _claim_payouts(
+    connection, max_jobs: int, modes: tuple[str, ...] | None = None
+) -> list[dict[str, Any]]:
     connection.execute(
         text("""UPDATE pkm_answer_owner_payouts p SET destination_account_id=(
         SELECT a.stripe_account_id FROM stripe_owner_payout_accounts a
@@ -631,7 +641,9 @@ def _claim_payouts(connection, max_jobs: int, modes: tuple[str, ...] | None = No
             {
                 "limit": max(1, min(int(max_jobs), 25)),
                 "lease": LEASE_SECONDS,
-                "stripe_modes": list(modes if modes is not None else available_answer_payment_modes()),
+                "stripe_modes": list(
+                    modes if modes is not None else available_answer_payment_modes()
+                ),
             },
         ).mappings()
     ]
