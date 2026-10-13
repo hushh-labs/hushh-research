@@ -44564,22 +44564,15 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:people.profile.browse_packets",
-      "actions:setup.finish_location_intro"
+      "actions:people.profile.browse_packets"
     ],
     "breaking": [],
     "changed": [
-      "brains:location",
-      "screens:screen:/one/setup/location",
-      "screens:screen:/people/[personRef]",
-      "services:service.location",
-      "workflows:workflow.setup.location"
+      "screens:screen:/people/[personRef]"
     ],
-    "compatible": [
-      "workflows:workflow.setup.location"
-    ],
+    "compatible": [],
     "deprecated": [],
-    "from_revision": "4290bffc350511d9",
+    "from_revision": "ca45fcf41af6e723",
     "migrated": [],
     "removed": []
   },
@@ -46942,6 +46935,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -47098,6 +47092,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -47202,6 +47197,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "d01f9a7a5198c5c9",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
@@ -47411,6 +47407,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -47567,6 +47564,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -47723,6 +47721,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -47879,6 +47878,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
