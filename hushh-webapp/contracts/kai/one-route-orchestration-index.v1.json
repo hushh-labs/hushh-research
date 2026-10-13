@@ -497,7 +497,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.getting.started",
-        "purpose": "Help the person understand and use the getting started screen through its generated controls.",
+        "purpose": "Complete the compatibility entry handoff according to the current session; no carousel or local action controls are rendered.",
         "screen": "getting_started",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -512,8 +512,8 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-        "next_route": "/getting-started",
+        "completion_boundary": "The signed-out login destination or signed-in One destination has settled.",
+        "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },

@@ -3,6 +3,7 @@
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { absoluteUrl, PUBLIC_CANONICAL_PATHS, isIndexablePath, isProductionIndexing } from "./lib/seo/site";
 import { ROUTES, isPublicRoute } from "./lib/navigation/routes";
 import { resolveProfileRouteState } from "./lib/navigation/profile-routes";
 import {
@@ -46,7 +47,7 @@ const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
   "/one/kai/analysis": ROUTES.KAI_ANALYSIS,
 };
 
-export function proxy(request: NextRequest) {
+function routeRequest(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const host = request.headers.get("host") || "";
 
@@ -170,6 +171,21 @@ export function proxy(request: NextRequest) {
   // =========================================================================
 
   return NextResponse.next();
+}
+
+/** Indexing protection supplements, and never replaces, auth/vault checks. */
+export function proxy(request: NextRequest) {
+  const response = routeRequest(request);
+  if (!isProductionIndexing() || !isIndexablePath(request.nextUrl.pathname)) {
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+  } else {
+    const path = request.nextUrl.pathname;
+    const tab = request.nextUrl.searchParams.get("tab");
+    const canonicalPath = path === "/welcome" && ["research", "blog", "developers"].includes(tab || "")
+      ? `/welcome?tab=${tab}` : PUBLIC_CANONICAL_PATHS[path] ?? path;
+    response.headers.set("Link", `<${absoluteUrl(canonicalPath)}>; rel="canonical"`);
+  }
+  return response;
 }
 
 export const config = {
