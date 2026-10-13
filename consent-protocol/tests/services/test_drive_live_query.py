@@ -780,7 +780,13 @@ def disconnect(store):
         ({"terms": ["bank"], "mode": "find"}, PermissionError, "authority"),
         # With nothing for the selector to judge, completion refuses the answer.
         (
-            {"terms": [], "mode": "find", "file_kind": "pdf"},
+            {
+                "terms": [],
+                "mode": "find",
+                "file_kind": "pdf",
+                "subject_scope": "metadata_listing",
+                "subject_complete": True,
+            },
             DriveSharingError,
             "connection_required",
         ),

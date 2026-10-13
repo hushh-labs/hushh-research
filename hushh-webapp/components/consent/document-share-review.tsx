@@ -315,9 +315,20 @@ function isOwnerDecision(snapshot: Snapshot | null): boolean {
 
 function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
   return review?.trustedAuto === true && review.priceOnlyAvailable !== true &&
+    review.search?.coverage?.ownerReviewRequired !== true &&
     documentRequestSetupState(review) === null &&
     review.preparationError !== "trusted_relationship_changed" &&
     review.preparationError !== "preparation_unavailable";
+}
+
+function needsSearchRefresh(review: SharingReview | undefined): boolean {
+  const search = review?.search;
+  const coverage = search?.coverage;
+  return search?.status === "completed" && (
+    coverage?.shareabilityVerified !== true ||
+    (!review?.bulkShare && coverage.ownerReviewRequired === true &&
+      coverage.timeIntent === undefined)
+  );
 }
 
 /** The private agent is still looking for files for this incoming request. */
@@ -543,8 +554,7 @@ function UnlockedDocumentReview({
           const delivery = await pendingOwnerDelivery(review);
           return delivery ? { status, review, delivery } : { status, review };
         }
-        const legacyJob = review.search?.status === "completed" &&
-          review.search.coverage?.shareabilityVerified !== true ? review.search.jobId : null;
+        const legacyJob = needsSearchRefresh(review) ? review.search?.jobId ?? null : null;
         if ((status.status === "pending" || status.status === "review_ready") &&
           !review.bulkShare && !searchStartFailed.current &&
           (!review.search || status.status === "pending" && legacyJob !== null && checkedLegacyJob.current !== legacyJob)) {
@@ -790,14 +800,15 @@ function UnlockedDocumentReview({
   const priceOnly = ownerDecision && review?.priceOnlyAvailable === true;
   const setup = requestSetup(snapshot);
   const automaticSharing = isAutomaticSharingActive(review);
+  const ownerReviewRequired = review?.search?.coverage?.ownerReviewRequired === true;
   const progressive = review?.progressiveAllowed === true;
   const batches = review?.batches ?? [];
   const batchCount = review?.batchCount ?? batches.length;
   const claimedPositions = review?.claimedPositions ?? [];
   const recoverablePositions = review?.recoverablePositions ?? [];
   const durableReview = isDurableReview(review);
-  const legacySearch = search?.status === "completed" && search.coverage?.shareabilityVerified !== true;
-  const searchReady = isDriveSearchSelectionReady(search);
+  const legacySearch = needsSearchRefresh(review);
+  const searchReady = !legacySearch && isDriveSearchSelectionReady(search);
   const searchJobId = search && (!bulkShare || progressive) && !legacySearch ? search.jobId : null;
   const bulkPreviewId = bulkShare?.shareId ?? null;
 
@@ -1086,7 +1097,7 @@ function UnlockedDocumentReview({
     : !search && searchStartFailed.current
       ? "Search unavailable"
       : searchReady
-      ? `${search.matched.toLocaleString()} files found`
+      ? `${search.matched.toLocaleString()} ${ownerReviewRequired ? "files to review" : "files found"}`
         : search?.status === "failed"
           ? "Search failed"
           : search?.status === "limited" || search?.incompleteSearch
@@ -1394,14 +1405,16 @@ function UnlockedDocumentReview({
             {(search.coverage.excludedByTopicCount ?? 0) > 0 ? <HelperText>
               {search.coverage.excludedByTopicCount?.toLocaleString()} files in matching folders were excluded because their names did not match this request. Review Drive if a document is missing.
             </HelperText> : null}
-            {search.coverage.requestedPeriod ? <HelperText>
+            {ownerReviewRequired ? <HelperText>
+              Dates inside files haven&apos;t been checked; review before sharing.
+            </HelperText> : search.coverage.requestedPeriod ? <HelperText>
               Dates match file names first, then creation or modification dates. Dates inside file contents were not checked.
             </HelperText> : null}
           </div> : null}
           {search && bulkShare ? <div className="space-y-1">
             <HelperText>{progressive
-              ? `${search.matched.toLocaleString()} matching files found${search.status === "completed" ? "" : " so far"} · ${batchCount.toLocaleString()} ${batchCount === 1 ? "batch" : "batches"} started`
-              : `${search.matched.toLocaleString()} matching files found · ${bulkShare.fileCount.toLocaleString()} selected for sharing`}</HelperText>
+              ? `${search.matched.toLocaleString()} ${ownerReviewRequired ? "files to review" : "matching files found"}${search.status === "completed" ? "" : " so far"} · ${batchCount.toLocaleString()} ${batchCount === 1 ? "batch" : "batches"} started`
+              : `${search.matched.toLocaleString()} ${ownerReviewRequired ? "files to review" : "matching files found"} · ${bulkShare.fileCount.toLocaleString()} selected for sharing`}</HelperText>
             {(search.unshareableCount ?? 0) > 0 ? <HelperText>
               {search.unshareableCount?.toLocaleString()} unavailable matches were not included.
             </HelperText> : null}
@@ -1412,7 +1425,7 @@ function UnlockedDocumentReview({
               <HelperText>{progressive
                 ? `${search.matched.toLocaleString()} found${search.status === "completed" ? "" : " so far"}. Review and share up to 25 files from this page${search.status === "completed" ? "." : "; more can arrive while you work."}`
                 : searchReady
-                ? `${search.matched.toLocaleString()} matching files. Select the files to share.`
+                ? `${search.matched.toLocaleString()} ${ownerReviewRequired ? "files to review" : "matching files"}. Select the files to share.`
                 : legacySearch
                   ? "Checking this request's Drive files again before sharing."
                 : ["limited", "failed", "stopped"].includes(search.status) || search.incompleteSearch
@@ -1423,7 +1436,7 @@ function UnlockedDocumentReview({
               </HelperText> : null}
               {legacySearch ? <HelperText>Earlier files cannot be selected while the new check runs.</HelperText> :
               <div aria-label="Matching Drive files" aria-busy={searchPageLoading}>
-                <SettingsGroup embedded title={progressive ? "Files found so far" : "Files"}
+                <SettingsGroup embedded title={ownerReviewRequired ? "Files to review" : progressive ? "Files found so far" : "Files"}
                   description={progressive ? `Choose from this page. Shared and queued files cannot be selected again.${recoverablePositions.length ? " Files skipped by automatic sharing need your selection." : ""}` : undefined}
                   {...groupSurface}>
                   {searchPage?.files.map(file => {
@@ -1551,7 +1564,11 @@ function UnlockedDocumentReview({
             <OutcomeSummary counts={bulkShare.counts} issues={bulkShare.issues} />
             {bulkShare.status === "partial" && bulkShare.counts.shared > 0 ?
               <HelperText>Review the newly shared originals below. Remove any unintended access in Google Drive.</HelperText> : null}
-            {["queued", "running"].includes(bulkShare.status) ? <HelperText>Sharing continues after you leave.</HelperText> : null}
+            {["queued", "running"].includes(bulkShare.status) ? <HelperText>
+              {ownerReviewRequired && review.paymentRequired === true
+                ? "Files are shared after payment."
+                : "Sharing continues after you leave."}
+            </HelperText> : null}
             {retryUnshared}
           </> : null}
 
@@ -1560,6 +1577,8 @@ function UnlockedDocumentReview({
               {bulkShare.status === "review_ready" ? legacySearch
                 ? <HelperText role="alert">This selection predates the sharing permission check. Ask for a new document request before sharing.</HelperText>
                 : <HelperText>{bulkShare.fileCount.toLocaleString()} files selected for this batch. Review the originals, then share.</HelperText> : null}
+              {bulkShare.status === "review_ready" && ownerReviewRequired && review.paymentRequired === true ?
+                <HelperText>The requester pays after you approve these files.</HelperText> : null}
               <div aria-label={bulkShare.status === "review_ready" ? "Files ready to share" : "Original file outcomes"} aria-busy={bulkPageLoading}>
                 <SettingsGroup embedded title="Original files" description="Originals stay in Drive. The recipient sees later edits." {...groupSurface}>
                   {bulkPage?.files.map(file => <SettingsRow key={file.position} title={file.name}

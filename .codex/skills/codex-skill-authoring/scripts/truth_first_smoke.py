@@ -49,6 +49,28 @@ DOMAIN_PROBES = [
     "Frontend",
     "Data Model",
 ]
+SEMANTIC_EVIDENCE_RULES = [
+    "Provider Parity And Semantic Evidence",
+    "Separate documented provider behavior, model inference, and measured runtime behavior",
+    "Before claiming native-search parity, run a comparable provider/native UI experiment",
+    "same account, query, scope, date semantics, paging, unique file IDs, and permissions",
+    "Compare result identities as well as counts",
+    "If either surface is unavailable, parity remains `needs_verification`",
+    "A metadata-shaped response does not imply metadata-only retrieval",
+    "it does not establish 46 observed native matches",
+    "Keep synthetic counts, user-reported counts, and runtime measurements distinct",
+    "Semantic prompt changes require real model evaluation",
+    "representative requests and paraphrases",
+    "content periods versus file activity, selected date controls, and search concept alternatives",
+    "Deterministic fixtures alone do not prove model behavior",
+    "Bind evaluation results to the model and prompt revision",
+    "bind deployed behavior claims to the environment and deployed revision/image actually exercised",
+    "Invalid dates and selected dates narrowing a broad year do not by themselves establish conflicting intent",
+    "show incompatible constraints before calling them a conflict",
+    "preserve the selected interval when it validly narrows the request",
+    "Preserve uncertain outcomes: distinguish observed results, inferred causes, and unresolved gaps",
+    "Keep private queries, account details, and file IDs out of tracked fixtures and reports",
+]
 
 
 def _read(path: Path) -> str:
@@ -80,6 +102,7 @@ def _check_kernel(errors: list[str]) -> None:
         *CLAIM_LABELS,
         *HANDOFF_TOKENS,
         *DOMAIN_PROBES,
+        *SEMANTIC_EVIDENCE_RULES,
     ]
     _require_text(KERNEL, required, errors)
 

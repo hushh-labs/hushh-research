@@ -167,10 +167,13 @@ def _trusted_subject_matches(checkpoint: dict, match: dict) -> bool:
 
 
 def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bool:
-    if checkpoint.get("authority_mode") == "trusted_auto" and not _trusted_subject_matches(
-        checkpoint, match
-    ):
+    if not _filename_candidate(checkpoint, match):
         return False
+    owner_review = checkpoint.get("request_owner_review_required") is True
+    if owner_review and not folder_scoped:
+        # A provider fullText hit is a candidate for the owner's exact review.
+        # Its filename cannot prove or disprove the document's contents.
+        return True
     if not checkpoint.get("request_notes"):
         return True
     # The compilation lane uses these same title checks: a topical folder
@@ -179,7 +182,7 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
 
     name = match["name"]
     alias = match.get("shortcut_name", "")
-    if checkpoint.get("authority_mode") == "trusted_auto":
+    if checkpoint.get("authority_mode") == "trusted_auto" and not owner_review:
         # Google Drive fullText may match an incidental mention inside a
         # generic document. Automatic grants need positive title evidence;
         # an owner-reviewed search can still show the broader candidates.
@@ -191,6 +194,15 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
         or bool(_GEMINI_NOTE_TITLE.search(name) or _GEMINI_NOTE_TITLE.search(alias))
         or _subject_matches(checkpoint, name)
         or _subject_matches(checkpoint, alias)
+    )
+
+
+def _filename_candidate(checkpoint: dict, match: dict) -> bool:
+    if checkpoint.get("request_owner_review_required") is True:
+        exact = checkpoint.get("request_exact_title")
+        return not exact or exact in {match["name"], match.get("shortcut_name")}
+    return checkpoint.get("authority_mode") != "trusted_auto" or _trusted_subject_matches(
+        checkpoint, match
     )
 
 
@@ -308,9 +320,9 @@ def compile_request_queries(
 ) -> tuple[list[dict], dict | None]:
     """Broaden a requested file set before the owner reviews it.
 
-    A Drive modified-time query would omit a meeting note with a matching
-    title date or creation date. Search the subject without that cut, then
-    apply the inclusive period against metadata in each worker page.
+    Search the subject without a modified-time cut. File-activity requests
+    check their period against metadata; document coverage remains unverified
+    until the owner reviews the exact candidates.
     """
     from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
     from hushh_mcp.services.google_drive_rest_transport import compile_search_terms, quote_literal
@@ -386,12 +398,14 @@ def compile_request_queries(
     if parsed.exact_title:
         subject = f"name = {quote_literal(parsed.exact_title)}"
     elif parsed.terms:
-        # Keep full-text evidence from Drive while requiring every distinct
-        # subject term the planner selected. Standup spellings are one term.
+        # Variants of one concept are alternatives; distinct concepts retain
+        # the planner's conjunction. Legacy plans supply one term per group.
+        term_groups = parsed.search_term_groups()
         groups = [
             "("
             + " or ".join(
                 compile_search_terms([variant])
+                for term in group
                 for variant in (
                     ("standup", "stand up", "stand-up")
                     if term.casefold() in {"standup", "stand-up", "stand up"}
@@ -399,7 +413,7 @@ def compile_request_queries(
                 )
             )
             + ")"
-            for term in parsed.terms
+            for group in term_groups
         ]
         # Separate categories such as "contracts and invoices" are a union:
         # no single file needs both words. Otherwise, preserve the planner's
@@ -414,8 +428,8 @@ def compile_request_queries(
         subject = None
     clauses = [*([subject] if subject else []), *base]
     if not clauses:
-        # A broad date-only request still has a Drive boundary. The period is
-        # filtered after every provider page, not by one mutable timestamp.
+        # A broad date-only request still has a Drive boundary. Content dates
+        # remain owner-reviewed; only file activity uses a metadata period.
         if period is None:
             raise DriveReadError("narrow_selection_required")
         clauses = ["trashed = false"]
@@ -729,6 +743,8 @@ class DriveOwnerSearchService:
         queries, period = compile_request_queries(
             plan, purpose, timezone, requested_at=requested_at
         )
+        time_intent = plan.get("time_intent", "document_coverage")
+        owner_review_required = time_intent == "document_coverage"
         result_limit = plan.get("result_limit")
         direct_originals = (
             result_limit is not None and not plan.get("terms") and not plan.get("exact_title")
@@ -748,6 +764,9 @@ class DriveOwnerSearchService:
                 "request_revision": request_revision,
                 "authority_mode": authority_mode,
                 "request_shareability_version": 1,
+                "request_selection_version": 2,
+                "request_time_intent": time_intent,
+                "request_owner_review_required": owner_review_required,
                 "request_file_kind": plan.get("file_kind", "any"),
                 "request_subject_terms": plan.get("terms", []),
                 "request_exact_title": plan.get("exact_title"),
@@ -763,7 +782,11 @@ class DriveOwnerSearchService:
                     "corpora": ["user", "member_shared_drives"],
                     "fileKind": plan.get("file_kind", "any"),
                     "requestedPeriod": period,
-                    "dateBasis": "title_date_then_created_or_modified",
+                    "timeIntent": time_intent,
+                    "ownerReviewRequired": owner_review_required,
+                    "dateBasis": "content_period_unverified"
+                    if owner_review_required
+                    else "title_date_then_created_or_modified",
                     "contentPeriodVerified": False,
                     "folderDiscovery": "none_direct_originals"
                     if direct_originals
@@ -979,8 +1002,24 @@ class DriveOwnerSearchService:
         incomplete = False
         kind = checkpoint.get("request_file_kind", "any")
         period = checkpoint.get("requested_period")
+        owner_review_required = checkpoint.get("request_owner_review_required") is True
+        evidence = (
+            {
+                "requestEvidence": {
+                    "version": 1,
+                    "assessment": "unverified",
+                    "basis": "provider_search",
+                }
+            }
+            if owner_review_required
+            else {}
+        )
 
         def period_matches(match):
+            if owner_review_required:
+                # Creation, modification and title dates do not establish the
+                # period covered by a document's contents.
+                return True
             if checkpoint.get("authority_mode") == "trusted_auto":
                 return _in_requested_period(match, period)
             return _in_requested_period(match, period) or (
@@ -1018,6 +1057,9 @@ class DriveOwnerSearchService:
                     if target_kind and not _matches_requested_kind(kind, target_kind):
                         _counter(checkpoint, "excludedByKindCount")
                         continue
+                    if not _filename_candidate(checkpoint, match):
+                        _counter(checkpoint, "excludedByFilenameCount")
+                        continue
                     if not _note_candidate(checkpoint, match, folder_scoped=folder_scoped):
                         _counter(checkpoint, "excludedByNoteTypeCount")
                         continue
@@ -1034,6 +1076,7 @@ class DriveOwnerSearchService:
                             "openUrl": match["open_url"],
                             "shareable": False,
                             "unavailableReason": "shortcut_target_unavailable",
+                            **evidence,
                         }
                     )
                     continue
@@ -1071,6 +1114,9 @@ class DriveOwnerSearchService:
             if not _matches_requested_kind(kind, match["mime_type"]):
                 _counter(checkpoint, "excludedByKindCount")
                 continue
+            if not _filename_candidate(checkpoint, match):
+                _counter(checkpoint, "excludedByFilenameCount")
+                continue
             if not _note_candidate(checkpoint, match, folder_scoped=folder_scoped):
                 _counter(checkpoint, "excludedByNoteTypeCount")
                 continue
@@ -1103,6 +1149,7 @@ class DriveOwnerSearchService:
                     **({"resourceKey": key} if key else {}),
                     "openUrl": match["open_url"],
                     **_shareability(source),
+                    **evidence,
                 }
             )
         return files, incomplete

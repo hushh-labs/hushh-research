@@ -82,13 +82,21 @@ async def test_catalog_failure_creates_no_hidden_request():
 async def test_profile_only_account_can_offer_exact_name_and_photo_without_kyc(monkeypatch):
     profile = Mock()
     profile.get_exact_requestable_scope_entries.return_value = []
-    monkeypatch.setattr("hushh_mcp.services.connections_service.ConnectionsService", lambda: profile)
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service.ConnectionsService", lambda: profile
+    )
     service = PkmAnswerRequestService(Mock())
     catalog = await service._catalog("requester", "existing-owner")
     available = [entry["scope"] for entry in catalog]
-    assert validate_resolved_scopes([
-        "attr.identity.identity_profile.full_name", "attr.identity.identity_profile.profile_photo_url",
-        "attr.identity.*", "attr.identity.identity_documents.passport",
-    ], owner_catalog=available).accepted == (
-        "attr.identity.identity_profile.full_name", "attr.identity.identity_profile.profile_photo_url",
+    assert validate_resolved_scopes(
+        [
+            "attr.identity.identity_profile.full_name",
+            "attr.identity.identity_profile.profile_photo_url",
+            "attr.identity.*",
+            "attr.identity.identity_documents.passport",
+        ],
+        owner_catalog=available,
+    ).accepted == (
+        "attr.identity.identity_profile.full_name",
+        "attr.identity.identity_profile.profile_photo_url",
     )
