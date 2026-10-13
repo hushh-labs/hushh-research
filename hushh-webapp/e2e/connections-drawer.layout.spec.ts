@@ -1411,130 +1411,364 @@ async function presencePixels(artwork: Locator) {
 
 test.describe("One profile artwork and mapped work frames", () => {
 
-  for (const width of [390, 1440]) {
-    test(`Chats and One match the mounted Profile material and row scale at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await page.route("**/api/one/feed**", route => route.fulfill({
-        contentType: "application/json",
-        body: JSON.stringify({ items: [{ id: "100", event_type: "connection_accepted", source_domain: "connections",
-          actor_label: "Synthetic person", metadata: {}, read: true, created_at: "2026-10-13T08:00:00Z" },
-          { id: "99", event_type: "unknown_event", source_domain: "connections", actor_label: null, metadata: {}, read: true,
-            created_at: "2026-10-13T07:00:00Z" }], next_cursor: null, unread_count: 0 }),
-      }));
-      await page.goto("http://localhost/connections-fixture?one-profile=1&panel-parity=1&perf=1");
-      await page.addScriptTag({ content: script });
-      await awaitProductFont(page);
-      const material = (panel: import("@playwright/test").Locator) => panel.evaluate(element => {
-        const style = getComputedStyle(element);
-        return { background: style.backgroundColor, border: style.borderColor, shadow: style.boxShadow,
-          filter: style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter"), radius: style.borderRadius };
-      });
-      const type = (label: import("@playwright/test").Locator) => label.evaluate(element => {
-        const style = getComputedStyle(element);
-        return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight,
-          weight: style.fontWeight, tracking: style.letterSpacing, color: style.color };
-      });
-      const expectIdlePane = async (panel: import("@playwright/test").Locator) => {
-        // A decorative sweep kept closed drawers animating and expanded pane
-        // scroll bounds. Idle glass must settle without horizontal overflow.
-        expect(await panel.evaluate(element => ({
-          perpetualAnimations: element.getAnimations({ subtree: true }).filter(animation =>
-            animation.effect?.getComputedTiming().iterations === Infinity).length,
-          horizontalOverflow: element.scrollWidth > element.clientWidth,
-        }))).toEqual({ perpetualAnimations: 0, horizontalOverflow: false });
+  const material = (panel: Locator) =>
+    panel.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        background: style.backgroundColor,
+        border: style.borderColor,
+        shadow: style.boxShadow,
+        filter:
+          style.backdropFilter ||
+          style.getPropertyValue("-webkit-backdrop-filter"),
+        radius: style.borderRadius,
       };
-      for (const dark of [false, true]) {
-        await page.evaluate(() => window.__hushhPerf?.scenario("profile-panels-parity"));
-        await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
-        await page.getByRole("button", { name: "Open reference Profile", exact: true }).click();
+    });
+
+  for (const width of [390, 1440]) {
+    for (const dark of [false, true]) {
+      test(`Chats and One match the mounted Profile material and row scale at ${width}px in ${dark ? "dark" : "light"} mode`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.route("**/api/one/feed**", (route) =>
+          route.fulfill({
+            contentType: "application/json",
+            body: JSON.stringify({
+              items: [
+                {
+                  id: "100",
+                  event_type: "connection_accepted",
+                  source_domain: "connections",
+                  actor_label: "Synthetic person",
+                  metadata: {},
+                  read: true,
+                  created_at: "2026-10-13T08:00:00Z",
+                },
+                {
+                  id: "99",
+                  event_type: "unknown_event",
+                  source_domain: "connections",
+                  actor_label: null,
+                  metadata: {},
+                  read: true,
+                  created_at: "2026-10-13T07:00:00Z",
+                },
+              ],
+              next_cursor: null,
+              unread_count: 0,
+            }),
+          }),
+        );
+        await page.goto(
+          "http://localhost/connections-fixture?one-profile=1&panel-parity=1",
+        );
+        await page.addScriptTag({ content: script });
+        await awaitProductFont(page);
+        const size = (visual: Locator) =>
+          visual.evaluate((element) => ({
+            css: getComputedStyle(element).width,
+            actual: element.getBoundingClientRect().width,
+          }));
+        const type = (label: import("@playwright/test").Locator) =>
+          label.evaluate((element) => {
+            const style = getComputedStyle(element);
+            return {
+              family: style.fontFamily,
+              size: style.fontSize,
+              line: style.lineHeight,
+              weight: style.fontWeight,
+              tracking: style.letterSpacing,
+              color: style.color,
+            };
+          });
+        const expectIdlePane = async (
+          panel: import("@playwright/test").Locator,
+        ) => {
+          // A decorative sweep kept closed drawers animating and expanded pane
+          // scroll bounds. Idle glass must settle without horizontal overflow.
+          expect(
+            await panel.evaluate((element) => ({
+              perpetualAnimations: element
+                .getAnimations({ subtree: true })
+                .filter(
+                  (animation) =>
+                    animation.effect?.getComputedTiming().iterations ===
+                    Infinity,
+                ).length,
+              horizontalOverflow: element.scrollWidth > element.clientWidth,
+            })),
+          ).toEqual({ perpetualAnimations: 0, horizontalOverflow: false });
+        };
+        await page.evaluate(
+          (enabled) =>
+            document.documentElement.classList.toggle("dark", enabled),
+          dark,
+        );
+        await page
+          .getByRole("button", { name: "Open reference Profile", exact: true })
+          .click();
         const profile = page.getByTestId("profile-pane");
         const profileRow = profile.getByTestId("profile-account-row");
         await expect(profileRow).toBeVisible();
-        await expect.poll(() => profile.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+        await expect
+          .poll(() =>
+            profile.evaluate(
+              (element) =>
+                new DOMMatrix(getComputedStyle(element).transform).m41,
+            ),
+          )
+          .toBeCloseTo(0, 1);
         await expectIdlePane(profile);
         const reference = {
-          material: await material(profile), title: await type(profile.getByRole("heading", { name: "Profile", exact: true })),
-          row: await type(profileRow.locator('[data-slot="settings-row-title"]')),
-          description: await type(profileRow.locator('[data-slot="settings-row-description"]')),
-          section: await type(profile.getByRole("heading", { name: "Your settings", exact: true })),
-          icon: (await profileRow.locator('[data-slot="settings-row-icon"]').boundingBox())!.width,
-          chevron: (await profileRow.locator('[data-slot="settings-row-chevron"]').boundingBox())!.width,
-          headerPadding: await profile.locator(".profile-pane-header").evaluate(element => getComputedStyle(element).padding),
-          rowPadding: await profileRow.locator("button").evaluate(element => getComputedStyle(element).padding),
-          separator: await profileRow.evaluate(element => ({ left: getComputedStyle(element, "::after").left, right: getComputedStyle(element, "::after").right })),
+          material: await material(profile),
+          title: await type(
+            profile.getByRole("heading", { name: "Profile", exact: true }),
+          ),
+          row: await type(
+            profileRow.locator('[data-slot="settings-row-title"]'),
+          ),
+          description: await type(
+            profileRow.locator('[data-slot="settings-row-description"]'),
+          ),
+          section: await type(
+            profile.getByRole("heading", {
+              name: "Your settings",
+              exact: true,
+            }),
+          ),
+          icon: await size(
+            profileRow.locator('[data-slot="settings-row-icon"]'),
+          ),
+          chevron: await size(
+            profileRow.locator('[data-slot="settings-row-chevron"]'),
+          ),
+          headerPadding: await profile
+            .locator(".profile-pane-header")
+            .evaluate((element) => getComputedStyle(element).padding),
+          rowPadding: await profileRow
+            .locator("button")
+            .evaluate((element) => getComputedStyle(element).padding),
+          separator: await profileRow.evaluate((element) => ({
+            left: getComputedStyle(element, "::after").left,
+            right: getComputedStyle(element, "::after").right,
+          })),
         };
         await profileRow.getByRole("button").click();
-        const inner = profile.locator('[data-profile-stack-content="true"] [data-slot="settings-group-shell"]');
+        const inner = profile.locator(
+          '[data-profile-stack-content="true"] [data-slot="settings-group-shell"]',
+        );
         await expect(inner).toBeVisible();
         const innerMaterial = await material(inner);
-        await profile.getByRole("button", { name: "Close Profile", exact: true }).click();
+        await profile
+          .getByRole("button", { name: "Close Profile", exact: true })
+          .click();
         await expect(profile).not.toBeVisible();
 
-        await page.getByRole("button", { name: "Open drawer", exact: true }).click();
-        const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
-        await expect.poll(() => chats.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+        await page
+          .getByRole("button", { name: "Open drawer", exact: true })
+          .click();
+        const chats = page.getByRole("dialog", {
+          name: "Agent chat history",
+          exact: true,
+        });
+        await expect
+          .poll(() =>
+            chats.evaluate(
+              (element) =>
+                new DOMMatrix(getComputedStyle(element).transform).m41,
+            ),
+          )
+          .toBeCloseTo(0, 1);
         await expectIdlePane(chats);
         expect(await material(chats)).toEqual(reference.material);
-        expect(await type(chats.getByRole("heading", { name: "Chats", exact: true }))).toEqual(reference.title);
-        expect(await type(chats.locator('[data-agent-history-row-title]').first())).toEqual(reference.row);
-        expect(await type(chats.locator('[data-agent-history-row-description]').first())).toEqual(reference.description);
-        expect(await type(chats.locator('[data-agent-history-section-label]').first())).toEqual(reference.section);
-        expect(await chats.locator('[data-agent-history-header]').evaluate(element => getComputedStyle(element).padding)).toBe(reference.headerPadding);
-        expect(await chats.locator('[data-agent-history-row] button').first().evaluate(element => getComputedStyle(element).padding)).toBe(reference.rowPadding);
-        expect((await chats.getByRole("button", { name: "Open Connectors" }).locator("svg").boundingBox())!.width).toBe(reference.icon);
-        await expect(chats.getByRole("button", { name: /^A longer conversation title/ })).toBeVisible();
+        expect(
+          await type(
+            chats.getByRole("heading", { name: "Chats", exact: true }),
+          ),
+        ).toEqual(reference.title);
+        expect(
+          await type(chats.locator("[data-agent-history-row-title]").first()),
+        ).toEqual(reference.row);
+        expect(
+          await type(
+            chats.locator("[data-agent-history-row-description]").first(),
+          ),
+        ).toEqual(reference.description);
+        expect(
+          await type(
+            chats.locator("[data-agent-history-section-label]").first(),
+          ),
+        ).toEqual(reference.section);
+        expect(
+          await chats
+            .locator("[data-agent-history-header]")
+            .evaluate((element) => getComputedStyle(element).padding),
+        ).toBe(reference.headerPadding);
+        expect(
+          await chats
+            .locator("[data-agent-history-row] button")
+            .first()
+            .evaluate((element) => getComputedStyle(element).padding),
+        ).toBe(reference.rowPadding);
+        const chatIcon = await size(
+          chats.getByRole("button", { name: "Open Connectors" }).locator("svg"),
+        );
+        expect(chatIcon.css).toBe(reference.icon.css);
+        expect(chatIcon.actual).toBeCloseTo(reference.icon.actual, 3);
+        await expect(
+          chats.getByRole("button", { name: /^A longer conversation title/ }),
+        ).toBeVisible();
         await chats.getByRole("button", { name: "Close chat history" }).click();
 
-        await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Open One profile", exact: true })
+          .click();
         const one = page.getByRole("dialog", { name: "One", exact: true });
         await one.getByRole("tab", { name: "Feed", exact: true }).click();
         const feedRow = one.getByTestId("feed-row").first();
         await expect(feedRow).toBeVisible();
-        await expect.poll(() => one.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+        await expect
+          .poll(() =>
+            one.evaluate(
+              (element) =>
+                new DOMMatrix(getComputedStyle(element).transform).m41,
+            ),
+          )
+          .toBeCloseTo(0, 1);
         await expectIdlePane(one);
         expect(await material(one)).toEqual(reference.material);
-        expect(await type(one.getByRole("heading", { name: "One", exact: true }))).toEqual(reference.title);
-        expect(await type(feedRow.locator('[data-slot="settings-row-title"]'))).toEqual(reference.row);
-        expect(await type(feedRow.locator('[data-slot="settings-row-description"]'))).toEqual(reference.description);
-        expect(await type(one.getByRole("heading", { name: "Latest activity" }))).toEqual(reference.section);
-        expect(await feedRow.locator("button").evaluate(element => getComputedStyle(element).padding)).toBe(reference.rowPadding);
-        expect((await feedRow.locator('[data-slot="settings-row-leading"]').boundingBox())!.width).toBe(reference.icon);
-        expect((await feedRow.locator('[data-slot="settings-row-chevron"]').boundingBox())!.width).toBe(reference.chevron);
-        expect(await feedRow.evaluate(element => ({ left: getComputedStyle(element, "::after").left, right: getComputedStyle(element, "::after").right }))).toEqual(reference.separator);
-        expect(await feedRow.locator("button").evaluate(element => getComputedStyle(element).minHeight)).toBe("44px");
-        expect((await feedRow.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        expect(
+          await type(one.getByRole("heading", { name: "One", exact: true })),
+        ).toEqual(reference.title);
+        expect(
+          await type(feedRow.locator('[data-slot="settings-row-title"]')),
+        ).toEqual(reference.row);
+        expect(
+          await type(feedRow.locator('[data-slot="settings-row-description"]')),
+        ).toEqual(reference.description);
+        expect(
+          await type(one.getByRole("heading", { name: "Latest activity" })),
+        ).toEqual(reference.section);
+        expect(
+          await feedRow
+            .locator("button")
+            .evaluate((element) => getComputedStyle(element).padding),
+        ).toBe(reference.rowPadding);
+        const feedIcon = await size(
+          feedRow.locator('[data-slot="settings-row-leading"]'),
+        );
+        expect(feedIcon.css).toBe(reference.icon.css);
+        expect(feedIcon.actual).toBeCloseTo(reference.icon.actual, 3);
+        const feedChevron = await size(
+          feedRow.locator('[data-slot="settings-row-chevron"]'),
+        );
+        expect(feedChevron.css).toBe(reference.chevron.css);
+        expect(feedChevron.actual).toBeCloseTo(reference.chevron.actual, 3);
+        expect(
+          await feedRow.evaluate((element) => ({
+            left: getComputedStyle(element, "::after").left,
+            right: getComputedStyle(element, "::after").right,
+          })),
+        ).toEqual(reference.separator);
+        expect(
+          await feedRow
+            .locator("button")
+            .evaluate((element) => getComputedStyle(element).minHeight),
+        ).toBe("44px");
+        expect((await feedRow.boundingBox())!.height).toBeGreaterThanOrEqual(
+          44,
+        );
         const passiveRow = one.getByTestId("feed-row").nth(1);
         await expect(passiveRow.locator("button")).toHaveCount(0);
-        expect(await passiveRow.locator(":scope > div").evaluate(element => ({ height: getComputedStyle(element).minHeight, padding: getComputedStyle(element).padding })))
-          .toEqual({ height: "44px", padding: reference.rowPadding });
+        expect(
+          await passiveRow
+            .locator(":scope > div")
+            .evaluate((element) => ({
+              height: getComputedStyle(element).minHeight,
+              padding: getComputedStyle(element).padding,
+            })),
+        ).toEqual({ height: "44px", padding: reference.rowPadding });
         await one.getByRole("tab", { name: "Profile", exact: true }).click();
-        await expect(one.getByRole("link", { name: "Open memory.md in Memory" })).toBeVisible();
-        expect(await one.locator('[data-row-layout="settings"]').first().locator(":scope > div").evaluate(element => getComputedStyle(element).minHeight)).toBe("44px");
-        expect(await material(one.locator("[data-app-pane-card]").first())).toEqual(innerMaterial);
-        await page.screenshot({ path: test.info().outputPath(`panel-parity-${dark ? "dark" : "light"}.png`) });
+        await expect(
+          one.getByRole("link", { name: "Open memory.md in Memory" }),
+        ).toBeVisible();
+        expect(
+          await one
+            .locator('[data-row-layout="settings"]')
+            .first()
+            .locator(":scope > div")
+            .evaluate((element) => getComputedStyle(element).minHeight),
+        ).toBe("44px");
+        expect(
+          await material(one.locator("[data-app-pane-card]").first()),
+        ).toEqual(innerMaterial);
         await one.getByRole("button", { name: "Close One profile" }).click();
         await expect(one).not.toBeVisible();
-        await page.evaluate(() => window.__hushhPerf?.scenario(null));
-      }
-      const perfPath = test.info().outputPath("pane-frame-pacing.json");
-      fs.writeFileSync(perfPath, await page.evaluate(() => window.__hushhPerf?.export() ?? "{}"));
-      await test.info().attach("pane-frame-pacing", { path: perfPath, contentType: "application/json" });
-      // Android intentionally disables backdrop filters. A supported CSS
-      // property must not leave translucent panes over readable chat text.
-      await page.evaluate(() => document.documentElement.classList.add("native-android"));
-      await page.getByRole("button", { name: "Open One profile", exact: true }).click();
-      const androidOne = page.getByRole("dialog", { name: "One", exact: true });
-      await expect(androidOne).toBeVisible();
-      expect((await material(androidOne)).background).toBe(await androidOne.evaluate(element => {
-        const probe = document.createElement("div");
-        probe.style.background = "var(--app-card-surface-default-solid)";
-        element.append(probe);
-        const color = getComputedStyle(probe).backgroundColor;
-        probe.remove();
-        return color;
-      }));
-      const androidReference = await profileFrame(page);
-      expect(await material(androidOne)).toEqual({ ...androidReference.material, radius: androidReference.radius });
+      });
+    }
+  }
+  for (const dark of [false, true]) {
+    test(`Android pane fallback matches Profile in ${dark ? "dark" : "light"} mode`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 900 });
+      await page.route("**/api/one/feed**", (route) =>
+        route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            items: [],
+            next_cursor: null,
+            unread_count: 0,
+          }),
+        }),
+      );
+      await page.goto(
+        "http://localhost/connections-fixture?one-profile=1&panel-parity=1",
+      );
+      await page.addScriptTag({ content: script });
+      await awaitProductFont(page);
+      await page.evaluate((enabled) => {
+        document.documentElement.classList.toggle("dark", enabled);
+        document.documentElement.classList.add("native-android");
+      }, dark);
+      await page
+        .getByRole("button", { name: "Open One profile", exact: true })
+        .click();
+      const one = page.getByRole("dialog", { name: "One", exact: true });
+      await expect(one).toBeVisible();
+      const oneMaterial = await material(one);
+      expect(oneMaterial.background).toBe(
+        await one.evaluate((element) => {
+          const probe = document.createElement("div");
+          probe.style.background = "var(--app-card-surface-default-solid)";
+          element.append(probe);
+          const color = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return color;
+        }),
+      );
+      await one.getByRole("button", { name: "Close One profile" }).click();
+      await expect(one).not.toBeVisible();
+      await page
+        .getByRole("button", { name: "Open reference Profile", exact: true })
+        .click();
+      const profile = page.getByTestId("profile-pane");
+      await expect(profile).toBeVisible();
+      expect(await material(profile)).toEqual(oneMaterial);
+      await profile
+        .getByRole("button", { name: "Close Profile", exact: true })
+        .click();
+      await expect(profile).not.toBeVisible();
+      await page
+        .getByRole("button", { name: "Open drawer", exact: true })
+        .click();
+      const chats = page.getByRole("dialog", {
+        name: "Agent chat history",
+        exact: true,
+      });
+      await expect(chats).toBeVisible();
+      expect(await material(chats)).toEqual(oneMaterial);
     });
   }
   test.use({ deviceScaleFactor: 3 });
