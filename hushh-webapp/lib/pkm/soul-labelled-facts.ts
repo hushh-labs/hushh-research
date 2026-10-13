@@ -90,3 +90,22 @@ export function ageFromDateOfBirth(
   if (!hadBirthday) age -= 1;
   return age >= 0 && age < 150 ? age : null;
 }
+
+/** Replace/delete a labelled owner fact without altering prose or fenced samples. */
+export function setLabelledSoulFact(markdown: string, label: string, value: string): string {
+  const key = soulFactKey(label);
+  let fence: { marker: string; size: number } | null = null;
+  const retained = markdown.split("\n").filter(line => {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const marker = delimiter[1]![0]!;
+      if (!fence) fence = { marker, size: delimiter[1]!.length };
+      else if (marker === fence.marker && delimiter[1]!.length >= fence.size && !delimiter[2]!.trim()) fence = null;
+      return true;
+    }
+    const match = !fence && LABELLED_BULLET.exec(line);
+    return !match || soulFactKey(match[1]!) !== key;
+  }).join("\n").trimEnd();
+  const supplied = value.replace(/[\r\n]+/g, " ").trim();
+  return `${retained}${supplied ? `\n- ${label}: ${supplied}` : ""}\n`;
+}

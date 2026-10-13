@@ -35,7 +35,7 @@ from hushh_mcp.services.external_connector_lifecycle_store import (
     ExternalConnectorLifecycleStore,
 )
 from hushh_mcp.services.pkm_answer_config import answer_payment_config as _config
-from hushh_mcp.services.pkm_answer_config import answer_stripe_mode
+from hushh_mcp.services.pkm_answer_config import available_answer_payment_modes
 from hushh_mcp.services.pkm_answer_payment_service import answer_payments_enabled
 
 logger = logging.getLogger(__name__)
@@ -248,7 +248,7 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
                              WHERE r.status = 'answering'
                                AND r.answer_deadline_at IS NOT NULL
                                AND EXISTS (SELECT 1 FROM pkm_answer_payment_orders o
-                                 WHERE o.request_id=r.request_id AND o.stripe_mode=:stripe_mode)
+                                 WHERE o.request_id=r.request_id AND o.stripe_mode IN ('test', 'live'))
                                AND (r.answer_deadline_at < clock_timestamp() OR NOT EXISTS (
                                  SELECT 1 FROM connections c WHERE c.status='active'
                                    AND ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id)
@@ -260,7 +260,7 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
                              LIMIT :limit FOR UPDATE SKIP LOCKED)
                            RETURNING request_id"""
                     ),
-                    {"limit": max(1, min(int(max_jobs), 25)), "stripe_mode": answer_stripe_mode()},
+                    {"limit": max(1, min(int(max_jobs), 25))},
                 )
                 .mappings()
                 .all()
@@ -279,15 +279,15 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
         """Dispatch due refunds, retrying failures under a lease."""
         if not (answer_payments_enabled() or os.getenv("ANSWER_WORK_DRAIN_ENABLED") == "true"):
             return {"disabled": 1}
-        try:
-            key, _secret, _origin = _config()
-        except Exception:  # noqa: BLE001 - unconfigured Stripe is not an error here
+        modes = available_answer_payment_modes()
+        if not modes:
             return {"disabled": 1}
 
-        claimed = await self._transaction(lambda connection: _claim_refunds(connection, max_jobs))
+        claimed = await self._transaction(lambda connection: _claim_refunds(connection, max_jobs, modes))
         outcomes = {"succeeded": 0, "retried": 0, "manual_review": 0}
 
         for row in claimed:
+            key, _secret, _origin = _config(row["stripe_mode"])
             request_id = str(row["request_id"])
             try:
                 refund = await run_in_threadpool(self._refund, row, key)
@@ -318,16 +318,16 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
         """Transfer delivered answers' earnings to the owner's Connect account."""
         if not (answer_payments_enabled() or os.getenv("ANSWER_WORK_DRAIN_ENABLED") == "true"):
             return {"disabled": 1}
-        try:
-            key, _secret, _origin = _config()
-        except Exception:  # noqa: BLE001
+        modes = available_answer_payment_modes()
+        if not modes:
             return {"disabled": 1}
 
         await self._transaction(_promote_due_payouts)
-        claimed = await self._transaction(lambda connection: _claim_payouts(connection, max_jobs))
+        claimed = await self._transaction(lambda connection: _claim_payouts(connection, max_jobs, modes))
         outcomes = {"transferred": 0, "retried": 0, "awaiting_account": 0}
 
         for row in claimed:
+            key, _secret, _origin = _config(row["stripe_mode"])
             request_id = str(row["request_id"])
             destination = row["destination_account_id"]
             if not destination:
@@ -474,7 +474,7 @@ def _file_refund(connection, request_id: str, reason: str) -> int:
     return 1
 
 
-def _claim_refunds(connection, max_jobs: int) -> list[dict[str, Any]]:
+def _claim_refunds(connection, max_jobs: int, modes: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
     return [
         dict(row)
         for row in connection.execute(
@@ -491,12 +491,14 @@ def _claim_refunds(connection, max_jobs: int) -> list[dict[str, Any]]:
                      WHERE status IN ('queued', 'dispatching', 'unknown', 'pending')
                        AND next_check_at <= clock_timestamp()
                        AND EXISTS (SELECT 1 FROM pkm_answer_payment_obligations o
-                         WHERE o.request_id=pkm_answer_payment_refunds.request_id AND o.stripe_mode=:stripe_mode)
+                         WHERE o.request_id=pkm_answer_payment_refunds.request_id AND o.stripe_mode = ANY(:stripe_modes))
                        AND (lease_expires_at IS NULL
                             OR lease_expires_at < clock_timestamp())
                      ORDER BY next_check_at
                      LIMIT :limit FOR UPDATE SKIP LOCKED)
                    RETURNING request_id, attempts, first_dispatch_at, stripe_refund_id,
+                     (SELECT stripe_mode FROM pkm_answer_payment_obligations o
+                      WHERE o.request_id = pkm_answer_payment_refunds.request_id) AS stripe_mode,
                      (SELECT amount_cents FROM pkm_answer_payment_obligations o
                       WHERE o.request_id = pkm_answer_payment_refunds.request_id) AS amount_cents,
                      (SELECT stripe_payment_intent_id FROM pkm_answer_payment_obligations o
@@ -506,7 +508,7 @@ def _claim_refunds(connection, max_jobs: int) -> list[dict[str, Any]]:
             {
                 "limit": max(1, min(int(max_jobs), 25)),
                 "lease": LEASE_SECONDS,
-                "stripe_mode": answer_stripe_mode(),
+                "stripe_modes": list(modes if modes is not None else available_answer_payment_modes()),
             },
         ).mappings()
     ]
@@ -577,15 +579,15 @@ def _promote_due_payouts(connection) -> None:
                LEFT JOIN stripe_owner_payout_accounts a ON a.user_id=o.owner_user_id
                  AND a.stripe_mode=o.stripe_mode AND a.payouts_enabled AND a.account_ready
                WHERE o.status = 'paid' AND o.owner_earning_status = 'due'
-                 AND o.stripe_mode=:stripe_mode AND NOT o.reconciliation_required
+                 AND o.stripe_mode IN ('test', 'live') AND NOT o.reconciliation_required
                  AND NOT EXISTS (SELECT 1 FROM pkm_answer_payment_refunds f WHERE f.request_id=o.request_id)
                ON CONFLICT (request_id) DO NOTHING"""
         ),
-        {"bps": COMMISSION_BPS, "stripe_mode": answer_stripe_mode()},
+        {"bps": COMMISSION_BPS},
     )
 
 
-def _claim_payouts(connection, max_jobs: int) -> list[dict[str, Any]]:
+def _claim_payouts(connection, max_jobs: int, modes: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
     connection.execute(
         text("""UPDATE pkm_answer_owner_payouts p SET destination_account_id=(
         SELECT a.stripe_account_id FROM stripe_owner_payout_accounts a
@@ -609,7 +611,7 @@ def _claim_payouts(connection, max_jobs: int) -> list[dict[str, Any]]:
                      WHERE status IN ('due', 'dispatching', 'unknown', 'awaiting_account')
                        AND next_check_at <= clock_timestamp()
                        AND EXISTS (SELECT 1 FROM pkm_answer_payment_obligations o
-                         WHERE o.request_id=pkm_answer_owner_payouts.request_id AND o.stripe_mode=:stripe_mode)
+                         WHERE o.request_id=pkm_answer_owner_payouts.request_id AND o.stripe_mode = ANY(:stripe_modes))
                        AND NOT EXISTS (SELECT 1 FROM pkm_answer_payment_refunds f
                          WHERE f.request_id=pkm_answer_owner_payouts.request_id)
                        AND (lease_expires_at IS NULL
@@ -617,6 +619,8 @@ def _claim_payouts(connection, max_jobs: int) -> list[dict[str, Any]]:
                      ORDER BY next_check_at
                      LIMIT :limit FOR UPDATE SKIP LOCKED)
                    RETURNING request_id, attempts, first_dispatch_at, currency, gross_amount_cents,
+                             (SELECT stripe_mode FROM pkm_answer_payment_obligations o
+                              WHERE o.request_id = pkm_answer_owner_payouts.request_id) AS stripe_mode,
                              owner_earning_cents, destination_account_id,
                              transfer_attempt_id,
                              (SELECT stripe_payment_intent_id
@@ -627,7 +631,7 @@ def _claim_payouts(connection, max_jobs: int) -> list[dict[str, Any]]:
             {
                 "limit": max(1, min(int(max_jobs), 25)),
                 "lease": LEASE_SECONDS,
-                "stripe_mode": answer_stripe_mode(),
+                "stripe_modes": list(modes if modes is not None else available_answer_payment_modes()),
             },
         ).mappings()
     ]
@@ -748,7 +752,7 @@ def _prepare_transfer(connection, job: dict, amounts: dict) -> bool:
             "attempts": job["attempts"],
             "fee": amounts["platform_fee_cents"],
             "earning": amounts["owner_earning_cents"],
-            "mode": answer_stripe_mode(),
+            "mode": job["stripe_mode"],
         },
     ).first()
     if won is None:
