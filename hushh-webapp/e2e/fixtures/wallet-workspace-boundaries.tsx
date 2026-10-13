@@ -5,6 +5,7 @@
 import React from "react";
 import { createEncryptedCardFile } from "../../lib/wallet/wallet-card-file";
 import type { CardShareContext } from "../../lib/services/wallet-card-share-service";
+import type { CardSharingHistory, CardSharingHistoryItem } from "../../lib/services/wallet-card-access-service";
 
 type FixtureCard = {
   cardId: string;
@@ -28,6 +29,7 @@ type Scenario = {
   delayMs?: number;
   error?: boolean;
   artworkGallery?: boolean;
+  sharingHistory?: boolean;
 };
 
 const SYNTHETIC: FixtureCard[] = [
@@ -217,16 +219,39 @@ export const toDurationBucket = (durationMs: number) => {
 export const trackApiRequestCompleted = () => undefined;
 export const NativeTestBeacon = () => null;
 
+let sharingRevoked = false;
+const SHARING_GRANT_ID = "33333333-3333-4333-8333-333333333333";
+function sharingHistory(requestPath: string): CardSharingHistory {
+  const now = new Date().toISOString();
+  const item: CardSharingHistoryItem = {
+    id: SHARING_GRANT_ID, cardId: "card_a", cardType: "payment",
+    displayLabel: "Everyday", last4: "4242", senderName: "Alex Rivera",
+    recipientName: "Sample recipient", createdAt: now, durationMinutes: 10,
+    expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    status: sharingRevoked ? "revoked" : "active", trustedCircle: false,
+    method: "standard_connection", verificationMethod: "identity_reauthentication",
+    verifiedAt: now, revokedAt: sharingRevoked ? now : null, lastAccessedAt: null,
+    permittedFields: ["brand", "last4"], activity: [],
+  };
+  const items = scenario().sharingHistory && requestPath.includes("direction=outgoing") ? [item] : [];
+  return { items, recipientCount: items.length, hasMore: false, nextCursor: null, serverNow: now };
+}
+
 // The production Wallet Card service imports ApiService through the shared
 // client. Keep that transport inert in this fixture so a layout test never
 // initializes Firebase or performs a network request just to load an empty
 // card state.
 export const ApiService = {
   getDirectBackendUrl: () => "",
-  apiFetch: async (requestPath: string) => {
+  apiFetch: async (requestPath: string, options?: RequestInit) => {
     // Production profile/referral views keep their rendering; only network
     // responses are synthetic. No live profile, visitor, or payment is touched.
-    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? { items: [], nextCursor: null }
+    if (requestPath === `/api/one/wallet/card-access/grants/${SHARING_GRANT_ID}` && options?.method === "DELETE") {
+      record(`share-revoke:${SHARING_GRANT_ID}`);
+      sharingRevoked = true;
+      return new Response(JSON.stringify({ revoked: true }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? sharingHistory(requestPath)
       : requestPath.startsWith("/api/one/wallet/card-access/profile") ? { eligible: false, cardId: null }
       : requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
       items: [

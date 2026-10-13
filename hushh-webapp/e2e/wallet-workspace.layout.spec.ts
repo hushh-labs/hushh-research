@@ -116,7 +116,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean; sharingHistory?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -658,8 +658,8 @@ test("all twenty payment finishes fit long names and a revealed 19-digit number 
 });
 
 for (const width of [320, 390, 1440]) {
-  test(`Wallet Sharing keeps requests and grants reachable at ${width}px`, async ({ page }) => {
-    const errors = await open(page, width, "light", { cards: 3 }, { height: 844, shell: true });
+  test(`Wallet Sharing keeps history and revoke confirmation reachable at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
     await mount(page);
     await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
     await page.getByRole("tab", { name: "Sharing", exact: true }).click();
@@ -669,13 +669,24 @@ for (const width of [320, 390, 1440]) {
     ))).toBeLessThan(2);
     const sharing = page.getByTestId("wallet-sharing-content");
     await expect(sharing.getByText("Sample requester")).toHaveCount(0);
-    await expect(sharing.getByText("Sample recipient")).toBeVisible();
-    await expect(sharing.getByRole("button", { name: "Manage" })).toBeVisible();
-    await sharing.getByRole("button", { name: "Manage" }).click();
-    await expect(page.getByRole("dialog", { name: "Manage access" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
+    await expect(sharing.getByText("Everyday | Sample recipient", { exact: true })).toBeVisible();
+    const revoke = sharing.getByRole("button", { name: "Revoke Everyday shared with Sample recipient", exact: true });
+    await expect(revoke).toBeVisible();
+    await revoke.click();
+    const confirmation = page.getByRole("alertdialog", { name: "Revoke this card share?" });
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
+    const revoked = () => page.evaluate(() => (window.__walletEvents ?? []).includes("share-revoke:33333333-3333-4333-8333-333333333333"));
+    expect(await revoked()).toBe(false);
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect(confirmation).toBeHidden();
+    expect(await revoked()).toBe(false);
+    await revoke.click();
+    await confirmation.getByRole("button", { name: "Revoke access", exact: true }).click();
+    await expect.poll(revoked).toBe(true);
+    await expect(confirmation).toBeHidden();
+    await expect(sharing.getByText("Revoked | Connection", { exact: true })).toBeVisible();
+    await expect(revoke).toHaveCount(0);
     await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
     await page.locator('[data-app-scroll-root="true"]').evaluate((el) => { el.scrollTop = 0; });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
