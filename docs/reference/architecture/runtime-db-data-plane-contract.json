@@ -243,9 +243,9 @@
         "one_adk_sessions",
         "one_mcp_pending_calls"
       ],
-      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, LLM context assembly, and owner-authenticated Magic discovery draft checkpoints (one.magic.discovery.v1/profile).",
-      "retention_policy": "Chat persists while account exists or until user deletion. Magic discovery drafts expire after 24 hours; namespace-scoped hourly cleanup prunes up to 500 expired ciphertext rows without decrypting. Pending execution leases last 240 seconds and unavailable drafts have a 60-second retry cooldown; polling never extends retention.",
-      "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events.",
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, LLM context assembly, and owner-authenticated Magic discovery draft checkpoints (one.magic.discovery.v1/profile). Explicit PWM checkpoints use one.personal_world_model.v1/profile.",
+      "retention_policy": "Chat persists while account exists or until user deletion. Magic discovery drafts expire after 24 hours; namespace-scoped hourly cleanup prunes up to 500 expired ciphertext rows without decrypting. Pending execution leases last 240 seconds and unavailable drafts have a 60-second retry cooldown; polling never extends retention. PWM checkpoints use the same 24-hour retention, a 270-second job deadline, and 300-second lease.",
+      "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events. Account reset also deletes One encrypted session checkpoints.",
       "trust_boundary": "Session documents, command checkpoints, titles and messages persist as AES-GCM ciphertext sealed with the owner's chat key (HKDF-SHA256 of the vault key, label hussh-one-chat-v1), marked by the plaintext prefix hussh-chat-v1: and bound to their row. The browser sends only the derived key (X-Hussh-Chat-Key); the backend holds it in memory for that request and any bounded background run it started, with an absolute 300-second ceiling. Without it every read and write refuses; keys and owner tokens are never persisted. Platform-key rows from before the cutover are invisible to the code and deleted by migration 249. Pending connector reviews (one_mcp_pending_calls) are sealed the same way, bound to owner, conversation and handle, removed once the approved call has run, swept by the scheduled connector retention job when the review lapses, and erased on account reset and deletion. Frontend tool debug events remain live-only and are not stored.",
       "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "high_per_user_chat"
@@ -1758,6 +1758,36 @@
       "trust_boundary": "Server-only wallet ownership, mode, integer amounts, opaque request and provider references. No bank details, card data, or document content. One Hashcoin equals one USD cent. Test redemption can never debit live earnings; original order settlement method is immutable.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_request"
+    },
+    {
+      "id": "pwm_invitation_authority",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_claim_invitations"
+      ],
+      "primary_access_path": "Authenticated PWM invitation create/list/revoke/claim routes. Shared account graph locks and existing transaction connection for strict owner authority.",
+      "retention_policy": "Seven-day authorization expiry; expired rows removed on subsequent invitation creation. Explicit revocation deletes immediately.",
+      "deletion_behavior": "Delete either participant rows on account reset; actor_profiles cascading foreign keys delete on account erasure. Migration refreshes canonical deleted-identity guards.",
+      "trust_boundary": "Keyed contact commitment and random token hash only; no raw contact, findings, names or passwords. Claim grants no sharing or research.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "bounded_twenty_pending_per_owner"
+    },
+    {
+      "id": "pwm_provider_budget",
+      "owner": "backend-agents-operons",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_provider_budget"
+      ],
+      "primary_access_path": "Atomic monthly provider credit charge before dispatch.",
+      "retention_policy": "One aggregate counter per provider/month; retained for operational cost audit.",
+      "deletion_behavior": "No owner data or identifiers; account deletion does not alter shared quota.",
+      "trust_boundary": "Provider name, UTC month and numeric credits only; never queries or contact identifiers.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one_row_per_provider_month"
     }
   ]
 }

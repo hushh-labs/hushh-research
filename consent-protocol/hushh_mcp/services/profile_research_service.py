@@ -24,14 +24,19 @@ from hushh_mcp.services.one_owner_admission import (
 logger = logging.getLogger(__name__)
 
 
-async def resolve_profile_research_identity(user_id: str, record) -> dict[str, Any]:
+async def resolve_profile_research_identity(user_id: str, record, *, conn=None) -> dict[str, Any]:
     name = str(getattr(record, "display_name", None) or "").strip()
     email = getattr(record, "email", None) if getattr(record, "email_verified", False) else None
     phone = getattr(record, "phone_number", None)
     if not name or not phone:
         from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
-        identities = await asyncio.wait_for(ActorIdentityService().get_many([user_id]), 5)
+        identities = await asyncio.wait_for(
+            ActorIdentityService().get_many(
+                [user_id], **({"conn": conn} if conn is not None else {})
+            ),
+            5,
+        )
         identity = identities.get(user_id, {})
         if not name and isinstance(identity.get("display_name"), str):
             name = identity["display_name"].strip()

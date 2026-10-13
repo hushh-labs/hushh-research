@@ -928,6 +928,9 @@ async def shutdown_magic_discovery():
     from hushh_mcp.services.profile_research_jobs import profile_research_jobs
 
     await profile_research_jobs.shutdown()
+    from hushh_mcp.services.world_model_service import world_model_jobs
+
+    await world_model_jobs.shutdown()
 
 
 @app.on_event("startup")
@@ -935,6 +938,9 @@ async def startup_magic_discovery_retention():
     from hushh_mcp.services.profile_research_jobs import profile_research_jobs
 
     profile_research_jobs.start_retention()
+    from hushh_mcp.services.world_model_service import world_model_jobs
+
+    world_model_jobs.start_retention()
 
 
 # ============================================================================

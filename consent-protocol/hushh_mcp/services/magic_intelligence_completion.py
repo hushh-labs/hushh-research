@@ -18,7 +18,9 @@ async def magic_intelligence_saved(user_id: str) -> bool:
         )
 
 
-async def complete_magic_intelligence(user_id: str, commits: list[tuple[str, str]]) -> None:
+async def complete_magic_intelligence(
+    user_id: str, commits: list[tuple[str, str]], *, verify_only: bool = False
+) -> None:
     """Mark once, verifying every receipt rather than trusting client saved state.
 
     Personal reviews can contain multiple cards. One event alone
@@ -41,7 +43,7 @@ async def complete_magic_intelligence(user_id: str, commits: list[tuple[str, str
         )
         if owner is None:
             raise MagicReviewNotCommitted()
-        if bool(owner["one_magic_intelligence_saved"]):
+        if not verify_only and bool(owner["one_magic_intelligence_saved"]):
             return  # Idempotent retry after a lost response.
         acknowledged = await conn.fetchval(
             """
@@ -71,6 +73,8 @@ async def complete_magic_intelligence(user_id: str, commits: list[tuple[str, str
         )
         if acknowledged != len(commits):
             raise MagicReviewNotCommitted()
+        if verify_only:
+            return
         await conn.execute(
             "UPDATE vault_keys SET one_magic_intelligence_saved = TRUE WHERE user_id = $1", user_id
         )

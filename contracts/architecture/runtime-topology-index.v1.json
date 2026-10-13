@@ -699,7 +699,7 @@
       "id": "agent_chat_encrypted_memory",
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
-      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, LLM context assembly, and owner-authenticated Magic discovery draft checkpoints (one.magic.discovery.v1/profile)."
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, LLM context assembly, and owner-authenticated Magic discovery draft checkpoints (one.magic.discovery.v1/profile). Explicit PWM checkpoints use one.personal_world_model.v1/profile."
     },
     {
       "data_class": "workflow_state",
@@ -1645,6 +1645,26 @@
       "lifecycle_status": "current",
       "owner": "backend-api-contracts",
       "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pwm_claim_invitations"
+      ],
+      "id": "pwm_invitation_authority",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated PWM invitation create/list/revoke/claim routes. Shared account graph locks and existing transaction connection for strict owner authority."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pwm_provider_budget"
+      ],
+      "id": "pwm_provider_budget",
+      "lifecycle_status": "current",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "Atomic monthly provider credit charge before dispatch."
     },
     {
       "data_class": "workflow_state",
@@ -4117,6 +4137,7 @@
           "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
+          "route.profile_world_model",
           "route.ria_settings_compat"
         ],
         "delegate_agent_ids": [],
@@ -4210,6 +4231,7 @@
           "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
+          "route.profile_world_model",
           "route.ria_settings_compat"
         ],
         "delegate_agent_ids": [],
@@ -4257,6 +4279,7 @@
           "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
+          "route.profile_world_model",
           "route.ria_settings_compat"
         ],
         "delegate_agent_ids": [],
@@ -5052,6 +5075,32 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.support.routing"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "pkm_metadata",
+          "pkm_projection"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile-world-model",
+      "page_file": "app/one/profile/world-model/page.tsx",
+      "pathname": "/one/profile/world-model",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_world_model"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.world_model"
       }
     },
     {
@@ -6244,29 +6293,29 @@
   ],
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
-    "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "4b26134d23a9f6e0306cfa63f0ac3c73f2132a456e5185754833577c9deeffca",
-    "agent_registry": "177f654a5566ee65d98d50fe6f39903a083bd970e094bbf532179de1d1276a40",
-    "cache_manifest": "3edd997108a71695e9f867f56b34e9238ceb6fc47da0639236cd8b201ecbc647",
-    "data_plane": "978e7c4afb3655e7a0949683c24c0086b4d2e7fa49a07f25f2414a0151746515",
+    "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
+    "action_gateway": "66169fbe820da0c504a4ff3a2c144f73e70d9e59d9ad6b77cf41c87c66550902",
+    "agent_registry": "a2b445f705c315479d1a066954c09bfbcd4e1fac59f756f7c6c34e3b1bf7cd96",
+    "cache_manifest": "7d51e72dedd470a6129e4d61e606803bbfd4c320989c64db46614c1928f7a400",
+    "data_plane": "51516c4df95e042fbc9ad11304721414a89a75d55a482756e1d5fd2ad414ee6a",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "084c4287101963ac51c7c2e589ab3fe46be4294017dcfc093150a906de8bce24",
-    "route_index": "966eced19cd6ec65c93c76c102ba4bdc3deb2db15635d45195081d9af2de6abd",
-    "route_layout": "52f465ef39f38e8ae166a7770dc36feaa5e9769ecb317c2c46c67e3e16c3fb64",
-    "surface_map": "e7805aaa6321821547b170d3cf36f034ef927a5b4b4f2c2b7841340a1be8176a",
+    "route_index": "fdcee1e292919f74fc2484921b63229f3575879da7b24dc6857f148df01bb08d",
+    "route_layout": "7bef9a8b38fe563e011cf4c85624cb18f736e7e230fb56c581aca1982ed86cf4",
+    "surface_map": "310ae1532ebd7333e73b7c73508b29b26dfd2456fe6f2ff5cf9edc51ce299c57",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 239,
+    "actions": 244,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 150,
+    "physical_routes": 151,
     "semantic_routes": 14,
-    "table_families": 100
+    "table_families": 102
   }
 }

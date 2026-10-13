@@ -32,15 +32,14 @@ def test_flag_off_never_reads_the_model_contract(monkeypatch):
     assert live_voice_enabled() is False
 
 
-def test_flag_on_requires_an_explicit_model_id(monkeypatch):
+def test_flag_on_uses_profile_model_when_no_local_override(monkeypatch):
     monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
     monkeypatch.delenv(VERTEX_LIVE_MODEL_ID_ENV, raising=False)
     monkeypatch.setenv(VERTEX_LIVE_LOCATION_ENV, "us-central1")
-    with pytest.raises(OneVoiceConfigError, match=VERTEX_LIVE_MODEL_ID_ENV):
-        OneVoiceLiveConfig.from_environment()
+    assert OneVoiceLiveConfig.from_environment().model_id == "gemini-live-2.5-flash-native-audio"
 
 
-@pytest.mark.parametrize("location", ["", "global", "us", "eu", "US-CENTRAL1!"])
+@pytest.mark.parametrize("location", ["global", "us", "eu", "US-CENTRAL1!"])
 def test_flag_on_rejects_non_regional_locations(monkeypatch, location):
     monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
     monkeypatch.setenv(VERTEX_LIVE_MODEL_ID_ENV, "gemini-live-2.5-flash-native-audio")
@@ -58,20 +57,16 @@ def test_flag_on_reads_the_pinned_contract(monkeypatch):
     assert config.enabled is True
     assert config.model_id == "gemini-live-2.5-flash-native-audio"
     assert config.location == "us-central1"
-    assert config.vertex_project is None
+    assert config.vertex_project == "hushh-pda-uat"
     assert config.session_max_seconds == 600
     assert config.idle_close_seconds == 90
 
 
-def test_voice_project_override_is_explicit_and_validated(monkeypatch):
+def test_voice_uses_shared_uat_project_ignoring_retired_override(monkeypatch):
     monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
-    monkeypatch.setenv(VERTEX_LIVE_MODEL_ID_ENV, "gemini-live-2.5-flash-native-audio")
-    monkeypatch.setenv(VERTEX_LIVE_LOCATION_ENV, "us-central1")
-    monkeypatch.setenv(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV, "hussh-511311")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV, "retired-project")
     assert OneVoiceLiveConfig.from_environment().vertex_project == "hussh-511311"
-    monkeypatch.setenv(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV, "hussh-511311/other")
-    with pytest.raises(OneVoiceConfigError, match=HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV):
-        OneVoiceLiveConfig.from_environment()
 
 
 def test_limits_must_be_positive_integers(monkeypatch):

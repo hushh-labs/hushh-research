@@ -825,3 +825,26 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   the same input that proposed the card, refused as `card_not_shown`, which
   is recorded like a person's yes (structure cannot tell it from a yes given
   with the request, such as "call it Home instead, yes").
+
+
+### Declared: explicit Personal World Model research
+
+- Owning agent: One's `one_personal_world_model` manifest specialist, entered by
+  the owner from Profile. It chooses source queries, identity pivots, evidence
+  interpretation, fact support, coverage gaps and plain-English summaries.
+- Host contract: verified owner/setup/vault authority; exact contact matching for
+  invitation claims; bounded durable attempts, timeouts, response schemas and
+  receipt resolution. These checks cannot promote an uncertain candidate or
+  manufacture a numerical confidence probability. Python rejects inconsistent
+  identity/report enums; it does not recompute a successful semantic answer.
+- Persistence: only selected/edited owner-confirmed facts use the existing exact
+  review mutation. Source references resolve only from received tool receipts.
+  Draft generation IDs and CAS fences reject stale dismissal/completion. The
+  saved page projects approved PKM; it does not synthesize new claims.
+- Failure: missing provider, exhausted budget, invalid output or authority loss
+  yields unavailable/disabled; never inferred no-match. The job records terminal
+  state and attempt charges without logging identity or query contents.
+- Evidence: checkpoint/revocation/completion tests and invitation authority tests
+  exercise production services. Live precision, preference attribution and
+  latency require consented evaluation after the optional search key is configured.
+- Scope and exact prompt: [Personal World Model KT](../../../docs/reference/one/personal-world-model.md).

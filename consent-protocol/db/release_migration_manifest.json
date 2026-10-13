@@ -295,7 +295,9 @@
     "327_direct_message_delivery_receipts.sql",
     "328_drive_request_packages.sql",
     "329_drive_request_cent_prices.sql",
-    "330_wallet_share_longer_durations.sql"
+    "330_wallet_share_longer_durations.sql",
+    "331_pwm_provider_budget.sql",
+    "332_pwm_claim_invitations.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -460,7 +462,9 @@
       "323_wallet_sharing_owner_index.sql",
       "324_wallet_sharing_recipient_index.sql",
       "325_wallet_sharing_audit_index.sql",
-      "330_wallet_share_longer_durations.sql"
+      "330_wallet_share_longer_durations.sql",
+      "331_pwm_provider_budget.sql",
+      "332_pwm_claim_invitations.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -624,6 +628,8 @@
     "326_answer_scope_resolution_lease.sql": "rollback/326_answer_scope_resolution_lease.rollback.sql",
     "327_direct_message_delivery_receipts.sql": "rollback/327_direct_message_delivery_receipts.rollback.sql",
     "328_drive_request_packages.sql": "rollback/328_drive_request_packages.rollback.sql",
-    "329_drive_request_cent_prices.sql": "rollback/329_drive_request_cent_prices.rollback.sql"
+    "329_drive_request_cent_prices.sql": "rollback/329_drive_request_cent_prices.rollback.sql",
+    "331_pwm_provider_budget.sql": "rollback/331_pwm_provider_budget.rollback.sql",
+    "332_pwm_claim_invitations.sql": "rollback/332_pwm_claim_invitations.rollback.sql"
   }
 }

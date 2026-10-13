@@ -313,3 +313,16 @@ async def test_isolated_postgres_receipt_authority_and_forward_rollback(request,
             """)
     finally:
         await pool.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("acknowledged", [0, 2])
+async def test_pwm_revalidates_receipts_even_after_legacy_save(monkeypatch, acknowledged):
+    conn = install_pool(monkeypatch, acknowledged=acknowledged, saved=True)
+    if acknowledged == 0:
+        with pytest.raises(completion.MagicReviewNotCommitted):
+            await completion.complete_magic_intelligence("owner", COMMITS, verify_only=True)
+    else:
+        await completion.complete_magic_intelligence("owner", COMMITS, verify_only=True)
+    conn.fetchval.assert_awaited_once()
+    conn.execute.assert_not_awaited()

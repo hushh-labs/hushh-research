@@ -1238,6 +1238,16 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     },
   },
   {
+    id: "profile-world-model",
+    resolve: (pathname, searchParams) => {
+      if (pathname !== ROUTES.PROFILE_WORLD_MODEL) return undefined;
+      const parent = buildProfileRoute({ searchParams: profileOriginSearchParams(searchParams) });
+      return { backHref: parent, width: "profile", align: "center", items: [
+        { label: "Profile", href: parent }, { label: "Personal World Model" },
+      ] };
+    },
+  },
+  {
     id: "profile-generic-panel",
     resolve: (pathname, searchParams) => {
       // Final fallback for everything else under /one/profile/*.
