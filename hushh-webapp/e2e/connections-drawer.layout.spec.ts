@@ -43,12 +43,14 @@ test.beforeAll(async () => {
       alias: [
         ...[
           "@/hooks/use-auth",
+          "@/lib/services/auth-service",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
           "./api-service",
           "@/lib/services/auth-service",
           "./auth-service",
           "./agent-chat-client",
+          "@/lib/cache/cache-sync-service",
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
           "@/lib/services/gmail-receipts-service",

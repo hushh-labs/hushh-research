@@ -95,6 +95,10 @@ class ActorIdentityAliasError(RuntimeError):
         super().__init__(message)
 
 
+class ActorIdentityPhoneClaimConflictError(RuntimeError):
+    """A test or metadata claim cannot displace a verified phone owner."""
+
+
 class ActorIdentitySyncUnavailableError(RuntimeError):
     """Provider or persistence failure is not evidence of an unverified phone."""
 
@@ -815,7 +819,9 @@ class ActorIdentityService:
                             conn,
                             user_id=normalized_user_id,
                             phone_number=normalized_phone_number,
-                            allow_owner_transfer=source != "firebase_auth",
+                            # Metadata hydration never carries new OTP possession
+                            # authority, regardless of its descriptive source.
+                            allow_owner_transfer=False,
                         )
                         if not phone_write_allowed:
                             normalized_phone_number = None
@@ -1052,6 +1058,23 @@ class ActorIdentityService:
             return None
         return self._normalize_row(row)
 
+    async def can_claim_test_phone(self, *, user_id: str, phone_number: str) -> bool:
+        """Choose test-code vs real OTP without granting transfer authority.
+
+        This is only a start-flow hint. Confirmation rechecks ownership under
+        the serialized writer lock, including owners committed after this read.
+        """
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            owner = await conn.fetchval(
+                """
+                SELECT user_id FROM actor_identity_cache
+                WHERE phone_number = $1 AND phone_verified = TRUE
+                """,
+                phone_number,
+            )
+        return owner is None or owner == user_id
+
     async def claim_verified_phone(
         self,
         *,
@@ -1113,11 +1136,17 @@ class ActorIdentityService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     await self._ensure_actor_spine(conn, normalized_user_id)
-                    await self._lock_and_clear_verified_phone_binding(
+                    phone_write_allowed = await self._lock_and_clear_verified_phone_binding(
                         conn,
                         user_id=normalized_user_id,
                         phone_number=normalized_phone_number,
+                        # Fixed test codes do not prove fresh phone possession.
+                        # Only the Firebase phone-token route can transfer a
+                        # verified owner; retries by the same owner remain valid.
+                        allow_owner_transfer=normalized_source == "firebase_phone_claim",
                     )
+                    if not phone_write_allowed:
+                        raise ActorIdentityPhoneClaimConflictError()
                     try:
                         # The nested transaction is an asyncpg savepoint. If
                         # custom_photo_url is absent during a rolling migration,
@@ -1142,6 +1171,8 @@ class ActorIdentityService:
                             normalized_phone_number,
                             normalized_source,
                         )
+        except ActorIdentityPhoneClaimConflictError:
+            raise
         except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
             logger.debug(
                 "actor_identity_cache phone claim skipped; phone shadow schema unavailable"
@@ -1626,7 +1657,9 @@ class ActorIdentityService:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return None
-        if not self._looks_like_firebase_uid(normalized_user_id):
+        # Strict callers already authenticated this exact Firebase UID. The
+        # background scheduling heuristic must not reject imported/custom UIDs.
+        if not require_success and not self._looks_like_firebase_uid(normalized_user_id):
             return None
 
         cached = (await self.get_many([normalized_user_id])).get(normalized_user_id)

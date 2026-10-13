@@ -55,6 +55,8 @@ POST /api/connectors/google_drive/live/background
 POST /api/connectors/google_drive/searches/{job_id}/stop
 POST /api/connectors/{connector_id}/mcp/confirm
 [NETWORK]
+GET /api/connectors/google_drive/sharing/packets
+POST /api/connectors/google_drive/sharing/packets/{packet_id}/requests
 GET,PUT /api/connectors/google_drive/sharing/pricing
 GET /api/connectors/google_drive/sharing/quote
 POST /api/connectors/google_drive/sharing/requests/{request_id}/allow

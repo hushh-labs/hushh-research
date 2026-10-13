@@ -131,23 +131,18 @@ function OneFeedPreview({
 function ProfileCards({ close }: { close: () => void }) {
   return (
     <div className={styles.profile}>
-      <div className={styles.identityNote}>
-        <span className={styles.eyebrow}>ONE</span>
-        <h3 data-app-pane-row-title>Identity</h3>
-        <p>A place for One’s identity and what you’ve chosen to remember.</p>
-      </div>
       <div className={styles.cards}>
         <article
           className={`${styles.fileCard} ${styles.soul}`}
-          aria-label="memory.md preview"
+          aria-label="soul.md preview"
         >
           <div>
             <Heart className="size-5" aria-hidden />
-            <h4 data-app-pane-row-title>memory.md</h4>
+            <h4 data-app-pane-row-title>soul.md</h4>
             <p>Voice, values, and personality.</p>
           </div>
           <div className={styles.cardFooter}>
-            <span>Identity preview</span>
+            <span>Soul preview</span>
             <Heart className="size-5" fill="currentColor" aria-hidden />
           </div>
         </article>

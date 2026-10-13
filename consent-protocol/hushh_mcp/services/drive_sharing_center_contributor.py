@@ -707,6 +707,7 @@ def _payment_view_metadata(row: Any) -> dict[str, Any]:
     return {
         "paymentView": requester_payment_view(
             payment_required=True,
+            package_disclosure_required=row.get("agent_package") is True,
             # The requester projection renames no_match; the view needs the status.
             request_status="no_match" if state == "no_files_shared" else state,
             request_expires_at=row.get("request_expires_at"),

@@ -207,24 +207,40 @@ export async function refreshMemoryDocument(
       builtAt = prior.builtAt;
     }
     if (prior?.signature !== sourceSignature) {
+      let superseded = false;
+      const cancelSuperseded = (message: string): never => {
+        superseded = true;
+        // Inventory changes can precede their event. Mark an older cached
+        // document pending, while leaving a newer generation's cache alone.
+        if (valid() && (changes.get(params.userId) ?? 0) === change) {
+          markMemoryRefreshPending(params.userId);
+        }
+        throw new DOMException(message, "AbortError");
+      };
+      const assertCurrentSources = () => {
+        if (!valid() || (changes.get(params.userId) ?? 0) !== change) {
+          cancelSuperseded("Memory sources changed");
+        }
+      };
       const stored = await PkmWriteCoordinator.saveMergedDomain({
         userId: params.userId, domain: "one_living_sources", vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
         confirmation: { authorizationMode: "owner_source_projection", surface: "web", source: "one_living_memory_source_projection" },
         idempotencyScope: `memory_document:${sourceSignature}`,
-        beforeEffect: async () => { if (!valid()) throw new Error("Memory sources changed"); },
+        beforeEffect: async () => { assertCurrentSources(); },
         build: (context) => {
-          if (!valid() || (changes.get(params.userId) ?? 0) !== change) throw new Error("Memory sources changed");
+          assertCurrentSources();
           const current = context.currentDomainData ?? {};
           const privateData = (current._private ?? {}) as Record<string, unknown>;
           // A concurrent source-sync changes the inventory. Retry from its
           // fresh read instead of saving a document over a changed source.
-          if (JSON.stringify(privateData.inventory) !== JSON.stringify(livingPrivate.inventory)) throw new Error("Memory inventory changed");
+          if (JSON.stringify(privateData.inventory) !== JSON.stringify(livingPrivate.inventory)) cancelSuperseded("Memory inventory changed");
           return { unchanged: (privateData.memory_document as { signature?: string } | undefined)?.signature === sourceSignature, domainData: { ...current, _private: { ...privateData, memory_document: {
             ...((privateData.memory_document ?? {}) as Record<string, unknown>),
             schemaVersion: "source_linked_memory.v1", name: "memory.md", signature: sourceSignature, document, builtAt,
           } } }, summary: { source_projection_complete: true } };
         },
       });
+      if (superseded || !valid()) return stale();
       if (!stored.success) throw new Error("Encrypted memory document could not be stored");
     }
     // Rebuild the stable slices consumed by Request scope from the same

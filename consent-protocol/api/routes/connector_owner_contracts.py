@@ -209,6 +209,20 @@ class LiveBackgroundRequest(BaseModel):
     confirmed: Literal[True]
 
 
+class DriveCollectionProcessingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool
+    disclosure: Literal["live-drive-collection-v1"] | None = None
+    confirmed: StrictBool
+
+    @field_validator("confirmed")
+    @classmethod
+    def explicit_processing_confirmation(cls, value):
+        if value is not True:
+            raise ValueError("Explicit processing permission is required.")
+        return value
+
+
 class RemoveDriveDocumentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirmed: Literal[True]

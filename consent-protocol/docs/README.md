@@ -54,6 +54,7 @@ It does not own:
 | Goal | Document |
 | ---- | -------- |
 | Build a new agent or operon | [reference/agent-development.md](./reference/agent-development.md) |
+| Maintain Drive evidence and reusable packets | [reference/drive-continuous-packets.md](./reference/drive-continuous-packets.md) |
 | Publish against the developer API / MCP | [reference/developer-api.md](./reference/developer-api.md) |
 | Understand data encryption and storage | [reference/personal-knowledge-model.md](./reference/personal-knowledge-model.md) |
 | Browse every backend reference doc | [reference/README.md](./reference/README.md) |

@@ -20,6 +20,7 @@ import { GMAIL_RECEIPTS_API_TEMPLATES } from "@/lib/services/kai-profile-api-pat
 const liveItem = {
   id: -101,
   source_id: "gmail_live_bXNnLTE.signature",
+  durable_source_ref: "grs1_" + "a".repeat(39),
   receipt_key: "gmail_live_bXNnLTE.signature",
   source_kind: "gmail_live",
   gmail_message_id: "msg-1",
@@ -31,6 +32,7 @@ const liveItem = {
   from_email: "ship-confirm@myntra.com",
   order_id: "ORDER-1",
   amount: 2499,
+  amount_decimal: "2499.00",
   currency: "INR",
   receipt_date: "2026-10-04T04:00:00+00:00",
   gmail_internal_date: "2026-10-04T04:00:00+00:00",
@@ -108,6 +110,7 @@ describe("GmailReceiptsService live backend receipt contract", () => {
               category: "Food",
               category_confidence: 0.95,
               amount: null,
+              amount_decimal: null,
               currency: null,
             },
           ],
@@ -125,6 +128,8 @@ describe("GmailReceiptsService live backend receipt contract", () => {
 
     expect(result.items[0]).toMatchObject({
       source_id: liveItem.source_id,
+      durable_source_ref: liveItem.durable_source_ref,
+      amount_decimal: null,
       merchant_name: null,
       category: "Food",
       category_confidence: 0.95,
@@ -307,5 +312,7 @@ describe("GmailReceiptsService live backend receipt contract", () => {
 
     expect(result.has_more).toBe(false);
     expect(result.coverage.reached_limit).toBe(true);
+    expect(result.items[0]?.durable_source_ref).toBe(liveItem.durable_source_ref);
+    expect(result.items[0]?.amount_decimal).toBe(liveItem.amount_decimal);
   });
 });

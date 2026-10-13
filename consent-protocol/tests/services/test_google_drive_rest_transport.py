@@ -292,7 +292,9 @@ async def test_compilation_can_tell_when_drive_extraction_was_truncated(monkeypa
         read_live_bytes=AsyncMock(return_value=("text/plain", b"many pages")),
     )
     monkeypatch.setattr(
-        rest, "parse_document", lambda *_: SimpleNamespace(pages=("first pages",), truncated=True)
+        rest.IsolatedDocumentParser,
+        "parse",
+        AsyncMock(return_value=SimpleNamespace(pages=("first pages",), truncated=True)),
     )
     drive = transport(adapter=adapter, monkeypatch=monkeypatch)
     result = await drive.read_tool(
@@ -345,10 +347,9 @@ async def test_parse_errors_return_an_allowlisted_reason(monkeypatch, code, payl
         read_live_bytes=AsyncMock(return_value=("application/pdf", b"%PDF-1.7")),
     )
 
-    def refuse(content, mime_type):
-        raise rest.ParseError(code)
-
-    monkeypatch.setattr(rest, "parse_document", refuse)
+    monkeypatch.setattr(
+        rest.IsolatedDocumentParser, "parse", AsyncMock(side_effect=DriveReadError(code))
+    )
     drive = transport(adapter=adapter, monkeypatch=monkeypatch)
     result = await drive.read_tool(
         user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}

@@ -13,6 +13,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -419,7 +420,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     ? JSON.stringify([user.uid, selectedRouteKey]) : null;
   const isCurrentRead = readScope !== null && settledReadScopes.includes(readScope);
   const isCurrentInbox = Boolean(user && storedInbox?.ownerId === user.uid);
-  const inboxItems = isCurrentInbox ? storedInbox!.items : [];
+  const inboxItems = useMemo(() => isCurrentInbox ? storedInbox!.items : [], [isCurrentInbox, storedInbox]);
   // React can render the new owner/selection before effect cleanup runs. Keep
   // the old transcript and send authority concealed during that interval.
   const thread = isCurrentRead ? storedThread : EMPTY_THREAD;

@@ -1389,10 +1389,20 @@ async def test_search_drain_cancellation_leaves_no_planner_running(monkeypatch):
 async def test_package_precheckout_preflight_rechecks_version_and_generation(
     monkeypatch, actual_version, generation, error
 ):
-    from hushh_mcp.services import drive_live_reader
+    from hushh_mcp.services import drive_package_access_preflight as access_module
     from hushh_mcp.services.google_drive_adapter import DriveReadError
 
-    sharing = SimpleNamespace(db=None, trusted_request_authority=AsyncMock())
+    sharing = SimpleNamespace(
+        db=None,
+        trusted_request_authority=AsyncMock(),
+        request_bulk_context=AsyncMock(
+            return_value={
+                "revision": 1,
+                "recipientUserId": "buyer",
+                "recipient": {"subject": "google-buyer", "email": "buyer@example.invalid"},
+            }
+        ),
+    )
     bulk = SimpleNamespace(
         package_sources=AsyncMock(
             return_value=[
@@ -1416,7 +1426,15 @@ async def test_package_precheckout_preflight_rechecks_version_and_generation(
         adapter=adapter,
         _credential=AsyncMock(return_value={"accessToken": "synthetic-token"}),
     )
-    monkeypatch.setattr(drive_live_reader, "DriveLiveReader", lambda **kwargs: reader)
+    monkeypatch.setattr(access_module, "DriveLiveReader", lambda **kwargs: reader)
+    monkeypatch.setattr(access_module, "require_recipient_identity", AsyncMock())
+    monkeypatch.setattr(
+        access_module,
+        "GoogleDrivePermissionAdapter",
+        lambda: SimpleNamespace(
+            list_permissions=AsyncMock(return_value=SimpleNamespace(permissions=()))
+        ),
+    )
     service = DriveTrustedAutoService(
         sharing=sharing, bulk=bulk, payment=SimpleNamespace(), wake=AsyncMock()
     )
@@ -1425,7 +1443,7 @@ async def test_package_precheckout_preflight_rechecks_version_and_generation(
             await service.preflight_package(user_id="owner", request_id="request")
     else:
         await service.preflight_package(user_id="owner", request_id="request")
-        assert sharing.trusted_request_authority.await_count == 2
+        assert sharing.trusted_request_authority.await_count >= 2
     if generation != 7:
         adapter.get_metadata.assert_not_awaited()
 
@@ -1445,3 +1463,46 @@ async def test_legacy_precheckout_preflight_does_not_open_connector(monkeypatch)
         wake=AsyncMock(),
     )
     await service.preflight_package(user_id="owner", request_id="request")
+
+
+@pytest.mark.asyncio
+async def test_paid_delivery_preflight_checks_source_without_reclassifying_existing_acl(
+    monkeypatch,
+):
+    from hushh_mcp.services import drive_live_reader, drive_package_access_preflight
+
+    sharing = SimpleNamespace(db=None, trusted_request_authority=AsyncMock())
+    bulk = SimpleNamespace(
+        package_sources=AsyncMock(
+            return_value=[
+                {
+                    "id": "file-1",
+                    "name": "Statement.pdf",
+                    "sourceVersion": "7",
+                    "generation": 7,
+                }
+            ]
+        )
+    )
+    reader = SimpleNamespace(
+        _generation=7,
+        _credential=AsyncMock(return_value={"accessToken": "synthetic-token"}),
+        adapter=SimpleNamespace(
+            get_metadata=AsyncMock(return_value=SimpleNamespace(name="Statement.pdf", version="7"))
+        ),
+    )
+    monkeypatch.setattr(drive_live_reader, "DriveLiveReader", lambda **kwargs: reader)
+
+    def unavailable(**kwargs):
+        raise AssertionError("Paid delivery must not classify its own existing grants")
+
+    monkeypatch.setattr(drive_package_access_preflight, "DrivePackageAccessPreflight", unavailable)
+    service = DriveTrustedAutoService(
+        sharing=sharing, bulk=bulk, payment=SimpleNamespace(), wake=AsyncMock()
+    )
+    assert (
+        await service.preflight_package(user_id="owner", request_id="request", inspect_access=False)
+        is None
+    )
+    reader.adapter.get_metadata.assert_awaited_once()
+    assert sharing.trusted_request_authority.await_count == 2

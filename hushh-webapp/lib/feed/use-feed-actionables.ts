@@ -78,7 +78,7 @@ import {
 } from "@/lib/feed/drive-request-payment";
 import { useFeedPaymentClock } from "@/lib/feed/use-feed-payment-clock";
 import { useFeedPaymentContext } from "@/lib/feed/use-feed-payment-context";
-import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
+import { DriveRequestPaymentService, drivePaymentErrorMessage } from "@/lib/services/drive-request-payment-service";
 import {
   DriveSharingError,
   DriveSharingService,
@@ -548,6 +548,20 @@ export function useFeedActionables(): UseFeedActionablesResult {
     availableVersion: agentFollow.status?.availableRelease?.version ?? null,
     onResolved: notifyFeedActionResolved,
   });
+  const checkoutScope = useRef<{ userId: string | null } | null>(null);
+  const checkoutRows = useRef<FeedActionable[]>([]);
+  useEffect(() => {
+    const scope = { userId };
+    checkoutScope.current = scope;
+    return () => { if (checkoutScope.current === scope) checkoutScope.current = null; };
+  }, [userId]);
+  const currentCheckout = useCallback((owner: string, rowId: string, actionKey: string, label: string) => {
+    const scope = checkoutScope.current;
+    const epoch = snapshotVaultSessionEpoch();
+    return () => scope !== null && scope.userId === owner && checkoutScope.current === scope &&
+      isVaultSessionEpochCurrent(epoch) && checkoutRows.current.some(row => row.id === rowId &&
+        row.actions.some(action => action.key === actionKey && action.label === label && !action.disabled));
+  }, []);
   const [dismissedSmsEmergencyIds, setDismissedSmsEmergencyIds] = useState<
     Set<string>
   >(() => new Set());
@@ -1446,25 +1460,37 @@ export function useFeedActionables(): UseFeedActionablesResult {
         paymentContexts[payment.requestId],
       );
       const paymentIsNonActionable = displayPayment.status !== "ready";
+      const packetReviewRequired = payment.packageDisclosureRequired === true || !!paymentContexts[payment.requestId]?.packageDisclosure;
       const paymentAction = paymentIsNonActionable
         ? []
-        : [
+        : packetReviewRequired ? [{ key: "review-packet", label: "Review packet", tone: "primary" as const,
+          run: () => router.push(buildConsentCenterHref("pending", {
+            requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/feed",
+          })),
+        }] : [
             {
               key: "pay",
               // The order's price: the owner's, or $10 in the Trusted circle.
               label: `Pay ${formatDocumentRequestPrice(payment.amountCents)}`,
               tone: "primary" as const,
               run: async () => {
+                const current = currentCheckout(userId, `drive-payment:${payment.requestId}`, "pay",
+                  `Pay ${formatDocumentRequestPrice(payment.amountCents)}`);
+                if (!current()) return;
                 try {
                   const idToken = await user?.getIdToken();
+                  if (!current()) return;
                   if (!idToken) throw new Error("Sign in to continue");
                   const checkoutUrl = await DriveRequestPaymentService.checkout(
                     idToken,
                     payment.requestId,
                   );
+                  if (!current()) return;
                   window.location.assign(checkoutUrl);
-                } catch {
-                  toast.error("Checkout couldn't open. Try again.");
+                } catch (cause) {
+                  if (!current()) return;
+                  toast.error(drivePaymentErrorMessage(cause));
+                  void refreshDocumentRequests();
                 }
               },
             },
@@ -1606,13 +1632,17 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     // price was decided before the tap, so a second screen
                     // only to press Pay again is a step with no decision in it.
                     run: async () => {
+                      const current = currentCheckout(userId, `consent:${requestId}`, "pay-answer", payLabel!);
+                      if (!current()) return;
                       try {
                         const token = await AuthService.getIdToken();
+                        if (!current()) return;
                         if (!token) throw new Error("Sign in to continue");
-                        window.location.assign(
-                          await AnswerRequestService.checkout(token, requestId),
-                        );
+                        const checkoutUrl = await AnswerRequestService.checkout(token, requestId);
+                        if (!current()) return;
+                        window.location.assign(checkoutUrl);
                       } catch {
+                        if (!current()) return;
                         // Paying is its own rollout gate: the request and its
                         // price stand even when checkout cannot open, and
                         // nothing has been charged.
@@ -2230,6 +2260,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
   }, [
     appTaskState.tasks,
     agentUpdateCard,
+    currentCheckout,
+    refreshDocumentRequests,
     consentDecision.allow,
     declineConsentRequest,
     declineDocumentRequest,
@@ -2259,6 +2291,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
     userId,
     vaultOwnerToken,
   ]);
+
+  useEffect(() => { checkoutRows.current = actionables; }, [actionables]);
 
   const loading =
     consentSummaryResource.loading ||

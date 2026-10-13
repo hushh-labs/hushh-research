@@ -1,10 +1,11 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useCommerceSession } from "@/components/consent/use-commerce-session";
-import { HelperText } from "@/components/app-ui/typography";
+import { BodyText, HelperText } from "@/components/app-ui/typography";
+import { parseDrivePackageDisclosure, packageCoverageLabel, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 import {
   formatPaymentMoney,
   presentRequesterPayment,
@@ -15,7 +16,7 @@ import {
 } from "@/lib/consent/document-request-payment-view";
 import { Button } from "@/lib/morphy-ux/button";
 import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
-import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
+import { DriveRequestPaymentService, drivePaymentErrorMessage } from "@/lib/services/drive-request-payment-service";
 import { DriveSharingError, DriveSharingService } from "@/lib/services/drive-sharing-service";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
 import { useVault } from "@/lib/vault/vault-context";
@@ -25,6 +26,7 @@ export type RequesterPaymentSectionProps = {
   revision: number;
   payment: RequesterPaymentView | null;
   price: RequesterPriceView | null;
+  packageDisclosure?: DrivePackageDisclosure | null;
   /** The owner's display name, for "Ask {owner} again" once the request can't be paid. */
   ownerName?: string | null;
   /** Called after Pay, Withdraw or a state change, so the panel reloads its snapshot. */
@@ -72,10 +74,11 @@ type PaymentBlockProps = {
   busy: "pay" | "withdraw" | null;
   withdrawConfirm: ReturnType<typeof useArmedAction>;
   onPay: () => void;
+  payBlocked: boolean;
   onWithdraw: () => void;
 };
 
-function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay, onWithdraw }: PaymentBlockProps) {
+function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay, onWithdraw, payBlocked }: PaymentBlockProps) {
   const locallyWithdrawn = withdrawn && !MONEY_STATES.has(view.state);
   const now = useRequesterPaymentNow(locallyWithdrawn ? null : requesterPaymentTickMs(view));
   const presented = locallyWithdrawn
@@ -99,7 +102,7 @@ function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay
           trailingInteractive={presented.action === "pay"}
           trailing={
             presented.action === "pay" && view.amountCents !== null ? (
-              <Button size="standard" disabled={busy !== null} onClick={onPay}>
+              <Button size="standard" disabled={busy !== null || payBlocked} onClick={onPay}>
                 {`Pay ${formatPaymentMoney(view.amountCents)}`}
               </Button>
             ) : undefined
@@ -128,8 +131,10 @@ function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay
  * while payable, a clear next step once expired, and Withdraw request (#23)
  * with an armed confirmation. Renders nothing when no payment applies.
  */
-export function RequesterPaymentSection({ requestId, revision, payment, ownerName = null, onChanged }: RequesterPaymentSectionProps) {
-  const { user, capture } = useCommerceSession(`document-request:${requestId}:${revision}`);
+export function RequesterPaymentSection({ requestId, revision, payment, packageDisclosure, ownerName = null, onChanged }: RequesterPaymentSectionProps) {
+  const { user, capture } = useCommerceSession(`document-request:${requestId}:${revision}:${
+    payment && "packageDisclosure" in payment ? payment.packageDisclosure?.packageDigest : packageDisclosure?.packageDigest
+  }:${payment && "packageDisclosure" in payment ? payment.packageDisclosure?.packageRevision : packageDisclosure?.packageRevision}`);
   const { getVaultOwnerToken } = useVault();
   const withdrawConfirm = useArmedAction();
   const [busy, setBusy] = useState<"pay" | "withdraw" | null>(null);
@@ -139,11 +144,24 @@ export function RequesterPaymentSection({ requestId, revision, payment, ownerNam
   const [reply, setReply] = useState<RequesterPaymentView | null>(null);
   const [withdrawn, setWithdrawn] = useState(false);
 
+  // Each committed account/request owns its asynchronous checkout callback.
+  useEffect(() => {
+    setBusy(null);
+    setError(null);
+    setReply(null);
+    setWithdrawn(false);
+  }, [user?.uid, requestId, revision, packageDisclosure?.packageDigest, packageDisclosure?.packageRevision,
+    payment?.packageDisclosure?.packageDigest, payment?.packageDisclosure?.packageRevision]);
+
   const view = reply && !(payment && MONEY_STATES.has(payment.state)) ? reply : payment;
+  // An explicit null from the current payment view revokes any cached context.
+  const disclosure = parseDrivePackageDisclosure(view && "packageDisclosure" in view
+    ? view.packageDisclosure : packageDisclosure);
+  const payBlocked = view?.packageDisclosureRequired === true && !disclosure;
   if (!view || view.state === "none") return null;
 
   const pay = async () => {
-    if (busy) return;
+    if (busy || payBlocked) return;
     const current = capture();
     const currentView = capture(false);
     setBusy("pay");
@@ -154,8 +172,8 @@ export function RequesterPaymentSection({ requestId, revision, payment, ownerNam
       if (!idToken) throw new Error("Sign in to continue");
       const checkoutUrl = await DriveRequestPaymentService.checkout(idToken, requestId);
       if (current()) window.location.assign(checkoutUrl);
-    } catch {
-      if (current()) { setError("Checkout couldn't open. Try again."); onChanged(); }
+    } catch (cause) {
+      if (current()) { setError(drivePaymentErrorMessage(cause)); onChanged(); }
     } finally {
       if (currentView()) setBusy(null);
     }
@@ -189,7 +207,18 @@ export function RequesterPaymentSection({ requestId, revision, payment, ownerNam
 
   return (
     <>
+      {disclosure ? <section aria-label="Approved packet" className="space-y-2 px-1 pb-3">
+        <BodyText className="font-medium">{packageCoverageLabel(disclosure.coverageStatus)}</BodyText>
+        <HelperText>{disclosure.selectedCount} {disclosure.selectedCount === 1 ? "document" : "documents"} · {{ complete: "Complete coverage", partial: "Partial coverage", unknown: "Coverage not verified" }[disclosure.coverageStatus]}</HelperText>
+        {disclosure.periods.length ? <ul aria-label="Document periods" className="space-y-1">
+          {disclosure.periods.map((period, index) => <li key={index}><HelperText>{period.start} – {period.end}</HelperText></li>)}
+        </ul> : <HelperText>Date coverage could not be verified.</HelperText>}
+        {disclosure.limitations.length ? <ul aria-label="Packet limitations" className="space-y-1">
+          {disclosure.limitations.map((limitation, index) => <li key={index}><BodyText className="[overflow-wrap:anywhere]">{limitation}</BodyText></li>)}
+        </ul> : null}
+      </section> : payBlocked ? <HelperText role="status">Packet details are unavailable. Refresh before paying.</HelperText> : null}
       <PaymentBlock
+        payBlocked={payBlocked}
         view={view}
         withdrawn={withdrawn}
         ownerName={ownerName}

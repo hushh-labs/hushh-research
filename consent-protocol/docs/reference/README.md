@@ -31,6 +31,7 @@ This backend docs home uses the same founder-language matrix as root `docs/`, wh
 - [consumer-scope-commerce.md](./consumer-scope-commerce.md): owner scope pricing, human purchase confirmation, v2 fulfillment and financial reconciliation
 - [consent-protocol.md](./consent-protocol.md): consent-token lifecycle and trust model
 - [developer-api.md](./developer-api.md): developer API and MCP-facing contract
+- [drive-continuous-packets.md](./drive-continuous-packets.md): continuous Drive indexing, reusable packets, permission boundaries and original-document evaluation
 - [dev-environment-setup.md](./dev-environment-setup.md): hosted dev environment runbook
 - [mulesoft-agentforce-secure-relay.md](./mulesoft-agentforce-secure-relay.md): MuleSoft/Agentforce secure relay contract
 - [env-vars.md](./env-vars.md): backend environment reference

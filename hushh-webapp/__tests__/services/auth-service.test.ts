@@ -543,6 +543,24 @@ describe("AuthService.restoreNativeSession", () => {
     vi.mocked(HushhAuth.getIdToken).mockResolvedValue({ idToken: null } as any);
   });
 
+  it("reads the native linked phone for recovery even when Firebase JS has a cached user", async () => {
+    mockAuth.currentUser = { uid: "native-owner", phoneNumber: null } as any;
+    vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValue({ user: { uid: "native-owner", phoneNumber: "+16505550101" } } as any);
+    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({ token: createIdToken(3600, "native-owner") } as any);
+    const restored = await AuthService.restoreNativeSession({ nativeOnly: true });
+    expect(restored?.uid).toBe("native-owner");
+    expect(restored?.phoneNumber).toBe("+16505550101");
+    expect(FirebaseAuthentication.getCurrentUser).toHaveBeenCalledOnce();
+    expect(mockAuth.onAuthStateChanged).not.toHaveBeenCalled();
+  });
+
+  it("does not substitute a cached JS identity when native recovery finds no session", async () => {
+    mockAuth.currentUser = { uid: "cached-owner", phoneNumber: "+16505550101" } as any;
+    vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValue({ user: null } as any);
+    vi.mocked(HushhAuth.getCurrentUser).mockResolvedValue({ user: null } as any);
+    expect(await AuthService.restoreNativeSession({ nativeOnly: true })).toBeNull();
+  });
+
   it("cleans up a synchronously restored Firebase JS listener", async () => {
     const unsubscribe = vi.fn();
     const firebaseUser = {

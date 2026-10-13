@@ -51,6 +51,9 @@ from api.routes.connector_owner_contracts import (
     ConnectResultResponse as ConnectResultResponse,
 )
 from api.routes.connector_owner_contracts import (
+    DriveCollectionProcessingRequest as DriveCollectionProcessingRequest,
+)
+from api.routes.connector_owner_contracts import (
     DriveProcessingRequest as DriveProcessingRequest,
 )
 from api.routes.connector_owner_contracts import (
@@ -1211,6 +1214,36 @@ async def set_live_background(
     try:
         return await DriveLivePreferences().set_background(
             user_id=_user_id(token_data), enabled=body.enabled, confirmed=body.confirmed
+        )
+    except DriveReadError as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.get("/google_drive/collection/status")
+async def drive_collection_status(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+):
+    from hushh_mcp.services.drive_collection_store import DriveCollectionStore
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await DriveCollectionStore().status(user_id=_user_id(token_data))
+    except DriveReadError as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.post("/google_drive/collection/processing")
+async def drive_collection_processing(
+    body: DriveCollectionProcessingRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    from hushh_mcp.services.drive_collection_store import DriveCollectionStore
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await DriveCollectionStore().set_processing(
+            user_id=_user_id(token_data), enabled=body.enabled, disclosure=body.disclosure
         )
     except DriveReadError as error:
         raise _drive_selection_error(error) from None

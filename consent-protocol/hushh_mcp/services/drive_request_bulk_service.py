@@ -186,7 +186,9 @@ class DriveRequestBulkService:
             authority_mode = "agent_package"
             await self.sharing.package_preparation_authority(user_id=user_id, request_id=request_id)
         purpose = context["purpose"]
-        if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+        if not (purpose.get("periodStart") and purpose.get("periodEnd")) and not context.get(
+            "reusablePacket"
+        ):
             raise DriveSharingError("date_range_required")
         # The requester authored words such as "yesterday". Freeze that
         # calendar context when the request is created, before a delayed worker
@@ -221,12 +223,29 @@ class DriveRequestBulkService:
                 return takeover
         if existing is not None and existing["status"] not in {"failed", "limited", "stopped"}:
             return existing
-        plan = await self._plan(
-            user_id=user_id,
-            purpose=context["purpose"],
-            timezone=timezone,
-            requested_at=requested_at,
-        )
+        route = None
+        if authority_mode == "agent_package":
+            route = await self.search.request_evidence_route(
+                user_id=user_id, reusable_packet=context.get("reusablePacket"), request=purpose
+            )
+        if route and route["kind"] in {"packet", "index"}:
+            # Meaning is assessed against all indexed facts. No filename/date
+            # metadata filter is allowed to discard a relevant candidate.
+            plan = {
+                "mode": "find",
+                "terms": [],
+                "file_kind": "any",
+                "time_intent": "document_coverage",
+            }
+        else:
+            plan = (
+                await self._plan(
+                    user_id=user_id,
+                    purpose=context["purpose"],
+                    timezone=timezone,
+                    requested_at=requested_at,
+                )
+            ).model_dump(mode="json")
         context = await self._context(user_id, request_id, start=True)
         await self._owner()
         return await self.search.create_for_request(
@@ -234,11 +253,12 @@ class DriveRequestBulkService:
             request_id=request_id,
             request_revision=context["revision"],
             purpose=context["purpose"],
-            plan=plan.model_dump(mode="json"),
+            plan=plan,
             timezone=timezone,
             requested_at=requested_at,
             require_current=self.require_owner,
             authority_mode=authority_mode,
+            **({"evidence_route": route} if route is not None else {}),
             **({"after_page": after_page} if after_page is not None else {}),
         )
 
@@ -279,7 +299,11 @@ class DriveRequestBulkService:
         if context.get("agentPackageRequired") and not context.get("packageAllowed"):
             raise DriveSharingError("package_not_allowed")
         purpose = context["purpose"]
-        if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+        if context.get("reusablePacket"):
+            await self.search.request_evidence_route(
+                user_id=user_id, reusable_packet=context["reusablePacket"]
+            )
+        elif not (purpose.get("periodStart") and purpose.get("periodEnd")):
             raise DriveSharingError("date_range_required")
         if context["status"] not in {"pending", "review_ready"} or not context["searchStarted"]:
             raise DriveSharingError("request_changed")

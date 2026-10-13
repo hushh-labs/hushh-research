@@ -121,11 +121,19 @@ def parse_document(content: bytes, mime_type: str) -> ParsedText:
                             break
                         page = Page(pdf, source_page, page_number=number)
                         try:
-                            yield page.extract_text() or ""
+                            value = page.extract_text() or ""
+                            # Compatibility readers do not run OCR. A mixed
+                            # PDF must not disguise image-only evidence as an
+                            # empty, successfully extracted page.
+                            if page.images or (not value.strip() and page.objects):
+                                missing.append(number)
+                            yield value
                         finally:
                             page.close()
 
-                return _bounded(page_text())
+                missing: list[int] = []
+                parsed = _bounded(page_text())
+                return ParsedText(parsed.pages, parsed.truncated or bool(missing))
             finally:
                 # PDF.close()/__exit__ accesses .pages and materializes the
                 # entire page tree. Close the stream and caches directly.
@@ -219,7 +227,9 @@ def main() -> None:
     if sys.platform == "linux":
         resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024,) * 2)
     try:
-        parsed = parse_document(sys.stdin.buffer.read(MAX_INPUT_BYTES + 1), sys.argv[1])
+        mime = sys.argv[1]
+        parser = parse_live_document if mime.startswith("live:") else parse_document
+        parsed = parser(sys.stdin.buffer.read(MAX_INPUT_BYTES + 1), mime.removeprefix("live:"))
         result = {"pages": parsed.pages, "truncated": parsed.truncated}
     except ParseError as error:
         result = {"error": str(error)}

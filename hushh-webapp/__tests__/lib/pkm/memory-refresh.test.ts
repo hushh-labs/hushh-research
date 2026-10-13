@@ -353,9 +353,50 @@ describe("persisted source-linked Profile memory.md", () => {
       expect(() => params.build({ currentDomainData: concurrent })).toThrow("Memory inventory changed");
       return { success: false };
     });
-    await expect(refreshSources()).rejects.toThrow("Encrypted memory document could not be stored");
+    expect((await refreshSources()).status).toBe("stale");
     expect((state.living._private as Record<string, unknown>).memory_document).toBeUndefined();
     expect(peekMemoryView(USER).document).toBeNull();
+  });
+
+  it("cancels a changed source immediately before dispatch, then allows a fresh rebuild", async () => {
+    const state = sources();
+    mountSources(state);
+    const stop = watchMemoryFreshness(USER);
+    try {
+      saveMergedDomain.mockImplementationOnce(async (params) => {
+        params.build({ currentDomainData: structuredClone(state.living) });
+        events.listener?.({ userId: USER, domain: "identity" });
+        let cancellation: unknown;
+        try { await params.beforeEffect(); } catch (error) { cancellation = error; }
+        expect(cancellation).toBeInstanceOf(DOMException);
+        expect((cancellation as DOMException).name).toBe("AbortError");
+        return { success: false, saveState: "blocked_pending_unlock" };
+      });
+      expect((await refreshSources()).status).toBe("stale");
+      expect((state.living._private as Record<string, unknown>).memory_document).toBeUndefined();
+      expect(retrieveApprovedMemoryScopes).not.toHaveBeenCalled();
+      expect((await refreshSources()).status).toBe("current");
+      expect((state.living._private as Record<string, unknown>).memory_document).toBeDefined();
+    } finally { stop(); }
+  });
+
+  it("marks the cached document pending when concurrent inventory changed without an event", async () => {
+    const state = sources();
+    mountSources(state);
+    await refreshSources();
+    expect(peekMemoryView(USER).status).toBe("current");
+    state.identity.profile.note = "Changed source fact";
+    state.identityRevision += 1;
+    saveMergedDomain.mockImplementationOnce(async (params) => {
+      const concurrent = structuredClone(state.living);
+      ((concurrent._private as Record<string, unknown>).inventory as { observedAt: string }).observedAt = "changed";
+      expect(() => params.build({ currentDomainData: concurrent })).toThrow("Memory inventory changed");
+      return { success: false, saveState: "blocked_pending_unlock" };
+    });
+    expect((await refreshSources(true)).status).toBe("stale");
+    expect(peekMemoryView(USER).status).toBe("refresh_pending");
+    expect((await refreshSources()).status).toBe("current");
+    expect(peekMemoryView(USER).document?.markdown).toContain("Changed source fact");
   });
 
   it("preserves previously requested scope slices while rebuilding the shared Profile document", async () => {

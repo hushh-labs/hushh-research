@@ -1,11 +1,57 @@
 """Finite worker admission and aggregate-only reporting."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
+from hushh_mcp.services import owner_placement_guard
+from hushh_mcp.services.drive_collection_sync import DriveCollectionSync
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+from hushh_mcp.services.drive_packet_worker import DrivePacketWorker
+
+
+@pytest.mark.parametrize(
+    "mode,code",
+    [("byoc", "AGENT_PRIVATE_RUNTIME_REQUIRED"), ("unknown", "AGENT_HOSTING_UNAVAILABLE")],
+)
+@pytest.mark.parametrize("lane", ["collection", "facts", "packet"])
+async def test_new_worker_lanes_refuse_before_claim_credentials_or_plaintext(
+    monkeypatch, mode, code, lane
+):
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value=mode)
+    )
+    store = SimpleNamespace(
+        claim=AsyncMock(return_value=None),
+        enqueue=AsyncMock(return_value=0),
+        claim_packet=AsyncMock(return_value=None),
+    )
+    oauth = SimpleNamespace(current_credential=AsyncMock())
+    assessor = AsyncMock()
+    if lane == "collection":
+        worker = DriveCollectionSync(store=store, oauth=oauth, adapter=SimpleNamespace())
+        call = worker.run_one
+    else:
+        worker = DrivePacketWorker(
+            facts_store=store,
+            packet_store=store,
+            page_assessor=assessor,
+            constructor=assessor,
+            policy=lambda: "synthetic",
+        )
+        call = worker.run_facts_one if lane == "facts" else worker.run_packet_one
+    with pytest.raises(HTTPException) as failure:
+        await call(user_id="private-owner")
+    assert failure.value.detail["code"] == code
+    store.claim.assert_not_awaited()
+    store.enqueue.assert_not_awaited()
+    store.claim_packet.assert_not_awaited()
+    oauth.current_credential.assert_not_awaited()
+    assessor.assert_not_awaited()
 
 
 async def test_worker_requires_explicit_rollout_for_each_owner(monkeypatch, shared_hub_owner):
@@ -30,3 +76,35 @@ async def test_worker_requires_explicit_rollout_for_each_owner(monkeypatch, shar
 async def test_worker_rejects_unbounded_batches(bounds):
     with pytest.raises(ValueError):
         await DriveDocumentWorker(SimpleNamespace()).run(**bounds)
+
+
+async def test_busy_extraction_reserves_parallel_facts_and_packet_budget(
+    monkeypatch, shared_hub_owner
+):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    semantic_started = asyncio.Event()
+
+    async def extraction(**kwargs):
+        await asyncio.wait_for(semantic_started.wait(), timeout=1)
+        return {"status": "ready"}
+
+    async def semantics(**kwargs):
+        assert kwargs == {"max_jobs": 2, "deadline_seconds": 160}
+        semantic_started.set()
+        return {"facts_complete": 1, "packet_queued": 1}
+
+    service = SimpleNamespace(run_one=AsyncMock(side_effect=extraction))
+    discovery = SimpleNamespace(run=AsyncMock(return_value={"outcomes": {"synced": 2}}))
+    packet_worker = SimpleNamespace(run=AsyncMock(side_effect=semantics))
+    worker = DriveDocumentWorker(service, collection_sync=discovery, packet_worker=packet_worker)
+    worker.due_owners = AsyncMock(return_value=["owner"])
+    wake = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", wake)
+    result = await worker.run(max_jobs=8, deadline_seconds=160)
+    assert service.run_one.await_count == 4
+    discovery.run.assert_awaited_once_with(max_jobs=2, deadline_seconds=100)
+    packet_worker.run.assert_awaited_once()
+    assert result["outcomes"] == {"ready": 4, "synced": 2, "queued": 2}
+    wake.assert_awaited_once_with("documents")

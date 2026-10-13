@@ -177,6 +177,7 @@ describe("PkmWriteCoordinator", () => {
       expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
     });
     it("rejects cancellation during preparation before store dispatch", async () => {
+      const consoleError = vi.spyOn(console, "error");
       stubNoUpgradeNeeded();
       stubWriteContext();
       let canceled = false;
@@ -186,7 +187,10 @@ describe("PkmWriteCoordinator", () => {
         build: () => { canceled = true; return BUILD_CALLBACK(); },
       });
       expect(result.success).toBe(false);
+      expect(result.saveState).toBe("blocked_pending_unlock");
       expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+      consoleError.mockRestore();
     });
     it("forwards the same guard to final dispatch and prevents a canceled conflict retry", async () => {
       stubNoUpgradeNeeded();

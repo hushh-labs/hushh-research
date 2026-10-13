@@ -25,6 +25,37 @@ from hushh_mcp.services.external_connector_registry_service import (
 )
 
 
+def test_collection_processing_needs_explicit_owner_permission(route_client, monkeypatch):
+    from hushh_mcp.services import drive_collection_store
+
+    client, app, _ = route_client
+    store = SimpleNamespace(
+        status=AsyncMock(return_value={"state": "not_enabled"}),
+        set_processing=AsyncMock(return_value={"enabled": True}),
+    )
+    monkeypatch.setattr(drive_collection_store, "DriveCollectionStore", lambda: store)
+    base = "/api/connectors/google_drive/collection"
+    body = {"enabled": True, "confirmed": True, "disclosure": "live-drive-collection-v1"}
+    assert client.get(base + "/status").status_code == 401
+    assert client.post(base + "/processing", json=body).status_code == 401
+    assert not store.set_processing.called
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    response = client.post(base + "/processing", json=body)
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    store.set_processing.assert_awaited_once_with(
+        user_id="owner", enabled=True, disclosure="live-drive-collection-v1"
+    )
+    for patch in (
+        {"confirmed": 1},
+        {"confirmed": False},
+        {"enabled": "true"},
+        {"ownerUserId": "other"},
+        {"disclosure": "selected-files-background-v1"},
+    ):
+        assert client.post(base + "/processing", json=body | patch).status_code == 422
+    assert store.set_processing.await_count == 1
+
+
 def test_review_configuration_is_transient_and_rejects_refresh_tokens():
     from pydantic import ValidationError
 

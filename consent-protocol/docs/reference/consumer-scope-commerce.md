@@ -28,7 +28,26 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Main integration verification — 2026-10-13 UTC
 
-The latest continuation integrates main `460a68d4b908` through normal merge
+The current continuation integrates frozen main `6543414a2128` on the same
+infrastructure branch. Main Drive migrations 332–334 remain intact; the seven
+unaccepted task registrations move from 332–338 to 335–341 with identical
+forward and rollback SQL. Schema contracts use head 341. The read-only Dev
+observation at `2026-10-13T21:08:57.998900+00:00` confirms the same 59 private
+receipts, no accepted canonical 327–341 entries and no baseline. It still records
+two funding payments, zero purchases and zero withdrawals; settled funding and
+capital must not be repeated.
+
+Incoming Drive collection, facts and packet workers now use the existing private
+placement admission before claiming work, obtaining credentials or reading
+information, and revalidate it at processing boundaries. Owner-self packet
+catalog reads have the same guard; the existing consented cross-owner listing
+authority remains separate. All 224 nearest backend checks pass; the tightened
+nine-case boundary check passes, while all eight private/unknown refusal cases
+fail against the immutable unguarded incoming source. Locked-dependency frontend
+checks pass 196 cases, and the combined Back pack passes 450 cases. Full core,
+hosted CI, Dev release and financial/OAuth acceptance remain required.
+
+The preceding continuation integrated main `460a68d4b908` through normal merge
 `49d29b86ac99` on the preserved infrastructure branch. Main migrations 327–331
 remain intact; the seven task registrations move from 327–333 to 332–338 with
 all fourteen forward/rollback bodies byte-identical. Active consumers and schema
@@ -408,7 +427,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/333_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/336_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -753,7 +772,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/333_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/336_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 

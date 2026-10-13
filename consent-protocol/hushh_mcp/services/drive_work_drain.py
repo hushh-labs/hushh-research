@@ -29,7 +29,7 @@ from hushh_mcp.services.pkm_packet_order_worker import PkmPacketOrderWorker
 
 MAX_JOBS_PER_WORKER = 20
 WORKER_JOB_LIMITS = {
-    "documents": 1,
+    "documents": 8,
     "suggestions": 1,
     "searches": 1,
     "permissions": 20,
@@ -105,6 +105,8 @@ _WORKER_ALLOWED_OUTCOMES = {
     ),
     "documents": frozenset(
         {
+            "queued",
+            "synced",
             "ready",
             "unchanged",
             "idle",

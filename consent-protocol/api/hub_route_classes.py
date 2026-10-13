@@ -155,6 +155,8 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+POST /api/connectors/google_drive/collection/processing
+POST /api/connectors/google_drive/sharing/packets/{packet_id}/listing
 POST /api/one/feed/clear
 POST /api/one/feed/{item_id}/dismiss
 POST /api/one/feed/{item_id}/restore
@@ -215,6 +217,7 @@ GET /api/pkm/metadata/{user_id}
 POST /api/pkm/store-domain
 POST /api/pkm/store-domain/validate
 [CONNECTOR_ADMIN]
+GET /api/connectors/google_drive/collection/status
 POST /api/kai/gmail/connect/complete
 POST /api/kai/gmail/connect/native/complete
 POST /api/kai/gmail/connect/native/start

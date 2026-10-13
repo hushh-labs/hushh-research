@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { Rive } from "@rive-app/canvas";
 import NextImage from "next/image";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
@@ -22,90 +23,119 @@ const portrait = {
   answering: "/one-presence/thinking-hd.png",
 } satisfies Record<OnePresenceState, string>;
 
-const compactClassName = "block size-16 shrink-0 bg-contain bg-center bg-no-repeat";
-
-/** Both surfaces show mapped work frames; idle/reduced motion keep HD artwork. */
-export function OnePresenceAvatar({ state, presentation = "compact", className }: {
+/** Native Rive Solo timelines preserve the authored 72-frame, 24 FPS loops. */
+export function OnePresenceAvatar({ state, className, presentation = "compact" }: {
   state: OnePresenceState;
-  presentation?: "compact" | "profile";
   className?: string;
+  presentation?: "compact" | "profile";
 }) {
-  const ref = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const posterRef = useRef<HTMLImageElement>(null);
+
   useEffect(() => {
-    if (state === "connected") return;
-    const canvas = ref.current;
-    const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
-    const image = new Image();
-    context.clearRect(0, 0, 128, 128);
-    canvas.style.backgroundImage = `url('${portrait[state]}')`;
+    const canvas = canvasRef.current;
+    const poster = posterRef.current;
+    if (!canvas || !poster || state === "connected") return;
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const stateMachine = "State Machine 1";
+    const artwork = state === "answering" ? "thinking" : state;
     let disposed = false;
-    let visible = false;
-    let loaded = false;
-    let frameRequest = 0;
-    let start = 0;
-    let previous = -1;
-    const draw = (frame: number) => {
-      if (!loaded || frame === previous) return;
-      context.clearRect(0, 0, 128, 128);
-      context.drawImage(image, (frame % 9) * 128, Math.floor(frame / 9) * 128, 128, 128, 0, 0, 128, 128);
-      previous = frame;
-    };
-    const tick = (now: number) => {
-      if (disposed) return;
-      draw(Math.floor((now - start) * 24 / 1000) % 72);
-      frameRequest = requestAnimationFrame(tick);
+    let visible = typeof IntersectionObserver === "undefined";
+    let loading = false;
+    let ready = false;
+    let instance: Rive | null = null;
+
+    const showPoster = () => {
+      canvas.style.visibility = "hidden";
+      poster.style.visibility = "visible";
     };
     const sync = () => {
-      cancelAnimationFrame(frameRequest);
-      if (!loaded || disposed) return;
-      if (motion.matches) {
-        context.clearRect(0, 0, 128, 128);
-        previous = -1;
-        canvas.style.backgroundImage = `url('${portrait[state]}')`;
-        return;
+      if (disposed) return;
+      const play = visible && !document.hidden && !motion.matches && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
+      if (instance && ready) {
+        if (play) {
+          instance.play(stateMachine);
+          instance.startRendering();
+          canvas.style.visibility = "visible";
+          poster.style.visibility = "hidden";
+        } else {
+          instance.pause(stateMachine);
+          instance.stopRendering();
+          showPoster();
+        }
+      } else if (play && !loading) {
+        loading = true;
+        // Browser-only import; the WASM and artwork stay on the app's origin.
+        void import("@rive-app/canvas").then((runtime) => {
+          if (disposed) return;
+          runtime.RuntimeLoader.setWasmUrl("/one-presence/rive.wasm");
+          runtime.RuntimeLoader.setWasmFallbackUrl(null);
+          instance = new runtime.Rive({
+            canvas,
+            src: `/one-presence/${artwork}.riv`,
+            enableRiveAssetCDN: false,
+            stateMachine,
+            shouldDisableRiveListeners: true,
+            autoplay: false,
+            layout: new runtime.Layout({ fit: runtime.Fit.Contain, alignment: runtime.Alignment.Center }),
+            onLoad: () => {
+              if (disposed || !instance) return;
+              ready = true;
+              instance.resizeDrawingSurfaceToCanvas();
+              sync();
+            },
+            onLoadError: () => {
+              if (disposed) return;
+              ready = false;
+              instance?.cleanup();
+              instance = null;
+              showPoster();
+            },
+          });
+        }).catch(() => {
+          if (!disposed) showPoster();
+        });
       }
-      if (document.hidden || !visible || appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
-      canvas.style.backgroundImage = "none";
-      draw(0);
-      start = performance.now();
-      frameRequest = requestAnimationFrame(tick);
     };
-    const observer = new IntersectionObserver(([entry]) => {
+    showPoster();
+    const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(([entry]) => {
       visible = entry?.isIntersecting ?? false;
       sync();
     });
-    observer.observe(canvas);
-    image.onload = () => {
-      if (disposed) return;
-      loaded = true;
-      canvas.style.backgroundImage = "none";
-      draw(0);
-      sync();
-    };
-    image.src = `/one-presence/${state === "answering" ? "thinking" : state}.webp`;
+    observer?.observe(canvas);
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      if (!disposed && instance && ready) {
+        instance.resizeDrawingSurfaceToCanvas();
+        sync();
+      }
+    });
+    resize?.observe(canvas);
     document.addEventListener("visibilitychange", sync);
     motion.addEventListener("change", sync);
     const unsubscribeLifecycle = appInteractionCoordinator.subscribeLifecycle(sync);
+    sync();
     return () => {
       disposed = true;
-      cancelAnimationFrame(frameRequest);
-      observer.disconnect();
-      image.onload = null;
+      observer?.disconnect();
+      resize?.disconnect();
       document.removeEventListener("visibilitychange", sync);
       motion.removeEventListener("change", sync);
       unsubscribeLifecycle();
+      instance?.cleanup();
     };
   }, [presentation, state]);
+
   if (state === "connected") {
     return <NextImage src={portrait[state]} width={1254} height={1254} alt=""
       aria-hidden="true" data-one-presence-state={state}
       unoptimized loading="eager" decoding="async"
       className={className ?? "block size-16 shrink-0"} />;
   }
-  return <canvas ref={ref} width={128} height={128} aria-hidden="true"
-    data-one-presence-state={state}
-    className={className ? `${className} bg-contain bg-center bg-no-repeat` : compactClassName}
-    style={{ backgroundColor: "transparent", backgroundImage: `url('${portrait[state]}')` }} />;
+  return (
+    <span aria-hidden="true" data-one-presence-state={state} className={`block relative ${className ?? "size-16 shrink-0"}`}>
+      <NextImage ref={posterRef} src={portrait[state]} alt="" width={1254} height={1254}
+        unoptimized loading="eager" decoding="async" className="absolute inset-0 size-full object-contain" />
+      <canvas ref={canvasRef} width={128} height={128} className="absolute inset-0 size-full" style={{ visibility: "hidden" }} />
+    </span>
+  );
 }

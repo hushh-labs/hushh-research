@@ -1531,7 +1531,15 @@ export default function GmailReceiptsPage({
         });
         return;
       }
-      if (!loaded) throw new Error("Receipt scan did not complete.");
+      if (!loaded) {
+        // The scan already retained its sanitized error and retry cursor.
+        // An unsuccessful result is not a second, synthetic exception.
+        setReceiptSyncFeedback({
+          message: "Couldn’t finish scanning your receipts.",
+          tone: "error",
+        });
+        return;
+      }
       setReceiptSyncFeedback(previous => previous?.tone === "error" ? previous : {
         message: "Receipts updated.",
         tone: "success",

@@ -346,9 +346,9 @@ def parse_manifest(raw: Any) -> CuratedConnectorManifest:
             raise CuratedConnectorManifestError(f"Unsupported environment {name!r}.")
         _exact_keys(block, frozenset({"registeredRedirectUris"}), f"environments.{name}")
         uris = block.get("registeredRedirectUris")
-        if not isinstance(uris, list) or not uris or len(uris) > 8:
+        if not isinstance(uris, list) or not uris or len(uris) > 9:
             raise CuratedConnectorManifestError(
-                f"environments.{name}.registeredRedirectUris must list 1-8 HTTPS addresses."
+                f"environments.{name}.registeredRedirectUris must list 1-9 HTTPS addresses."
             )
         if name == "production" and uris != [_PRODUCTION_WEB_RETURN]:
             raise CuratedConnectorManifestError(

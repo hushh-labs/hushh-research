@@ -435,12 +435,14 @@ export const AGENT_SURFACE_SOURCE = {
     centered: {
       artwork: header.includes("<OnePresenceAvatar")
         ? {
-            kind: "canvas",
+            // The centered header's idle avatar is the HD portrait. Extract
+            // its actual default sizing rather than the active Rive overlay.
+            kind: "image",
             containerClass: "",
             className: one(
               read("components/agent/one-presence-avatar.tsx"),
-              /const compactClassName = "([^"]+)"/,
-              "One presence canvas",
+              /if \(state === "connected"\)[\s\S]*?className=\{className \?\? "([^"]+)"\}/,
+              "One presence idle image",
               "components/agent/one-presence-avatar.tsx",
             )[1],
           }
