@@ -97,7 +97,7 @@ export function WalletCardManage({
           iconTone="capability"
           density="compact"
           title={WALLET_CARD_OWNER_COPY.scanCountLabel}
-          trailing={<span>{card.scanCount.toLocaleString()}</span>}
+          trailing={<span data-testid="wallet-profile-scans">{card.scanCount.toLocaleString()}</span>}
         />
         {lastScanned ? (
           <SettingsRow
@@ -164,6 +164,17 @@ export function WalletCardManage({
               >
                 <Copy className="mr-2 h-4 w-4" aria-hidden />
                 {WALLET_CARD_OWNER_COPY.copyLink}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="min-h-11"
+                variant="none"
+                effect="fade"
+                disabled={busyAction !== null}
+                onClick={() => onAction("rotate")}
+              >
+                {WALLET_CARD_OWNER_COPY.revokeAccess}
               </Button>
             </div>
           </div>

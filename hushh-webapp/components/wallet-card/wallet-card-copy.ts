@@ -85,6 +85,7 @@ export const WALLET_CARD_OWNER_COPY = {
   pauseSharing: "Pause sharing",
   resumeSharing: "Resume sharing",
   rotateAccess: "Rotate QR access",
+  revokeAccess: "Revoke access",
   removeProfile: "Remove Wallet profile",
   updatesAutomatically: "Updates automatically.",
   statusActive: "Sharing is on",
@@ -106,7 +107,7 @@ export const WALLET_CARD_OWNER_COPY = {
   saved: "Saved.",
   paused: "Sharing paused.",
   resumed: "Sharing resumed.",
-  rotated: "New QR access created. Add your pass again to pick up the new QR.",
+  rotated: "Old QR access revoked. Scans reset for your new QR. Add your pass again to update it.",
   removed: "Wallet profile removed.",
 } as const;
 
@@ -123,9 +124,9 @@ export const WALLET_CARD_CONFIRMATIONS = {
     confirmLabel: "Resume sharing",
   },
   rotate: {
-    title: "Rotate QR access?",
-    body: "The current QR stops working immediately, so anyone holding the old link loses access. A new link is created and you will need to add the pass to Apple Wallet again to pick up the new QR.",
-    confirmLabel: "Rotate QR access",
+    title: "Revoke QR access?",
+    body: "The current QR and previously shared links stop working. Your saved profile stays available with a new QR and zero scans. Profile and NWS share this QR, so both update. Add your pass to Apple Wallet again to update its QR.",
+    confirmLabel: "Revoke access",
   },
   remove: {
     title: "Remove Wallet profile?",

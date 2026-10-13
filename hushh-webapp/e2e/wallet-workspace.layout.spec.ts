@@ -116,7 +116,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean; sharingHistory?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -1002,3 +1002,64 @@ for (const width of [320, 393, 1024]) {
     await page.screenshot({ path: testInfo.outputPath(`visitor-${width}.png`), fullPage: true });
   });
 }
+for (const width of [320, 1440]) {
+  for (const kind of ["Profile", "Referral", "NWS"] as const) {
+    test(`default ${kind} QR revocation updates the link and counts at ${width}px`, async ({ page }, testInfo) => {
+      const errors = await open(page, width, "light", { cards: 0 }, { height: 900, shell: true, secure: true });
+      await mount(page);
+      await page.getByRole("button", { name: "View details for Agent One Profile", exact: true }).click();
+      if (kind !== "Profile") await page.getByRole("button", { name: "Next card", exact: true }).click();
+      if (kind === "NWS") await page.getByRole("button", { name: "Next card", exact: true }).click();
+      const counter = page.getByTestId(kind === "Referral" ? "wallet-referral-opens" : "wallet-profile-scans");
+      await expect(counter).toHaveText(kind === "Referral" ? "7" : "3");
+      const revoke = page.getByRole("button", { name: "Revoke access", exact: true });
+      await revoke.click();
+      let dialog = page.getByRole("alertdialog");
+      await expect(dialog).toContainText(kind === "Referral" ? "earned referrals" : "Profile and NWS share this QR");
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(counter).toHaveText(kind === "Referral" ? "7" : "3");
+      expect(await page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("qr-revoke:")))).toEqual([]);
+      await revoke.click();
+      dialog = page.getByRole("alertdialog");
+      await dialog.getByRole("button", { name: "Revoke access", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(counter).toHaveText("0");
+      await expect(page.getByText(kind === "Referral" ? "https://example.test/r/fixture-referral-new" : "https://example.test/c/fixture-wallet-share-token-000002", { exact: true })).toBeVisible();
+      if (kind === "Referral") {
+        await expect(page.getByRole("link", { name: "Preview referral page" })).toHaveAttribute("href", "https://example.test/r/fixture-referral-new");
+        await expect(page.getByText("Qualified referrals", { exact: true })).toBeVisible();
+        await expect(page.getByText("2", { exact: true })).toBeVisible();
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await counter.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`revoke-${kind.toLowerCase()}-${width}.png`) });
+      if (kind !== "Referral") {
+        if (kind === "NWS") {
+          await page.getByRole("button", { name: "All cards", exact: true }).click();
+          await page.getByRole("button", { name: "View details for Agent One Profile", exact: true }).click();
+        } else {
+          await page.getByRole("button", { name: "Next card", exact: true }).click();
+          await page.getByRole("button", { name: "Next card", exact: true }).click();
+        }
+        await expect(page.getByTestId("wallet-profile-scans")).toHaveText("0");
+      }
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+test("a failed default QR revoke retains the existing link and scans", async ({ page }) => {
+  await open(page, 393, "light", { cards: 0, revokeFailure: true }, { shell: true, secure: true });
+  await mount(page);
+  await page.getByRole("button", { name: "View details for Agent One Profile", exact: true }).click();
+  await expect(page.getByTestId("wallet-profile-scans")).toHaveText("3");
+  await page.getByRole("button", { name: "Revoke access", exact: true }).click();
+  const dialog = page.getByRole("alertdialog");
+  await dialog.getByRole("button", { name: "Revoke access", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("qr-revoke:")).length)).toBe(1);
+  await expect(dialog.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByTestId("wallet-profile-scans")).toHaveText("3");
+  await expect(page.getByText("https://example.test/c/fixture-wallet-share-token-000001", { exact: true })).toBeVisible();
+});
