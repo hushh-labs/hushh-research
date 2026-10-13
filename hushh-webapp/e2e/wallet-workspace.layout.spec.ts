@@ -850,8 +850,11 @@ for (const width of [390, 1440]) {
     await dialog.getByRole("checkbox", { name: "Share with Trusted Recipient", exact: true }).check();
     await expect(dialog.getByRole("button", { name: "Share with 2", exact: true })).toBeEnabled();
     await expect(dialog).toContainText("Trusted Circle");
-    await dialog.getByRole("button", { name: "5 minutes", exact: true }).click();
-    await expect(dialog.getByRole("button", { name: "5 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.getByRole("button", { name: "15 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await dialog.getByRole("button", { name: "1 hour", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "1 hour", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await dialog.getByRole("button", { name: "2 hours", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "2 hours", exact: true })).toHaveAttribute("aria-pressed", "true");
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath("wallet-encrypted-card-sharing.png") });
     await page.keyboard.press("Escape");
