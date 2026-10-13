@@ -8,18 +8,21 @@ const STREAM_PROXY_HEADER = "X-Hussh-Stream-Via";
 const STREAM_PROXY_VALUE = "next-proxy";
 const FEED_PROTOCOL_VERSIONS = new Set(["1", "2"]);
 
-function failure(
-  status: number,
-  error: string,
-  headers: Record<string, string> = {},
-  errorCode?: string | null,
-): Response {
-  const body: { error: string; detail?: { error_code: string } } = { error };
-  // The client's permanent-vs-transient reconnect decision keys on this one
-  // contract value (events/route.ts -> notification-provider.tsx), never on
-  // the upstream's free-text message, so only the enum code crosses the proxy.
-  if (errorCode) body.detail = { error_code: errorCode };
-  return Response.json(body, { status, headers: { ...PRIVATE_HEADERS, ...headers } });
+function failure(status: number, error: string, headers: Record<string, string> = {}, errorCode?: string): Response {
+  return Response.json(
+    { error, ...(errorCode ? { detail: { error_code: errorCode } } : {}) },
+    { status, headers: { ...PRIVATE_HEADERS, ...headers } },
+  );
+}
+
+/**
+ * Only the discriminator, never the upstream message or body: a disabled-flag
+ * code like CONSENT_SSE_DISABLED is safe and deliberate, not a private error.
+ */
+function upstreamErrorCode(body: unknown): string | undefined {
+  const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined;
+  const code = detail && typeof detail === "object" ? (detail as { error_code?: unknown }).error_code : undefined;
+  return typeof code === "string" ? code : undefined;
 }
 
 /** Only these two authenticated backend streams may be reached by this proxy. */
@@ -66,24 +69,18 @@ export async function proxyConsentStream(
       },
     );
     if (!upstream.ok) {
+      // The discriminator decides whether the client ever retries (e.g.
+      // CONSENT_SSE_DISABLED on a 410 is permanent), so it must survive this
+      // hop even though the rest of the upstream body never does.
+      let errorCode: string | undefined;
+      try {
+        const text = await upstream.text();
+        errorCode = text ? upstreamErrorCode(JSON.parse(text)) : undefined;
+      } catch {
+        errorCode = undefined;
+      }
       // A busy backend says when to come back; pass on only a plain delay.
       const retryAfter = upstream.status === 503 ? upstream.headers.get("retry-after") : null;
-      // A 410 on the legacy consent stream is permanent-by-design (SSE is off
-      // in production; FCM is primary) and the client only keeps retrying
-      // when it CANNOT tell that apart from an expired stream. Read the one
-      // enum field that distinguishes them instead of cancelling the body
-      // unseen, or every reconnect attempt repeats the same 93s backoff.
-      let errorCode: string | null = null;
-      if (upstream.status === 410) {
-        errorCode = await upstream
-          .json()
-          .then((body) =>
-            typeof body?.detail?.error_code === "string" ? body.detail.error_code : null,
-          )
-          .catch(() => null);
-      } else {
-        await upstream.body?.cancel().catch(() => {});
-      }
       return failure(
         upstream.status >= 400 ? upstream.status : 502,
         "Could not connect to consent events stream",

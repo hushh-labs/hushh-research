@@ -1,0 +1,114 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/app/api/_utils/backend", () => ({
+  getPythonApiUrl: () => "https://backend.example.test",
+}));
+
+import { proxyConsentStream } from "@/app/api/_utils/consent-stream-proxy";
+
+/**
+ * The request storm in consent-notification-provider-sse-backoff.test.tsx
+ * traces to the client never recognizing a disabled-lane 410: this proxy sat
+ * between it and the backend, discarding the backend's `detail.error_code`
+ * and replacing it with a generic message on every non-2xx response. The
+ * client then treated every CONSENT_SSE_DISABLED 410 as a transient failure
+ * and retried it five times before giving up, every time.
+ */
+describe("proxyConsentStream forwards the upstream error discriminator", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function request() {
+    return new Request("https://app.example.test/api/consent/events/user-1", {
+      headers: { authorization: "Bearer test-token" },
+    });
+  }
+
+  it("preserves detail.error_code from a disabled-lane 410 instead of discarding it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            detail: {
+              error_code: "CONSENT_SSE_DISABLED",
+              message: "Consent SSE is disabled. Use FCM notifications.",
+            },
+          }),
+          { status: 410 },
+        ),
+      ),
+    );
+
+    const response = await proxyConsentStream(request(), "user-1", "events");
+    expect(response.status).toBe(410);
+    const body = await response.json();
+    expect(body.detail?.error_code).toBe("CONSENT_SSE_DISABLED");
+  });
+
+  it("preserves a different 410 code so an expired stream isn't mistaken for a permanent refusal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: { error_code: "STREAM_EXPIRED" } }), {
+          status: 410,
+        }),
+      ),
+    );
+
+    const response = await proxyConsentStream(request(), "user-1", "events");
+    expect(response.status).toBe(410);
+    const body = await response.json();
+    expect(body.detail?.error_code).toBe("STREAM_EXPIRED");
+  });
+
+  it("never reflects the upstream message, only the enum code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            detail: {
+              error_code: "CONSENT_SSE_DISABLED",
+              message: "private-internal-diagnostic-detail",
+            },
+          }),
+          { status: 410 },
+        ),
+      ),
+    );
+
+    const response = await proxyConsentStream(request(), "user-1", "events");
+    const text = await response.text();
+    expect(text).not.toContain("private-internal-diagnostic-detail");
+  });
+
+  it("omits detail when the upstream error carries no recognizable code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("service unavailable", { status: 503 }),
+      ),
+    );
+
+    const response = await proxyConsentStream(request(), "user-1", "events");
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.detail).toBeUndefined();
+  });
+
+  it("degrades without throwing when the upstream error body is not JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("<html>gateway error</html>", { status: 502 }),
+      ),
+    );
+
+    const response = await proxyConsentStream(request(), "user-1", "events");
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.detail).toBeUndefined();
+  });
+});
