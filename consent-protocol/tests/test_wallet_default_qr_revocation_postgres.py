@@ -14,9 +14,12 @@ from hushh_mcp.services import one_referral_service as referrals
 from hushh_mcp.services import one_wallet_card_service as profiles
 from hushh_mcp.services.one_wallet_card_service import OneWalletCardService
 
+BROWSER_USER_AGENT = "Mozilla/5.0 Chrome/130.0 Safari/537.36"
+
 
 def test_profile_and_nws_old_qr_is_rejected_and_new_scans_start_at_zero(cards_db, monkeypatch):  # noqa: F811
     db, _ = cards_db
+    db.apply_migrations(["285_one_wallet_card_auto_provision.sql"])
     monkeypatch.setattr(profiles, "get_db", lambda: db)
     service = OneWalletCardService()
     original = service.upsert_card(user_id="alice", card_payload={"full_name": "Synthetic owner"})
@@ -61,7 +64,9 @@ def referral_db(cards_db, monkeypatch):  # noqa: F811
 
 def test_referral_replacement_resets_only_current_link_opens_and_retries_safely(referral_db):
     original = referrals.get_referral_summary("alice")
-    attribution = referrals.resolve_slug_for_attribution(original["slug"])
+    attribution = referrals.resolve_slug_for_attribution(
+        original["slug"], user_agent=BROWSER_USER_AGENT
+    )
     assert attribution["status"] == "created"
     with referral_db.engine.begin() as conn:
         conn.execute(
@@ -79,12 +84,19 @@ def test_referral_replacement_resets_only_current_link_opens_and_retries_safely(
     assert summary["link_open_count"] == 0
     assert summary["last_opened_at"] is None
     assert summary["qualified_count"] == 1
-    assert referrals.resolve_slug_for_attribution(original["slug"]) == {"status": "unavailable"}
+    assert referrals.resolve_slug_for_attribution(
+        original["slug"], user_agent=BROWSER_USER_AGENT
+    ) == {"status": "unavailable"}
     assert (
         referrals.rotate_referral_code("alice", expected_slug=original["slug"])["slug"]
         == replacement["slug"]
     )
-    assert referrals.resolve_slug_for_attribution(replacement["slug"])["status"] == "created"
+    assert (
+        referrals.resolve_slug_for_attribution(replacement["slug"], user_agent=BROWSER_USER_AGENT)[
+            "status"
+        ]
+        == "created"
+    )
     assert referrals.get_referral_summary("alice")["link_open_count"] == 1
 
 
@@ -95,4 +107,9 @@ def test_referral_allocation_failure_rolls_back_revocation(referral_db, monkeypa
     with pytest.raises(referrals.ReferralServiceError):
         referrals.rotate_referral_code("alice", expected_slug=original["slug"])
     assert referrals.get_referral_summary("alice")["slug"] == original["slug"]
-    assert referrals.resolve_slug_for_attribution(original["slug"])["status"] == "created"
+    assert (
+        referrals.resolve_slug_for_attribution(original["slug"], user_agent=BROWSER_USER_AGENT)[
+            "status"
+        ]
+        == "created"
+    )
