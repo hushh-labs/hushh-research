@@ -26,12 +26,15 @@ final class AppUITests: XCTestCase {
         guard requireInterruption || !dismissed() else { return true }
         let profile = app.buttons["Open Profile"].firstMatch
         guard waitForAdmittedControl(profile) else { return false }
+        // Profile opening resigns the editor. Capture before that action,
+        // not after closing an already keyboard-free drawer; the latter waits
+        // for an unrelated future sample and falsely rejects settled geometry.
+        afterSequence = fields()?["sequence"]?.doubleValue
+        if requireInterruption && afterSequence == nil { return false }
         profile.tap()
         let close = app.buttons["Close Profile"].firstMatch
         guard waitForAdmittedControl(close) else { return false }
         close.tap()
-        afterSequence = fields()?["sequence"]?.doubleValue
-        if requireInterruption && afterSequence == nil { return false }
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             dismissed()
         }, object: app)
