@@ -3918,7 +3918,7 @@
         "receipts",
         "gmail receipts"
       ],
-      "meaning": "Navigates directly to receipts page from any investor surface.",
+      "meaning": "Opens Mail from any investor surface and restores its workspace. Receipt scans start only after an explicit Start sync, Load older receipts or Try again action.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -3968,11 +3968,7 @@
         "backend_effects": [
           {
             "api": "GET /api/kai/gmail/status/{user_id} (proxied)",
-            "effect": "Reads Gmail connector status on mount."
-          },
-          {
-            "api": "GET /api/kai/gmail/receipts/{user_id} (proxied)",
-            "effect": "Reads paginated receipt items."
+            "effect": "Refreshes Gmail connector status when needed; opening Mail does not scan receipts."
           }
         ]
       },
@@ -4249,7 +4245,7 @@
         "gmail sync",
         "refresh receipts"
       ],
-      "meaning": "Queues and polls Gmail receipt sync run.",
+      "meaning": "Starts an explicit, bounded scan of receipts in the connected Gmail account after vault-owner validation.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -4297,12 +4293,8 @@
         ],
         "backend_effects": [
           {
-            "api": "POST /api/kai/gmail/sync (proxied)",
-            "effect": "Queues sync job."
-          },
-          {
-            "api": "GET /api/kai/gmail/sync/{run_id} (proxied)",
-            "effect": "Polls sync run status."
+            "api": "POST /api/kai/gmail/receipts/scan (proxied)",
+            "effect": "Reads and validates a bounded page of owner-authorized Gmail receipts."
           }
         ]
       },

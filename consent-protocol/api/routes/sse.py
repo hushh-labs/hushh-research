@@ -16,6 +16,7 @@ from typing import Annotated, AsyncGenerator, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from api.routes import document_feed_stream as feed_stream
@@ -355,6 +356,7 @@ async def consent_events(
     user_id: _UserId,
     request: Request,
     authorization: Optional[str] = Header(None, description="Bearer Firebase ID token"),
+    capabilities: Annotated[bool, Query()] = False,
 ):
     """
     Authenticated SSE endpoint for consent notifications.
@@ -363,6 +365,13 @@ async def consent_events(
     """
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id required")
+
+    if capabilities:
+        await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+        return JSONResponse(
+            {"enabled": _consent_sse_enabled()},
+            headers={"Cache-Control": "private, no-store", "Vary": "Authorization"},
+        )
 
     _ensure_consent_sse_enabled()
     await run_in_threadpool(_authorize_sse_user, user_id, authorization)

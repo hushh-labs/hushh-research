@@ -739,6 +739,7 @@ describe("ProfileReceiptsPage", () => {
   });
 
   it("does not claim progress when a supported sync request is rejected", async () => {
+    const consoleError = vi.spyOn(console, "error");
     vi.mocked(GmailReceiptsService.scanReceipts)
       .mockRejectedValueOnce(
         new Error("Receipt sync is not available while storage is read-only."),
@@ -757,6 +758,8 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.getByTestId("receipt-sync-hero")).toBeVisible();
     expect(screen.queryByText(/Receipts updated/i)).toBeNull();
     expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("reports a concurrent backend scan without fake success", async () => {

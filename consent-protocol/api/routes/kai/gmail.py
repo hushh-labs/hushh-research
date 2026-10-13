@@ -107,6 +107,9 @@ class GmailLiveReceiptItem(BaseModel):
 
     id: int
     source_id: str = Field(min_length=1, max_length=340)
+    durable_source_ref: str | None = Field(
+        default=None, max_length=315, pattern=r"^grs1_[A-Za-z0-9_-]{39,310}$"
+    )
     receipt_key: str = Field(min_length=1, max_length=340)
     source_kind: Literal["gmail_live"]
     category: (
@@ -134,6 +137,9 @@ class GmailLiveReceiptItem(BaseModel):
     from_email: str | None = Field(default=None, max_length=320)
     order_id: str | None = Field(default=None, max_length=80)
     amount: float | None = Field(default=None, ge=0)
+    amount_decimal: str | None = Field(
+        default=None, max_length=15, pattern=r"^\d{1,12}(?:\.\d{1,2})?$"
+    )
     currency: Literal["INR", "USD", "EUR", "GBP", "$"] | None = None
     receipt_date: str | None = Field(default=None, max_length=64)
     gmail_internal_date: str | None = Field(default=None, max_length=64)
