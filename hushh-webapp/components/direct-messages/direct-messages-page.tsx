@@ -1210,7 +1210,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         replaceMessage(updated);
         if (draftGeneration !== editDraftGeneration.current) return;
         setMessageActionError(null);
-        setActiveMessageActions(null);
         setEditingMessage(null);
         setEditingContent("");
       } catch {
@@ -1247,7 +1246,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         loadGeneration.current += 1;
         replaceMessage(updated);
         setMessageActionError(null);
-        setActiveMessageActions(null);
       } catch {
         if (generation !== selectionGeneration.current) return;
         replaceMessage(message);

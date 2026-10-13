@@ -5,6 +5,7 @@
 import React from "react";
 import { createEncryptedCardFile } from "../../lib/wallet/wallet-card-file";
 import type { CardShareContext } from "../../lib/services/wallet-card-share-service";
+import type { CardSharingHistory } from "../../lib/services/wallet-card-access-service";
 
 type FixtureCard = {
   cardId: string;
@@ -226,7 +227,17 @@ export const ApiService = {
   apiFetch: async (requestPath: string) => {
     // Production profile/referral views keep their rendering; only network
     // responses are synthetic. No live profile, visitor, or payment is touched.
-    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? { items: [], nextCursor: null }
+    const history: CardSharingHistory = {
+      recipientCount: 1, hasMore: false, nextCursor: null, serverNow: "2026-10-13T10:00:00Z",
+      items: requestPath.includes("direction=received") ? [] : [{
+        id: "33333333-3333-4333-8333-333333333333", cardId: "fixture-card", cardType: "payment",
+        displayLabel: "Visa ending 4242", last4: "4242", senderName: "Fixture owner", recipientName: "Sample recipient",
+        createdAt: "2026-10-13T09:59:00Z", expiresAt: "2099-10-13T10:14:00Z", durationMinutes: 15,
+        status: "active", trustedCircle: false, method: "standard_connection", verificationMethod: "identity_reauthentication",
+        verifiedAt: null, revokedAt: null, lastAccessedAt: null, permittedFields: ["brand", "last4"], activity: [],
+      }],
+    };
+    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? history
       : requestPath.startsWith("/api/one/wallet/card-access/profile") ? { eligible: false, cardId: null }
       : requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
       items: [
