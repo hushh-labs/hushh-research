@@ -15,6 +15,13 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+from hushh_mcp.services.drive_citation_references import (
+    ReferencedDocumentFacts,
+    ReferencedPageFacts,
+    fact_references,
+    page_references,
+    resolve_references,
+)
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
     DocumentPageFacts,
@@ -26,7 +33,7 @@ from hushh_mcp.services.drive_packet_contract import (
 from hushh_mcp.services.drive_request_package_assessment import _interpret
 
 MAX_INPUT_BYTES = 160 * 1024
-FACTS_SCHEMA_VERSION = "document-facts-v3"
+FACTS_SCHEMA_VERSION = "document-facts-v4-span-refs"
 logger = logging.getLogger(__name__)
 MAX_VALIDATION_ATTEMPTS = 2
 
@@ -52,6 +59,7 @@ def _validation_code(error):
         return "model_schema_invalid"
     return {
         "unsupported fact citation": "model_citation_invalid",
+        "unknown citation reference": "model_citation_invalid",
         "unsupported consolidated evidence": "model_citation_invalid",
         "citation location kind differs from extraction": "model_citation_invalid",
         "unaccounted extraction pages": "model_pages_unaccounted",
@@ -67,6 +75,7 @@ def _validation_code(error):
 def facts_policy_version() -> str:
     manifest = Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml"
     contract = Path(__file__).with_name("drive_packet_contract.py")
+    references = Path(__file__).with_name("drive_citation_references.py")
     model = resolve_fleet_model_name("gemini-default")
     return (
         FACTS_SCHEMA_VERSION
@@ -75,6 +84,8 @@ def facts_policy_version() -> str:
             manifest.read_bytes()
             + b"\0"
             + contract.read_bytes()
+            + b"\0"
+            + references.read_bytes()
             + b"\0"
             + model.encode()
             + b"\0"
@@ -118,7 +129,9 @@ def _schema_issues(error, schema):
     return issues
 
 
-async def _ask(mode, payload, schema, *, user_id, interpret=_interpret, validate=None):
+async def _ask(
+    mode, payload, schema, *, user_id, interpret=_interpret, validate=None, resolve=None
+):
     # A malformed first answer is recoverable. Regenerate once from the same
     # evidence with a host-owned code; never repair citations by guessing text.
     feedback = None
@@ -142,6 +155,8 @@ async def _ask(mode, payload, schema, *, user_id, interpret=_interpret, validate
         try:
             answer = await interpret(prompt=prompt, user_id=user_id, output_schema=schema)
             result = schema.model_validate(answer)
+            if resolve:
+                result = resolve(result)
             if validate:
                 validate(result)
             return result
@@ -193,6 +208,7 @@ async def extract_page_facts(*, user_id, pages, interpret=_interpret):
     if len(page_text) != len(pages) or not page_text:
         raise ValueError("invalid extraction pages")
     unit_kinds = {int(p["page"]): p.get("unit_kind", "page") for p in pages}
+    encoded_pages, references = page_references(pages)
 
     def validate(result):
         try:
@@ -210,11 +226,12 @@ async def extract_page_facts(*, user_id, pages, interpret=_interpret):
 
     return await _ask(
         "page_facts",
-        {"untrusted_pages": pages},
-        DocumentPageFacts,
+        {"untrusted_pages": encoded_pages},
+        ReferencedPageFacts,
         user_id=user_id,
         interpret=interpret,
         validate=validate,
+        resolve=lambda result: resolve_references(result, references),
     )
 
 
@@ -240,6 +257,7 @@ async def consolidate_facts(
     allowed = set().union(*(_citations(item) for item in observations))
     if previous:
         allowed |= _citations(previous)
+    encoded_previous, encoded_observations, references = fact_references(previous, observations)
 
     def validate(result):
         if not _citations(result) <= allowed:
@@ -255,15 +273,17 @@ async def consolidate_facts(
     return await _ask(
         "document_facts",
         {
-            "previous_facts": previous.model_dump() if previous else None,
-            "page_observations": [item.model_dump() for item in observations],
+            "previous_facts": encoded_previous,
+            "page_observations": encoded_observations,
+            "citation_evidence": [{"ref": ref, **citation} for ref, citation in references.items()],
             "all_pages_observed": complete,
             "existing_canonical_packets": canonical_context,
         },
-        DocumentFacts,
+        ReferencedDocumentFacts,
         user_id=user_id,
         interpret=interpret,
         validate=validate,
+        resolve=lambda result: resolve_references(result, references, document=True),
     )
 
 
