@@ -99,7 +99,7 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
     if (!current || busy || direction !== "outgoing") return;
     const context = current.context; setBusy(item.id);
     const operation = WalletCardAccessService.revoke(context, item.id);
-    void morphyToast.promise(operation, { loading: "Revoking access…", success: "Access revoked.", error: "Could not revoke access. Try again." });
+    void morphyToast.promise(operation, { loading: "Revoking access...", success: "Access revoked.", error: "Could not revoke access. Try again." });
     try { await operation; if (context.isCurrent()) setSelection(null); }
     catch { /* Toast owns action feedback; confirmed history stays visible. */ }
     finally { if (context.isCurrent()) setBusy(null); }
@@ -110,24 +110,24 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
       <Button size="compact" className="ui-text-compact-button-label" variant={direction === "outgoing" ? "default" : "secondary"} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Sent cards</Button>
       <Button size="compact" className="ui-text-compact-button-label" variant={direction === "received" ? "default" : "secondary"} aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Received cards</Button>
     </div>
-    <SettingsGroup title={direction === "outgoing" ? `Shared cards${current?.page.recipientCount != null ? ` · ${current.page.recipientCount}` : ""}` : "Cards shared with you"}>
+    <SettingsGroup title={direction === "outgoing" ? `Shared cards${current?.page.recipientCount != null ? ` | ${current.page.recipientCount}` : ""}` : "Cards shared with you"}>
       {current?.page.items.map(item => <SettingsRow key={`${item.cardType}:${item.id}`} icon={ProfilePaneAccountIcon} iconTone="transparent"
-        title={`${item.displayLabel} · ${direction === "outgoing" ? item.recipientName : item.senderName}`}
+        title={`${item.displayLabel} | ${direction === "outgoing" ? item.recipientName : item.senderName}`}
         description={<div className="space-y-1">
-          <p><time dateTime={item.createdAt}>{date(item.createdAt)}</time> · {item.durationMinutes} minutes</p>
-          <p>{item.status === "revoked" ? "Revoked" : item.status === "expired" ? "Expired" : "Active"} · {item.trustedCircle === true ? "Trusted Circle when shared" : item.trustedCircle === false ? "Connection" : "Earlier share"}</p>
+          <p><time dateTime={item.createdAt}>{date(item.createdAt)}</time> | {item.durationMinutes} minutes</p>
+          <p>{item.status === "revoked" ? "Revoked" : item.status === "expired" ? "Expired" : "Active"} | {item.trustedCircle === true ? "Trusted Circle when shared" : item.trustedCircle === false ? "Connection" : "Earlier share"}</p>
           <p>{item.verifiedAt ? `Identity verified ${date(item.verifiedAt)}` : item.verificationMethod === "identity_reauthentication" ? "Identity verification required" : item.trustedCircle === true && item.verificationMethod === "trusted_circle" ? "Trusted access when shared" : "Verification details unavailable"}</p>
           <p>Expires <time dateTime={item.expiresAt}>{date(item.expiresAt)}</time></p>
           {item.revokedAt ? <p>Revoked {date(item.revokedAt)}</p> : null}
           {item.lastAccessedAt ? <p>Last viewed {date(item.lastAccessedAt)}</p> : null}
-          <details><summary>Activity</summary><ul className="mt-2 space-y-1">{item.activity.filter((event, index, events) => event.event !== "SHARE_OPENED" || index === events.findIndex(candidate => candidate.event === "SHARE_OPENED")).map((event, index) => <li key={`${event.event}:${event.at}:${index}`}>{event.event.toLowerCase().replaceAll("_", " ")} · {date(event.at)}</li>)}</ul></details>
+          <details><summary>Activity</summary><ul className="mt-2 space-y-1">{item.activity.filter((event, index, events) => event.event !== "SHARE_OPENED" || index === events.findIndex(candidate => candidate.event === "SHARE_OPENED")).map((event, index) => <li key={`${event.event}:${event.at}:${index}`}>{event.event.toLowerCase().replaceAll("_", " ")} | {date(event.at)}</li>)}</ul></details>
         </div>}
         trailing={direction === "outgoing" && item.status === "active" ? <Button size="compact" variant="secondary" aria-label={`Revoke ${item.displayLabel} shared with ${item.recipientName}`} disabled={Boolean(busy)} onClick={() => setSelection(item)}>Revoke</Button> : undefined} />)}
-      {!current && !failed ? <SettingsRow title="Loading shared cards…" /> : null}
+      {!current && !failed ? <SettingsRow title="Loading shared cards..." /> : null}
       {current && !current.page.items.length ? <SettingsRow title={direction === "outgoing" ? "No cards shared yet" : "No cards received yet"} /> : null}
     </SettingsGroup>
     {failed ? <div role="alert"><p className="ui-text-row-description">Could not refresh card sharing.</p><Button variant="ghost" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : null}
-    {current?.page.nextCursor ? <div ref={end}><Button variant="ghost" size="compact" disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading more shares…" : moreFailed ? "Retry loading shares" : "Load more shares"}</Button></div> : null}
+    {current?.page.nextCursor ? <div ref={end}><Button variant="ghost" size="compact" disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading more shares..." : moreFailed ? "Retry loading shares" : "Load more shares"}</Button></div> : null}
     <AlertDialog open={Boolean(selection && current)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
       <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Revoke this card share?</AlertDialogTitle><AlertDialogDescription>This stops future access for {selection?.recipientName}. Information already viewed cannot be taken back.</AlertDialogDescription></AlertDialogHeader>
         <AlertDialogFooter><AlertDialogCancel disabled={Boolean(busy)}>Keep sharing</AlertDialogCancel><AlertDialogAction disabled={Boolean(busy)} onClick={event => { event.preventDefault(); if (selection) void revoke(selection); }}>Revoke access</AlertDialogAction></AlertDialogFooter>

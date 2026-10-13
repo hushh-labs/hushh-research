@@ -27,8 +27,8 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     record.activity.push(...Array.from({ length: 4 }, () => ({ event: "SHARE_OPENED", at: "2026-10-12T10:01:00Z", actor: "recipient", outcome: "opened" })));
     mocks.history.mockResolvedValue({ ...page(["First"]), items: [record], recipientCount: 7 });
     render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
-    expect(await screen.findByText("VISA •••• 4242 · First")).toBeVisible();
-    expect(screen.getByRole("region", { name: "Shared cards · 7" })).toBeVisible();
+    expect(await screen.findByText("VISA •••• 4242 | First")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Shared cards | 7" })).toBeVisible();
     expect(screen.getAllByText(/share opened/)).toHaveLength(1);
     expect(screen.getByText(/15 minutes/)).toBeVisible();
     expect(screen.getByText("Identity verification required")).toBeVisible();
@@ -44,11 +44,11 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
     expect(await screen.findByRole("button", { name: "Share profile_owner" })).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: "Load more shares" }));
-    await screen.findByText("VISA •••• 4242 · Second");
+    await screen.findByText("VISA •••• 4242 | Second");
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     await act(async () => { window.dispatchEvent(new Event("focus")); });
     await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(4));
-    expect(screen.getByText("VISA •••• 4242 · Second")).toBeVisible();
+    expect(screen.getByText("VISA •••• 4242 | Second")).toBeVisible();
     let finish!: (value: ReturnType<typeof page>) => void;
     mocks.history.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     await act(async () => { window.dispatchEvent(new Event("focus")); });

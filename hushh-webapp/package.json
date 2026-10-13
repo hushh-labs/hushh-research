@@ -122,6 +122,7 @@
     "ios:background-share:test": "bash ./scripts/native/test-background-location-publisher.sh",
     "verify:first-run-admission": "vitest run __tests__/components/onboarding-journey-guard.test.tsx __tests__/components/session-chrome-quiescence.test.tsx __tests__/app/one/one-auth-gate.test.tsx",
     "build:search-contracts": "node ./scripts/voice/sync-search-contracts.mjs && npm run build:voice-gateway && node ./scripts/architecture/generate-surface-map.mjs && npm run build:route-orchestration-index && npm run build:capability-graph && npm run build:runtime-topology",
+    "verify:search-catalog": "node ./scripts/search/verify-search-catalog.mjs",
     "verify:search-contracts": "node ./scripts/voice/sync-search-contracts.mjs --check && npm run verify:surface-map && npm run verify:voice-gateway && node --test ./scripts/voice/search-contracts.test.mjs",
     "build:runtime-topology": "node ./scripts/architecture/generate-runtime-topology.mjs",
     "docs:back-navigation-graph": "node ./scripts/architecture/generate-back-navigation-graph.mjs",

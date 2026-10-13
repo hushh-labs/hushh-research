@@ -28,6 +28,30 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Main integration verification — 2026-10-13 UTC
 
+The continuation incorporates main `4d067d6ce126` through the existing branch.
+Search preserves curated presentation order while projecting labels, aliases,
+discovery and availability from the generated action contracts. Payment aliases
+remain reachable; signed-out payment navigation and destinations requiring an
+unselected client remain blocked. All 66 nearest checks pass; the five discovery
+and guard regressions fail against the incoming copied catalog.
+
+Candidate `fc086b8b1449` passed the full local core bundle in 542 seconds. Hosted
+frontend, browser, iOS and Android checks passed; protocol CI exposed a
+nondeterministic receipt test that changed only ignored Base64 padding bits.
+The corrected fixture flips an authenticated ciphertext byte. All 65 nearest
+receipt cases pass; a fixed synthetic nonce reproduces the previous failure,
+and bypassing authentication fails the corrected test. Production receipt
+authorization is unchanged. The combined candidate requires fresh core and CI.
+
+Shared Dev serves backend `49074b1f72a1` and frontend `e04b76c61433` at full
+traffic, observed at `2026-10-13T10:02:19Z`. A read-only headless counterpart
+journey at `2026-10-13T11:02:12Z` follows the authored payouts-pane redirect,
+renders its heading and preserves the unlocked owner vault. The previous
+path-only expectation incorrectly treated this redirect as failed navigation.
+This establishes pane access, not the newer payment interface or financial
+acceptance. Monitoring observations are fresh; no reviewer purchase or payout
+is claimed by these checks.
+
 The continuation incorporates main `f34f995d16d2` through a normal merge on the
 existing infrastructure branch. Its answer-resolution lease remains migration
 326; this lane's registrations move from 326–332 to 327–333 with identical
