@@ -252,6 +252,7 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
     root = Path(__file__).resolve().parents[2]
     script = (root / "scripts" / "deploy" / "backend-deploy.sh").read_text(encoding="utf-8")
     script += (root / "scripts/deploy/backend-model-settings.sh").read_text(encoding="utf-8")
+    script += (root / "scripts/deploy/backend-drive-secret-settings.sh").read_text(encoding="utf-8")
     config = _load("deploy/backend.cloudbuild.yaml")
     assert config is not None
     step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
@@ -303,3 +304,26 @@ def test_independent_answer_intake_reaches_the_extracted_deploy(value: str) -> N
         'append_optional_env "PKM_ANSWER_REQUESTS_ENABLED" "${_PKM_ANSWER_REQUESTS_ENABLED:-}"'
         in script
     )
+
+
+def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
+    from pathspec import GitIgnoreSpec
+
+    rules = (REPO_ROOT / ".gcloudignore").read_text().splitlines()
+    upload = GitIgnoreSpec.from_lines(rules)
+    for script in (
+        "scripts/deploy/backend-deploy.sh",
+        *(
+            "scripts/deploy/backend-model-settings.sh",
+            "scripts/deploy/backend-drive-secret-settings.sh",
+        ),
+        "scripts/deploy/pod-release-env.sh",
+        "scripts/deploy/preserve-pod-release.py",
+        "scripts/deploy/commerce-preview-bindings.sh",
+        "scripts/deploy/scope-commerce-secrets.sh",
+    ):
+        assert (REPO_ROOT / script).is_file()
+        assert not upload.match_file(script), f"Cloud Build would omit {script}"
+    assert GitIgnoreSpec.from_lines([*rules, "*.sh"]).match_file(
+        "scripts/deploy/pod-release-env.sh"
+    ), "The regression control must detect an excluded release reader"

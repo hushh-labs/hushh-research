@@ -44,7 +44,12 @@ async def test_answer_catalog_reuses_profile_canonical_scopes_not_opaque_registr
     )
     service = PkmAnswerRequestService(Mock())
     catalog = await service._catalog("requester", "owner")
-    assert [entry["scope"] for entry in catalog] == ["attr.preferences.meals"]
+    scopes = [entry["scope"] for entry in catalog]
+    assert scopes[0] == "attr.preferences.meals"
+    assert "attr.one_living_sources.private" not in scopes
+    assert "attr.preferences.secret" not in scopes
+    assert "attr.identity.identity_profile.full_name" in scopes
+    assert "attr.identity.identity_profile.profile_photo_url" in scopes
     assert validate_resolved_scopes(
         ["attr.preferences.meals", "s_opaque"], owner_catalog=[entry["scope"] for entry in catalog]
     ).accepted == ("attr.preferences.meals",)
@@ -72,3 +77,26 @@ async def test_catalog_failure_creates_no_hidden_request():
             question="What trips do you prefer?",
         )
     service._transaction.assert_not_awaited()
+
+
+async def test_profile_only_account_can_offer_exact_name_and_photo_without_kyc(monkeypatch):
+    profile = Mock()
+    profile.get_exact_requestable_scope_entries.return_value = []
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service.ConnectionsService", lambda: profile
+    )
+    service = PkmAnswerRequestService(Mock())
+    catalog = await service._catalog("requester", "existing-owner")
+    available = [entry["scope"] for entry in catalog]
+    assert validate_resolved_scopes(
+        [
+            "attr.identity.identity_profile.full_name",
+            "attr.identity.identity_profile.profile_photo_url",
+            "attr.identity.*",
+            "attr.identity.identity_documents.passport",
+        ],
+        owner_catalog=available,
+    ).accepted == (
+        "attr.identity.identity_profile.full_name",
+        "attr.identity.identity_profile.profile_photo_url",
+    )

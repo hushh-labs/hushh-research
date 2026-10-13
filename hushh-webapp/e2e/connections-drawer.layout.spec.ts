@@ -1,4 +1,4 @@
-import { profileFrame, mountAppChrome, hitAt } from "./helpers/drawer-geometry";
+import { profileFrame, expectPaneRestingAtFrame, mountAppChrome, hitAt } from "./helpers/drawer-geometry";
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -293,7 +293,7 @@ test("History chrome and content retain their grid while the panel follows a pul
   const dialog = page.locator("[data-agent-history-drawer]");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Create new chat" })).toBeVisible();
-  await expect.poll(() => dialog.evaluate(element => Math.abs(element.getBoundingClientRect().left))).toBeLessThanOrEqual(1);
+  await expectPaneRestingAtFrame(page, dialog);
   const measured = await dialog.evaluate(frame => {
     const title = frame.querySelector("h2")!;
     const body = frame as HTMLElement;
@@ -312,7 +312,7 @@ test("History chrome and content retain their grid while the panel follows a pul
   expect(measured.after[0]! - measured.before[0]!).toBeCloseTo(-50, 0);
   expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(-50, 0);
   expect(measured.after[0]! - measured.after[1]!).toBeCloseTo(measured.before[0]! - measured.before[1]!, 0);
-  await expect.poll(() => dialog.evaluate(element => Math.abs(element.getBoundingClientRect().left))).toBeLessThanOrEqual(1);
+  await expectPaneRestingAtFrame(page, dialog);
   await expect(dialog).toHaveAttribute("aria-hidden", "false");
 });
 

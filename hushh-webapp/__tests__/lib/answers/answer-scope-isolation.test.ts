@@ -1,18 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
-
-import { buildConsentExportForScope, getStaleFirst, answerable, compose, deliver, encrypt, work, params, resetAnswerFixture } from "./fixtures";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildConsentExportForScope, getStaleFirst, answerable, compose, deliver, encrypt, work, params, resetAnswerFixture, setScopeProjection, setSoulMemory } from "./fixtures";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
-
-import {
-  buildAnswerPayload,
-  runAnswerDeliverySweep,
-} from "@/lib/answers/answer-delivery-sweep";
+import { buildAnswerPayload, runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
 import { projectApprovedAnswer } from "@/lib/answers/answer-projection";
 beforeEach(resetAnswerFixture);
 
 describe("an approved field cannot expose another field in the same domain", () => {
   it("asks for the exact approved scope and never reads the domain", async () => {
-    buildConsentExportForScope.mockResolvedValue({
+    setScopeProjection({
       payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
       sourceContentRevision: 7,
     });
@@ -77,7 +72,7 @@ describe("an approved field cannot expose another field in the same domain", () 
   });
 
   it("reports no content when every approved scope is empty, so the order refunds", async () => {
-    buildConsentExportForScope.mockResolvedValue({
+    setScopeProjection({
       payload: {},
       sourceContentRevision: 7,
     });
@@ -88,7 +83,7 @@ describe("an approved field cannot expose another field in the same domain", () 
 
 describe("the requested period is applied before the answer is sealed", () => {
   it("drops dated records outside the window and counts them", async () => {
-    buildConsentExportForScope.mockResolvedValue({
+    setScopeProjection({
       payload: {
         trips: [
           { date: "2026-03-04", city: "Tokyo" },
@@ -117,7 +112,7 @@ describe("the requested period is applied before the answer is sealed", () => {
   it("keeps undated records rather than guessing they fall outside", async () => {
     // Removing a record whose date this code cannot read would silently drop
     // information the owner agreed to share.
-    buildConsentExportForScope.mockResolvedValue({
+    setScopeProjection({
       payload: {
         trips: [{ city: "Tokyo" }, { date: "2020-01-01", city: "Osaka" }],
       },
@@ -139,7 +134,7 @@ describe("the requested period is applied before the answer is sealed", () => {
   });
 
   it("leaves everything in place when no period was requested", async () => {
-    buildConsentExportForScope.mockResolvedValue({
+    setScopeProjection({
       payload: { trips: [{ date: "2019-01-01", city: "Osaka" }] },
       sourceContentRevision: 7,
     });
@@ -159,7 +154,7 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
     // The owner's information CAN answer the question; the answer gene did
     // not. Delivering the raw records would mark the request answered and pay
     // the owner for work the requester never received.
-    buildConsentExportForScope.mockResolvedValue({
+    setScopeProjection({
       payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
       sourceContentRevision: 7,
     });
@@ -177,10 +172,19 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
     expect(result).toMatchObject({ retry: 1, delivered: 0, empty: 0 });
   });
 
+  it("refuses a mocked successful composer result that reports an unanswered gap", async () => {
+    setScopeProjection({ payload: { trips: [{ city: "Tokyo", amount: 1200 }] }, sourceContentRevision: 7 });
+    answerable.mockResolvedValue([work()]);
+    compose.mockResolvedValue({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "Only part of the question is answered.", covers: ["attr.travel.trips"], gaps: ["Missing part of the requested answer."] });
+    expect(await runAnswerDeliverySweep({ ...params, firebaseIdToken: "id-token" })).toMatchObject({ retry: 1, delivered: 0, empty: 0 });
+    expect(encrypt).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
   it("still delivers when there is genuinely nothing to say, so the order refunds", async () => {
     // An empty answer is not a failed answer: the delivery records that there
     // was nothing in the approved scopes, and the backend refunds it.
-    buildConsentExportForScope.mockResolvedValue({
+    setScopeProjection({
       payload: {},
       sourceContentRevision: 7,
     });
@@ -217,17 +221,14 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
     expect(result).toMatchObject({ retry: 1, delivered: 0, empty: 0 });
   });
 
-  it("carries the owner's own name and photo into the answer document", async () => {
-    // The requester already sees these on the profile they asked from, and
-    // without them a question like "what is your name" had no name to answer
-    // from even with Identity information approved.
-    buildConsentExportForScope.mockResolvedValue({
+  it("sends Gemini only approved travel, without unapproved account identity", async () => {
+    setScopeProjection({
       payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
       sourceContentRevision: 7,
     });
     answerable.mockResolvedValue([work()]);
     compose.mockResolvedValue({
-      answerMode: "agent",
+      answerMode: "agent", compositionReceipt: "synthetic-composition-receipt",
       answer: "Tokyo.",
       covers: [],
       gaps: [],
@@ -245,18 +246,22 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
       },
     });
 
-    const memory = String(compose.mock.calls[0]![2].memory);
-    expect(memory).toContain("Smirthika Dharmalingam");
+    const projection = JSON.stringify(compose.mock.calls[0]![2]);
+    expect(projection).toContain("Tokyo");
+    expect(projection).not.toContain("Smirthika Dharmalingam");
+    expect(projection).not.toContain("smirthika@example.com");
+    expect(projection).not.toContain("https://example.com/photo.jpg");
+    expect(projection).not.toContain("Profile photo included");
   });
 
   it("delivers a written answer", async () => {
-    buildConsentExportForScope.mockResolvedValue({
+    setScopeProjection({
       payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
       sourceContentRevision: 7,
     });
     answerable.mockResolvedValue([work()]);
     compose.mockResolvedValue({
-      answerMode: "agent",
+      answerMode: "agent", compositionReceipt: "synthetic-composition-receipt",
       answer: "You spent $1,200 on travel, on one trip to Tokyo.",
       covers: ["attr.travel.trips"],
       gaps: [],
@@ -275,18 +280,19 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
 });
 
 describe("lock fences asynchronous answer work", () => {
-  it.each(["export", "compose", "encrypt"])(
-    "stops after lock during %s",
+  it.each(["export", "compose", "encrypt"].flatMap(stage =>
+    ["vault lock", "account switch"].map(boundary => [stage, boundary] as const)))(
+    "stops during %s after %s",
     async (stage) => {
       let release!: (value: never) => void;
       const pending = new Promise((resolve) => {
         release = resolve;
       });
       answerable.mockResolvedValue([work()]);
-      buildConsentExportForScope.mockResolvedValue({
+      setScopeProjection({
         payload: { trips: [{ city: "Tokyo" }] },
       });
-      compose.mockResolvedValue({ answerMode: "agent", answer: "One trip." });
+      compose.mockResolvedValue({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "One trip." });
       const selected =
         stage === "export"
           ? buildConsentExportForScope
@@ -299,12 +305,14 @@ describe("lock fences asynchronous answer work", () => {
         firebaseIdToken: "token",
       });
       await vi.waitFor(() => expect(selected).toHaveBeenCalled());
+      // Both custody boundaries advance the same application generation;
+      // the already-started owner task must never stage its plaintext.
       advanceVaultSessionEpoch();
       release(
         (stage === "export"
           ? { payload: { trips: [{ city: "Tokyo" }] } }
           : stage === "compose"
-            ? { answerMode: "agent", answer: "One trip." }
+            ? { answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "One trip." }
             : { sealed: "ciphertext" }) as never,
       );
       await sweep;

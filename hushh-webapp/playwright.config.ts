@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { parsePlaywrightShard } from "./scripts/testing/playwright-shard.cjs";
 
 const baseURL = process.env.BASE_URL || "http://localhost:3000";
 const basePort = new URL(baseURL).port || "3000";
@@ -40,6 +41,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? ciWorkers() : undefined,
+  shard: parsePlaywrightShard(process.env.PLAYWRIGHT_SHARD),
   reporter: process.env.CI ? "github" : "html",
 
   use: {
@@ -150,6 +152,9 @@ export default defineConfig({
         /wallet-card-scan\.layout\.spec\.ts/,
         /consent-center-row\.layout\.spec\.ts/,
         /shared-with-you-card\.layout\.spec\.ts/,
+        // Paid photos need WebKit's native image loader and browser recipient
+        // crypto; a synthetic Image in JSDOM cannot prove decoding.
+        /answer-profile-photo\.layout\.spec\.ts/,
         // memory-save-card: the explicit-save receipt's pixel-grid contract
         // (insets, tile grid, aligned tabular counts) in the shipped engine.
         /memory-save-card\.layout\.spec\.ts/,

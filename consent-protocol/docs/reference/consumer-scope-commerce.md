@@ -26,6 +26,33 @@ complete Sandbox/live financial acceptance, native browser returns, or legal/tax
 approval. Signed capital and the first requester funding settlement on shared Dev
 are separately verified below; they do not prove a consumer purchase or payout.
 
+### Main integration verification — 2026-10-13 UTC
+
+Normal integration of main `1d691714135e` retains the existing infrastructure
+branch, prepared-answer settlement ownership and timed scope-access authority.
+The combined interface continues to use one Payments and earnings destination;
+funds stay attributed to their original subsystems. Scope funding and the tagged
+capital receipts are reconciled before any new provider action.
+
+Focused checks pass 186 provider/answer cases and 123 retrieval/review cases.
+Memory schemas are normalized and validated before Azure provider dispatch,
+without changing model choice or private-owner placement. Failed materialized
+exports cannot be replaced by a matching private fact; wildcard projections
+retain eligible siblings while excluding blocked leaves. Existing encrypted
+slices must carry current admission qualification or rebuild. Removing each
+materialized-export, leaf or legacy-slice guard fails its protected regression.
+Real deployed provider behavior remains to be verified.
+
+The prior candidate `9644d2ecdd` passed its non-browser CI jobs, but its browser
+job exhausted 30 minutes and failed a stale History inset assertion. Required
+browser coverage now uses three validated shards, preserving all engine lists,
+retries and the aggregate gate. Actual collection proves disjoint, complete
+partitions of 664 Chromium, 586 WebKit and 158 mobile Chromium cases. Node checks
+and Mermaid rendering execute once. Focused History and preference geometry
+checks pass in Chromium and WebKit. Full core, terminal hosted CI, Dev promotion,
+reviewer purchase/payout receipts and One's authenticated Stripe reads remain
+required before issue #7587 can close.
+
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
@@ -88,9 +115,10 @@ Latest-main integration preserves prepared-answer payment ownership. Incoming
 profile-review normalization now retains model citations and semantic metadata
 so the existing owner-selection fidelity gate can reject mismatches. All 128
 structure-agent cases pass; the three focused fidelity cases fail on the actual
-incoming predecessor. Soul-backed answers use exact domain-bound scopes, admit
-alternate facts only after successful empty canonical exports, preserve current
-structured values and combine parent-wildcard facts. All 66 answer/identity/cache
+incoming predecessor. At that earlier checkpoint, Soul-backed answers used exact domain-bound scopes
+and retained structured values. Incoming main now permits current owner-labelled
+facts after successful canonical admission or verified absence; the leaf and
+failed-materialized-export checks above bound that behavior. All 66 answer/identity/cache
 cases pass. Shared synthetic fixtures retain the original assertions without
 duplicate test setup. No migration or financial-source authority changed.
 

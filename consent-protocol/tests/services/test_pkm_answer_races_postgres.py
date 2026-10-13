@@ -22,6 +22,7 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
     StubResolver,
     _ask,
     _db,
+    _deliver_composed,
     _mark_paid,
     answer_engine,
     clean,
@@ -32,6 +33,17 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
 @pytest.fixture(autouse=True)
 def payments_enabled(monkeypatch):
     # The lane ships disabled; the workers short-circuit unless it is on.
+    for name in (
+        "PKM_ANSWER_STRIPE_MODE",
+        "PKM_ANSWER_STRIPE_SECRET_KEY",
+        "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
+        "PKM_ANSWER_STRIPE_TEST_SECRET_KEY",
+        "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
+        "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY",
+        "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET",
+        "PKM_ANSWER_LIVE_PROVIDER_REVIEWED",
+    ):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "true")
     monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
     monkeypatch.setenv("ENVIRONMENT", "test")
@@ -56,7 +68,9 @@ async def _approved(engine, amount=1000, *, prepared=False):
         model_processing_consent=True,
     )
     if prepared:
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
     return service, request_id, approved["termsDigest"]
 
 
@@ -195,16 +209,25 @@ class TestRepeatedCheckoutThroughTheService:
         return api
 
     @staticmethod
-    def _reprice(engine, request_id):
+    async def _reprice(engine, request_id):
         """Change the approved terms so the live session is superseded."""
         with engine.begin() as connection:
             connection.execute(
                 text(
                     "UPDATE pkm_answer_requests SET amount_cents = 2000,"
-                    " terms_digest = :d WHERE request_id = :r"
+                    " terms_digest = :d, composer_consent_digest = :d WHERE request_id = :r"
                 ),
                 {"r": request_id, "d": "c" * 64},
             )
+        from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+        await _deliver_composed(
+            PkmAnswerRequestService(_db(engine)),
+            engine,
+            owner_user_id=OWNER,
+            request_id=request_id,
+            envelope=ENVELOPE,
+        )
 
     async def test_the_payment_intent_carries_the_routing_kind_too(self, answer_engine):  # noqa: F811
         """One Stripe endpoint routes on `data.object.metadata.payment_kind`.
@@ -260,15 +283,8 @@ class TestRepeatedCheckoutThroughTheService:
         payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
         await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
 
-        # The owner re-prices, which changes the terms digest.
-        with answer_engine.begin() as connection:
-            connection.execute(
-                text(
-                    "UPDATE pkm_answer_requests SET amount_cents = 2000,"
-                    " terms_digest = :d WHERE request_id = :r"
-                ),
-                {"r": request_id, "d": "c" * 64},
-            )
+        # Changed terms require fresh owner consent and Gemini preparation.
+        await self._reprice(answer_engine, request_id)
         await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
 
         assert api.checkout.Session.create.call_count == 2
@@ -296,7 +312,7 @@ class TestRepeatedCheckoutThroughTheService:
         api = self._stripe()
         payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
         await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
-        self._reprice(answer_engine, request_id)
+        await self._reprice(answer_engine, request_id)
 
         api.checkout.Session.expire.side_effect = RuntimeError("stripe timeout")
         api.checkout.Session.retrieve.side_effect = RuntimeError("stripe timeout")
@@ -333,7 +349,7 @@ class TestRepeatedCheckoutThroughTheService:
         api = self._stripe()
         payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
         await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
-        self._reprice(answer_engine, request_id)
+        await self._reprice(answer_engine, request_id)
 
         api.checkout.Session.expire.side_effect = RuntimeError("already expired")
         api.checkout.Session.retrieve.return_value = {
@@ -363,7 +379,7 @@ class TestRepeatedCheckoutThroughTheService:
         api = self._stripe()
         payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
         await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
-        self._reprice(answer_engine, request_id)
+        await self._reprice(answer_engine, request_id)
 
         api.checkout.Session.expire.side_effect = RuntimeError("session completed")
         api.checkout.Session.retrieve.return_value = {
@@ -453,7 +469,9 @@ class TestCancellationPaymentRace:
     async def test_a_delivered_answer_cannot_be_cancelled_afterwards(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
         _mark_paid(answer_engine, request_id, digest)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         # The buyer has the answer; cancelling now would be a free read.
         with pytest.raises(AnswerRequestError, match="answer_already_delivered"):
             await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
@@ -775,7 +793,9 @@ class TestOnePaymentBuysOneAnswer:
     async def test_a_second_question_needs_its_own_approval_and_payment(self, answer_engine):  # noqa: F811
         service, first_id, digest = await _approved(answer_engine)
         _mark_paid(answer_engine, first_id, digest)
-        await service.deliver(owner_user_id=OWNER, request_id=first_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=first_id, envelope=ENVELOPE
+        )
 
         # The same requester asks again. Paying once must not carry over.
         second = await service.create(
@@ -805,7 +825,9 @@ class TestOnePaymentBuysOneAnswer:
     async def test_the_answer_is_fetchable_only_by_its_own_requester(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
         _mark_paid(answer_engine, request_id, digest)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
 
         # The person who paid can read it.
         answer = await service.fetch_answer(requester_user_id=REQUESTER, request_id=request_id)
@@ -876,7 +898,9 @@ class TestAFailedAnswerRetriesThenRefunds:
     async def test_a_delivered_answer_is_never_expired_out_from_under_it(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
         _mark_paid(answer_engine, request_id, digest)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         with answer_engine.begin() as connection:
             connection.execute(
                 text(
@@ -897,7 +921,9 @@ class TestPayouts:
     async def test_a_delivered_answer_earns_gross_minus_commission(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine, amount=10_000)
         _mark_paid(answer_engine, request_id, digest, amount=10_000)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         with answer_engine.begin() as connection:
             connection.execute(
                 text(
@@ -919,7 +945,9 @@ class TestPayouts:
     async def test_an_owner_without_a_payout_account_waits_instead_of_failing(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
         _mark_paid(answer_engine, request_id, digest)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         api = Mock()
         outcome = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts(
             max_jobs=5
@@ -940,7 +968,9 @@ class TestStripeModeIsolation:
         # Connect account (or the reverse) is a real way to lose money.
         service, request_id, digest = await _approved(answer_engine, amount=10_000)
         _mark_paid(answer_engine, request_id, digest, amount=10_000)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         with answer_engine.begin() as connection:
             connection.execute(
                 text(
@@ -965,7 +995,9 @@ class TestStripeModeIsolation:
     async def test_an_account_verified_in_another_mode_is_not_used(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
         _mark_paid(answer_engine, request_id, digest)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         with answer_engine.begin() as connection:
             # Only a live-mode account exists; this runtime is in test mode.
             connection.execute(
@@ -1007,7 +1039,9 @@ class TestPayoutFollowsDriveCanonicalRules:
     async def test_the_owner_bears_the_actual_processing_fee(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine, amount=10_000)
         _mark_paid(answer_engine, request_id, digest, amount=10_000)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         self._ready_account(answer_engine)
 
         # 10000 gross, 300 bps commission = 300, Stripe fee 320.
@@ -1051,7 +1085,9 @@ class TestPayoutFollowsDriveCanonicalRules:
     async def test_fees_above_the_proceeds_never_make_the_owner_owe(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine, amount=100)
         _mark_paid(answer_engine, request_id, digest, amount=100)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         self._ready_account(answer_engine)
 
         # A 500c fee on a 100c charge: hushh absorbs the excess.
@@ -1074,7 +1110,9 @@ class TestPayoutFollowsDriveCanonicalRules:
     async def test_an_unverified_account_is_not_paid(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
         _mark_paid(answer_engine, request_id, digest)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         with answer_engine.begin() as connection:
             # Enabled but NOT account_ready: Drive requires both.
             connection.execute(
@@ -1095,7 +1133,9 @@ class TestPayoutFollowsDriveCanonicalRules:
     async def test_an_unreadable_fee_defers_rather_than_guessing(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
         _mark_paid(answer_engine, request_id, digest)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
         self._ready_account(answer_engine)
 
         from unittest.mock import Mock as _Mock
@@ -1140,7 +1180,9 @@ class TestStagedAnswerIsWithheldUntilPaid:
 
     async def test_a_staged_answer_cannot_be_read_before_payment(self, answer_engine):  # noqa: F811
         service, request_id, _ = await _approved(answer_engine)
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
 
         # Staged, not delivered: the request has not moved and nothing is owed.
         with answer_engine.begin() as connection:
@@ -1171,7 +1213,9 @@ class TestStagedAnswerIsWithheldUntilPaid:
         service, request_id, _ = await _approved(answer_engine)
         # The approved information yielded nothing. One payment buys one
         # answer, so there is nothing here to sell and no refund to owe later.
-        await service.deliver(
+        await _deliver_composed(
+            service,
+            answer_engine,
             owner_user_id=OWNER,
             request_id=request_id,
             envelope=ENVELOPE,

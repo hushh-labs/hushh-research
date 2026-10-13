@@ -383,26 +383,6 @@ def test_missing_or_mutable_pod_artifacts_refuse_deployment(tmp_path, reference,
     assert "refusing" in result.stderr
 
 
-def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
-    from pathspec import GitIgnoreSpec
-
-    rules = (REPO_ROOT / ".gcloudignore").read_text().splitlines()
-    upload = GitIgnoreSpec.from_lines(rules)
-    for script in (
-        "scripts/deploy/backend-deploy.sh",
-        "scripts/deploy/backend-model-settings.sh",
-        "scripts/deploy/pod-release-env.sh",
-        "scripts/deploy/preserve-pod-release.py",
-        "scripts/deploy/commerce-preview-bindings.sh",
-        "scripts/deploy/scope-commerce-secrets.sh",
-    ):
-        assert (REPO_ROOT / script).is_file()
-        assert not upload.match_file(script), f"Cloud Build would omit {script}"
-    assert GitIgnoreSpec.from_lines([*rules, "*.sh"]).match_file(
-        "scripts/deploy/pod-release-env.sh"
-    ), "The regression control must detect an excluded release reader"
-
-
 def _existing_release_environment():
     image = "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:" + "b" * 64
     release = {

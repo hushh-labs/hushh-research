@@ -210,9 +210,12 @@ test("Accent stays coherent through repeated selection and Profile close/reopen"
     else await expect(page.locator("html")).not.toHaveAttribute("data-accent", /.+/);
     await page.getByRole("button", { name: "Close Profile", exact: true }).click();
     await expect(pane(page)).not.toBeVisible();
+    await expect(page).not.toHaveURL(/profile_pane=1/);
     await page.getByTestId("open-profile").click();
     await expect(pane(page)).toBeVisible();
-    await page.getByTestId("profile-preferences-row").click();
+    const root = pane(page).locator('[data-profile-stack-screen="root"][data-profile-stack-active="true"]');
+    await expect(root).toBeVisible();
+    await root.getByRole("button", { name: "Appearance & preferences", exact: true }).click();
     await expect(trigger).toHaveValue(value);
   }
   expect(errors).toEqual([]);

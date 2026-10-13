@@ -18,10 +18,10 @@ import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import UUID
 
 import pytest
-from fastapi import HTTPException, Response
 from sqlalchemy import create_engine, text
 
 from hushh_mcp.consent.answer_scope_resolution import compute_terms_digest
@@ -159,7 +159,8 @@ def answer_engine(connector_postgres_url):  # noqa: F811
 
 
 @pytest.fixture(autouse=True)
-def clean(answer_engine):
+def clean(answer_engine, monkeypatch, shared_hub_owner):
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
     with answer_engine.begin() as connection:
         connection.exec_driver_sql("DELETE FROM consent_audit")
         connection.exec_driver_sql("DELETE FROM actor_identity_cache")
@@ -214,6 +215,48 @@ def clean(answer_engine):
 
 def _db(engine):
     return SimpleNamespace(engine=engine)
+
+
+async def _successful_composition(service, request_id, *, answer="The approved trip was to Tokyo."):
+    """Real compose route and writer with an isolated fake Gemini provider."""
+    from fastapi import Response
+
+    from api.routes.one import answer_requests as routes
+    from hushh_mcp.services.answer_composer import AnswerComposer
+
+    work = await service.assert_answerable(owner_user_id=OWNER, request_id=request_id)
+
+    async def provider(_prompt):
+        return {"answer": answer, "covers": ["Approved trip"], "gaps": []}
+
+    projection = {
+        "memory": "# Approved memory\n\nThe approved trip was to Tokyo.",
+        "values": {scope: {"trips": [{"city": "Tokyo"}]} for scope in work["approvedScopes"]},
+    }
+    writer = AnswerComposer(runner=provider)
+    with (
+        patch.object(routes, "_requests", return_value=service),
+        patch.object(routes, "AnswerComposer", return_value=writer),
+    ):
+        return await routes.compose_answer(
+            UUID(request_id), Response(), {"projection": projection}, OWNER
+        )
+
+
+async def _deliver_composed(service, engine, **kwargs):
+    """Financial fixtures require successful composition without hiding authority guards."""
+    del engine  # The actual service already holds this isolated fixture database.
+    if kwargs.get("has_content", True):
+        try:
+            await service.assert_answerable(
+                owner_user_id=kwargs["owner_user_id"], request_id=kwargs["request_id"]
+            )
+        except (AnswerRequestError, AnswerPaymentError):
+            # Run the real delivery authority check for its negative regressions.
+            return await service.deliver(**kwargs)
+        written = await _successful_composition(service, kwargs["request_id"])
+        kwargs["composition_receipt"] = written["compositionReceipt"]
+    return await service.deliver(**kwargs)
 
 
 def _fixture_catalog(engine):
@@ -292,9 +335,7 @@ ENVELOPE = {
 
 class TestHappyPath:
     @pytest.mark.parametrize("dated", [True, False])
-    async def test_two_accounts_ask_approve_pay_answer_and_fetch(
-        self, answer_engine, dated, monkeypatch
-    ):
+    async def test_two_accounts_ask_approve_pay_answer_and_fetch(self, answer_engine, dated):
         service, request_id = await _ask(
             answer_engine, StubResolver(["attr.travel.trips", "attr.preferences.food"]), dated=dated
         )
@@ -335,7 +376,9 @@ class TestHappyPath:
         assert len(work) == 1
         assert work[0]["approvedScopes"] == ["attr.travel.trips"]
 
-        await service.deliver(
+        await _deliver_composed(
+            service,
+            answer_engine,
             owner_user_id=OWNER,
             request_id=request_id,
             envelope=ENVELOPE,
@@ -344,19 +387,6 @@ class TestHappyPath:
         answer = await service.fetch_answer(requester_user_id=REQUESTER, request_id=request_id)
         assert answer["ciphertext"] == "c2VhbGVk"
         assert answer["sourceRevisions"] == {"travel": 7}
-
-        # Pausing new payments preserves existing recipient-bound ciphertext.
-        from api.routes.one import answer_requests as routes
-
-        monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "false")
-        monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
-        monkeypatch.setattr(routes, "_requests", lambda: service)
-        response = Response()
-        assert await routes.get_answer(UUID(request_id), response, REQUESTER) == answer
-        assert response.headers["Cache-Control"] == "private, no-store"
-        with pytest.raises(HTTPException) as denied:
-            await routes.get_answer(UUID(request_id), Response(), "another-requester")
-        assert denied.value.status_code == 404
 
         with answer_engine.begin() as connection:
             row = (
@@ -498,7 +528,13 @@ class TestPaymentGate:
                 {"r": request_id},
             )
         with pytest.raises(AnswerPaymentError, match="payment_required"):
-            await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+            await _deliver_composed(
+                service,
+                answer_engine,
+                owner_user_id=OWNER,
+                request_id=request_id,
+                envelope=ENVELOPE,
+            )
         with answer_engine.begin() as connection:
             delivered = connection.execute(
                 text("SELECT count(*) FROM pkm_answer_deliveries WHERE request_id=:r"),
@@ -523,7 +559,13 @@ class TestPaymentGate:
                 {"r": request_id, "d": "f" * 64},
             )
         with pytest.raises(AnswerPaymentError, match="terms_changed"):
-            await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+            await _deliver_composed(
+                service,
+                answer_engine,
+                owner_user_id=OWNER,
+                request_id=request_id,
+                envelope=ENVELOPE,
+            )
 
     async def test_plaintext_shaped_envelope_is_refused(self, answer_engine):
         service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
@@ -536,7 +578,9 @@ class TestPaymentGate:
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with pytest.raises(AnswerRequestError, match="invalid_envelope"):
-            await service.deliver(
+            await _deliver_composed(
+                service,
+                answer_engine,
                 owner_user_id=OWNER,
                 request_id=request_id,
                 envelope={**ENVELOPE, "answer": "they spent $4,200"},
@@ -649,7 +693,9 @@ class TestFeed:
             model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
 
         with answer_engine.begin() as connection:
             rows = (

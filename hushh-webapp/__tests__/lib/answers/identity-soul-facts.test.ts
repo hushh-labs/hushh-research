@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildConsentExportForScope, answerable, compose, deliver, loadMarkdownMemory, encrypt, work, params, resetAnswerFixture } from "./fixtures";
+import { buildConsentExportForScope, answerable, compose, deliver, loadMarkdownMemory, encrypt, work, params, resetAnswerFixture, setScopeProjection, setSoulMemory, refreshIdentityForSession } from "./fixtures";
 import { buildAnswerPayload, runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
 
 beforeEach(resetAnswerFixture);
@@ -28,6 +28,9 @@ describe("approved identity facts come from the Soul bullets the product wrote",
     "attr.business.identity_profile.date_of_birth",
     "attr.identity.other.identity_profile.date_of_birth",
     "attr.business.identity_profile.*",
+    "attr.health.identity_profile.sex",
+    "attr.travel.identity_profile.full_name",
+    "attr.health.identity_profile.*",
   ])("does not disclose identity facts under another scope: %s", (approvedScope) => {
     expect(projectApprovedSoulFacts({ approvedScopes: [approvedScope], markdown: SOUL, now: NOW })).toEqual([]);
   });
@@ -119,48 +122,17 @@ describe("identity facts recorded in Soul.md answer the question they were appro
     work({ approvedScopes: [scope], question: "What is your age?" });
 
   beforeEach(() => {
-    loadMarkdownMemory.mockResolvedValue({ markdown: SOUL, dataVersion: 12 });
-    // A successful empty canonical read admits the alternate source.
-    buildConsentExportForScope.mockResolvedValue({ payload: {} });
-  });
-
-  it.each(["owner denied", "manifest changed", "source invalidated"])("does not replace a failed canonical export: %s", async (reason) => {
-    const scope = "attr.identity.identity_profile.full_name";
-    buildConsentExportForScope.mockRejectedValue(new Error(reason));
-    const { payload, hasContent } = await buildAnswerPayload(identityWork(scope), params);
-    expect(payload.unavailableScopes).toEqual([scope]);
-    expect(hasContent).toBe(false);
-    expect(loadMarkdownMemory).not.toHaveBeenCalled();
-  });
-
-  it("retains a current structured fact over a stale Soul value", async () => {
-    const scope = "attr.identity.identity_profile.full_name";
-    buildConsentExportForScope.mockResolvedValue({ payload: { identity_profile: { full_name: "Current owner name" } }, sourceContentRevision: 19 });
-    const { payload } = await buildAnswerPayload(identityWork(scope), params);
-    expect(payload.approvedInformation[scope]).toEqual({ identity_profile: { full_name: "Current owner name" } });
-    expect(payload.sourceRevisions[scope]).toBe(19);
-    expect(loadMarkdownMemory).not.toHaveBeenCalled();
-  });
-
-  it("keeps every mapped fact in the exact approved parent wildcard", async () => {
-    const scope = "attr.identity.identity_profile.*";
-    const { payload } = await buildAnswerPayload(identityWork(scope), params);
-    expect(payload.approvedInformation[scope]).toMatchObject({ identity_profile: {
-      full_name: "Smirthika Dharmalingam", date_of_birth: "1998-03-14", sex: "female", declared_age: expect.any(String),
-    } });
-  });
-
-  it("does not use the public account name for an unrelated nested name", async () => {
-    const scope = "attr.identity.employer.name";
-    const { hasContent } = await buildAnswerPayload(identityWork(scope), { ...params, ownerIdentity: { displayName: "Public owner name" } });
-    expect(hasContent).toBe(false);
-    expect(loadMarkdownMemory).not.toHaveBeenCalled();
+    setSoulMemory({ markdown: SOUL, dataVersion: 12 });
+    // No structured leaf exists for these; Soul.md is the only source.
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
   });
 
   it("puts the age, not the birth date, into what the writer is given", async () => {
+    compose.mockResolvedValue({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "The approved current age is available.", covers: ["attr.identity.identity_profile.declared_age"], gaps: [] });
     const { payload, hasContent } = await buildAnswerPayload(
       identityWork("attr.identity.identity_profile.declared_age"),
-      params,
+      { ...params, ownerIdentity: { displayName: "UNAPPROVED_ACCOUNT_NAME", email: "unapproved@example.test", photoUrl: "https://example.test/unapproved-photo.png" } },
+      "firebase-token",
     );
 
     expect(hasContent).toBe(true);
@@ -169,6 +141,24 @@ describe("identity facts recorded in Soul.md answer the question they were appro
     // The birth date is its own approval and was not given here.
     expect(rendered).not.toContain("1998-03-14");
     expect(payload.sourceRevisions["attr.identity.identity_profile.declared_age"]).toBe(12);
+    expect(compose).toHaveBeenCalledTimes(1);
+    const input = JSON.stringify(compose.mock.calls[0]![2]);
+    expect(input).toContain("declared_age");
+    for (const unapproved of ["1998-03-14", "female", "Kyoto", "Smirthika Dharmalingam", "UNAPPROVED_ACCOUNT_NAME", "unapproved@example.test", "unapproved-photo.png", "Profile photo included"]) expect(input).not.toContain(unapproved);
+  });
+
+  it("sends only an explicitly saved sex to Gemini", async () => {
+    compose.mockResolvedValue({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "The recorded sex is female.", covers: ["attr.identity.identity_profile.sex"], gaps: [] });
+    const result = await buildAnswerPayload(
+      work({ approvedScopes: ["attr.identity.identity_profile.sex"], question: "What sex did you record?" }),
+      { ...params, ownerIdentity: { displayName: "Unapproved name", photoUrl: "https://example.test/unapproved-photo.png" } },
+      "firebase-token",
+    );
+    expect(result.hasContent).toBe(true);
+    expect(result.payload.answer).toBe("The recorded sex is female.");
+    const input = JSON.stringify(compose.mock.calls[0]![2]);
+    expect(input).toContain("female");
+    for (const unapproved of ["1998-03-14", "declared_age", "Kyoto", "Smirthika Dharmalingam", "Unapproved name", "unapproved-photo.png"]) expect(input).not.toContain(unapproved);
   });
 
   it("answers a name request from the recorded legal name", async () => {
@@ -204,7 +194,7 @@ describe("identity facts recorded in Soul.md answer the question they were appro
   });
 
   it("says nothing rather than guessing a sex that was never recorded", async () => {
-    loadMarkdownMemory.mockResolvedValue({
+    setSoulMemory({
       markdown: "## Facts\n\n- Legal name: Smirthika Dharmalingam\n- She prefers window seats\n",
       dataVersion: 3,
     });
@@ -239,7 +229,7 @@ describe("the three outcomes of preparing an answer, at staging level", () => {
   it("stages nothing and stays retryable when the document cannot be read", async () => {
     // Locked, stale or denied: not an answer in either direction.
     loadMarkdownMemory.mockRejectedValue(new Error("vault locked"));
-    buildConsentExportForScope.mockResolvedValue({ payload: {} });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
     askAge();
 
     const result = await sweep();
@@ -252,11 +242,11 @@ describe("the three outcomes of preparing an answer, at staging level", () => {
   it("settles a fact nobody recorded as absent, so it is answered not retried", async () => {
     // The document read SUCCEEDED and the fact is simply not in it. That is a
     // verified absence -- an answer -- and it used to sit unreadable for ever.
-    loadMarkdownMemory.mockResolvedValue({
+    setSoulMemory({
       markdown: "## Facts\n\n- Legal name: Smirthika Dharmalingam\n",
       dataVersion: 12,
     });
-    buildConsentExportForScope.mockResolvedValue({ payload: {} });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
     askAge();
 
     const result = await sweep();
@@ -268,10 +258,9 @@ describe("the three outcomes of preparing an answer, at staging level", () => {
   });
 
   it("does not let the account name or photo make a missing age chargeable", async () => {
-    // Both are carried into the document's Account section for every answer.
-    // If they counted as content, an age nobody recorded would be sold.
-    loadMarkdownMemory.mockResolvedValue({ markdown: "## Facts\n", dataVersion: 12 });
-    buildConsentExportForScope.mockResolvedValue({ payload: {} });
+    // Public profile fields cannot replace the approved missing age.
+    setSoulMemory({ markdown: "## Facts\n", dataVersion: 12 });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
     askAge();
 
     await sweep();
@@ -288,10 +277,10 @@ describe("a Soul-backed fact is finished work, not a failed read", () => {
     // always fails for them. If that counts as an unreadable scope the request
     // retries for ever and the answer is never staged, even though the fact
     // was read successfully from the document.
-    loadMarkdownMemory.mockResolvedValue({ markdown: SOUL, dataVersion: 12 });
-    buildConsentExportForScope.mockResolvedValue({ payload: {} });
+    setSoulMemory({ markdown: SOUL, dataVersion: 12 });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
     compose.mockResolvedValue({
-      answerMode: "agent",
+      answerMode: "agent", compositionReceipt: "synthetic-composition-receipt",
       answer: "She is 27.",
       covers: ["attr.identity.identity_profile.declared_age"],
       gaps: [],
@@ -327,13 +316,13 @@ describe("which name answers a name request", () => {
     ]);
 
   beforeEach(() => {
-    buildConsentExportForScope.mockResolvedValue({ payload: {} });
-    compose.mockResolvedValue({ answerMode: "agent", answer: "Smirthika.", covers: [], gaps: [] });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    compose.mockResolvedValue({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "Smirthika.", covers: [], gaps: [] });
     encrypt.mockResolvedValue({ ciphertext: "sealed" });
   });
 
   it("prefers the legal name the person stated over their account name", async () => {
-    loadMarkdownMemory.mockResolvedValue({
+    setSoulMemory({
       markdown: "## Facts\n\n- Legal name: Smirthika Dharmalingam\n",
       dataVersion: 9,
     });
@@ -345,14 +334,15 @@ describe("which name answers a name request", () => {
       ownerIdentity: { displayName: "smiri" },
     });
 
-    const values = JSON.stringify(compose.mock.calls[0]![2].values);
-    expect(values).toContain("Smirthika Dharmalingam");
-    expect(values).not.toContain("smiri");
+    const input = JSON.stringify(compose.mock.calls[0]![2]);
+    expect(input).toContain("Smirthika Dharmalingam");
+    expect(input).not.toContain("smiri");
   });
 
   it("falls back to the account name when no legal name was ever stated", async () => {
     // An owner who never completed the identity intake can still answer this.
-    loadMarkdownMemory.mockResolvedValue({ markdown: "## Facts\n", dataVersion: 9 });
+    setSoulMemory({ markdown: "## Facts\n", dataVersion: 9 });
+    refreshIdentityForSession.mockResolvedValue({ user_id: "owner-A", display_name: "Smirthika D" });
     ask();
 
     const result = await runAnswerDeliverySweep({
@@ -364,4 +354,90 @@ describe("which name answers a name request", () => {
     expect(JSON.stringify(compose.mock.calls[0]![2].values)).toContain("Smirthika D");
     expect(result).toMatchObject({ delivered: 1, retry: 0, empty: 0 });
   });
+});
+
+
+describe("existing profile identity acceptance", () => {
+  const NAME = "attr.identity.identity_profile.full_name";
+  const PHOTO = "attr.identity.identity_profile.profile_photo_url";
+  it("prepares name and photo without an identity intake and seals the trusted photo", async () => {
+    buildConsentExportForScope.mockRejectedValue(new Error("source absent"));
+    setSoulMemory({ markdown: "", persisted: false });
+    compose.mockResolvedValue({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "Synthetic Ava's name and photo.", covers: [NAME, PHOTO], gaps: [] });
+    const result = await buildAnswerPayload(work({ approvedScopes: [NAME, PHOTO] }), { ...params, ownerIdentity: { displayName: "Synthetic Ava", photoUrl: "https://example.test/avatar.jpg" } }, "token");
+    expect(result.hasContent).toBe(true);
+    expect(result.payload.unavailableScopes).toEqual([]);
+    expect(result.payload.approvedInformation[PHOTO]).toEqual({ identity_profile: { profile_photo_url: "https://example.test/avatar.jpg" } });
+    expect(result.payload.ownerIdentity?.photoUrl).toBe("https://example.test/avatar.jpg");
+    expect(loadMarkdownMemory).toHaveBeenCalledWith(expect.objectContaining({ forceRefresh: true }));
+  });
+  it.each(["declared_age", "sex"])("does not sell a known name with missing %s", async field => {
+    setScopeProjection({ payload: {}, sourceContentRevision: 1 });
+    setSoulMemory({ markdown: "", persisted: false });
+    const result = await buildAnswerPayload(work({ approvedScopes: [NAME, `attr.identity.identity_profile.${field}`] }), { ...params, ownerIdentity: { displayName: "Synthetic Ava" } }, "token");
+    expect(result.hasContent).toBe(false);
+    expect(compose).not.toHaveBeenCalled();
+  });
+  it("merges every approved wildcard fact and overrides legacy values without siblings", async () => {
+    setScopeProjection({ payload: { identity: { identity_profile: { full_name: "Old name", sex: "old value" } } }, sourceContentRevision: 1 });
+    setSoulMemory({ markdown: "- Legal name: Current name\n- Sex: female\n- Date of birth: 1998-03-14\n", dataVersion: 9 });
+    const result = await buildAnswerPayload(work({ approvedScopes: ["attr.identity.identity_profile.*"] }), params);
+    expect(result.payload.approvedInformation["attr.identity.identity_profile.*"]).toMatchObject({ identity_profile: { full_name: "Current name", sex: "female", declared_age: expect.any(String) } });
+    expect(JSON.stringify(result.payload.approvedInformation)).not.toContain("Old name");
+  });
+  it("owner deletion suppresses a legacy sex value and never charges for it", async () => {
+    setScopeProjection({ payload: { identity: { identity_profile: { sex: "legacy" } } }, sourceContentRevision: 1 });
+    setSoulMemory({ markdown: "", dataVersion: 9, deletedFactLabels: ["sex"] });
+    const result = await buildAnswerPayload(work({ approvedScopes: ["attr.identity.identity_profile.sex"] }), params);
+    expect(result.hasContent).toBe(false);
+    expect(JSON.stringify(result.payload.approvedInformation)).not.toContain("legacy");
+  });
+});
+
+it("seals a custom avatar while passing only a bounded photo reference to the composer", async () => {
+  buildConsentExportForScope.mockRejectedValue(new Error("source absent"));
+  setSoulMemory({ markdown: "", persisted: false });
+  const photoUrl = `data:image/png;base64,${btoa("x".repeat(100_000))}`;
+  refreshIdentityForSession.mockResolvedValue({ user_id: "owner-A", display_name: "Synthetic Ava", photo_url: photoUrl });
+  const photo = "attr.identity.identity_profile.profile_photo_url";
+  const result = await buildAnswerPayload(work({ approvedScopes: [photo] }), { ...params, ownerIdentity: { displayName: "Synthetic Ava", photoUrl } }, "token");
+  expect(result.hasContent).toBe(true);
+  expect(result.payload.ownerIdentity?.photoUrl).toBe(photoUrl);
+  expect(JSON.stringify(result.payload.approvedInformation)).toContain(photoUrl);
+  const composed = JSON.stringify(compose.mock.calls[0]![2]);
+  expect(composed.length).toBeLessThan(60_000);
+  expect(composed).not.toContain(photoUrl);
+  expect(composed).toContain("Profile photo included in the encrypted answer");
+});
+it("keeps unchanged source revisions when an unrelated Soul fact was deleted", async () => {
+  setScopeProjection({ payload: { identity: { identity_profile: { full_name: "Legacy name" } } }, sourceContentRevision: 3, sourceManifestRevision: 4 });
+  setSoulMemory({ markdown: "", dataVersion: 9, deletedFactLabels: ["sex"] });
+  const name = "attr.identity.identity_profile.full_name";
+  const result = await buildAnswerPayload(work({ approvedScopes: [name] }), params);
+  expect(result.payload.sourceRevisions[name]).toBe(3);
+  expect(result.payload.memory).toContain("Revision 3");
+});
+
+describe("Soul-backed projections retain exact scope limits", () => {
+  const identityWork = (scope: string) => work({ approvedScopes: [scope] });
+  beforeEach(() => { setSoulMemory({ markdown: SOUL, dataVersion: 12 }); setScopeProjection({ payload: {} }); });
+  it("keeps every mapped fact in the exact approved parent wildcard", async () => {
+    const scope = "attr.identity.identity_profile.*";
+    const { payload } = await buildAnswerPayload(identityWork(scope), params);
+    expect(payload.approvedInformation[scope]).toMatchObject({ identity_profile: {
+      full_name: "Smirthika Dharmalingam", date_of_birth: "1998-03-14", sex: "female", declared_age: expect.any(String),
+    } });
+  });
+
+  it("does not use the public account name for an unrelated nested name", async () => {
+    const scope = "attr.identity.employer.name";
+    const { hasContent } = await buildAnswerPayload(identityWork(scope), { ...params, ownerIdentity: { displayName: "Public owner name" } });
+    expect(hasContent).toBe(false);
+    expect(loadMarkdownMemory).not.toHaveBeenCalled();
+  });
+
+});
+
+it("does not satisfy a nested lookalike scope with a canonical identity fact", () => {
+  expect(projectApprovedSoulFacts({ approvedScopes: ["attr.identity.other.identity_profile.sex", "attr.identity.other.identity_profile.*"], markdown: "- Sex: female\n" })).toEqual([]);
 });

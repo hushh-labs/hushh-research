@@ -1185,6 +1185,7 @@ tests/test_one_career_routes.py
 # Historical public seed replay preserves refreshed SEC records and explicit curation.
 tests/services/test_marketplace_investor_discovery.py
 tests/services/test_pkm_answer_recovery_postgres.py
+tests/services/test_pkm_answer_retention_postgres.py
 tests/services/test_pkm_answer_signed_settlement_postgres.py
 tests/test_pkm_answer_config.py
 tests/test_pkm_answer_routes.py
@@ -1204,3 +1205,6 @@ tests/test_stripe_connect_balances_postgres.py
 tests/test_connect_bank_payout_snapshot_postgres.py
 tests/test_bank_payout_event_replay_postgres.py
 tests/test_drive_request_terms_migrations_postgres.py
+
+tests/test_pkm_answer_catalog.py
+tests/test_answer_center_surface_integration.py
