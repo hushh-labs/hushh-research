@@ -361,12 +361,8 @@ describe("receipt merchant logo", () => {
     );
 
     expect(container.querySelector("img")).toBeNull();
-    expect(
-      container.querySelector('[data-logo-kind="fallback"]'),
-    ).toBeInTheDocument();
-    expect(
-      container.querySelectorAll('svg[data-canonical-icon="true"]'),
-    ).toHaveLength(1);
+    expect(container.querySelector('[data-logo-kind="fallback"]')).toBeInTheDocument();
+    expect(container.querySelectorAll('svg[data-canonical-icon="true"]')).toHaveLength(1);
     expect(container.querySelector('svg [opacity="0.2"]')).not.toBeNull();
   });
 
