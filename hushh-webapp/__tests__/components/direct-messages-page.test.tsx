@@ -7,7 +7,6 @@ import {
 } from "@/components/agent/agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { DirectMessagesPage as ProductionDirectMessagesPage } from "@/components/direct-messages/direct-messages-page";
-import { ROUTES } from "@/lib/navigation/routes";
 import { DirectMessageVoiceRecorder } from "@/components/direct-messages/direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "@/components/direct-messages/direct-message-voice-player";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
