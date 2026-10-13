@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes.one.wallet_card_access import router
+from hushh_mcp.services.wallet_card_validation import NETWORK_ORDER
 
 ROOT = "/api/one/wallet/card-access"
 ID = "11111111-1111-4111-8111-111111111111"
@@ -106,14 +107,18 @@ def test_network_requests_require_matching_owner_identity(suffix):
         service.assert_not_called()
 
 
-def test_network_contract_is_available_without_sharing_keys():
-    response = client().post(
-        ROOT + "/networks/resolve", json={"iinPrefix": "411111", "panLength": 16}
-    )
+@pytest.mark.parametrize("selected_network", [None, *NETWORK_ORDER])
+def test_network_contract_is_available_without_sharing_keys(selected_network):
+    body = {"iinPrefix": "411111", "panLength": 16}
+    if selected_network:
+        body["selectedNetwork"] = selected_network
+    response = client().post(ROOT + "/networks/resolve", json=body)
     assert response.status_code == 200
-    assert response.json() == {"network": "visa", "source": "prefix", "candidates": []}
+    assert response.json()["network"] == (selected_network or "visa")
+    assert response.json()["source"] == ("owner_selected" if selected_network else "prefix")
+    assert response.json()["candidates"] == []
     assert response.headers["cache-control"] == "private, no-store"
-    assert "visa" in client().get(ROOT + "/networks").json()["networks"]
+    assert client().get(ROOT + "/networks").json()["networks"] == list(NETWORK_ORDER)
 
 
 @pytest.mark.parametrize(

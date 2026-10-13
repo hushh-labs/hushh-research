@@ -336,8 +336,10 @@ PKM, indexes, logs, caches, models, notifications or an external provider.
 
 The existing backend `wallet_card_validation.py` owns the supported prefix
 rules. Responses distinguish prefix matches, explicit owner choices, ambiguous
-ranges and unknown ranges. Recognized prefixes retain their network even when
-the length is wrong, so local validation rejects invalid network lengths.
+ranges and unknown ranges. Recognized prefixes and explicit owner selections
+retain their network even when the length is wrong. The form explains a length
+mismatch immediately, and local credential validation rejects saving the card
+until it is corrected; an input mismatch is not a network-service outage.
 These rules are not a live issuer registry. On lookup
 failure, a valid card can still be saved with the neutral Card network. Client
 Luhn, expiry, CVV/PIN and region validation remain local; the backend continues
