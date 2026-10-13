@@ -181,6 +181,7 @@ import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
+import { SavedPlacesBanner, type SavedPlacesBannerProps } from "@/components/one-location/saved-places-banner";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
@@ -367,6 +368,7 @@ function resolveLocationHubTab(value: string | null): LocationHubTab {
 }
 
 export type LocationHubViewModel = {
+  savedPlacesBanner?: SavedPlacesBannerProps & { visible: boolean };
   /* identity / gating */
   userId: string | null;
   canShare: boolean;
@@ -1877,6 +1879,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         actions={<LocationHeaderActions vm={vm} />}
         className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
       />
+
+      {tab === "now" && vm.savedPlacesBanner?.visible ? (
+        <SavedPlacesBanner {...vm.savedPlacesBanner} />
+      ) : null}
 
       {/*
         Directly under the header, above the tabs, because a blocked permission

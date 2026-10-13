@@ -4,16 +4,15 @@ import { useCallback, useState } from "react";
 import type { OneLocationOnboardingScreen } from "@/components/one-location/onboarding/one-location-onboarding-steps";
 
 function readScreen(key: string | null): OneLocationOnboardingScreen {
-  if (!key || typeof window === "undefined") return "welcome";
+  if (!key || typeof window === "undefined") return "features";
   try {
     const screen = window.sessionStorage.getItem(key);
     if (screen === "ready" || screen === "features") return screen;
-    // A remounted place editor must capture its memory-only draft again.
-    if (screen === "place") return "features";
+    // Legacy welcome/place checkpoints restart at the first of two screens.
   } catch {
     // Storage can be unavailable; mounted navigation still works.
   }
-  return "welcome";
+  return "features";
 }
 
 /** Resume after auth gates remount the route on share/app/tab return.

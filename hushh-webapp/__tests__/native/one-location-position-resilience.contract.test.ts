@@ -94,5 +94,8 @@ describe("One Location native one-shot position resilience", () => {
     expect(didFail.indexOf(".locationUnknown")).toBeLessThan(
       didFail.indexOf("failWatches(message)"),
     );
+    expect(didFail.indexOf(".locationUnknown")).toBeLessThan(
+      didFail.indexOf("clearPendingLocationCall()"),
+    );
   });
 });

@@ -800,24 +800,11 @@ function locationActivity() {
 }
 
 async function openLocationFeatureStep() {
-  expect(
-    await screen.findByRole("heading", {
-      name: "Share your location easily with anyone.",
-    }),
-  ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-  expect(
-    await screen.findByRole("heading", {
-      name: "Keep your people updated.",
-    }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Keep your people updated." })).toBeTruthy();
 }
 
-/** Assert the invite screen is showing. It is the last screen now. */
 async function expectLocationInviteStep() {
-  expect(
-    await screen.findByRole("heading", { name: /You're on the map/ }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: /You're (on the map|all set)/ })).toBeTruthy();
 }
 
 /** The terminal CTA. Its label names the destination, which differs by mode. */
@@ -825,32 +812,14 @@ function locationFinishButton() {
   return screen.findByRole("button", { name: /Open One Location|Finish/ });
 }
 
-/** welcome -> features -> save place (skipped) -> ready. */
 async function reachLocationOnboardingFinalStep() {
   await openLocationPermissionsStep();
-  const savePrompt = await screen.findByTestId("save-location-modal");
-  fireEvent.click(
-    within(savePrompt).getByRole("button", {
-      name: /Skip saving this place|Skip for now/,
-    }),
-  );
   await expectLocationInviteStep();
-  expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled();
   expect(await locationFinishButton()).toBeEnabled();
 }
 
-/**
- * Walk welcome -> features -> save place, then take the non-persisting path to
- * Ready without asserting the final content.
- */
 async function leaveLocationFeatureStep() {
   await openLocationPermissionsStep();
-  const savePrompt = await screen.findByTestId("save-location-modal");
-  fireEvent.click(
-    within(savePrompt).getByRole("button", {
-      name: /Skip saving this place|Skip for now/,
-    }),
-  );
 }
 
 async function openReadyContactsPanel() {
@@ -997,7 +966,7 @@ function holdNextCapture(): () => void {
 async function openLocationPermissionsStep() {
   await openLocationFeatureStep();
   const setupButton = await screen.findByRole("button", {
-    name: /Set up my location|Try again|Open settings/,
+    name: "Continue",
   });
   await waitFor(() => expect(setupButton).toBeEnabled());
   fireEvent.click(setupButton);
@@ -4716,13 +4685,13 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: "Keep your people updated.",
       }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     expect(onNavigationRequest).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(mockRouterBack).not.toHaveBeenCalled();
@@ -4773,7 +4742,7 @@ describe("OneLocationAgentPage", () => {
       await expectLocationInviteStep();
       expect(
         screen.queryByRole("heading", {
-          name: "Share your location easily with anyone.",
+          name: "Keep your people updated.",
         }),
       ).toBeNull();
       expect(await locationFinishButton()).toBeEnabled();
@@ -4827,7 +4796,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: "Keep your people updated.",
       }),
     ).toBeNull();
   });
@@ -4858,118 +4827,20 @@ describe("OneLocationAgentPage", () => {
     vi.useRealTimers();
   });
 
-  it("still knows where you are on the finale after the save-place prompt closes", async () => {
-    // THE REGRESSION. The last onboarding screen -- "You're on the map." -- took
-    // its camera from the save-place modal's DRAFT point, and both of that
-    // modal's exits null it. The modal runs two screens earlier, so the finale
-    // was handed null on every single run, `useGoogleMaps` was never enabled,
-    // and the screen always drew its stylised fallback. The map feature shipped
-    // and nobody, on any platform or in any environment, ever saw it.
-    //
-    // `reachLocationOnboardingFinalStep` dismisses that prompt with
-    // "Skip for now" -- precisely the exit that used to destroy the point.
-    render(<OneLocationAgentPage mode="setup" onSetupComplete={vi.fn()} />);
-
-    await reachLocationOnboardingFinalStep();
-
-    const map = screen.getByTestId("onboarding-live-map");
-    // `data-map-state` cannot answer this: jsdom has no Google Maps, so it
-    // reads "stylised" whether or not a point survived. That ambiguity is what
-    // hid the bug, which is why the component reports the two separately.
-    expect(map.getAttribute("data-map-point")).toBe("ready");
-  });
-
-  it("does not finish web Location setup while permission is denied", async () => {
+  it.each(["prompt", "denied", "granted"] as const)("finishes the introduction without requesting location when %s", async (state) => {
     const onSetupComplete = vi.fn();
-    mockGetPermissionState.mockResolvedValue({
-      state: "denied",
-      precise: false,
-      background: "restricted",
-      locationServicesEnabled: true,
-    });
-    mockRequestLocationPermission.mockResolvedValue({
-      state: "denied",
-      precise: false,
-      background: "restricted",
-      locationServicesEnabled: true,
-    });
-    // A genuinely denied device refuses the capture too. Setup now confirms by
-    // attempting rather than trusting the reported state, because that state is
-    // unreadable on Safari — so the refusal has to come from the attempt for
-    // this to still be a denial at all.
-    const denied = new Error("Location permission was not granted.");
-    denied.name = "LocationPermissionDeniedError";
-    mockCaptureCurrentPosition.mockRejectedValue(denied);
-
-    render(
-      <OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />,
-    );
-
-    await openLocationPermissionsStep();
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(screen.getByRole("button", { name: "Open settings" })).toBeEnabled();
-    expect(onSetupComplete).not.toHaveBeenCalled();
-  });
-
-  it("refreshes Location after returning from Settings and waits for the explicit saved-place CTA", async () => {
-    window.localStorage.removeItem(
-      "one_location_saved_location_prompt_v2:user_a",
-    );
-    mockLoadSavedLocations.mockResolvedValue([]);
-    const deniedPermission = {
-      state: "denied" as const,
-      precise: false,
-      background: "restricted" as const,
-      locationServicesEnabled: true,
-    };
-    const grantedPermission = {
-      state: "granted" as const,
-      precise: true,
-      background: "foreground-only" as const,
-      locationServicesEnabled: true,
-    };
-    mockGetPermissionState.mockResolvedValue(deniedPermission);
-    // The request reports the same refusal the read did — otherwise the device
-    // is not actually denied and routing to Settings would be wrong.
-    mockRequestLocationPermission.mockResolvedValue(deniedPermission);
-    // A genuinely denied device refuses the capture too. Setup now confirms a
-    // denial by attempting rather than trusting the reported state — that state
-    // is unreadable on Safari — so the refusal has to come from the attempt.
-    const refused = new Error("Location permission was not granted.");
-    refused.name = "LocationPermissionDeniedError";
-    mockCaptureCurrentPosition.mockRejectedValue(refused);
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
-
-    render(<OneLocationAgentPage />);
-
-    await openLocationPermissionsStep();
-    await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
-
-    mockGetPermissionState.mockResolvedValue(grantedPermission);
-    mockCaptureCurrentPosition.mockResolvedValue({
-      latitude: 28.6139,
-      longitude: 77.209,
-      accuracyM: 18,
-      capturedAt: "2026-05-20T07:30:00.000Z",
-      sourcePlatform: "web",
-    });
-    act(() => {
-      appInteractionCoordinator.handleLifecycle("background");
-      appInteractionCoordinator.handleLifecycle("active");
-    });
-
-    const retry = await screen.findByRole("button", {
-      name: "Set up my location",
-    });
+    const readiness = vi.fn();
+    mockGetPermissionState.mockResolvedValue({ state, precise: null, background: "foreground-only", locationServicesEnabled: true });
+    render(<OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} onSetupReadinessChange={readiness} />);
+    await reachLocationOnboardingFinalStep();
+    expect(screen.getByText("2 of 2")).toBeTruthy();
     expect(screen.queryByTestId("save-location-modal")).toBeNull();
-    fireEvent.click(retry);
-    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Private until you share.")).toBeNull();
+    fireEvent.click(await locationFinishButton());
+    await waitFor(() => expect(onSetupComplete).toHaveBeenCalledTimes(1));
+    expect(readiness).toHaveBeenCalledWith(true);
+    expect(mockRequestLocationPermission).not.toHaveBeenCalled();
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
   });
 
   it("keeps setup onboarding available when the workspace state fetch fails", async () => {
@@ -4978,138 +4849,19 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage mode="setup" />);
 
     expect(
-      await screen.findByTestId("one-location-onboarding-welcome"),
+      await screen.findByTestId("one-location-onboarding-features"),
     ).toBeTruthy();
     expect(screen.queryByText("Workspace state unavailable")).toBeNull();
   });
 
-  it("stages the onboarding location in memory when vault authority is not ready", async () => {
-    mockUseVault.mockReturnValue({
-      isVaultUnlocked: false,
-      vaultKey: null,
-      vaultOwnerToken: null,
-    });
-
+  it("keeps pre-vault setup passive without staging a place", async () => {
+    mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultKey: null, vaultOwnerToken: null });
     render(<OneLocationAgentPage mode="setup" />);
-
-    expect(
-      await screen.findByTestId("one-location-onboarding-welcome"),
-    ).toBeTruthy();
+    await reachLocationOnboardingFinalStep();
     expect(mockRegisterKey).not.toHaveBeenCalled();
     expect(mockGetState).not.toHaveBeenCalled();
-
-    await openLocationPermissionsStep();
-    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(mockReverseGeocode).not.toHaveBeenCalled();
-
-    fireEvent.change(screen.getByLabelText(/House or flat/), {
-      target: { value: "Flat 4B" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    await saveOnboardingPlace();
-
-    await waitFor(() =>
-      expect(mockStageSavedLocation).toHaveBeenCalledWith("user_a", {
-        category: "home",
-        label: "",
-        latitude: 28.6139,
-        longitude: 77.209,
-        address: "Flat 4B, Kartavya Path, New Delhi, Delhi 110001, India",
-      }),
-    );
-    expect(mockAddSavedLocation).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("save-location-modal")).toBeNull();
-  });
-
-  it("never carries an in-flight location capture across an account switch", async () => {
-    let resolveUserACapture:
-      | ((value: {
-          latitude: number;
-          longitude: number;
-          accuracyM: number;
-          capturedAt: string;
-          sourcePlatform: "web";
-        }) => void)
-      | undefined;
-    mockUseVault.mockReturnValue({
-      isVaultUnlocked: false,
-      vaultKey: null,
-      vaultOwnerToken: null,
-    });
-    mockCaptureCurrentPosition
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveUserACapture = resolve;
-          }),
-      )
-      .mockResolvedValueOnce({
-        latitude: 12.9716,
-        longitude: 77.5946,
-        accuracyM: 15,
-        capturedAt: "2026-08-04T01:00:00.000Z",
-        sourcePlatform: "web",
-      });
-
-    const view = render(<OneLocationAgentPage mode="setup" />);
-    await openLocationPermissionsStep();
-    await waitFor(() =>
-      expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1),
-    );
-
-    mockUseRequireAuth.mockReturnValue({
-      loading: false,
-      isAuthenticated: true,
-      userId: "user_b",
-      user: {
-        uid: "user_b",
-        displayName: "Second User",
-        email: "second@example.com",
-        photoURL: null,
-        getIdToken: vi.fn().mockResolvedValue("id-token-b"),
-      },
-    });
-    view.rerender(<OneLocationAgentPage mode="setup" />);
-
-    await waitFor(() =>
-      expect(mockClearPreVaultForUser).toHaveBeenCalledWith("user_a"),
-    );
-    await openLocationPermissionsStep();
-    await waitFor(() =>
-      expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2),
-    );
-    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-
-    await act(async () => {
-      resolveUserACapture?.({
-        latitude: 40.7128,
-        longitude: -74.006,
-        accuracyM: 10,
-        capturedAt: "2026-08-04T00:59:00.000Z",
-        sourcePlatform: "web",
-      });
-      await Promise.resolve();
-    });
-
-    fireEvent.change(screen.getByLabelText(/House or flat/), {
-      target: { value: "Second user's home" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    await saveOnboardingPlace();
-
-    await waitFor(() =>
-      expect(mockStageSavedLocation).toHaveBeenCalledWith(
-        "user_b",
-        expect.objectContaining({
-          category: "home",
-          address: expect.stringContaining("Second user's home"),
-        }),
-      ),
-    );
-    expect(mockStageSavedLocation).not.toHaveBeenCalledWith(
-      "user_a",
-      expect.anything(),
-    );
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    expect(mockStageSavedLocation).not.toHaveBeenCalled();
   });
 
   it("suppresses the stale-token banner while vault re-unlock is requested", async () => {
@@ -5181,401 +4933,66 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Verify your phone number first")).toBeNull();
   });
 
-  it("requests native foreground permission from the onboarding permission step", async () => {
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
-    mockLoadSavedLocations.mockResolvedValue([]);
-    mockGetPermissionState
-      .mockResolvedValueOnce({
-        state: "prompt",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      })
-      .mockResolvedValueOnce({
-        state: "prompt",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      })
-      .mockResolvedValueOnce({
-        state: "granted",
-        precise: true,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      });
-
+  it("opens the optional saved-place modal only after the Now banner is tapped", async () => {
     render(<OneLocationAgentPage />);
-
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openLocationPermissionsStep();
-    await waitFor(
-      () => expect(mockRequestLocationPermission).toHaveBeenCalledTimes(1),
-      { timeout: 5_000 },
-    );
-    expect(toast.success).toHaveBeenCalledWith("Location access enabled.");
-    await waitFor(() =>
-      expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1),
-    );
-    // The real rule is an ORDER — ask before you read — not a moment. This was
-    // `expect(mockCaptureCurrentPosition).not.toHaveBeenCalled()` on the line
-    // straight after the step opened, which is a negative assertion made at an
-    // unsynchronised instant: when the grant and the capture happened to flush
-    // inside `openLocationPermissionsStep`, a correct run failed. Measured at
-    // roughly one run in four on untouched main. Invocation order states the
-    // same contract and cannot race.
-    expect(
-      mockRequestLocationPermission.mock.invocationCallOrder[0],
-      "the device was read before permission was asked for",
-    ).toBeLessThan(mockCaptureCurrentPosition.mock.invocationCallOrder[0]!);
+    await skipLocationEntryFlow();
+    expect(await screen.findByTestId("saved-places-banner")).toBeTruthy();
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Save a place" }));
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Skip saving this place|Skip for now/,
-      }),
-    );
-    await expectLocationInviteStep();
-    fireEvent.click(await locationFinishButton());
-    expect(
-      await screen.findByRole("heading", { name: "Location" }),
-    ).toBeTruthy();
-    // Completing onboarding persists the one-time intro flag so the marketing
-    // intro never shows again for this user.
-    expect(
-      window.localStorage.getItem("one_location_onboarding_v2:user_a"),
-    ).toBe("1");
-  });
-
-  it("offers to save the granted location into encrypted PKM before onboarding continues", async () => {
-    window.localStorage.removeItem(
-      "one_location_saved_location_prompt_v1:user_a",
-    );
-    window.localStorage.removeItem(
-      "one_location_saved_location_prompt_v2:user_a",
-    );
-    mockLoadSavedLocations.mockResolvedValue([]);
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
-    mockGetPermissionState
-      .mockResolvedValueOnce({
-        state: "prompt",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      })
-      .mockResolvedValueOnce({
-        state: "prompt",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      })
-      .mockResolvedValueOnce({
-        state: "granted",
-        precise: true,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      });
-
-    render(<OneLocationAgentPage />);
-
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openLocationPermissionsStep();
-    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    await waitFor(() =>
-      expect(mockReverseGeocode).toHaveBeenCalledWith({
-        vaultOwnerToken: "vault-token",
-        lat: 28.6139,
-        lng: 77.209,
-      }),
-    );
-
-    fireEvent.change(screen.getByLabelText(/House or flat/), {
-      target: { value: "Flat 4B" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    await saveOnboardingPlace();
-
-    await waitFor(() =>
-      expect(mockAddSavedLocation).toHaveBeenCalledWith({
-        context: {
-          userId: "user_a",
-          vaultKey: "vault-key",
-          vaultOwnerToken: "vault-token",
-        },
-        input: {
-          category: "home",
-          label: "",
-          latitude: 28.6139,
-          longitude: 77.209,
-          address: "Flat 4B, Kartavya Path, New Delhi, Delhi 110001, India",
-        },
-      }),
-    );
-    await waitFor(() =>
-      expect(screen.queryByTestId("save-location-modal")).toBeNull(),
-    );
-    expect(
-      window.localStorage.getItem(
-        "one_location_saved_location_prompt_v1:user_a",
-      ),
-    ).toBeNull();
-    expect(
-      window.localStorage.getItem(
-        "one_location_saved_location_prompt_v2:user_a",
-      ),
-    ).toBeNull();
-
-    await expectLocationInviteStep();
-  });
-
-  it("retries current-location capture in the unlocked workspace", async () => {
-    window.localStorage.removeItem(
-      "one_location_saved_location_prompt_v2:user_a",
-    );
-    mockLoadSavedLocations.mockResolvedValue([]);
-    mockCaptureCurrentPosition.mockRejectedValueOnce(
-      new Error("Position unavailable"),
-    );
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
-
-    render(<OneLocationAgentPage />);
-
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openLocationPermissionsStep();
-    expect(
-      await screen.findByRole("button", { name: "Try again" }),
-    ).toBeEnabled();
-    expect(toast.error).toHaveBeenCalledWith("Check permission and try again.");
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(mockRequestLocationPermission).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("one-location-onboarding")).toBeNull();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  it("persists banner dismissal and explains where to save later", async () => {
+    const view = render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss saved places reminder" }));
+    expect(screen.queryByTestId("saved-places-banner")).toBeNull();
+    expect(toast.info).toHaveBeenCalledWith("You can save places anytime in Location settings.");
+    expect(window.localStorage.getItem("one_location_places_banner_dismissed_v1:user_a")).toBe("1");
+    view.unmount();
+    render(<OneLocationAgentPage />);
+    expect(await screen.findByRole("heading", { name: "Location" })).toBeTruthy();
+    expect(screen.queryByTestId("saved-places-banner")).toBeNull();
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+  });
 
+  it("keeps banner acquisition retryable after a real denial", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    const denied = Object.assign(new Error("Location permission is blocked for this site."), { name: "LocationPermissionDeniedError" });
+    mockCaptureCurrentPosition.mockRejectedValueOnce(denied);
+    fireEvent.click(screen.getByRole("button", { name: "Save a place" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save a place" })).toBeEnabled());
+    expect(screen.queryByTestId("save-location-modal")).toBeNull();
+    expect(screen.getByTestId("saved-places-banner")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save a place" }));
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
   });
 
-  it("reopens the location picker from Ready and reuses the captured point", async () => {
-    window.localStorage.removeItem(
-      "one_location_saved_location_prompt_v1:user_a",
-    );
-    window.localStorage.removeItem(
-      "one_location_saved_location_prompt_v2:user_a",
-    );
-
-    mockLoadSavedLocations.mockResolvedValue([]);
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
-    mockGetPermissionState.mockResolvedValue({
-      state: "granted",
-      precise: true,
-      background: "foreground-only",
-      locationServicesEnabled: true,
-    });
-
-    render(<OneLocationAgentPage />);
-
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-
-    await openLocationPermissionsStep();
-
-    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Skip saving this place|Skip for now/,
-      }),
-    );
-
-    await waitFor(() =>
-      expect(screen.queryByTestId("save-location-modal")).toBeNull(),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-
-    const reopenedPrompt = await screen.findByTestId("save-location-modal");
-    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
-    fireEvent.click(
-      within(reopenedPrompt).getByRole("button", {
-        name: "Back to what One Location does",
-      }),
-    );
-
-    expect(
-      await screen.findByRole("heading", { name: "Keep your people updated." }),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Set up my location" }));
-
-    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
-  });
-  it("retires a legacy skipped outcome and still opens the onboarding picker", async () => {
-    window.localStorage.setItem(
-      "one_location_saved_location_prompt_v2:user_a",
-      "skipped",
-    );
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
-
-    render(<OneLocationAgentPage />);
-
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openLocationPermissionsStep();
-
-    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(
-      window.localStorage.getItem(
-        "one_location_saved_location_prompt_v1:user_a",
-      ),
-    ).toBeNull();
-    expect(
-      window.localStorage.getItem(
-        "one_location_saved_location_prompt_v2:user_a",
-      ),
-    ).toBeNull();
-  });
-
-  it("shows the location entry flow even when foreground permission is already granted", async () => {
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
-
-    render(<OneLocationAgentPage />);
-
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openLocationPermissionsStep();
-    expect(mockRequestLocationPermission).not.toHaveBeenCalled();
-    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Skip saving this place|Skip for now/,
-      }),
-    );
-    await expectLocationInviteStep();
-    fireEvent.click(await locationFinishButton());
-    expect(
-      await screen.findByRole("heading", { name: "Location" }),
-    ).toBeTruthy();
-    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
-    // Completing onboarding persists the one-time intro flag.
-    expect(
-      window.localStorage.getItem("one_location_onboarding_v2:user_a"),
-    ).toBe("1");
-  });
-
-  it("turns location on once a place is confirmed in onboarding", async () => {
-    // Reported from UAT: "onboarding mein mera location save ho rha, i could
-    // able to confirm the location as home office others — then after
-    // redirecting to this main page why location off..."
-    //
-    // Onboarding captured a position directly instead of going through
-    // `ensureForegroundLocationReady`, so it never reached `activateMyLocation`
-    // and never set `selfPreviewEnabled`. A brand-new owner also has no grants
-    // and no nearby presence, so all three disjuncts behind `locationEnabled`
-    // were false and the hub greeted them with "Location off" — seconds after
-    // they granted permission, took a fix, dragged a pin and tagged it Home.
-    //
-    // Every other hub test reaches the hub through `skipLocationEntryFlow`,
-    // which presses "Skip for now" on this modal, so the save path never once
-    // reached an assertion about the header. That is why this shipped.
-    window.localStorage.removeItem(
-      "one_location_saved_location_prompt_v2:user_a",
-    );
-    mockLoadSavedLocations.mockResolvedValue([]);
+  it("saves the banner place securely and turns the Location preview on", async () => {
     mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
-
     render(<OneLocationAgentPage />);
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openLocationPermissionsStep();
-
+    await skipLocationEntryFlow();
+    fireEvent.click(screen.getByRole("button", { name: "Save a place" }));
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    fireEvent.change(screen.getByLabelText(/House or flat/), { target: { value: "Flat 4B" } });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    await saveOnboardingPlace();
-    await waitFor(() => expect(mockAddSavedLocation).toHaveBeenCalled());
-
-    await expectLocationInviteStep();
-    fireEvent.click(await locationFinishButton());
-    expect(
-      await screen.findByRole("heading", { name: "Location" }),
-    ).toBeTruthy();
-
-    // The header agrees with what the person just did.
-    await waitFor(() =>
-      expect(screen.getByTestId("one-location-header-status").textContent).toBe(
-        "Location on",
-      ),
-    );
-    expect(
-      screen.getByRole("switch", { name: "Turn location off" }),
-    ).toHaveAttribute("aria-checked", "true");
-  });
-
-  it("reoffers the two-step saved-place flow when Location is already granted", async () => {
-    window.localStorage.removeItem(
-      "one_location_saved_location_prompt_v2:user_a",
-    );
-    mockLoadSavedLocations.mockResolvedValue([]);
-    expect(
-      window.localStorage.getItem(
-        "one_location_saved_location_prompt_v1:user_a",
-      ),
-    ).toBe("1");
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
-
-    render(<OneLocationAgentPage />);
-
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openLocationPermissionsStep();
-
-    expect(mockRequestLocationPermission).not.toHaveBeenCalled();
-    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
-
-    fireEvent.change(screen.getByLabelText(/House or flat/), {
-      target: { value: "Tower 2, Floor 4" },
-    });
-    fireEvent.change(screen.getByLabelText(/Landmark/), {
-      target: { value: "India Gate" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Work" }));
-    await saveOnboardingPlace();
-
-    await waitFor(() =>
-      expect(mockAddSavedLocation).toHaveBeenCalledWith({
-        context: {
-          userId: "user_a",
-          vaultKey: "vault-key",
-          vaultOwnerToken: "vault-token",
-        },
-        input: {
-          category: "work",
-          label: "",
-          latitude: 28.6139,
-          longitude: 77.209,
-          // No building colour: the form no longer asks for one. The PIN is
-          // still in the line because it was derived from the address rather
-          // than typed.
-          address:
-            "Tower 2, Floor 4, Near India Gate, Kartavya Path, New Delhi, Delhi 110001, India",
-        },
-      }),
-    );
+    const save = await screen.findByRole("button", { name: "Save location", exact: true });
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await waitFor(() => expect(mockAddSavedLocation).toHaveBeenCalledWith({
+      context: { userId: "user_a", vaultKey: "vault-key", vaultOwnerToken: "vault-token" },
+      input: expect.objectContaining({ category: "home", latitude: 28.6139, longitude: 77.209, address: expect.stringContaining("Flat 4B") }),
+    }));
+    await waitFor(() => expect(screen.queryByTestId("save-location-modal")).toBeNull());
+    expect(screen.queryByTestId("saved-places-banner")).toBeNull();
+    expect(screen.queryByTestId("one-location-onboarding")).toBeNull();
+    expect(screen.getByRole("switch", { name: "Turn location off" })).toHaveAttribute("aria-checked", "true");
   });
 
   it.each(["v1", "v2"])(
@@ -5604,7 +5021,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeNull();
       expect(
         screen.queryByRole("heading", {
-          name: "Share your location easily with anyone.",
+          name: "Keep your people updated.",
         }),
       ).toBeNull();
     },
@@ -5649,7 +5066,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
     expect(
       await screen.findByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: "Keep your people updated.",
       }),
     ).toBeTruthy();
     const onboardingShellClass =
@@ -8440,11 +7857,11 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openLocationPermissionsStep();
+    await skipLocationEntryFlow();
+    expect(mockOpenLocationSettings).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
     await waitFor(() => expect(mockOpenLocationSettings).toHaveBeenCalled());
-    expect(
-      screen.getByText(/Location access is off.*Turn it on to set up/i),
-    ).toBeTruthy();
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockCreateGrant).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });

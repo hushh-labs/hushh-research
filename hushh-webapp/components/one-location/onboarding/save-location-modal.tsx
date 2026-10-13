@@ -25,8 +25,6 @@ import {
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, useSheetDragHandle } from "@/components/ui/sheet";
-import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
-import { ONE_LOCATION_ONBOARDING_STEPS } from "@/components/one-location/onboarding/one-location-onboarding-steps";
 import {
   LocationPickerMap,
   type LocationPickerMapHandle,
@@ -1104,13 +1102,7 @@ export function SaveLocationModal({
             >
               <ArrowLeft className="h-5 w-5" strokeWidth={2.3} aria-hidden />
             </button>
-            <OnboardingStepper
-              steps={ONE_LOCATION_ONBOARDING_STEPS}
-              currentIndex={2}
-              compact
-              ariaLabel="One Location setup progress"
-              className="w-full"
-            />
+            <span className="ui-text-navigation-title text-center">Save a place</span>
             <span className="h-11 w-11 justify-self-end" aria-hidden />
           </header>
 

@@ -37,11 +37,8 @@ export function LocationOnboardingSetupClient() {
     return <LocationSetupReturn onReturn={coordinator.returnToSetup} />;
   }
 
-  // No cinematic intro or separate permission primer here. The flow's own
-  // Welcome and Features screens frame the value, and Location is requested
-  // only after the person taps "Set up my location". Notifications are
-  // deliberately outside this onboarding journey. Other capabilities keep
-  // their intro gate: this is a Location-only change.
+  // The two-screen introduction completes independently of device access.
+  // Location is requested later through the workspace toggle or Save a place.
   const flowProps = {
     onSetupReadinessChange: setReady,
     onSetupComplete: async () => {

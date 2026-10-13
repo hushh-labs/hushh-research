@@ -67,14 +67,10 @@ describe("Location setup route contract", () => {
     expect(locationPage).toContain(
       'Boolean(auth.userId && (mode === "setup" || vaultOwnerToken))',
     );
-    expect(locationPage).toContain(
-      "onLocationReady={promptSaveLocationDuringOnboarding}",
-    );
+    expect(locationPage).not.toContain("onLocationReady=");
+    expect(locationPage).not.toContain("onRequestLocation=");
     expect(locationPage).toContain(
       "PreVaultSensitiveDraftService.stageSavedLocation(auth.userId, input)",
-    );
-    expect(locationPage).toContain(
-      "deferredUntilVault={!vaultKey || !vaultOwnerToken}",
     );
     expect(locationPage).toContain(
       "vaultOwnerToken ? reverseGeocodeForSavedLocation : undefined",

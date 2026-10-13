@@ -134,7 +134,7 @@
     {
       "action_id": "setup.finish_location",
       "label": "Finish Location setup",
-      "meaning": "Requests final verification after the Location onboarding runtime has settled permission, position, place or explicit skip, and personal Circle provisioning.",
+      "meaning": "Completes the two-screen Location introduction and returns to setup. Device location access and saved places can be enabled later from the Location workspace.",
       "aliases": [
         "finish location setup",
         "finish location",
@@ -155,9 +155,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "The active Location onboarding run has verified permission and position evidence.",
-          "A saved-place settlement or explicit place-skip settlement exists.",
-          "The personal Circle was provisioned or reused and verified."
+          "The Location introduction is open and the signed-in setup coordinator is ready."
         ]
       },
       "guard_ids": [
@@ -170,15 +168,11 @@
         "path": "local_handler",
         "target": "setup.finish_location"
       },
-      "command": {
-        "permission": "location"
-      },
       "control_ids": [
         "one-setup-location-terminal"
       ],
       "state_exposure": [
-        "bounded Location onboarding run status",
-        "verified settlement readiness"
+        "Location introduction completion readiness"
       ]
     },
     {
