@@ -856,19 +856,18 @@ export function getGmailEmailDraftPayload(
       : "";
   };
   const body = draftField("body", 12_000);
+  const initialDraft = {
+    to: draftField("to", 2_048),
+    cc: draftField("cc", 2_048),
+    bcc: draftField("bcc", 2_048),
+    subject: draftField("subject", 512),
+    body,
+  };
   return instruction
     ? {
         instruction,
         driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null,
-        initialDraft: body
-          ? {
-              to: draftField("to", 2_048),
-              cc: draftField("cc", 2_048),
-              bcc: draftField("bcc", 2_048),
-              subject: draftField("subject", 512),
-              body,
-            }
-          : null,
+        initialDraft: Object.values(initialDraft).some(Boolean) ? initialDraft : null,
       }
     : null;
 }
@@ -4006,7 +4005,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             ? { to: "", cc: "", bcc: "", subject: "", body: "", driveFileId: payload.driveFileId }
             : null,
       );
-      setEmailDraftAutoDraft(!payload.initialDraft);
+      setEmailDraftAutoDraft(!payload.initialDraft?.body);
       setEmailDraftAnchorMessageId(assistantMessageId);
       setEmailDraftOpen(true);
       return true;
