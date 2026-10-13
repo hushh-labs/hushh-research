@@ -1718,6 +1718,12 @@ article[data-message-role="user"] .messageDeliveryState {
   .messageList { padding-inline: 16px; }
 }
 @media (max-width: 374px) { .voiceSpeedButton { display: none; } }
+@media (max-width: 374px) {
+  .fileMessageCard { display: grid; grid-template-columns: 24px minmax(0, 1fr) 44px; }
+  .fileMessageCard > svg { grid-column: 1; grid-row: 1; }
+  .fileMessageCard > button { grid-column: 3; grid-row: 1; }
+  .fileMessageCard > div { grid-column: 1 / -1; grid-row: 2; }
+}
 @media (max-height: 500px) {
   .threadHeader, .threadHeaderContent { min-height: 44px; height: 44px; }
   .threadHeaderContent { padding-block: 0; }
