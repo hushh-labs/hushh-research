@@ -104,6 +104,7 @@ def _schema_dict(value: Any) -> dict[str, Any] | None:
     """One JSON-schema shape for a genai ``Schema``, a pydantic model or a dict."""
     if value is None:
         return None
+    dumped: object
     if isinstance(value, dict):
         dumped = value
     elif isinstance(value, type):
