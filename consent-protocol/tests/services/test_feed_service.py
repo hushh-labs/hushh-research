@@ -1,5 +1,7 @@
 import base64
+import sqlite3
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 
@@ -190,6 +192,153 @@ def test_mark_read_is_tenant_scoped_and_never_unbounded() -> None:
         ("id", POSTGRES_BIGINT_MAX),
         {},
     ) in update_query.calls
+
+
+def test_feed_mutations_only_touch_the_owner_and_snapshot() -> None:
+    db = _Db()
+    service = FeedService()
+    service._db = db
+
+    assert service.dismiss("owner-a", item_id=42) == {"status": "ok", "dismissal_token": None}
+    expected_token = "11111111-1111-4111-8111-111111111111"
+    assert service.restore("owner-a", item_id=42, dismissal_token=expected_token) == {
+        "status": "ok",
+        "restored": False,
+    }
+    assert service.clear("owner-a", up_to_id=99) == {"status": "ok"}
+
+    params = [values for _, values in db.raw_calls]
+    assert [
+        {key: value for key, value in entry.items() if key != "dismissal_token"} for entry in params
+    ] == [
+        {"user_id": "owner-a", "item_id": 42},
+        {"user_id": "owner-a", "item_id": 42},
+        {"user_id": "owner-a", "up_to_id": 99},
+    ]
+    assert str(UUID(params[0]["dismissal_token"])) == params[0]["dismissal_token"]
+    assert params[1]["dismissal_token"] == expected_token
+    assert str(UUID(params[2]["dismissal_token"])) == params[2]["dismissal_token"]
+    dismiss_sql, restore_sql, clear_sql = [sql for sql, _ in db.raw_calls]
+    assert "WHERE user_id = :user_id AND id = :item_id" in dismiss_sql
+    assert "WHERE user_id = :user_id AND id = :item_id" in restore_sql
+    assert "item.user_id = :user_id" in dismiss_sql
+    assert "item.user_id = :user_id" in restore_sql
+    assert "item.metadata->>'bundle_id' = target.bundle_id" in dismiss_sql
+    assert "item.id <= :item_id" in dismiss_sql
+    assert "WHERE user_id = :user_id AND id <= :up_to_id" in clear_sql
+    assert "read_at = COALESCE(item.read_at, now())" in dismiss_sql
+    assert "RETURNING id, dismissal_token" in dismiss_sql
+    assert "item.dismissal_token = :dismissal_token" in restore_sql
+    assert "read_at = COALESCE(read_at, now())" in clear_sql
+    assert "SET dismissed_at = NULL" in restore_sql
+    assert "dismissal_token = :dismissal_token" in clear_sql
+
+
+def test_grouped_feed_hides_latest_dismissed_thread_until_new_activity() -> None:
+    sql = FeedService()._grouped_feed_sql(count=False)
+    assert "row_number() OVER (PARTITION BY thread_key ORDER BY id DESC)" in sql
+    assert "thread_rank = 1 AND dismissed_at IS NULL" in sql
+    assert "last_dismissed_id IS NULL OR id > last_dismissed_id" in sql
+
+
+def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
+    connection = sqlite3.connect(":memory:")
+    stamp = ["first-dismiss"]
+    connection.create_function("now", 0, lambda: stamp[0])
+    connection.execute(
+        "CREATE TABLE feed_events(id INTEGER PRIMARY KEY,user_id TEXT,source_domain TEXT,"
+        "event_type TEXT,metadata TEXT,dismissed_at TEXT,dismissal_token TEXT,read_at TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO feed_events(id,user_id,source_domain,event_type,metadata) VALUES(?,?,?,?,?)",
+        [
+            (1, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
+            (2, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
+            (3, "other", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
+            (4, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-b"}'),
+            (5, "owner", "connected_systems", "document_share_decided", '{"request_id":"req-a"}'),
+            (6, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-a"}'),
+            (7, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-b"}'),
+            (8, "owner", "kai", "kai_analysis_completed", "{}"),
+            (9, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
+            (10, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-a"}'),
+        ],
+    )
+
+    class Db:
+        def execute_raw(self, sql, params):
+            cursor = connection.execute(sql, params)
+            data = (
+                [
+                    dict(zip([column[0] for column in cursor.description], row, strict=True))
+                    for row in cursor.fetchall()
+                ]
+                if cursor.description
+                else []
+            )
+            connection.commit()
+            return SimpleNamespace(data=data)
+
+    service = FeedService()
+    service._db = Db()
+    first_token = service.dismiss("owner", item_id=2)["dismissal_token"]
+    assert first_token is not None
+    assert [
+        row[0]
+        for row in connection.execute(
+            "SELECT id FROM feed_events WHERE dismissed_at IS NOT NULL ORDER BY id"
+        )
+    ] == [1, 2]
+    # An independent earlier dismissal must not be undone with a later bundle.
+    stamp[0] = "second-dismiss"
+    second_token = service.dismiss("owner", item_id=9)["dismissal_token"]
+    assert second_token is not None
+    assert service.restore("owner", item_id=9, dismissal_token=second_token)["restored"] is True
+    assert (
+        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=1").fetchone()[0]
+        == "first-dismiss"
+    )
+    assert (
+        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=9").fetchone()[0] is None
+    )
+    stamp[0] = "drive-dismiss"
+    drive_token = service.dismiss("owner", item_id=6)["dismissal_token"]
+    assert drive_token is not None
+    assert [
+        row[0]
+        for row in connection.execute(
+            "SELECT id FROM feed_events WHERE dismissed_at='drive-dismiss' ORDER BY id"
+        )
+    ] == [6]
+    # A valid earlier Drive progress/payment entry is an independent Feed row.
+    assert (
+        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=5").fetchone()[0] is None
+    )
+    assert service.restore("owner", item_id=6, dismissal_token=drive_token)["restored"] is True
+    assert (
+        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=5").fetchone()[0] is None
+    )
+    assert (
+        connection.execute("SELECT read_at FROM feed_events WHERE id=6").fetchone()[0] is not None
+    )
+
+    stamp[0] = "clear"
+    service.clear("owner", up_to_id=8)
+    assert (
+        connection.execute("SELECT dismissal_token FROM feed_events WHERE id=2").fetchone()[0]
+        != first_token
+    )
+    assert service.restore("owner", item_id=2, dismissal_token=first_token)["restored"] is False
+    assert service.dismiss("owner", item_id=2)["dismissal_token"] is None
+    assert [
+        row[0]
+        for row in connection.execute(
+            "SELECT id FROM feed_events WHERE user_id='owner' AND dismissed_at IS NULL ORDER BY id"
+        )
+    ] == [9, 10]
+    assert (
+        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=3").fetchone()[0] is None
+    )
 
 
 def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
