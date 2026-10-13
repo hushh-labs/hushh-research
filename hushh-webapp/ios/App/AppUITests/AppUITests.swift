@@ -594,7 +594,9 @@ final class AppUITests: XCTestCase {
             guard prepareEmptySecureEntry(field, app: app, unlockControls: unlock) else {
                 XCTFail("SECURE_PUBLIC_PROBE_CLEAR_FAILED"); return
             }
-            app.typeText(fixture)
+            // Match the credential path: target the named secure field, not
+            // the application-wide responder (which lost synthetic input).
+            field.typeText(fixture)
             let inserted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 (field.value as? String)?.utf16.count == fixture.utf16.count &&
                     unlock.count == 1 && unlock.firstMatch.isEnabled
