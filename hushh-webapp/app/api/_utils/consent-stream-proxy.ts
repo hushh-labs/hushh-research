@@ -8,8 +8,21 @@ const STREAM_PROXY_HEADER = "X-Hussh-Stream-Via";
 const STREAM_PROXY_VALUE = "next-proxy";
 const FEED_PROTOCOL_VERSIONS = new Set(["1", "2"]);
 
-function failure(status: number, error: string, headers: Record<string, string> = {}): Response {
-  return Response.json({ error }, { status, headers: { ...PRIVATE_HEADERS, ...headers } });
+function failure(status: number, error: string, headers: Record<string, string> = {}, errorCode?: string): Response {
+  return Response.json(
+    { error, ...(errorCode ? { detail: { error_code: errorCode } } : {}) },
+    { status, headers: { ...PRIVATE_HEADERS, ...headers } },
+  );
+}
+
+/**
+ * Only the discriminator, never the upstream message or body: a disabled-flag
+ * code like CONSENT_SSE_DISABLED is safe and deliberate, not a private error.
+ */
+function upstreamErrorCode(body: unknown): string | undefined {
+  const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined;
+  const code = detail && typeof detail === "object" ? (detail as { error_code?: unknown }).error_code : undefined;
+  return typeof code === "string" ? code : undefined;
 }
 
 /** Only these two authenticated backend streams may be reached by this proxy. */
@@ -56,13 +69,23 @@ export async function proxyConsentStream(
       },
     );
     if (!upstream.ok) {
-      await upstream.body?.cancel().catch(() => {});
+      // The discriminator decides whether the client ever retries (e.g.
+      // CONSENT_SSE_DISABLED on a 410 is permanent), so it must survive this
+      // hop even though the rest of the upstream body never does.
+      let errorCode: string | undefined;
+      try {
+        const text = await upstream.text();
+        errorCode = text ? upstreamErrorCode(JSON.parse(text)) : undefined;
+      } catch {
+        errorCode = undefined;
+      }
       // A busy backend says when to come back; pass on only a plain delay.
       const retryAfter = upstream.status === 503 ? upstream.headers.get("retry-after") : null;
       return failure(
         upstream.status >= 400 ? upstream.status : 502,
         "Could not connect to consent events stream",
         retryAfter && /^\d{1,4}$/.test(retryAfter) ? { "Retry-After": retryAfter } : {},
+        errorCode,
       );
     }
     if (!upstream.body) return failure(502, "No stream body from backend");
