@@ -216,7 +216,7 @@ export class PkmDomainResourceService {
             liveRevision: cachedBlobRevision,
             tier: "memory",
           });
-          return await this.refresh(params);
+          return await this.refresh(params, { bypassInflight: params.forceRefresh });
         }
         logRequest("revision_match_hit", {
           userId: params.userId,
@@ -261,7 +261,7 @@ export class PkmDomainResourceService {
               cachedRevision: secure.key.contentRevision,
               liveRevision: cachedBlobRevision,
             });
-            return await this.refresh(params);
+            return await this.refresh(params, { bypassInflight: params.forceRefresh });
           }
           logRequest("revision_match_hit", {
             userId: params.userId,
@@ -284,7 +284,7 @@ export class PkmDomainResourceService {
       domain: params.domain,
       segmentSignature: segmentSignature(params.segmentIds),
     });
-    return await this.refresh(params);
+    return await this.refresh(params, { bypassInflight: params.forceRefresh });
   }
 
   static async prepareDomainWriteContext(
@@ -320,15 +320,30 @@ export class PkmDomainResourceService {
     };
   }
 
+  /**
+   * bypassInflight: without this, a refresh() called right after a write
+   * can silently join an older in-flight refresh() (e.g. one kicked off
+   * on mount) and resolve to its pre-write snapshot instead of fetching
+   * fresh -- the caller thinks it forced a refresh but actually got stale
+   * data. Also threaded down as `forceRefresh` into
+   * PersonalKnowledgeModelService.loadDomainDataWithBlob/getDomainData,
+   * which have their OWN independent cache (CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB)
+   * and inflight dedupe map one layer below this one -- without bypassing
+   * those too, this refresh() can report itself as "network" sourced while
+   * actually still handing back a stale pre-write blob from that deeper
+   * cache. getStaleFirst() sets this whenever the caller passed
+   * forceRefresh: true.
+   */
   static async refresh(
-    params: PkmDomainResourceParams
+    params: PkmDomainResourceParams,
+    options?: { bypassInflight?: boolean }
   ): Promise<PkmDomainResourceSnapshot | null> {
     if (!params.userId || !params.domain || !params.vaultKey) {
       return null;
     }
 
     const inflightKey = `${params.userId}:${params.domain}:${segmentSignature(params.segmentIds)}`;
-    const existing = inflightRefreshes.get(inflightKey);
+    const existing = options?.bypassInflight ? undefined : inflightRefreshes.get(inflightKey);
     if (existing) {
       logRequest("inflight_dedupe_hit", {
         userId: params.userId,
@@ -349,6 +364,7 @@ export class PkmDomainResourceService {
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken || undefined,
       segmentIds: params.segmentIds,
+      forceRefresh: options?.bypassInflight,
     })
       .then(async ({ data, blob }) => {
         if (!data) {

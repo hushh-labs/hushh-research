@@ -44,11 +44,14 @@ describe("OneDashboardPage", () => {
         .getByRole("link", { name: "Open Connected Systems" })
         .getAttribute("href"),
     ).toBe(ROUTES.CONNECTED_SYSTEMS);
+    expect(
+      screen.getByRole("link", { name: "Open Sage" }).getAttribute("href"),
+    ).toBe(ROUTES.SAGE);
     expect(screen.getAllByText("Setup needed")).toHaveLength(3);
     expect(screen.getAllByText("Ready")).toHaveLength(3);
     expect(screen.getByText("2 pending")).toBeTruthy();
     expect(screen.getByText("Gmail receipts and saved knowledge.")).toBeTruthy();
-    expect(container.querySelectorAll(".morphy-ripple-host").length).toBe(7);
+    expect(container.querySelectorAll(".morphy-ripple-host").length).toBe(8);
     expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
   });
 

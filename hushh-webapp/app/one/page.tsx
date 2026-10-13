@@ -8,12 +8,14 @@ import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { useVault } from "@/lib/vault/vault-context";
 import { ROUTES } from "@/lib/navigation/routes";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 
 export default function OneHomePage() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const { vaultOwnerToken } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
   const [oneSetupResolved, setOneSetupResolved] = useState<boolean | null>(
     null,
@@ -69,6 +71,8 @@ export default function OneHomePage() {
         displayName={user.displayName || user.email}
         pendingConsents={pendingConsents}
         oneSetupResolved={oneSetupResolved}
+        userId={user.uid}
+        vaultOwnerToken={vaultOwnerToken}
       />
     </>
   );

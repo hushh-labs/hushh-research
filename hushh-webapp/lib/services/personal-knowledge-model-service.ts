@@ -3165,11 +3165,12 @@ export class PersonalKnowledgeModelService {
     userId: string,
     domain: string,
     vaultOwnerToken?: string,
-    segmentIds?: string[]
+    segmentIds?: string[],
+    forceRefresh?: boolean
   ): Promise<EncryptedDomainBlob | null> {
     const cache = CacheService.getInstance();
     const normalizedSegmentIds = this.normalizeSegmentIds(segmentIds);
-    const canUseCache = normalizedSegmentIds.length === 0;
+    const canUseCache = normalizedSegmentIds.length === 0 && !forceRefresh;
     const cacheKey = CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain);
     if (canUseCache) {
       const cached = cache.peek<EncryptedDomainBlob | null>(cacheKey);
@@ -3189,7 +3190,11 @@ export class PersonalKnowledgeModelService {
       Capacitor.isNativePlatform() ? "native" : "web",
       vaultOwnerToken ? "vault_owner" : "anonymous",
     ]);
-    const existingRequest = this.domainDataInflight.get(dedupeKey);
+    // forceRefresh also skips joining an existing in-flight request for this
+    // same key -- otherwise a slow pre-write fetch (e.g. one kicked off on
+    // mount) that's still pending would hand back its pre-write result here,
+    // the same staleness bug the cache check above guards against.
+    const existingRequest = forceRefresh ? undefined : this.domainDataInflight.get(dedupeKey);
     if (existingRequest) {
       return existingRequest;
     }
@@ -3479,6 +3484,7 @@ export class PersonalKnowledgeModelService {
     vaultKey: string;
     vaultOwnerToken?: string;
     segmentIds?: string[];
+    forceRefresh?: boolean;
   }): Promise<{
     data: Record<string, unknown> | null;
     blob: EncryptedDomainBlob | null;
@@ -3487,7 +3493,8 @@ export class PersonalKnowledgeModelService {
       params.userId,
       params.domain,
       params.vaultOwnerToken,
-      params.segmentIds
+      params.segmentIds,
+      params.forceRefresh
     );
     if (!blob) {
       return {
