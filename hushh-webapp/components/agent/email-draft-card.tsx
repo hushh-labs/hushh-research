@@ -379,7 +379,11 @@ export function EmailDraftCard({
             to: envelope.to, cc: envelope.cc, bcc: envelope.bcc, subject: envelope.subject,
           })}\nKeep the known fields and complete the missing draft details.`
         : instruction;
-      const next = await EmailDeliveryService.draft({ ...auth, instruction: draftInstruction });
+      const next = await EmailDeliveryService.draft({
+        ...auth,
+        // Do not push a valid request over the API limit by adding context.
+        instruction: draftInstruction.length <= 12_000 ? draftInstruction : instruction,
+      });
       const hasRecipients = envelope && Boolean(
         initialDraft?.to || initialDraft?.cc || initialDraft?.bcc ||
         envelope.to || envelope.cc || envelope.bcc ||

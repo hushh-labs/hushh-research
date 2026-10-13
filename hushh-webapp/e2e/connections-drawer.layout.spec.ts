@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { HUSHH_MARK_PATH } from "../lib/brand/hushh-mark";
 import {
   productFontStyle,
   stripAppFontFaces,
@@ -99,12 +100,21 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() +
+    fs.readdirSync(outDir).filter(name => name.endsWith(".css"))
+      .map(name => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
 });
 
 test.beforeEach(async ({ page }) => {
   const fixtureErrors: string[] = [];
   page.on("pageerror", (error) => fixtureErrors.push(error.message));
+  const mark = fs.readFileSync(path.join(process.cwd(), "public", new URL(HUSHH_MARK_PATH, "http://localhost").pathname));
+  await page.route("**/_next/image?**", route => {
+    if (new URL(route.request().url()).searchParams.get("url") === HUSHH_MARK_PATH)
+      return route.fulfill({ contentType: "image/png", body: mark });
+    return route.continue();
+  });
+  await page.route(`**${HUSHH_MARK_PATH}`, route => route.fulfill({ contentType: "image/png", body: mark }));
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
   await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
@@ -113,7 +123,7 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname), "utf8"),
     }),
   );
-  await page.route("http://localhost/connections-fixture", (route) =>
+  await page.route("http://localhost/connections-fixture*", (route) =>
     route.fulfill({
       contentType: "text/html",
       body: `<!doctype html><html><head><title>One Connectors contract</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
@@ -1365,3 +1375,59 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
   expect(server.calendarStarts).toBe(0);
   await expectChatIntact(page, navigations);
 });
+
+for (const viewport of [
+  { width: 320, height: 568 },
+  { width: 390, height: 844 },
+  { width: 768, height: 720 },
+  { width: 1440, height: 900 },
+]) {
+  test(`One profile keeps its header and tabs stationary while switching at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.route("**/api/one/feed**", route => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ items: Array.from({ length: 20 }, (_, i) => ({
+        id: String(i + 100), event_type: "connection_accepted", source_domain: "connections",
+        actor_label: `Synthetic person ${i + 1}`, metadata: {}, read: false,
+        created_at: "2026-10-12T08:00:00Z",
+      })), next_cursor: null, unread_count: 20 }),
+    }));
+    await page.goto("http://localhost/connections-fixture?one-profile=1");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+    const panel = page.getByRole("dialog", { name: "One", exact: true });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId("feed-row").first()).toBeVisible();
+    // Geometry is measured after the sheet's entrance motion settles.
+    await expect.poll(() => panel.evaluate(element =>
+      new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+    await expect.poll(() => panel.locator("[data-hushh-mark] img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    const rail = panel.getByRole("tablist", { name: "One profile sections" });
+    const initial = (await rail.boundingBox())!;
+    const frame = (await panel.boundingBox())!;
+    const scroll = await panel.getByRole("tabpanel", { name: "Feed" }).evaluate(element => {
+      let node = element.parentElement;
+      while (node && !["auto", "scroll"].includes(getComputedStyle(node).overflowY)) node = node.parentElement;
+      if (!node) throw new Error("Missing active-panel scroller");
+      node.scrollTop = node.scrollHeight;
+      return node.scrollTop;
+    });
+    expect(scroll).toBeGreaterThan(80);
+    expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+    for (let i = 0; i < 3; i += 1) {
+      if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
+      await panel.getByRole("tab", { name: "Profile", exact: true }).click();
+      await expect(panel.getByRole("link", { name: "Open memory.md in Memory" })).toBeVisible();
+      expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+      await panel.getByRole("tab", { name: "Feed", exact: true }).click();
+      await expect(panel.getByTestId("feed-row").first()).toBeVisible();
+      expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+    }
+    expect(frame.x).toBeGreaterThan(0);
+    expect(frame.x + frame.width).toBeLessThanOrEqual(viewport.width);
+    expect(frame.y + frame.height).toBeLessThanOrEqual(viewport.height);
+    expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath("one-profile-atd.png") });
+  });
+}

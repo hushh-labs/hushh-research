@@ -150,6 +150,24 @@ describe("EmailDraftCard", () => {
     expect(EmailDeliveryService.send).not.toHaveBeenCalled();
   });
 
+  it("does not exceed the draft API's instruction limit when adding envelope context", async () => {
+    const instruction = "x".repeat(12_000);
+    vi.mocked(EmailDeliveryService.draft).mockResolvedValue({
+      to: "", cc: "", bcc: "", subject: "Details", body: "Draft body", missingDetails: [],
+    });
+    render(
+      <EmailDraftCard initialInstruction={instruction}
+        initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "", body: "" }}
+        autoDraft getAuth={getAuth} onRequireVault={vi.fn()} onDismiss={vi.fn()} onSent={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(EmailDeliveryService.draft).toHaveBeenCalledWith({
+      firebaseIdToken: "firebase-token", vaultOwnerToken: "vault-owner-token", instruction,
+    }));
+    expect(await screen.findByDisplayValue("pat@example.com")).toBeInTheDocument();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
   it("keeps a dictated initial body exact through the reviewed Send tap", async () => {
     const dictated = "I will send the demo tomorrow.\\n- Please review it.";
     vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({

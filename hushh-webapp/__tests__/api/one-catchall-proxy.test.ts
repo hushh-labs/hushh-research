@@ -12,6 +12,7 @@ type ProxyHandler = (
 
 type OneCatchAllRoute = {
   GET: ProxyHandler;
+  POST: ProxyHandler;
   DELETE: ProxyHandler;
   PUT?: ProxyHandler;
 };
@@ -25,6 +26,32 @@ beforeEach(async () => {
 });
 
 describe("/api/one/[...path] proxy", () => {
+  it("forwards owner-authorized Wallet network metadata with a private response", async () => {
+    const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] }), { headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store" } }));
+    const body = JSON.stringify({ iinPrefix: "411111", panLength: 16 });
+    const request = new NextRequest("http://localhost:3000/api/one/wallet/card-access/networks/resolve", {
+      method: "POST", body,
+      headers: { Authorization: "Bearer fixture", "X-Hushh-Consent": "owner-fixture", "Content-Type": "application/json" },
+    });
+    const response = await route.POST(request, { params: Promise.resolve({ path: ["wallet", "card-access", "networks", "resolve"] }) });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const options = upstream.mock.calls.at(-1)![1] as RequestInit;
+    expect(options.body).toBe(body);
+    expect(new Headers(options.headers).get("x-hushh-consent")).toBe("owner-fixture");
+  });
+
+  it("rejects oversized Wallet requests before contacting the backend", async () => {
+    const upstream = vi.spyOn(globalThis, "fetch");
+    upstream.mockClear();
+    const request = new NextRequest("http://localhost:3000/api/one/wallet/card-access/networks/resolve", {
+      method: "POST", body: "x".repeat(16_385), headers: { "Content-Type": "application/json" },
+    });
+    const response = await route.POST(request, { params: Promise.resolve({ path: ["wallet", "card-access", "networks", "resolve"] }) });
+    expect(response.status).toBe(413);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it("preserves the empty response when no Location onboarding run exists", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
     const request = new NextRequest("http://localhost:3000/api/one/workflows/location/onboarding/runs/active", {

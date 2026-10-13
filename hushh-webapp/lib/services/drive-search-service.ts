@@ -15,7 +15,9 @@ export type DriveSearchCoverage = {
   corpora: Array<"user" | "member_shared_drives">;
   fileKind: string;
   requestedPeriod: { start: string; end: string; timezone: string } | null;
-  dateBasis: "title_date_then_created_or_modified";
+  dateBasis: "title_date_then_created_or_modified" | "content_period_unverified";
+  timeIntent?: "file_activity" | "document_coverage";
+  ownerReviewRequired?: boolean;
   contentPeriodVerified: false;
   providerRowsScanned: number;
   excludedByDateCount: number;
@@ -130,7 +132,13 @@ function coverage(value: unknown): DriveSearchCoverage {
   if (!Array.isArray(item.corpora) || item.corpora.length > 2 ||
     item.corpora.some(corpus => corpus !== "user" && corpus !== "member_shared_drives") ||
     new Set(item.corpora).size !== item.corpora.length ||
-    item.dateBasis !== "title_date_then_created_or_modified" || item.contentPeriodVerified !== false ||
+    !["title_date_then_created_or_modified", "content_period_unverified"].includes(item.dateBasis as string) ||
+    item.contentPeriodVerified !== false ||
+    item.timeIntent !== undefined && item.timeIntent !== "file_activity" && item.timeIntent !== "document_coverage" ||
+    item.ownerReviewRequired !== undefined && typeof item.ownerReviewRequired !== "boolean" ||
+    item.timeIntent === "document_coverage" && item.ownerReviewRequired !== true ||
+    item.dateBasis === "content_period_unverified" &&
+      (item.timeIntent !== "document_coverage" || item.ownerReviewRequired !== true) ||
     typeof item.providerPagesExhausted !== "boolean" ||
     item.shareabilityVerified !== undefined && typeof item.shareabilityVerified !== "boolean")
     throw new DriveSearchError("invalid_response");
@@ -144,7 +152,9 @@ function coverage(value: unknown): DriveSearchCoverage {
   }
   return { ...selectionCoverage(item),
     corpora: item.corpora as DriveSearchCoverage["corpora"], fileKind: text(item.fileKind, 32), requestedPeriod,
-    dateBasis: item.dateBasis, contentPeriodVerified: false,
+    dateBasis: item.dateBasis as DriveSearchCoverage["dateBasis"], contentPeriodVerified: false,
+    ...(item.timeIntent === undefined ? {} : { timeIntent: item.timeIntent as DriveSearchCoverage["timeIntent"] }),
+    ...(item.ownerReviewRequired === undefined ? {} : { ownerReviewRequired: item.ownerReviewRequired as boolean }),
     providerRowsScanned: count(item.providerRowsScanned, Number.MAX_SAFE_INTEGER),
     excludedByDateCount: count(item.excludedByDateCount, Number.MAX_SAFE_INTEGER),
     ...(item.excludedByTopicCount === undefined ? {} : {

@@ -56,6 +56,7 @@ vi.mock("@/lib/services/referral-service", () => ({
 }));
 
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { ReferralDashboardPage, formatCountdown } from "@/components/referrals/referral-dashboard-page";
 
 const SUMMARY = {
@@ -122,15 +123,59 @@ describe("ReferralDashboardPage", () => {
     expect(mocks.getPoints).toHaveBeenCalledTimes(2);
   });
 
-  it("shows rules independently of a pending summary and navigates back to One", async () => {
+  it("shows rules independently of a pending summary and lets shared Back return to One", async () => {
     mocks.getSummary.mockReturnValue(neverResolves());
     render(<ReferralDashboardPage />);
     fireEvent.click(await screen.findByRole("button", { name: "How it works" }));
     expect(await screen.findByText("100 coins")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Back to referrals" }));
+    const navigate = ({ href }: { href: string }) => mocks.push(href);
+    act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
     expect(screen.getByText("Loading your referrals…")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Back to One home" }));
+    expect(mocks.push).not.toHaveBeenCalled();
+    act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
     expect(mocks.push).toHaveBeenCalledWith("/one");
+  });
+
+  it("closes sharing before route Back and releases the layer when its pane is inactive or unmounted", async () => {
+    const { unmount } = render(<ReferralDashboardPage />);
+    const share = await screen.findByRole("button", { name: "Share", expanded: false });
+    expect(screen.queryByRole("button", { name: "Copy invite link" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Share on WhatsApp" })).toBeNull();
+
+    fireEvent.click(share);
+    expect(screen.getByRole("button", { name: "Close share options", expanded: true })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Share by SMS" })).toHaveAttribute(
+      "href", `sms:?&body=${encodeURIComponent(`Join me on Hushh One: ${SUMMARY.link}`)}`,
+    );
+    const navigate = ({ href }: { href: string }) => mocks.push(href);
+    act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
+    expect(screen.getByRole("button", { name: "Share", expanded: false })).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Copy invite link" })).toBeNull();
+    expect(mocks.push).not.toHaveBeenCalled();
+    act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
+    expect(mocks.push).toHaveBeenCalledWith("/one");
+
+    fireEvent.click(share);
+    fireEvent.click(screen.getByRole("tab", { name: "Ranking" }));
+    expect(unwindBackLayer("/one/referrals")).toBe(false);
+    fireEvent.click(screen.getByRole("tab", { name: "You" }));
+    expect(screen.getByRole("button", { name: "Share", expanded: false })).toBeInTheDocument();
+    fireEvent.click(share);
+    unmount();
+    expect(unwindBackLayer("/one/referrals")).toBe(false);
+  });
+
+  it("restores focus to Share when Escape hides a focused sharing action", async () => {
+    render(<ReferralDashboardPage />);
+    const share = await screen.findByRole("button", { name: "Share" });
+    fireEvent.click(share);
+    const sms = screen.getByRole("link", { name: "Share by SMS" });
+    sms.focus();
+    fireEvent.keyDown(sms, { key: "Escape" });
+    expect(share).toHaveFocus();
+    expect(share).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("link", { name: "Share by SMS" })).toBeNull();
+    expect(unwindBackLayer("/one/referrals")).toBe(false);
   });
 
   it("renders Rules amounts from the active backend policy", async () => {
@@ -143,7 +188,7 @@ describe("ReferralDashboardPage", () => {
     expect(await screen.findByText("123 coins")).toBeInTheDocument();
     expect(screen.getByText("+17 coins")).toBeInTheDocument();
     expect(screen.getByText("246 total")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Back to referrals" }));
+    act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
     expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
     expect(screen.getByText("Weekly challenge ends in")).toBeInTheDocument();
     expect(mocks.push).not.toHaveBeenCalled();
@@ -304,6 +349,7 @@ describe("ReferralDashboardPage", () => {
     const clockCard = clockHeadline.closest("div") as HTMLElement;
     expect(clockCard.style.background).toBe("rgb(23, 35, 51)");
 
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
     const copyButton = screen.getByRole("button", { name: "Copy invite link" });
     expect(copyButton.style.background).toBe("var(--app-accent)");
     // The shared token is deliberately overridden at this route, so a saved

@@ -17,6 +17,8 @@ import {
   snapshotVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
 
+import { readLabelledSoulFacts } from "@/lib/pkm/soul-labelled-facts";
+
 export const MARKDOWN_MEMORY_DOMAIN = "one_memory";
 export const MARKDOWN_MEMORY_SCHEMA = "one.memory.md.v1";
 export const MAX_MARKDOWN_MEMORY_CHARS = 18_000;
@@ -33,6 +35,8 @@ type CachedMarkdownMemory = {
   kycIntakeCompletedAt?: string | null;
   /** Ownership of generated bullets, kept outside the document and prompts. */
   sourceSummaries?: SourceSummaries;
+  /** Owner deletions must not resurrect an older structured identity value. */
+  deletedFactLabels?: string[];
 };
 
 type SourceSummaries = Record<string, { observedAt: string; facts: string[] }>;
@@ -144,7 +148,7 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries } | null {
+function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[] } | null {
   const root = record(data);
   if (typeof root.markdown !== "string") {
     if (Object.keys(root).length) throw new Error("Soul.md document is invalid.");
@@ -156,6 +160,7 @@ function readStoredDocument(data: unknown): { markdown: string; updatedAt: strin
     updatedAt: typeof root.updated_at === "string" ? root.updated_at : null,
     kycIntakeCompletedAt: typeof root._kyc_intake_completed_at === "string" ? root._kyc_intake_completed_at : null,
     sourceSummaries: readSourceSummaries(root._source_summaries),
+    deletedFactLabels: Array.isArray(root._deleted_fact_labels) ? root._deleted_fact_labels.filter((label): label is string => typeof label === "string") : [],
   };
 }
 
@@ -273,9 +278,12 @@ function cacheDocument(params: {
   syncStatus?: CachedMarkdownMemory["syncStatus"];
   kycIntakeCompletedAt?: string | null;
   sourceSummaries?: SourceSummaries;
+  /** Owner deletions must not resurrect an older structured identity value. */
+  deletedFactLabels?: string[];
 }): CachedMarkdownMemory {
   const entry = {
     ...params,
+    deletedFactLabels: params.deletedFactLabels ?? cache.get(params.userId)?.deletedFactLabels ?? [],
     vaultEpoch: snapshotVaultSessionEpoch(),
   };
   cache.set(params.userId, entry);
@@ -339,6 +347,7 @@ async function readMarkdownMemory(params: {
     userId: params.userId,
     markdown: pending.markdown,
     sourceSummaries: pending.sourceSummaries,
+    deletedFactLabels: stored?.deletedFactLabels ?? [],
     updatedAt: stored?.updatedAt ?? null,
     dataVersion: snapshot?.key?.contentRevision ?? undefined,
     persisted: Boolean(stored),
@@ -400,6 +409,14 @@ export function markdownFactsFromCards(cards: readonly AgentPkmPreviewCard[], ca
     });
 }
 
+/** Explicit deletions suppress older structured facts until the owner supplies them again. */
+function deletedLabelsAfter(before: string, after: string, previous: readonly string[] = []): string[] {
+  const beforeFacts = readLabelledSoulFacts(before);
+  const afterFacts = readLabelledSoulFacts(after);
+  return [...new Set([...previous, ...[...beforeFacts.keys()].filter(key => !afterFacts.has(key))])]
+    .filter(key => !afterFacts.has(key));
+}
+
 export async function appendMarkdownMemoryFacts(params: {
   userId: string;
   vaultKey: string;
@@ -428,6 +445,7 @@ export async function appendMarkdownMemoryFacts(params: {
   let saved = 0;
   let kycIntakeCompletedAt: string | null = null;
   let sourceSummaries: SourceSummaries = {};
+  let deletedFactLabels = peekMarkdownMemory(params.userId)?.deletedFactLabels ?? [];
   const result = await PkmWriteCoordinator.savePreparedDomain({
     userId: params.userId,
     domain: MARKDOWN_MEMORY_DOMAIN,
@@ -441,6 +459,7 @@ export async function appendMarkdownMemoryFacts(params: {
       const stored = readStoredDocument(context.currentDomainData);
       const appended = applyMemoryFacts(stored?.markdown ?? seed, stored?.sourceSummaries ?? seedSourceSummaries, facts, params.replaceSource);
       sourceSummaries = appended.sourceSummaries;
+      deletedFactLabels = deletedLabelsAfter(stored?.markdown ?? seed, appended.markdown, stored?.deletedFactLabels ?? deletedFactLabels);
       writtenMarkdown = appended.markdown;
       saved = appended.saved;
       const updatedAt = new Date().toISOString();
@@ -450,6 +469,7 @@ export async function appendMarkdownMemoryFacts(params: {
           ...record(context.currentDomainData),
           schema_version: MARKDOWN_MEMORY_SCHEMA,
           markdown: appended.markdown,
+          _deleted_fact_labels: deletedFactLabels,
           updated_at: updatedAt,
           ...(kycIntakeCompletedAt ? { _kyc_intake_completed_at: kycIntakeCompletedAt } : {}),
           ...(Object.keys(sourceSummaries).length ? { _source_summaries: sourceSummaries } : {}),
@@ -473,6 +493,7 @@ export async function appendMarkdownMemoryFacts(params: {
       userId: params.userId,
       markdown: pending.markdown,
       sourceSummaries: pending.sourceSummaries,
+      deletedFactLabels: deletedLabelsAfter(writtenMarkdown, pending.markdown, deletedFactLabels),
       updatedAt: result.updatedAt ?? new Date().toISOString(),
       dataVersion: result.dataVersion,
       persisted: true,
@@ -581,6 +602,7 @@ export async function stageMarkdownMemoryFacts(params: AppendParams & { recovery
   syncQueues.set(params.userId, queue);
   cacheDocument({ ...existing, markdown: next.markdown, updatedAt: new Date().toISOString(), syncStatus: "saving",
     sourceSummaries: next.sourceSummaries,
+    deletedFactLabels: deletedLabelsAfter(existing.markdown, next.markdown, existing.deletedFactLabels),
     kycIntakeCompletedAt: existing.kycIntakeCompletedAt ?? (params.completeKycIntake ? new Date().toISOString() : null) });
   void flushMarkdownMemory(params.userId, queue);
   return { success: true, saved: next.saved, markdown: next.markdown };
@@ -719,6 +741,7 @@ export async function replaceMarkdownMemoryDocument(params: {
   let conflict = false;
   let kycIntakeCompletedAt = local?.kycIntakeCompletedAt ?? null;
   let sourceSummaries = local?.sourceSummaries ?? {};
+  let deletedFactLabels = local?.deletedFactLabels ?? [];
   const result = await PkmWriteCoordinator.savePreparedDomain({
     userId: params.userId,
     domain: MARKDOWN_MEMORY_DOMAIN,
@@ -731,15 +754,18 @@ export async function replaceMarkdownMemoryDocument(params: {
       const stored = readStoredDocument(context.currentDomainData);
       kycIntakeCompletedAt = stored?.kycIntakeCompletedAt ?? kycIntakeCompletedAt;
       sourceSummaries = stored?.sourceSummaries ?? sourceSummaries;
+      deletedFactLabels = stored?.deletedFactLabels ?? deletedFactLabels;
       const currentMarkdown = stored?.markdown ?? seed;
       if ((params.expectedPersisted && !stored) || currentMarkdown !== params.expectedMarkdown ||
         (peekMarkdownMemory(params.userId)?.markdown ?? params.expectedMarkdown) !== params.expectedMarkdown) {
         conflict = true;
         throw new Error("Markdown memory changed during editing.");
       }
+      deletedFactLabels = deletedLabelsAfter(currentMarkdown, markdown, deletedFactLabels);
       const updatedAt = new Date().toISOString();
       return {
-        domainData: { ...context.currentDomainData, schema_version: MARKDOWN_MEMORY_SCHEMA, markdown, updated_at: updatedAt },
+        domainData: { ...context.currentDomainData, schema_version: MARKDOWN_MEMORY_SCHEMA, markdown,
+          _deleted_fact_labels: deletedFactLabels, updated_at: updatedAt },
         summary: { schema_version: MARKDOWN_MEMORY_SCHEMA, storage_mode: "encrypted_markdown", character_count: markdown.length, updated_at: updatedAt },
       };
     },
@@ -752,7 +778,7 @@ export async function replaceMarkdownMemoryDocument(params: {
   try { await params.beforeEffect(); } catch (error) { releaseQueue(); throw error; }
   if (!isVaultSessionEpochCurrent(epoch)) { releaseQueue(); return { success: false, message: "Unlock your vault to reopen Soul.md." }; }
   const pending = applyPendingMemory(markdown, sourceSummaries, queue.jobs);
-  cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
+  cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, deletedFactLabels, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
     kycIntakeCompletedAt: queue.jobs.some(job => job.completeKycIntake)
       ? peekMarkdownMemory(params.userId)?.kycIntakeCompletedAt ?? kycIntakeCompletedAt : kycIntakeCompletedAt });
   releaseQueue();

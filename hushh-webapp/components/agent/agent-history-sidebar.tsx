@@ -304,6 +304,7 @@ export function AgentHistorySidebar({
     return (
       <div
         key={conversation.id}
+        data-agent-history-row
         role="listitem"
         className={cn(
           "group relative rounded-[12px] transition-colors motion-reduce:transition-none duration-150",
@@ -368,12 +369,14 @@ export function AgentHistorySidebar({
               aria-current={active ? "page" : undefined}
               title={title}
             >
-              <span className={cn("min-w-0 flex-1 whitespace-normal break-words leading-tight", isMobileMode ? "text-[13px]" : "text-[14px]")}>
+              <span data-agent-history-row-title
+                className={cn("min-w-0 flex-1 whitespace-normal break-words leading-tight", isMobileMode ? "text-[13px]" : "text-[14px]")}>
                 {title}
               </span>
 
               {timeLabel ? (
                 <span
+                  data-agent-history-row-description
                   className={cn(
                     "shrink-0 text-[12.5px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
                     // Reserve the timestamp width even when visually hidden.
@@ -510,8 +513,8 @@ export function AgentHistorySidebar({
         data-agent-history-sidebar={isMobileMode ? "drawer" : "persistent"}
       >
         {isMobileMode ? (
-          <div className="px-5 pb-1 pt-5">
-            <div className="flex min-h-11 items-center justify-between gap-3">
+          <div data-agent-history-header className="relative flex shrink-0 flex-col border-b text-left">
+            <div className="flex min-w-0 items-center gap-2">
               <div className="flex min-w-0 items-center gap-2">
                 <h2 data-agent-history-title className="truncate text-[20px] font-bold leading-[23px] tracking-[-0.025em] text-foreground">
                   {listTitle}
@@ -528,7 +531,8 @@ export function AgentHistorySidebar({
                   variant="ghost"
                   size="icon"
                   // Match Profile's 44px close target and 16px glyph.
-                  className="h-11 w-11 shrink-0 rounded-full border border-transparent bg-[color:var(--profile-pane-surface-soft)] text-muted-foreground hover:bg-[color:var(--profile-pane-surface-strong)] hover:text-foreground"
+                  data-agent-history-close
+                  className="absolute h-11 w-11 shrink-0 rounded-full border border-transparent bg-[color:var(--profile-pane-surface-soft)] text-muted-foreground hover:bg-[color:var(--profile-pane-surface-strong)] hover:text-foreground"
                   onClick={onClose}
                   aria-label="Close chat history"
                   title="Close chats"
@@ -537,20 +541,24 @@ export function AgentHistorySidebar({
                 </Button>
               ) : null}
             </div>
-            {puppyFootnote}
+            {puppyFootnote ?? <p data-agent-history-description>Your conversations and connected apps.</p>}
+          </div>
+        ) : null}
+        {isMobileMode ? (
+          <div data-agent-history-controls className="pt-[15px] pb-1">
             <Button
               type="button"
               variant="outline"
               size="sm"
               data-chat-new-button
-              className="mt-3 flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-transparent bg-[color:var(--one-chat-field)] px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-field-strong)] dark:border-transparent dark:bg-[color:var(--one-chat-field)] dark:hover:bg-[color:var(--one-chat-field-strong)]"
+              className="flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-transparent bg-[color:var(--one-chat-field)] px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-field-strong)] dark:border-transparent dark:bg-[color:var(--one-chat-field)] dark:hover:bg-[color:var(--one-chat-field-strong)]"
               onClick={onCreateNew}
               disabled={disabled}
               aria-label="Create new chat"
               title="Create new chat"
             >
               <Plus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <span>New chat</span>
+              <span data-agent-history-row-title>New chat</span>
             </Button>
           </div>
         ) : railMode ? (
@@ -599,10 +607,10 @@ export function AgentHistorySidebar({
           </div>
         )}
 
-        {isMobileMode ? <div className="px-5 pb-1 pt-2">{searchField}</div> : null}
+        {isMobileMode ? <div data-agent-history-controls className="pb-1 pt-2">{searchField}</div> : null}
         {!isMobileMode && !railMode && puppyFootnote ? <div className="px-4">{puppyFootnote}</div> : null}
 
-        <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3 pt-0.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent", isMobileMode ? "px-5" : "px-2.5")}>
+        <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3 pt-0.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent", isMobileMode ? "px-[var(--page-inline-gutter-standard)]" : "px-2.5")}>
           {railMode ? <div className="h-2" aria-hidden="true" /> : null}
 
           {!railMode && surface === "one" ? driveActivity : null}
@@ -677,6 +685,7 @@ export function AgentHistorySidebar({
               {groupedConversations.map((group) => (
                 <div key={group.key}>
                   <div
+                    data-agent-history-section-label
                     className={cn(
                       "px-3 pb-1 pt-1.5 font-normal text-[color:var(--one-chat-meta)]",
                       isMobileMode ? "text-[12px]" : "text-[13.5px]",
@@ -702,7 +711,7 @@ export function AgentHistorySidebar({
           // Pinned below the list: it scrolls, these never do.
           <div
             data-agent-history-footer
-            className={cn("shrink-0 space-y-0.5 border-t border-[color:var(--one-chat-divider)] py-2", isMobileMode ? "px-5" : "px-2.5")}
+            className={cn("shrink-0 space-y-0.5 border-t border-[color:var(--one-chat-divider)] py-2", isMobileMode ? "px-[var(--page-inline-gutter-standard)]" : "px-2.5")}
           >
             {onOpenTodoList ? (
               <ShellActionSurface
@@ -710,12 +719,13 @@ export function AgentHistorySidebar({
                 type="button"
                 wrapperClassName="w-full"
                 className={footerButtonClassName}
+                contentClassName={isMobileMode ? "gap-[var(--app-side-pane-row-gap)] sm:gap-[var(--app-side-pane-row-gap)]" : undefined}
                 onClick={onOpenTodoList}
                 aria-label="Open To-do List"
                 title={railMode ? "To-do List" : undefined}
               >
                 <ClipboardCheck className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
-                {railMode ? null : <span className="truncate">To-do List</span>}
+                {railMode ? null : <span data-agent-history-row-title className="truncate">To-do List</span>}
               </ShellActionSurface>
             ) : null}
             {onGetApp ? (
@@ -725,6 +735,7 @@ export function AgentHistorySidebar({
                 wrapperClassName="w-full"
                 data-testid="agent-history-get-app"
                 className={footerButtonClassName}
+                contentClassName={isMobileMode ? "gap-[var(--app-side-pane-row-gap)] sm:gap-[var(--app-side-pane-row-gap)]" : undefined}
                 onClick={(event) => onGetApp(event.currentTarget)}
                 aria-label="Get the app"
                 aria-haspopup="dialog"
@@ -732,7 +743,7 @@ export function AgentHistorySidebar({
                 title={railMode ? "Get the app" : undefined}
               >
                 <DownloadIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
-                {railMode ? null : <span className="truncate">Get the app</span>}
+                {railMode ? null : <span data-agent-history-row-title className="truncate">Get the app</span>}
               </ShellActionSurface>
             ) : null}
             {onOpenConnectors ? (
@@ -741,12 +752,13 @@ export function AgentHistorySidebar({
                 type="button"
                 wrapperClassName="w-full"
                 className={footerButtonClassName}
+                contentClassName={isMobileMode ? "gap-[var(--app-side-pane-row-gap)] sm:gap-[var(--app-side-pane-row-gap)]" : undefined}
                 onClick={(event) => onOpenConnectors(event.currentTarget)}
                 aria-label="Open Connectors"
                 title={railMode ? "Connectors" : undefined}
               >
                 <PlugIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
-                {railMode ? null : <span className="truncate">Connectors</span>}
+                {railMode ? null : <span data-agent-history-row-title className="truncate">Connectors</span>}
               </ShellActionSurface>
             ) : null}
           </div>

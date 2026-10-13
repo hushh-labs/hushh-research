@@ -140,6 +140,10 @@ class DriveTrustedAutoService:
         purpose = context["purpose"]
         if not (purpose.get("periodStart") and purpose.get("periodEnd")):
             raise DriveReadError("date_range_required")
+        if await self.sharing.request_owner_review_required(user_id=user_id, request_id=request_id):
+            # Discovery still runs under current background authority. Its
+            # candidates need exact owner review before a batch or order exists.
+            return 0
         request_bulk = DriveRequestBulkService(
             sharing=self.sharing,
             bulk=self.bulk,

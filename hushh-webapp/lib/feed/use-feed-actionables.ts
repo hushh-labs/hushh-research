@@ -30,6 +30,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import {
+  isConsentChangeWorthRefreshing,
   useFeedLiveRefresh,
   useFeedPendingConsentRefresh,
 } from "@/lib/feed/use-feed-live-refresh";
@@ -635,14 +636,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const [consentTick, setConsentTick] = useState(0);
   useEffect(() => {
     const bump = (event: Event) => {
-      // The notification provider re-announces what it already holds in
-      // cache on every route change; that is not a mutation and must not
-      // force the consent summary and connections to refetch on each tab
-      // switch (same filter as useConsentPendingSummaryCount).
-      const detail =
-        (event as CustomEvent<Record<string, unknown>>).detail || {};
-      const source = String(detail.source || "").trim();
-      if (source === "cached_pending" || source === "queued_pending") return;
+      // Ignore the same local re-announcements as Feed's live reconciler.
+      if (!isConsentChangeWorthRefreshing(event)) return;
       setConsentTick((value) => value + 1);
     };
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, bump);
@@ -659,6 +654,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "consent_center_summary_guest",
     refreshKey: `one:consents:${consentTick}`,
     enabled: Boolean(userId),
+    retainOnInvalidate: true,
     // `options.force` is honoured alongside the mutation tick: the consent
     // services keep their own caches, so a live refresh that dropped the flag
     // would re-read the same cached page it was trying to move past.
@@ -690,6 +686,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "consent_center_list_guest",
     refreshKey: `one:consents:${consentTick}:${pendingConsentCount ?? "?"}`,
     enabled: Boolean(userId) && (pendingConsentCount ?? 0) > 0,
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
@@ -727,6 +724,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "feed_received_progress_guest",
     refreshKey: `one:consents:progress:${consentTick}:${pendingConsentCount ?? "?"}`,
     enabled: Boolean(userId),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
@@ -756,6 +754,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "feed_sent_progress_guest",
     refreshKey: `one:consents:sent:progress:${consentTick}`,
     enabled: Boolean(userId),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
@@ -787,6 +786,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "feed_active_progress_guest",
     refreshKey: `one:consents:active:progress:${consentTick}`,
     enabled: Boolean(userId),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to view requests");

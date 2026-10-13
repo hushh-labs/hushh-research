@@ -166,17 +166,28 @@ The `/api/one/wallet/card-access` endpoints are:
 
 | Method | Suffix | Authority and behavior |
 | --- | --- | --- |
+| GET | `/networks` | Matching Firebase identity and vault-owner consent; supported canonical network identifiers. Independent of temporary-sharing rollout. |
+| POST | `/networks/resolve` | Same owner authority; transient six-digit issuer prefix and strict integer card length, optional selected network. No payment credentials accepted, persisted, logged or sent to a provider. Returns normalized `network`, `source`, and ambiguous `candidates`. |
 | POST | `/registrations` | Matching Firebase identity and vault-owner consent reserve a server card ID. Only a subsequent canonical Wallet PKM mutation activates manual origin. |
 | GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status, newest first in pages of 20. Optional `cursor` is the last grant ID; `nextCursor` and `hasMore` describe the next page, and each grant includes ISO `createdAt`. Cursors resolve only within the authenticated owner and card. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
 | GET | `/connections` | Owner-only searchable active connections with explicit Trusted Circle membership. |
+| GET | `/profile` | Matching identity and vault-owner consent; current canonical Profile Card eligibility and server-issued card ID, without profile contents. |
+| GET | `/history` | Participant-only unified ledger. `direction=outgoing\|received`, optional `cardType=payment\|profile`, `limit=1..100` (default 20), and participant/filter-bound `cursor`. Returns `items`, `hasMore`, `nextCursor`, `serverNow`. |
+| GET | `/history/{grant_id}` | Matching identity and vault-owner consent; outgoing or received grant detail only for that participant, with lifecycle activity. |
 | POST | `/cards/{card_id}/grants` | Owner-only, idempotent, per-recipient 5/10/15-minute grants and transactional messages. |
 | DELETE | `/grants/{grant_id}` | Owner-only revocation. |
 | GET | `/grants/{grant_id}` | Authenticated recipient-only view; checks expiry, revocation, origin and relationship. |
 | POST | `/grants/{grant_id}/verify` | Fresh same-user Firebase provider authentication after the server challenge for non-trusted recipients. |
 
 Responses are private and non-cacheable. The encrypted server projection contains
-only network, last four digits, expiry and normalized issuing region; no PAN,
-name, CVV, PIN or vault key enters grants or notification metadata. Removing the
+network, last four digits, expiry and normalized issuing region. New grant requests
+may also provide `encryptedCards`, an exact map of selected person references to
+bounded `hushh-wallet-card:v1:` recipient envelopes (maximum 4096 characters each,
+20 recipients, 96 KiB request limit). Plaintext PAN, CVV, PIN and vault keys remain
+forbidden. Each recipient's envelope is stored only in that grant's encrypted
+contents, never notifications or Feed metadata. Authorized active views return
+`encryptedCard` and the authenticated owner's `senderUserId` for client decryption;
+denied, expired and revoked views return neither. Old grants remain masked. Removing the
 card revokes access. Explicit owner-added Trusted Circle members skip additional
 verification; ordinary connection mirror records do not grant this exemption.
 
@@ -209,7 +220,22 @@ The native viewer stays unavailable until active capture protection is supported
 The browser viewer clears on hide/expiry and offers no copy, export or print,
 but cannot prevent device screenshots or external cameras. Old encrypted-copy
 readers and owner receipts remain compatible; previously sent copies cannot be
-recalled. Profile, Referral and NWS sharing are unchanged.
+recalled. The canonical Wallet Profile Card also supports private recipient grants
+after migrations 322–325. Its current selected public-field projection is intersected
+with the fields permitted at creation; removing a field immediately removes it from
+the next read, and adding a field cannot widen an existing grant. Pause makes reads
+unavailable; revocation, source replacement and deletion terminate existing grants.
+System Agent One Profile, Referral, NWS and received-card resharing gain no permissions.
+Public QR links retain their separate, anonymous aggregate-visit behavior.
+History contains masked card descriptors, public participant references and names,
+creation/expiry/duration, immutable creation trust, verification posture/time,
+revocation/last-view times and bounded lifecycle events. Unknown historical creation
+trust is `null`/`legacy_unspecified`, never inferred from today's membership.
+`SHARE_DELIVERED` means the Messages/Feed transaction accepted delivery, not a push
+provider receipt. Expiry is enforced by the database clock on every access;
+`SHARE_EXPIRED` is recorded lazily once when the grant is read or listed.
+See [universal sharing operations](../one/wallet-sharing.md) for migration,
+compatibility, verification and rollback details.
 See [Wallet](../one/wallet.md) and the
 [Wallet Profile contract](../../superpowers/specs/2026-08-03-wallet-card-contract.md).
 
@@ -1171,6 +1197,16 @@ even if the optional directory lookup is already ready. Review and explicit
 receipt-confirmed PKM completion are unchanged. Hosted multi-instance acceptance
 and physical-device suspension are separate verification, not localhost proof.
 
+Personal review pins one complete, owner-scoped decrypted inventory before asynchronous memory
+preparation. Duplicate checks, semantic reconciliation and business-origin binding
+use that same memory-only witness even if a concurrent PKM write invalidates the
+shared context cache. Vault expiry revokes the witness; it is not persisted or
+write authority. Canonical saves still rebuild against fresh PKM on every conflict
+retry. A bound existing business must retain its UID at the same active target;
+deleted, moved, inactive or replaced targets require another review and cannot
+be resurrected by an extension. Personal details remain independent of Business
+cache readiness once preparation has captured its complete inventory.
+
 Personal completion is independent of Business completion. A successful review
 calls `POST /api/one/profile-research/complete` with 1–64 unique domain/plan
 receipts using the same VAULT_OWNER + derived chat-key authority. The server
@@ -1380,7 +1416,7 @@ separate work; a static export or native compile is not sign-in proof.
 
 The Request scope dialog contains a recipient, one labelled question field and Cancel / Send request. Dates are optional throughout this lane. Periods written in the question remain part of the exact approved question; historical explicit date ranges remain visible and constrain the approved projection. Drive retains its own required date form.
 
-`/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Request intake and owner review are gated only by `PKM_ANSWER_REQUESTS_ENABLED`, which is open unless explicitly set to `false`, and never by the payment or composer flags: asking a connected person a question, and that person approving scopes and setting a price, move no money. Checkout, the composer and the owner work queue keep their own payment gate. Reading an already delivered answer is ungated, because entitlement is enforced by the delivery row and the requester-scoped read rather than by a rollout flag. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
+`/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Request intake and owner review are gated only by `PKM_ANSWER_REQUESTS_ENABLED`, which is open unless explicitly set to `false`, and never by the payment or composer flags: asking a connected person a question, and that person approving scopes and setting a price, move no money. Checkout has its payment gate; the composer and owner preparation have their separate composer gate. Preparation must finish before a new checkout. Reading an already delivered answer is ungated, because entitlement is enforced by the delivery row and the requester-scoped read rather than by a rollout flag. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
 
 | Method | Path under `/api/one/answer-requests` | Contract |
 | --- | --- | --- |
@@ -1390,12 +1426,16 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. Approval is admitted by the request gate and records a price without charging; with payments paused the requester sees that price and no pay control. |
 | GET / POST | `/{id}/payment`, `/{id}/payment/checkout` | Quote/status and mode-bound hosted Checkout with durable overlapping-session recovery. |
 | POST | `/api/payments/stripe/webhook` (shared endpoint) | Raw signed provider event; exact attempt, terms, currency, amount and mode verification. |
-| GET | `/answerable` | Paid, approved owner work with requester recipient public key and bounded leases. |
-| POST | `/{id}/compose`, `/{id}/deliver` | Separate default-off transient composer, then requester-only encrypted envelope delivery; no backend PKM decryption or key transfer. |
+| GET | `/answerable` | Approved, unprepared work plus historical paid, unanswered recovery; requester public key with exact participant/consent checks. |
+| POST | `/{id}/compose`, `/{id}/deliver` | Separate default-off transient Gemini composer; exact approved scope values, narrow `memory` and optional source/freshness metadata only. A complete nonempty answer with no reported gaps yields a request/owner/terms/model-bound composition receipt. Successful staging requires that receipt and requester-only ciphertext; verified payment alone releases it. Confirmed absence remains unchargeable, and incomplete reads or model failures remain retryable. No backend PKM decryption or key transfer. |
 | GET | `/{id}/answer` | Ciphertext to its requester only; ungated, so pausing payments never strands an answer already paid for. |
 | GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. |
 
 Answers remain manual while unlocked. Exact approved plaintext reaches the backend composer and Google Vertex AI for one call, with application NO_CONTENT telemetry and no plaintext persistence. Live mode additionally requires provider-retention review attestation; it does not establish provider zero retention. Payments retain Drive's 3% platform fee, actual Stripe fee, full refund and owner-earnings rules. The separate authenticated answer drain handles deadlines, refunds and settlement even when admission is paused. Historical unbound modes and approvals without consent require explicit reconciliation. See [enablement steps](../operations/env-and-secrets.md#request-scope-enablement-follow-up-2026-10-11) and [memory/runtime boundary](./living-memory-freshness-adr.md).
+
+Every new successful answer, including a single name, age or sex, is composed by Gemini. Exact source-linked scope slices share Profile Memory's encrypted `one_living_sources._private.memory_document`; authoritative PKM revisions and exposure metadata are checked before reuse, and missing/stale slices are refreshed before absence is reported. Existing account name/photo supply only their exact approved scopes, explicitly saved legal name takes precedence, and current age is derived from validated saved DOB with no DOB in an age-only slice. Sex requires an explicitly recorded value. Canonical approved photo bytes/reference remain in encrypted presentation and render with the existing Avatar after release; the model receives only a bounded photo descriptor. No KYC repetition is required.
+
+The composition receipt proves that the gated Gemini call succeeded for the approved terms. Initial staging checks its ten-minute validity; later checkout verifies the immutable staged receipt without imposing that initial deadline again. Keyed input/answer digests avoid offline guessing of low-entropy facts. The backend cannot attest plaintext equality inside requester-encrypted ciphertext without changing key custody; the application seals the actual returned answer. Historical immutable staged orders preserve their recovery, delivery, refund and payout eligibility; new or requoted orders require a fresh verified composition. Reserved receipt metadata is never returned as requester source revisions.
 
 ### Contact Discovery
 

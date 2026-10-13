@@ -19,6 +19,7 @@ from sqlalchemy import text
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current
+from hushh_mcp.services.drive_request_review_policy import checkpoint_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -119,6 +120,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "fileKind",
                         "requestedPeriod",
                         "dateBasis",
+                        "timeIntent",
+                        "ownerReviewRequired",
                         "contentPeriodVerified",
                         "folderDiscovery",
                     )
@@ -131,6 +134,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "providerFilePages",
                         "excludedByDateCount",
                         "excludedByKindCount",
+                        "excludedByFilenameCount",
                         "excludedByNoteTypeCount",
                         "excludedByTopicCount",
                         "excludedFolderTopicCount",
@@ -156,6 +160,13 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             # remain encrypted; no provider capability or file data escapes.
             result.setdefault("coverage", {})["shareabilityVerified"] = (
                 checkpoint.get("request_shareability_version") == 1
+            )
+            # Legacy jobs have no frozen distinction between file activity
+            # and content coverage. Their results require an exact owner review.
+            result["coverage"]["ownerReviewRequired"] = checkpoint_requires_owner_review(
+                checkpoint,
+                request_id=checkpoint["request_origin_id"],
+                revision=checkpoint.get("request_revision"),
             )
         selection = _bounded_selection(checkpoint)
         if selection is not None:
@@ -429,7 +440,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         await self._transaction(operation)
 
     async def clear_legacy_completed_request(self, *, user_id, request_id):
-        """Replace an old request search lacking Drive shareability evidence.
+        """Replace an old request search lacking current selection evidence.
 
         A completed search may be discarded only while its origin request is
         pending and no review has frozen its results. The job row lock orders
@@ -452,9 +463,16 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
             checkpoint = self._checkpoint(row)
+            current_selection = (
+                checkpoint.get("request_selection_version") == 2
+                and checkpoint.get("request_time_intent") in {"file_activity", "document_coverage"}
+                and checkpoint.get("request_owner_review_required")
+                is (checkpoint.get("request_time_intent") == "document_coverage")
+            )
             if (
                 checkpoint.get("request_origin_id") != client
                 or checkpoint.get("request_shareability_version") == 1
+                and current_selection
             ):
                 return False
             request = self._row(

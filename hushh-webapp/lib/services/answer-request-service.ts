@@ -65,6 +65,8 @@ export interface AnswerPaymentView {
   paidAt: string | null;
   refundedAt: string | null;
   refundReason: string | null;
+  preparationStatus: "preparing" | "ready" | "empty";
+  reconciliationRequired: boolean;
   /** Quoted BEFORE checkout: the answer is produced on the owner's device. */
   fulfilment: "owner_device";
   answerDeadlineAt: string | null;
@@ -135,7 +137,7 @@ export interface PendingAnswerRequest {
   proposedScopes: { scope: string; label: string | null }[];
 }
 
-/** One paid, approved, undelivered question the owner's device owes an answer to. */
+/** One approved preparation or historical paid recovery for the owner's device. */
 export interface AnswerableWork {
   requestId: string;
   question: string;
@@ -354,7 +356,7 @@ export class AnswerRequestService {
     if (!response.ok) throw new Error("This request could not be cancelled");
   }
 
-  /** Paid work awaiting this owner's device. Scope handles only, never values. */
+  /** Preparation and paid recovery awaiting this owner's device. Scope handles only. */
   static async answerable(firebaseIdToken: string): Promise<AnswerableWork[]> {
     if (!firebaseIdToken) return [];
     const response = await ApiService.apiFetch(
@@ -382,19 +384,23 @@ export class AnswerRequestService {
    * Have the answer written from the projection this device just built.
    *
    * The projection is the approved scopes and dates only, and nothing is
-   * persisted server-side. A model failure returns answerMode 'projection',
-   * which the caller must carry through rather than presenting the projection
-   * as a written answer.
+   * persisted server-side. A successful Gemini answer carries a request-bound
+   * composition receipt for staging; a model failure remains retryable.
    */
   static async compose(
     firebaseIdToken: string,
     requestId: string,
-    projection: { memory: string; values: Record<string, unknown> },
+    projection: {
+      memory: string;
+      values: Record<string, unknown>;
+      sourceFreshness?: import("@/lib/pkm/memory-scope-retrieval").ApprovedMemoryRetrieval["sourceFreshness"];
+    },
   ): Promise<{
     answerMode: "agent" | "projection";
     answer: string | null;
     covers?: string[];
     gaps?: string[];
+    compositionReceipt?: string;
   }> {
     if (!firebaseIdToken) throw new Error("Sign in to compose this answer");
     const response = await ApiService.apiFetch(
@@ -417,10 +423,11 @@ export class AnswerRequestService {
         ? value.answer
         : null;
     // An 'agent' mode with no answer is not an agent answer.
-    if (mode === "agent" && answer) {
+    if (mode === "agent" && answer && Array.isArray(value.gaps) && value.gaps.length === 0 && typeof value.compositionReceipt === "string" && value.compositionReceipt.trim()) {
       return {
         answerMode: "agent",
         answer,
+        compositionReceipt: value.compositionReceipt,
         covers: Array.isArray(value.covers) ? (value.covers as string[]) : [],
         gaps: Array.isArray(value.gaps) ? (value.gaps as string[]) : [],
       };
@@ -432,7 +439,7 @@ export class AnswerRequestService {
   static async deliver(
     firebaseIdToken: string,
     requestId: string,
-    body: { envelope: unknown; sourceRevisions?: unknown; hasContent: boolean },
+    body: { envelope: unknown; sourceRevisions?: unknown; hasContent: boolean; compositionReceipt?: string },
   ): Promise<void> {
     if (!firebaseIdToken) throw new Error("Sign in to deliver this answer");
     const response = await ApiService.apiFetch(
@@ -509,6 +516,20 @@ export class AnswerRequestService {
       value.amountCents !== null &&
       !isValidAnswerPriceCents(value.amountCents)
     ) {
+      throw new Error("Invalid payment response");
+    }
+    const statuses = new Set(["pending_resolution", "awaiting_owner", "approved", "declined", "answering", "answered", "expired", "cancelled"]);
+    const orders = new Set(["awaiting_payment", "checkout_open", "paid", "refunded", "expired"]);
+    if (!statuses.has(String(value.requestStatus)) ||
+        (value.orderStatus !== null && !orders.has(String(value.orderStatus)))) {
+      throw new Error("Invalid payment response");
+    }
+    // Older deployments cannot prove preparation; never offer checkout from an absent field.
+    value.preparationStatus = ["preparing", "ready", "empty"].includes(String(value.preparationStatus))
+      ? value.preparationStatus : "preparing";
+    value.reconciliationRequired = value.reconciliationRequired !== false;
+    if (["paid", "refunded"].includes(String(value.orderStatus)) &&
+        (typeof value.paidAt !== "string" || !Number.isFinite(Date.parse(value.paidAt)))) {
       throw new Error("Invalid payment response");
     }
     return value as unknown as AnswerPaymentView;

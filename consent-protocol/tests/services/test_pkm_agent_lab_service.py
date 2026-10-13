@@ -214,6 +214,106 @@ def test_soul_no_op_is_valid_without_a_structure_call():
     assert result["validation_hints"] == []
 
 
+def _find_entity_with_summary(value):
+    """Walk a candidate_payload the same way the client's assertExactProfileSelection
+    does (profile-research-review.ts): descend until a dict carries "summary"."""
+    if isinstance(value, dict):
+        if "summary" in value:
+            return value
+        for child in value.values():
+            found = _find_entity_with_summary(child)
+            if found is not None:
+                return found
+    return None
+
+
+def test_profile_review_strips_extra_structure_agent_fields() -> None:
+    """Magic Intelligence's client-side save gate (assertExactProfileSelection in
+    profile-research-review.ts) rejects any candidate_payload key outside
+    {summary, observations, kind, status, sources} and fails the whole save.
+    The generic structure agent is free to attach extra fields beside summary
+    (its own few-shot examples teach e.g. "role"); profile_review_v1 must
+    strip them server-side so a faithful save always survives the round trip,
+    regardless of what the model added. Regression for a live UAT failure.
+    """
+    summary = "Parth Mawai works as an AI Full Stack Engineer at Hushh."
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message=f"Career details about me:\n- {summary}\n  Sources: hushh.ai (https://hushh.ai)",
+        current_domains=["professional"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "profile_fact",
+            "mutation_intent": "create",
+            "candidate_domain_choices": [{"domain_key": "professional", "recommended": True}],
+        },
+        merge_decision={"target_domain": "professional", "merge_mode": "create_entity"},
+        parsed_structure={
+            "candidate_payload": {
+                "career": {
+                    "entities": {
+                        "role_fact": {
+                            "summary": summary,
+                            "role": "AI Full Stack Engineer",
+                            "company": "Hushh",
+                            "kind": "profile_fact",
+                            "status": "active",
+                        }
+                    }
+                }
+            },
+            "structure_decision": {"target_domain": "professional"},
+            "write_mode": "can_save",
+        },
+        fallback_target_domain="professional",
+        simulated_state=None,
+        memory_profile="profile_review_v1",
+    )
+
+    assert preview["write_mode"] != "do_not_save"
+    entity = _find_entity_with_summary(preview["candidate_payload"])
+    assert entity == {
+        "summary": summary,
+        "observations": [summary],
+        "kind": "profile_fact",
+        "status": "active",
+    }
+
+
+def test_profile_review_constraint_is_scoped_to_its_own_memory_profile() -> None:
+    """Negative control: without profile_review_v1, an extra structure-agent
+    field survives untouched, proving the strip is specific to that profile
+    and not a side effect of some other normalization step."""
+    summary = "Parth Mawai works as an AI Full Stack Engineer at Hushh."
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message=f"Career details about me:\n- {summary}",
+        current_domains=["professional"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "profile_fact",
+            "mutation_intent": "create",
+            "candidate_domain_choices": [{"domain_key": "professional", "recommended": True}],
+        },
+        merge_decision={"target_domain": "professional", "merge_mode": "create_entity"},
+        parsed_structure={
+            "candidate_payload": {
+                "career": {
+                    "entities": {
+                        "role_fact": {"summary": summary, "role": "AI Full Stack Engineer"}
+                    }
+                }
+            },
+            "structure_decision": {"target_domain": "professional"},
+            "write_mode": "can_save",
+        },
+        fallback_target_domain="professional",
+        simulated_state=None,
+    )
+
+    entity = _find_entity_with_summary(preview["candidate_payload"])
+    assert entity is not None
+    assert entity.get("role") == "AI Full Stack Engineer"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "fields,entity_id",

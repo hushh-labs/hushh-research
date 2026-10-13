@@ -59,4 +59,9 @@ it("prices the answer in this lane's words, never the document lane's", () => {
   // The sheet is Drive's control; the promise it states is not Drive's here.
   expect(description).not.toMatch(/file|drive|google|document/i);
   expect(description).toMatch(/memory/i);
+  expect(description).toMatch(/After you approve/i);
+  expect(description).toMatch(/pay this price only when it is ready/i);
+  expect(description).toMatch(/verified payment releases/i);
+  expect(screen.getByRole("checkbox", { name: /I agree to this question/ }))
+    .toHaveAccessibleName(/Google Gemini/);
 });

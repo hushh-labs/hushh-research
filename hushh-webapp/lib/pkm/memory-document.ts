@@ -27,6 +27,8 @@
  * changed information.
  */
 
+import { projectApprovedSoulFacts, SCOPE_PATH_TO_LABEL } from "@/lib/pkm/identity-memory-facts";
+import { ageFromDateOfBirth, readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
 import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
 import { collectDomainRows, type DomainRows } from "@/lib/pkm/memory-complete-rows";
 import {
@@ -62,6 +64,7 @@ export interface MemoryDomainFreshness {
 export interface MemoryDocumentSourceDomain {
   domain: string;
   contentRevision: number | null;
+  manifestRevision?: number | null;
   /** Present when the domain could not be read; the section renders as unavailable. */
   unavailableReason?: string;
 }
@@ -121,6 +124,7 @@ export interface MemoryDocument {
    * A truncated section is not a complete record.
    */
   complete: boolean;
+  sourceLinks: { domain: string; path: string; contentRevision: number | null; manifestRevision: number | null }[];
 }
 
 const EXCLUDED_NOTE =
@@ -241,9 +245,9 @@ function renderAccount(account: MemoryAccountIdentity | null | undefined): strin
 /** Every value in the section, in full. */
 function renderCompleteRows(section: DomainRows): string[] {
   if (section.rows.length === 0) return ["_Nothing recorded._"];
-  const lines = ["| Detail | Value |", "| --- | --- |"];
+  const lines = ["| Detail | Value | Source |", "| --- | --- | --- |"];
   for (const row of section.rows) {
-    lines.push(`| ${escapeTableCell(row.label)} | ${escapeTableCell(row.value)} |`);
+    lines.push(`| ${escapeTableCell(row.label)} | ${escapeTableCell(row.value)} | ${escapeTableCell(`${section.domain}.${row.path}`)} |`);
   }
   return lines;
 }
@@ -307,10 +311,95 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
 
   const freshness: MemoryDomainFreshness[] = [];
   const body: string[] = [];
+  const sourceLinks: MemoryDocument["sourceLinks"] = [];
+  for (const [path, value] of Object.entries(account ?? {})) {
+    if (typeof value === "string" && value.trim()) sourceLinks.push({ domain: "account_profile", path, contentRevision: null, manifestRevision: null });
+  }
+
+  // Share the same narrow labelled-fact projection with paid answers. The
+  // complete owner-authored Soul source remains separate and is never copied.
+  const soulSource = sourceByDomain.get("one_memory");
+  const soul = domainData?.one_memory as { markdown?: string; updated_at?: string; _deleted_fact_labels?: string[] } | undefined;
+  const superseded = new Map<string, Set<string>>();
+  const suppress = (domain: string, paths: readonly string[]) => {
+    const covered = superseded.get(domain) ?? new Set<string>();
+    for (const path of paths) covered.add(path);
+    superseded.set(domain, covered);
+  };
+  const professionalProfile = (domainData?.professional as { profile?: Record<string, unknown> } | undefined)?.profile;
+  const hasProfessionalRow = (field: "age" | "sex") => Boolean(
+    professionalProfile && Object.hasOwn(professionalProfile, field) ||
+    (cardsByDomain.get("professional") ?? []).some(card => card.path === `professional.profile.${field}` || card.path === `profile.${field}`),
+  );
+  if (audience === "self" && soulSource && (soul || soulSource.unavailableReason)) {
+    const scopes = [...SCOPE_PATH_TO_LABEL.map(([path]) => `attr.${path.startsWith("profile.") ? "professional" : "identity"}.${path}`), "attr.identity.identity_profile.declared_age"];
+    const deleted = new Set(soul?._deleted_fact_labels ?? []);
+    const facts = projectApprovedSoulFacts({ approvedScopes: scopes, markdown: soul?.markdown, now: new Date(builtAt) })
+      .filter(fact => !deleted.has(soulFactKey(fact.sourceLabel)));
+    if (!soulSource.unavailableReason) {
+      const paths = [...facts.map(fact => [fact.scope.split(".")[1]!, fact.relativePath] as const),
+        ...SCOPE_PATH_TO_LABEL.filter(([, label]) => deleted.has(soulFactKey(label)))
+          .map(([path]) => [path.startsWith("profile.") ? "professional" : "identity", path] as const)];
+      if (deleted.has("date of birth") || (readLabelledSoulFacts(soul?.markdown).has("date of birth") && !facts.some(fact => fact.path === "declared_age"))) paths.push(["identity", "identity_profile.declared_age"]);
+      for (const [domain, path] of paths) {
+        suppress(domain, [path]);
+      }
+      const labelled = readLabelledSoulFacts(soul?.markdown);
+      if (labelled.has("sex") || deleted.has("sex")) {
+        suppress("identity", ["profile.sex"]);
+        if (hasProfessionalRow("sex")) suppress("professional", ["profile.sex"]);
+      }
+      if (labelled.has("legal name") || deleted.has("legal name")) suppress("identity", ["full_name", "legal_name", "name", "profile.full_name", "profile.legal_name", "profile.name"]);
+    } else {
+      // The canonical correction/deletion source could not be checked, so an
+      // older stored sex value must not appear current beside that failure.
+      suppress("identity", ["identity_profile.sex", "profile.sex"]);
+      if (hasProfessionalRow("sex")) suppress("professional", ["profile.sex"]);
+    }
+    if (facts.length || soulSource.unavailableReason) {
+      excludedDomains.delete("one_memory");
+      freshness.push({ domain: "one_memory", title: "Identity facts", status: soulSource.unavailableReason ? "unavailable" : "current",
+        contentRevision: soulSource.contentRevision, updatedAt: soul?.updated_at ?? null, cardCount: facts.length,
+        ...(soulSource.unavailableReason ? { reason: soulSource.unavailableReason } : {}) });
+      body.push("## Identity facts", "", `_Soul.md revision ${soulSource.contentRevision ?? "unknown"}._`, "");
+      if (soulSource.unavailableReason) body.push(`_Unavailable: ${soulSource.unavailableReason}._`, "");
+      else {
+        body.push("| Fact | Value |", "| --- | --- |");
+        for (const fact of facts) {
+          body.push(`| ${escapeTableCell(fact.path.replaceAll("_", " "))} | ${escapeTableCell(fact.value)} |`);
+          sourceLinks.push({ domain: "one_memory", path: `markdown.${fact.sourceLabel.toLowerCase()}`, contentRevision: soulSource.contentRevision, manifestRevision: soulSource.manifestRevision ?? null });
+        }
+        body.push("");
+      }
+    }
+  }
+
+  // Stored age numbers stop being true on a birthday. Both views derive the
+  // current value from the same validated authoritative DOB, and a removed or
+  // invalid Soul DOB prevents fallback to an older structured DOB.
+  if (audience === "self") {
+    suppress("identity", ["identity_profile.declared_age", "profile.age"]);
+    if (hasProfessionalRow("age")) suppress("professional", ["profile.age"]);
+    const identitySource = sourceByDomain.get("identity");
+    const identity = domainData?.identity as { identity_profile?: { date_of_birth?: unknown } } | undefined;
+    const labelledBirth = readLabelledSoulFacts(soul?.markdown).get("date of birth")?.value;
+    const birthDeleted = (soul?._deleted_fact_labels ?? []).includes("date of birth");
+    const structuredBirth = identity?.identity_profile?.date_of_birth;
+    const birth = labelledBirth ?? (!birthDeleted && !soulSource?.unavailableReason && !identitySource?.unavailableReason && typeof structuredBirth === "string" ? structuredBirth : null);
+    const age = birthDeleted || soulSource?.unavailableReason ? null : ageFromDateOfBirth(birth, new Date(builtAt));
+    // Soul-derived age is already in the labelled-fact section above.
+    if (age !== null && !labelledBirth && identitySource) {
+      body.push("## Current age", "", `_Derived from validated saved DOB · revision ${identitySource.contentRevision ?? "unknown"}._`, "",
+        "| Fact | Value |", "| --- | --- |", `| declared age | ${age} |`, "");
+      sourceLinks.push({ domain: "identity", path: "identity_profile.date_of_birth", contentRevision: identitySource.contentRevision, manifestRevision: identitySource.manifestRevision ?? null });
+    }
+  }
 
   for (const domain of domains) {
     const source = sourceByDomain.get(domain);
-    const cards = cardsByDomain.get(domain) || [];
+    const overriddenPaths = superseded.get(domain);
+    const rowIsCurrent = (path: string) => !overriddenPaths?.has(path.startsWith(`${domain}.`) ? path.slice(domain.length + 1) : path);
+    const cards = (cardsByDomain.get(domain) || []).filter(card => rowIsCurrent(card.path));
     const insight = insightByDomain.get(domain);
     const title = titleByDomain.get(domain) || insight?.title || domain;
     const unavailableReason = String(source?.unavailableReason || "").trim();
@@ -342,6 +431,9 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
       domainData && domain in domainData
         ? collectDomainRows({ domain, domainData: domainData[domain], audience })
         : null;
+    // Corrected/deleted labelled identity facts come from Soul's revision.
+    // Preserve the source blob; omit only its superseded rows in this view.
+    if (completeForFreshness) completeForFreshness.rows = completeForFreshness.rows.filter(row => rowIsCurrent(row.path));
     freshness.push({
       domain,
       title,
@@ -357,10 +449,8 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
 
     // Prefer the complete walk. `cards` is the browsing projection and is
     // capped and clipped; a record of what One holds must not be either.
-    const complete: DomainRows | null =
-      domainData && domain in domainData
-        ? collectDomainRows({ domain, domainData: domainData[domain], audience })
-        : null;
+    const complete = completeForFreshness;
+    for (const row of complete?.rows ?? []) sourceLinks.push({ domain, path: row.path, contentRevision, manifestRevision: source?.manifestRevision ?? null });
 
     body.push(`## ${title}`, "");
     body.push(
@@ -376,7 +466,7 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     if (complete && complete.withheld.length > 0) {
       body.push(`> ${EXCLUDED_NOTE} Withheld here: ${complete.withheld.join(", ")}.`, "");
     }
-    body.push(...renderInsight(insight));
+    if (!overriddenPaths?.size) body.push(...renderInsight(insight));
     body.push(...(complete ? renderCompleteRows(complete) : renderSectionBody(cards)), "");
   }
 
@@ -421,5 +511,6 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     freshness,
     excludedDomains: [...excludedDomains].sort(),
     complete,
+    sourceLinks,
   };
 }

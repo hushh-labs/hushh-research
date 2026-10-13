@@ -1,23 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { AppPageShell, AppPageHeaderRegion, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { ReferralInviteActions } from "./referral-invite-actions";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import type { User } from "firebase/auth";
-import { ArrowLeft, Coins, Link2, Share2, Users, ShieldCheck, Zap, Trophy, WhatsappLogo, MessageSquareText, Flame } from "@/components/icons";
+import { Coins, Link2, Users, ShieldCheck, Zap, Trophy, Flame } from "@/components/icons";
 import "./referral-dashboard.css";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 
-import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
-import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import {
@@ -349,7 +348,7 @@ function ReferralDashboardContent() {
         : "loaded";
 
   return (
-    <ShellRoot dataState={dataState} tab={tab} onTabChange={setTab} link={link} onCopy={onCopy} showHowItWorks={showHowItWorks} onHowItWorks={() => setShowHowItWorks(true)} onCloseHowItWorks={closeHowItWorks}>
+    <ShellRoot dataState={dataState} tab={tab} onTabChange={setTab} showHowItWorks={showHowItWorks} onHowItWorks={() => setShowHowItWorks(true)}>
       {showHowItWorks ? <section aria-label="How referrals work"><RulesTab policyRes={policyRes} onRetry={reloadPolicy} /></section> : <SwipeViews tabSetId="referrals" activeValue={tab} options={TABS.map(({ key, label }) => ({ value: key, label }))} onSelectionChange={(value) => setTab(value as TabKey)} viewportMinHeight="fill" heightMode="active">
       <div>
       {summaryRes.status === "loading" ? (
@@ -365,6 +364,7 @@ function ReferralDashboardContent() {
         <>
           {summaryRes.status === "ready" ? (
             <YouTab
+              active={tab === "you"}
               summary={summaryRes.data}
               pointsRes={pointsRes}
               onRetryPoints={reloadPoints}
@@ -380,6 +380,7 @@ function ReferralDashboardContent() {
               onRetryCircle={reloadCircle}
               countdown={countdown}
               link={link}
+              onCopy={onCopy}
               onShare={onShare}
             />
           ) : null}
@@ -405,35 +406,24 @@ function ReferralDashboardContent() {
 }
 
 /**
- * This route owns its full viewport: `app-route-layout.contract.json` marks
- * `/one/referrals` `mode: "hidden"` with `persistentChrome: "none"`, the same
- * recipe `/one/location/map` uses for an immersive, chrome-free screen (see
- * `location-map-route-layout.test.ts`). So there is no app TopShell bar and
- * no bottom "Talk to One" / navigation shell to clear here -- this component
- * is the entire page, in-flow header and floating invite dock included.
+ * Shared app chrome owns Back, Profile, Talk to One and bottom navigation.
+ * Referral sections and the expanding Share control stay in the scroll content.
  */
 function ShellRoot({
   dataState,
   tab,
   onTabChange,
-  link,
-  onCopy,
   showHowItWorks,
   onHowItWorks,
-  onCloseHowItWorks,
   children,
 }: {
   dataState: "loading" | "loaded" | "unavailable-valid";
   tab: TabKey;
   onTabChange: (tab: TabKey) => void;
-  link: string;
-  onCopy: () => void;
   showHowItWorks: boolean;
   onHowItWorks: () => void;
-  onCloseHowItWorks: () => void;
   children: React.ReactNode;
 }) {
-  const router = useRouter();
   const mainRef = useRef<HTMLElement>(null);
   useScrollReset(showHowItWorks ? "referral-help" : "referral-dashboard");
 
@@ -442,29 +432,25 @@ function ShellRoot({
   }, [showHowItWorks]);
 
   return (
-    <div className={`referral-dashboard min-h-dvh${showHowItWorks ? " referral-help-page" : ""}`} style={{ background: COLORS.bg, color: COLORS.text }}>
-      <NativeTestBeacon
-        routeId={ROUTES.ONE_REFERRALS}
-        marker="native-route-one-referrals"
-        authState="authenticated"
-        dataState={dataState}
-      />
-      <div className="referral-utility-bar">
-        <div className="referral-utility-inner">
-        <div className="referral-back-row flex h-16 items-center px-6">
-          <ShellActionSurface aria-label={showHowItWorks ? "Back to referrals" : "Back to One home"} title={showHowItWorks ? "Back to referrals" : "Back to One home"} onClick={() => showHowItWorks ? onCloseHowItWorks() : navigateTopShellBack({ pathname: ROUTES.ONE_REFERRALS, navigate: ({ href, mode }) => router[mode](href) })} className="!h-11 !w-11 !border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent">
-            <ArrowLeft className="size-5" aria-hidden="true" />
-          </ShellActionSurface>
-        </div>
-        {!showHowItWorks && <button onClick={onHowItWorks} className="referral-how-it-works">
-          <span aria-hidden="true" className="referral-help-icon">?</span>
-          How it works
-        </button>}
-        </div>
-      </div>
-      <header className="relative">
-        <h1 className="referral-page-name">{showHowItWorks ? "How it works" : "Referrals"}</h1>
-        {!showHowItWorks && <div className="referral-tab-row mx-auto max-w-[912px] px-6 pb-3">
+    <AppPageShell
+      as="div"
+      width="agent"
+      className={`referral-dashboard${showHowItWorks ? " referral-help-page" : ""}`}
+      style={{ background: COLORS.bg, color: COLORS.text }}
+      nativeTest={{ routeId: ROUTES.ONE_REFERRALS, marker: "native-route-one-referrals", authState: "authenticated", dataState }}
+    >
+      <AppPageHeaderRegion>
+        <PageHeader
+          title={showHowItWorks ? "How it works" : "Referrals"}
+          actionsInlineMobile
+          actions={!showHowItWorks ? (
+            <button onClick={onHowItWorks} className="referral-how-it-works">
+              <span aria-hidden="true" className="referral-help-icon">?</span>
+              How it works
+            </button>
+          ) : undefined}
+        />
+        {!showHowItWorks && <div className="referral-tab-row mt-6">
           <SegmentedTabs
             value={tab}
             onValueChange={(value) => onTabChange(value as TabKey)}
@@ -475,34 +461,12 @@ function ShellRoot({
             className="referral-tabs"
           />
         </div>}
-      </header>
+      </AppPageHeaderRegion>
 
-      <main ref={mainRef} aria-label="Referral dashboard" tabIndex={-1} className="mx-auto max-w-[912px] px-6 pb-[calc(96px+env(safe-area-inset-bottom,0px))] pt-3 outline-none">
-        <div>{children}</div>
-      </main>
-
-      {!showHowItWorks && link ? (
-        <div
-          role="group"
-          aria-label="Your invite link"
-          className="fixed left-1/2 z-[60] flex h-[54px] w-[min(640px,calc(100%-32px))] -translate-x-1/2 items-center gap-2.5 rounded-full border pl-[18px] pr-[9px] shadow-lg backdrop-blur-xl"
-          style={{
-            bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
-            background: "rgba(255, 255, 255, .96)",
-            borderColor: "rgba(0,0,0,.08)",
-          }}
-        >
-          <Link2 className="size-[18px] shrink-0" style={{ color: COLORS.text3 }} aria-hidden="true" />
-          <small className="hidden shrink-0 text-sm sm:inline" style={{ color: COLORS.text3 }}>
-            Invite with
-          </small>
-          <code className="min-w-0 flex-1 truncate text-sm font-medium">{link}</code>
-          <Button size="sm" onClick={onCopy} aria-label="Copy invite link" style={{ background: COLORS.blue }}>
-            Copy
-          </Button>
-        </div>
-      ) : null}
-    </div>
+      <AppPageContentRegion>
+        <main ref={mainRef} aria-label="Referral dashboard" tabIndex={-1} className="outline-none">{children}</main>
+      </AppPageContentRegion>
+    </AppPageShell>
   );
 }
 
@@ -529,6 +493,7 @@ function Card({
 }
 
 function YouTab({
+  active,
   summary,
   pointsRes,
   onRetryPoints,
@@ -544,8 +509,10 @@ function YouTab({
   onRetryCircle,
   countdown,
   link,
+  onCopy,
   onShare,
 }: {
+  active: boolean;
   summary: ReferralSummary;
   pointsRes: Res<number>;
   onRetryPoints: () => void;
@@ -561,6 +528,7 @@ function YouTab({
   onRetryCircle: () => void;
   countdown: string | null;
   link: string;
+  onCopy: () => void;
   onShare: () => void;
 }) {
   return (
@@ -569,28 +537,15 @@ function YouTab({
         <div className="referral-hero-copy">
           <p className="referral-hero-eyebrow"><Users aria-hidden="true" />Invite &amp; earn</p>
           <h1 className="referral-hero-title">Good things<br />grow <span>together.</span></h1>
-          <div className="referral-hero-share">
-            <a
-              className="referral-share-button"
-              href={`https://wa.me/?text=${encodeURIComponent(`Join me on Hushh One for the weekly referral challenge: ${link}`)}`}
-              target="_blank"
-              rel="noopener"
-            >
-              <WhatsappLogo weight="regular" aria-hidden="true" /> WhatsApp
-            </a>
-            <a className="referral-share-button" href={`sms:?&body=${encodeURIComponent(`Join me on Hushh One: ${link}`)}`}>
-              <MessageSquareText aria-hidden="true" /> SMS
-            </a>
-            <button onClick={onShare} className="referral-share-button referral-share-more" aria-label="More share options">
-              <Share2 aria-hidden="true" /> More
-            </button>
-          </div>
+          {link ? (
+            <ReferralInviteActions key={link} active={active} link={link} onCopy={onCopy} onShare={onShare} />
+          ) : null}
         </div>
         <Image
-          src="/referrals/friends-hero-one-spaced.webp"
+          src="/referrals/friends-hero-professionals.svg"
           alt=""
-          width={1536}
-          height={1024}
+          width={1599}
+          height={984}
           className="referral-hero-art"
           loading="eager"
           unoptimized
@@ -1309,10 +1264,13 @@ function RewardsTab({
 function RulesTab({ policyRes, onRetry }: { policyRes: Res<ReferralPolicy>; onRetry: () => void }) {
   return (
     <>
-      <div className="referral-duo referral-rules-grid grid gap-4 sm:grid-cols-2">
+      <div className="referral-rules-grid">
         <Section res={policyRes} onRetry={onRetry} retryLabel="referral rules">{(policy) => (
-          <Card className="referral-rules-points p-5">
-            <div className="referral-rules-card-title"><Coins className="size-5" aria-hidden="true" /><h3 className="ui-text-section-title">Coins</h3></div>
+          <Card className="referral-rules-points">
+            <div className="referral-rules-card-title">
+              <span className="referral-rules-heading-icon"><Coins aria-hidden="true" /></span>
+              <div><h3 className="ui-text-section-title">Coins</h3><p>Rewards for qualifying referrals.</p></div>
+            </div>
             <ul className="referral-points-list">
               {[
                 { title: "Qualified referral", value: `${fmt(policy.points.qualified_referral_points)} coins`, icon: <ShieldCheck aria-hidden="true" /> },
@@ -1330,8 +1288,11 @@ function RulesTab({ policyRes, onRetry }: { policyRes: Res<ReferralPolicy>; onRe
             </ul>
           </Card>
         )}</Section>
-        <Card className="referral-rules-details p-5" aria-label="Referral rules">
-          <div className="referral-rules-card-title"><Trophy className="size-5" aria-hidden="true" /><h3 className="ui-text-section-title">Rules</h3></div>
+        <Card className="referral-rules-details">
+          <div className="referral-rules-card-title">
+            <span className="referral-rules-heading-icon"><Trophy aria-hidden="true" /></span>
+            <div><h3 className="ui-text-section-title">Rules</h3><p>Three steps to your next reward.</p></div>
+          </div>
           <ol className="referral-visual-rules">
             <li><span><Link2 aria-hidden="true" /></span><div><h4>Invite a friend</h4><p>Share your link with someone new.</p></div></li>
             <li><span><ShieldCheck aria-hidden="true" /></span><div><h4>They finish setup</h4><p>Sign up, verify their phone, and finish setup.</p></div></li>

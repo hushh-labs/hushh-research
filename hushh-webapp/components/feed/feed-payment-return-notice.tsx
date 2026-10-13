@@ -11,6 +11,7 @@ import {
   type RequesterPaymentView,
 } from "@/lib/consent/document-request-payment-view";
 import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
+import { AnswerPaymentReturnNotice } from "@/components/feed/answer-payment-return-notice";
 
 type ReturnState =
   | "checking"
@@ -33,20 +34,23 @@ function refundPendingCopy(view: RequesterPaymentView): string {
 /** Stripe's browser return is only a hint; the server's payment state decides the copy. */
 export function FeedPaymentReturnNotice() {
   const { user } = useAuth();
-  const [request, setRequest] = useState<{ id: string; checkout: string } | null>(null);
+  const [request, setRequest] = useState<{ id: string; checkout: string; answer: boolean } | null>(null);
   const [state, setState] = useState<ReturnState>("checking");
   const [refundCopy, setRefundCopy] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const id = params.get("paymentRequestId") ?? "";
+    const answerId = params.get("answerPaymentRequestId");
+    const id = answerId ?? params.get("paymentRequestId") ?? "";
     if (DOCUMENT_REQUEST_UUID.test(id)) {
-      setRequest({ id, checkout: params.get("checkout") ?? "" });
+      const checkout = params.get("checkout") ?? "";
+      // Historical answer sessions returned paid/cancelled; Drive emits success/cancel.
+      setRequest({ id, checkout, answer: Boolean(answerId) || checkout === "paid" || checkout === "cancelled" });
     }
   }, []);
 
   useEffect(() => {
-    if (!request || !user) return;
+    if (!request || !user || request.answer) return;
     let live = true;
     let polls = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -110,6 +114,7 @@ export function FeedPaymentReturnNotice() {
   }, [request, user]);
 
   if (!request) return null;
+  if (request.answer) return <AnswerPaymentReturnNotice requestId={request.id} checkout={request.checkout} />;
   const message = state === "paid"
     ? "Payment confirmed. Sharing will continue shortly."
     : state === "reconciling"

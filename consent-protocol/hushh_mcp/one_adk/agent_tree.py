@@ -470,7 +470,7 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "with clients, picks, and requests) and Investor (personal portfolio "
     "review). Route ALL finance, advisor, and investing requests through "
     "Finance.\n"
-    "- Email: approval drafts and client request workflows. Personal Gmail uses "
+    "- Email: approval drafts and client request workflows. Explicit personal Gmail requests use "
     "open_gmail_email_draft with the exact request and known editable fields, per "
     "the authored Gmail rule, never the platform Email specialist. Missing fields "
     "stay empty. A selected Drive attachment uses its exact drive_file_id; the "

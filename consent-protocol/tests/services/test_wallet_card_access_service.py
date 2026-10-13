@@ -1,4 +1,5 @@
 import base64
+import json
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -13,6 +14,57 @@ from hushh_mcp.services.wallet_card_access_service import (
     WalletCardAccessError,
     WalletCardAccessService,
 )
+
+
+def encrypted_card():
+    key = {
+        "algorithm": "ECDH-P256-AES256-GCM",
+        "recipientKeyId": "key",
+        "iv": "A" * 16,
+        "ciphertext": "A" * 64,
+        "senderEphemeralPublicKeyJwk": {"kty": "EC", "crv": "P-256", "x": "A" * 43, "y": "A" * 43},
+    }
+    return "hushh-wallet-card:v1:" + json.dumps(
+        {
+            "shareId": "11111111-1111-4111-8111-111111111111",
+            "cardId": "card",
+            "payload": {"ciphertext": "AAAA", "iv": "A" * 16, "tag": "A" * 22 + "=="},
+            "senderKey": key,
+            "recipientKey": key,
+        }
+    )
+
+
+@pytest.mark.parametrize("trusted", [True, False])
+def test_authorized_circles_receive_only_recipient_encrypted_number(grant_service, trusted):
+    service, state, _ = grant_service
+    state["trusted"] = trusted
+    state["row"]["verification_started_at"] = state["now"]
+    payload = json.loads(service.cipher.open.return_value)
+    payload["encryptedCard"] = encrypted_card()
+    service.cipher.open.return_value = json.dumps(payload)
+    if not trusted:
+        assert "encryptedCard" not in service.view_grant("recipient", "grant")
+    result = service.view_grant("recipient", "grant", verified_auth_time=state["now"].timestamp())
+    assert result["encryptedCard"] == payload["encryptedCard"]
+    assert result["senderUserId"] == "owner"
+    assert "pan" not in result["card"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "4242424242424242",
+        '{"pan":"4242424242424242"}',
+        encrypted_card().replace('"cardId": "card"', '"cardId": "other"'),
+    ],
+)
+def test_grants_reject_plaintext_or_wrong_card_before_database(grant_service, content):
+    service, _, conn = grant_service
+    ref = "11111111-1111-4111-8111-111111111111"
+    with pytest.raises(WalletCardAccessError, match="SHARE_INVALID"):
+        service.create_grants("owner", "card", ref, [ref], 10, encrypted_cards={ref: content})
+    conn.execute.assert_not_called()
 
 
 @pytest.fixture
@@ -33,6 +85,7 @@ def grant_service(monkeypatch):
     )
     now = datetime.now(timezone.utc)
     row = {
+        "id": "11111111-1111-4111-8111-111111111111",
         "owner_user_id": "owner",
         "card_id": "card",
         "expires_at": now + timedelta(minutes=5),

@@ -1,6 +1,15 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
+import { SecureCardAddForm as CardForm } from "@/components/wallet/secure-card-add-form";
+
+const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn() }));
+vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported } }));
+// Exercise the real region dropdown with a bounded, representative catalog.
+vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [
+  { value: "US", label: "United States" }, { value: "IN", label: "India" },
+] }));
+const networkContext = () => ({ userId: "owner", vaultOwnerToken: "consent" });
+const SecureCardAddForm = (props: React.ComponentProps<typeof CardForm>) => <CardForm getNetworkContext={networkContext} {...props} />;
 
 const scan = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock("@/lib/services/wallet-card-scan", () => ({ scanWalletCard: scan.read, pickNativeWalletCard: vi.fn() }));
@@ -18,8 +27,15 @@ function submit() {
   fireEvent.submit(screen.getByTestId("secure-card-add-form"));
 }
 
+beforeEach(() => {
+    vi.clearAllMocks();
+    networkApi.resolve.mockReset();
+    networkApi.supported.mockReset();
+    networkApi.supported.mockResolvedValue(["visa", "mastercard", "amex", "discover", "rupay", "other"]);
+    networkApi.resolve.mockImplementation(async (_context, input) => ({ network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }));
+});
+
 describe("Secure manual card entry", () => {
-  beforeEach(() => vi.clearAllMocks());
 
   it("offers scanning alongside manual entry and links validation errors", () => {
     const save = vi.fn();
@@ -42,6 +58,7 @@ describe("Secure manual card entry", () => {
     const save = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
     render(<SecureCardAddForm onSubmit={save} />);
     fillRequired();
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
     submit();
     submit();
     expect(save).toHaveBeenCalledTimes(1);
@@ -63,6 +80,7 @@ describe("Secure manual card entry", () => {
     fillRequired();
     fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("option", { name: "Mastercard", exact: true }));
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
     submit();
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Your card could not be saved. Please try again."));
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ brand: "mastercard", nickname: "Offer label" }));
@@ -82,6 +100,7 @@ describe("Secure manual card entry", () => {
     fireEvent.keyDown(region, { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("option", { name: "Select region…", exact: true }));
     fillRequired();
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
     submit();
     await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ issuingRegion: undefined })));
   });
@@ -103,6 +122,8 @@ describe("Secure manual card entry", () => {
 });
 
 it("reviews scanned fields without saving and clears old security codes", async () => {
+  networkApi.supported.mockResolvedValue(["visa", "mastercard", "other"]);
+  networkApi.resolve.mockResolvedValue({ network: "mastercard", source: "prefix", candidates: [] });
   scan.read.mockResolvedValue({ pan: "5555555555554444", expiry: "11/99", cardholderName: "Scanned Owner" });
   const save = vi.fn();
   render(<SecureCardAddForm onSubmit={save} />);
@@ -125,6 +146,67 @@ it("reviews scanned fields without saving and clears old security codes", async 
   expect(screen.getByLabelText("CVV")).toHaveValue("");
   expect(save).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "321" } });
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
   submit();
   await waitFor(() => expect(save).toHaveBeenCalledOnce());
+});
+
+it("shows a neutral label and explains a failed backend lookup", async () => {
+  networkApi.resolve.mockRejectedValue(new Error("private lookup diagnostic"));
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
+  fillRequired();
+  expect(await screen.findByText("Network identification is unavailable. Your card will use a neutral Card label.")).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect");
+  expect(screen.queryByText("private lookup diagnostic")).toBeNull();
+  submit();
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ nickname: "Card", brand: undefined })));
+});
+
+it("explains ambiguous networks without displaying a guessed brand", async () => {
+  networkApi.resolve.mockResolvedValue({ network: "other", source: "ambiguous", candidates: ["jcb", "rupay"] });
+  render(<SecureCardAddForm onSubmit={vi.fn()} scanEnabled={false} />);
+  fillRequired();
+  expect(await screen.findByText("This number matches more than one network. Choose the network printed on your card.")).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect");
+});
+
+it("discards a late reply for a previous issuer prefix", async () => {
+  let finish!: (value: unknown) => void;
+  networkApi.resolve.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }))
+    .mockResolvedValueOnce({ network: "mastercard", source: "prefix", candidates: [] });
+  render(<SecureCardAddForm onSubmit={vi.fn()} scanEnabled={false} />);
+  fillRequired();
+  await waitFor(() => expect(networkApi.resolve).toHaveBeenCalledOnce());
+  const signal = networkApi.resolve.mock.calls[0][2] as AbortSignal;
+  fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "5555555555554444" } });
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect · Mastercard"));
+  expect(signal.aborted).toBe(true);
+  await act(async () => finish({ network: "amex", source: "prefix", candidates: [] }));
+  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect · Mastercard");
+});
+
+it("hides the previous network when the owner authorization changes", async () => {
+  let finish!: (value: unknown) => void;
+  networkApi.resolve.mockResolvedValueOnce({ network: "visa", source: "prefix", candidates: [] })
+    .mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  const save = vi.fn();
+  const view = render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
+  fillRequired();
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect · Visa"));
+  view.rerender(<SecureCardAddForm onSubmit={save} scanEnabled={false} getNetworkContext={() => ({ userId: "owner", vaultOwnerToken: "renewed-consent" })} />);
+  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent(/^Auto-detect$/);
+  await waitFor(() => expect(networkApi.resolve).toHaveBeenCalledTimes(2));
+  await act(async () => finish({ network: "mastercard", source: "prefix", candidates: [] }));
+  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect · Mastercard");
+});
+
+it("offers a new backend network and distinguishes owner selection from identification", async () => {
+  networkApi.supported.mockResolvedValue(["visa", "future_network", "other"]);
+  render(<SecureCardAddForm onSubmit={vi.fn()} />);
+  fillRequired();
+  expect(await screen.findByText("Network identified from the card prefix. This does not verify the card or its issuer.")).toBeInTheDocument();
+  fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: "FUTURE NETWORK" }));
+  expect(await screen.findByText("You selected this network. This does not verify the card or its issuer.")).toBeInTheDocument();
 });

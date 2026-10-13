@@ -418,10 +418,10 @@
   {
     "route": "/getting-started",
     "mode": "hidden",
-    "exemptionReason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes.",
+    "exemptionReason": "Compatibility entry redirects signed-out visitors to sign-in and signed-in people to One; it renders no application shell.",
     "voicePlaybook": {
       "playbookId": "route.getting.started",
-      "purpose": "Help the person understand and use the getting started screen through its generated controls.",
+      "purpose": "Complete the compatibility entry handoff according to the current session; no carousel or local action controls are rendered.",
       "screen": "getting_started",
       "entryCue": "",
       "proactivity": "ambient",
@@ -436,8 +436,8 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": "/getting-started",
+      "completionBoundary": "The signed-out login destination or signed-in One destination has settled.",
+      "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     },
@@ -449,7 +449,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes."
+      "reason": "Compatibility entry redirects before application interaction; Back belongs to the settled destination."
     }
   },
   {
@@ -5977,20 +5977,23 @@
   },
   {
     "route": "/one/referrals",
-    "mode": "hidden",
-    "persistentChrome": "none",
+    "mode": "standard",
+    "persistentChrome": "standard",
     "interactionLayerPolicy": {
       "allowedFamilies": []
     },
     "shellVerification": {
       "file": "components/referrals/referral-dashboard-page.tsx",
       "includes": [
-        "NativeTestBeacon"
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
       ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.referrals",
-      "purpose": "Open the referral dashboard directly so the person can read their referral link, coins, ranking, and reward progress. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+      "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share expands the sharing options; Back closes them. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
       "screen": "one_referrals",
       "entryCue": "",
       "proactivity": "ambient",

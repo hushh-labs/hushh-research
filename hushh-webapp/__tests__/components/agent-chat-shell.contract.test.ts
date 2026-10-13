@@ -228,8 +228,8 @@ describe("private-agent chat shell contract", () => {
     expect(brandTileStart).toBeGreaterThan(0);
     expect(brandTile).toContain("<HushhMark");
     expect(brandTile).toContain('className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"');
-    expect(brandTile).toContain('className="h-16 w-16 items-center justify-center overflow-visible"');
-    expect(brandTile).toContain('imageClassName="!h-14 !w-14"');
+    expect(brandTile).toContain('className="size-[72px] items-center justify-center overflow-visible"');
+    expect(brandTile).toContain('imageClassName="!size-16"');
     expect(brandTile).not.toContain("max-sm:hidden");
   });
 

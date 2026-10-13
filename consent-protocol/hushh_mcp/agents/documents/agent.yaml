@@ -60,6 +60,20 @@ subagents:
       transport: [in_process]
     system_instruction: |
       Plan ONE Google Drive search from document_request for the owner.
+      Audit the requested subject before returning the plan. subject_scope is
+      "specific_records" when the request names any record category, topic,
+      institution, person or literal title; preserve each necessary concept in
+      terms/term_groups or exact_title. subject_scope="metadata_listing" only
+      for a request entirely about file type, file activity, sharing or recency
+      with no named subject (for example "latest 100 documents"). Set
+      subject_complete=true only after checking the plan against the original
+      document_request. A MIME filter does not preserve a record category:
+      "all invoices for 2026" needs invoice/invoices, and "every Charles Schwab
+      account statement for 2026" needs separate Schwab and statement groups.
+      Never clear terms to make an invalid plan pass validation. If given
+      planner_validation_feedback, correct the plan from the original request,
+      retaining its subject and every explicit constraint. If you cannot do
+      that, return subject_complete=false so the search fails without widening.
       mode: "find" to locate, list or open files; "read" only when the owner
       asks about contents or wants a summary or an answer from the files.
       Decide from the requested operation, preserving the owner's question.
@@ -72,15 +86,27 @@ subagents:
       For "find documents explaining product decisions", use find with topic
       terms; do not invent an exact_title. Set exact_title whenever the owner
       identifies a literal filename, even if their capitalization differs.
-      terms: up to 3 short keywords or names that appear in the wanted file's
-      title or text. Every term must match, so use the fewest distinctive
-      words ("bank statement", not "potential bank statement document"); list
-      a synonym as another term only when the owner gives it. Never put a file
+      terms: up to 3 distinct concepts that appear in the wanted file's title
+      or text, using the fewest necessary concepts. term_groups: an optional
+      list in the same order, with 1 to 4 equivalent words or phrases per
+      concept. Each group's first variant must exactly equal its terms entry.
+      Variants within a group are OR; separate concepts are AND. Synonyms,
+      inflections and familiar abbreviations belong in the SAME group, never
+      as additional required concepts. For statements, use terms=["statement"]
+      with term_groups=[["statement","statements","e-statement","e-stmt"]].
+      Preserve an explicitly named institution as a separate concept, using
+      familiar name variants only for that institution. Do not invent other
+      institutions, account numbers or unrelated record categories. Leave
+      term_groups=[] when no alternatives are needed. Each variant is a
+      nonempty literal of at most 50 characters, with no control characters
+      or duplicates, including across groups. Never put a file
       type word (pdf, doc, document, sheet, spreadsheet, slides, deck,
       presentation, video, recording, photo, image, folder) in terms. Set
       file_kind instead: document, spreadsheet, presentation, pdf, image,
       video (meeting or screen recordings, videos), audio (voice recordings),
-      folder; otherwise "any".
+      folder; otherwise "any". Domain records such as statements, invoices,
+      reports, contracts and meeting notes are file_kind=document unless the
+      owner explicitly requests another file type; document includes PDFs.
       Dates of the FILE itself (made, uploaded, recorded, modified) use
       time_intent="file_activity":
       - a specific day or span ("24th September", "on the 10th", "last
@@ -98,9 +124,13 @@ subagents:
       were made that day: use file dates with createdTime.
       Only statements, invoices, reports or records described as covering a
       period (a statement for March, invoices for Q2) are CONTENT dates: use
-      time_intent="document_coverage" with no date fields; add the
-      period words as terms only if they would appear in the file.
-      document_request.periodStart and periodEnd refer to CONTENT coverage.
+      time_intent="document_coverage" with no date fields. Do not turn a
+      content period into file created/modified bounds or mandatory search
+      terms: files can be uploaded later or use dates only inside their text.
+      document_request.periodStart and periodEnd are the selected period and
+      narrow a broader year or period in the written request. Preserve that
+      selected range; never widen it to the whole mentioned year. They refer
+      to CONTENT coverage unless the owner explicitly asks about file activity.
       If ambiguous, choose document_coverage.
       "latest", "newest", "last" or "most recent" file: sort="recent". "My
       recent files" with nothing else: sort="recent" and no terms.
@@ -114,7 +144,8 @@ subagents:
       Preserve createdTime for explicitly newest-created files and
       modifiedTime for latest-updated or unspecified recency. Do not turn
       "last 3 days", a year, report number, date range, or title digits into a
-      file count. For "all documents", an absent file count, or
+      file count. "All" means every matching file, with no result limit,
+      even when the provider needs multiple pages. For "all documents", an absent file count, or
       non-transaction searches, leave result_limit=null. Never silently
       clamp or omit an unsupported requested count: return that count so
       validation can reject it. Keep file counts and recency
