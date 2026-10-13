@@ -216,7 +216,7 @@ describe("the Microsoft sign-in return for an approved update", () => {
   });
 });
 
-describe("cold Azure return before shell hydration", () => {
+describe("verified owner cold entry before shell hydration", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -261,9 +261,19 @@ describe("cold Azure return before shell hydration", () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
+  it.each(["/", "/one", "/one/files", "/one/profile/software-updates"])(
+    "recovers a withheld owner shell at %s once without executing an action", async (pathname) => {
+      mocks.pathname = pathname;
+      render(<AzureReturnBootRecovery />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs * 3); });
+      expect(mocks.refresh).toHaveBeenCalledOnce();
+      expect(complete).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["different route", "signed out", "verification pending", "loading"])(
     "does not recover with %s", async (condition) => {
-      if (condition === "different route") mocks.pathname = "/one";
+      if (condition === "different route") mocks.pathname = "/login";
       if (condition === "signed out") mocks.auth.user = null;
       if (condition === "verification pending") mocks.auth.sessionVerificationRequired = true;
       if (condition === "loading") mocks.auth.loading = true;
@@ -273,6 +283,16 @@ describe("cold Azure return before shell hydration", () => {
       expect(complete).not.toHaveBeenCalled();
     },
   );
+
+  it("cancels a Files recovery when navigation leaves its admitted route", async () => {
+    mocks.pathname = "/one/files";
+    const view = render(<AzureReturnBootRecovery />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs - 1); });
+    mocks.pathname = "/login";
+    view.rerender(<AzureReturnBootRecovery />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(BOOT_TIMING.stuckAfterMs); });
+    expect(mocks.refresh).not.toHaveBeenCalled();
+  });
 
   it("cancels the pending recovery if the owner signs out", async () => {
     const view = render(<AzureReturnBootRecovery />);
