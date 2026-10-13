@@ -52,10 +52,11 @@ function searchOf(href: string): string {
 
 /**
  * Profile Pane (lib/navigation/profile-pane.ts) already drives its own
- * drill-down with real history.pushState entries and a synthetic `popstate`
- * (emitHistoryUpdate) to resync Next's router after each direct write. A real
- * native pop while the pane is open already reveals exactly what the
- * authored contract says it should -- this mechanism must do nothing there,
+ * drill-down over the current route with `?profile_pane=1`, real
+ * history.pushState entries, and a synthetic `popstate` (emitHistoryUpdate)
+ * to resync Next's router after each direct write. A real native pop while
+ * the pane is open already reveals the authored parent -- this mechanism
+ * must do nothing there,
  * for two independent reasons: (1) the primary guard below ignores untrusted
  * (synthetic) events entirely, since profile-pane.ts's own popstate is never
  * user-trusted; (2) belt-and-suspenders, skip explicitly whenever either side
@@ -65,7 +66,7 @@ function isProfilePaneGoverned(location: RouteLocation): boolean {
   if (resolveProfilePaneUrlState(location.search).open) return true;
   if (location.pathname !== ROUTES.PROFILE) return false;
   const params = new URLSearchParams(location.search);
-  return Boolean(params.get("panel") || params.get("detail"));
+  return location.pathname === ROUTES.PROFILE && Boolean(params.get("panel") || params.get("detail"));
 }
 
 /**

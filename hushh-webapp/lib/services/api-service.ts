@@ -589,6 +589,8 @@ export async function fetchWithWebTimeout(
 
 export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;
+  /** Native HTTP returns binary bodies as base64; decode them before blob(). */
+  responseType?: "arraybuffer";
   /** Revalidate effect authority after async transport setup, including retries. */
   beforeDispatch?: () => Promise<void>;
   /** Synchronous final check: no await may separate authority from dispatch. */
@@ -604,7 +606,7 @@ async function apiFetch(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<Response> {
-  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, ...fetchOptions } = options;
+  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, responseType, ...fetchOptions } = options;
   const assertEffectCurrent = () => {
     if (isEffectCurrent && isEffectCurrent() !== true) {
       throw new DOMException("The effect session changed.", "AbortError");
@@ -940,6 +942,7 @@ async function apiFetch(
         data?: unknown;
         connectTimeout?: number;
         readTimeout?: number;
+        responseType?: "arraybuffer";
       } = {
         url,
         method,
@@ -949,6 +952,7 @@ async function apiFetch(
         // iOS; Android supports a separate connection timeout.
         connectTimeout: Capacitor.getPlatform() === "ios" ? readTimeoutMs : 15_000,
         readTimeout: readTimeoutMs,
+        ...(responseType ? { responseType } : {}),
       };
 
       if (
@@ -999,10 +1003,10 @@ async function apiFetch(
             responseHeaders.set(key, String(value));
           }
         });
-        const responseBody =
-          typeof nativeResponse.data === "string"
-            ? nativeResponse.data
-            : JSON.stringify(nativeResponse.data ?? null);
+        // Both native adapters parse JSON error bodies before responseType.
+        const responseBody = responseType === "arraybuffer" && typeof nativeResponse.data === "string" && !responseHeaders.get("content-type")?.includes("json")
+          ? Uint8Array.from(atob(nativeResponse.data), char => char.charCodeAt(0))
+          : typeof nativeResponse.data === "string" ? nativeResponse.data : JSON.stringify(nativeResponse.data ?? null);
         return new Response(responseBody, {
           status: nativeResponse.status,
           headers: responseHeaders,

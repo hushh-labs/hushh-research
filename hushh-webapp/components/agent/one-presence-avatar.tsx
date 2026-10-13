@@ -1,19 +1,44 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import NextImage from "next/image";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 export type OnePresenceState = "connected" | "thinking" | "working" | "answering";
 
-/** Fixed-canvas frames: 72 frames, 24 FPS, nine columns. */
-export function OnePresenceAvatar({ state }: { state: OnePresenceState }) {
+/** Presentation only: observe running work, never infer intent from text. */
+export function resolveOnePresenceState({ drafting, answering }: {
+  drafting: boolean;
+  answering: boolean;
+}): OnePresenceState {
+  if (drafting) return "working";
+  return answering ? "thinking" : "connected";
+}
+
+const portrait = {
+  connected: "/one-presence/profile-hd.png",
+  working: "/one-presence/drafting-hd.png",
+  thinking: "/one-presence/thinking-hd.png",
+  answering: "/one-presence/thinking-hd.png",
+} satisfies Record<OnePresenceState, string>;
+
+const compactClassName = "block size-16 shrink-0 bg-contain bg-center bg-no-repeat";
+
+/** Both surfaces show mapped work frames; idle/reduced motion keep HD artwork. */
+export function OnePresenceAvatar({ state, presentation = "compact", className }: {
+  state: OnePresenceState;
+  presentation?: "compact" | "profile";
+  className?: string;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
+    if (state === "connected") return;
     const canvas = ref.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
     const image = new Image();
     context.clearRect(0, 0, 128, 128);
-    canvas.style.backgroundImage = "url('/one-presence/still.webp')";
+    canvas.style.backgroundImage = `url('${portrait[state]}')`;
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let disposed = false;
     let visible = false;
@@ -35,7 +60,15 @@ export function OnePresenceAvatar({ state }: { state: OnePresenceState }) {
     const sync = () => {
       cancelAnimationFrame(frameRequest);
       if (!loaded || disposed) return;
-      if (motion.matches || document.hidden || !visible) { draw(0); return; }
+      if (motion.matches) {
+        context.clearRect(0, 0, 128, 128);
+        previous = -1;
+        canvas.style.backgroundImage = `url('${portrait[state]}')`;
+        return;
+      }
+      if (document.hidden || !visible || appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+      canvas.style.backgroundImage = "none";
+      draw(0);
       start = performance.now();
       frameRequest = requestAnimationFrame(tick);
     };
@@ -51,9 +84,10 @@ export function OnePresenceAvatar({ state }: { state: OnePresenceState }) {
       draw(0);
       sync();
     };
-    image.src = `/one-presence/${state}.webp`;
+    image.src = `/one-presence/${state === "answering" ? "thinking" : state}.webp`;
     document.addEventListener("visibilitychange", sync);
     motion.addEventListener("change", sync);
+    const unsubscribeLifecycle = appInteractionCoordinator.subscribeLifecycle(sync);
     return () => {
       disposed = true;
       cancelAnimationFrame(frameRequest);
@@ -61,7 +95,17 @@ export function OnePresenceAvatar({ state }: { state: OnePresenceState }) {
       image.onload = null;
       document.removeEventListener("visibilitychange", sync);
       motion.removeEventListener("change", sync);
+      unsubscribeLifecycle();
     };
-  }, [state]);
-  return <canvas ref={ref} width={128} height={128} aria-hidden="true" className="block size-16 shrink-0 bg-contain bg-center bg-no-repeat" style={{ backgroundImage: "url('/one-presence/still.webp')" }} />;
+  }, [presentation, state]);
+  if (state === "connected") {
+    return <NextImage src={portrait[state]} width={1254} height={1254} alt=""
+      aria-hidden="true" data-one-presence-state={state}
+      unoptimized loading="eager" decoding="async"
+      className={className ?? "block size-16 shrink-0"} />;
+  }
+  return <canvas ref={ref} width={128} height={128} aria-hidden="true"
+    data-one-presence-state={state}
+    className={className ? `${className} bg-contain bg-center bg-no-repeat` : compactClassName}
+    style={{ backgroundColor: "transparent", backgroundImage: `url('${portrait[state]}')` }} />;
 }

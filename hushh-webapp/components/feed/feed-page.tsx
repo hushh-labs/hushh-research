@@ -106,6 +106,33 @@ function groupItemsByDay(
   return groups;
 }
 
+const CONSENT_BUNDLE_EVENTS = new Set([
+  "consent_requested", "consent_granted", "consent_revoked",
+]);
+
+/** Mirror the server's presentation group while a mutation revalidates. */
+function belongsToDismissedRow(candidate: FeedItem, selected: FeedItem): boolean {
+  if (candidate.id === selected.id) return true;
+  if (!isFeedIdAtOrBefore(candidate.id, selected.id)) return false;
+  if (selected.source_domain === "consent" &&
+      CONSENT_BUNDLE_EVENTS.has(selected.event_type)) {
+    const bundle = selected.metadata.bundle_id;
+    return typeof bundle === "string" && bundle.length > 0 &&
+      candidate.source_domain === "consent" &&
+      candidate.event_type === selected.event_type &&
+      candidate.metadata.bundle_id === bundle;
+  }
+  if (selected.source_domain === "connected_systems" &&
+      selected.event_type === "document_share_outcome") {
+    const requestId = selected.metadata.request_id;
+    return typeof requestId === "string" && requestId.length > 0 &&
+      candidate.source_domain === "connected_systems" &&
+      candidate.event_type === "document_share_outcome" &&
+      candidate.metadata.request_id === requestId;
+  }
+  return false;
+}
+
 /** A closed price step, for an actionables source that has none to offer. */
 const CLOSED_DOCUMENT_PRICE_PROMPT: DocumentPricePrompt = {
   open: false,
@@ -277,6 +304,14 @@ function FeedPageSession({
   const [pagination, setPagination] = useState(createFeedPaginationState);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [dismissedItemIds, setDismissedItemIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [removingItemId, setRemovingItemId] = useState<string | null>(null);
+  const removalInFlightRef = useRef<Set<string>>(new Set());
+  const dismissedGroupsRef = useRef<Map<string, string[]>>(new Map());
+  const undoEpochRef = useRef(0);
+  const undoToastIdsRef = useRef<Set<string | number>>(new Set());
   // The newest item id this visit has already reported as read. A live refresh
   // brings genuinely new rows in while the page is open, and those must clear
   // the tab badge too — a boolean latch marked read exactly once and then let
@@ -290,14 +325,9 @@ function FeedPageSession({
   // and the accent tint would drain out from under the reader mid-scroll.
   // Remembering them preserves the intended behaviour through a live refresh.
   const visitUnreadIdsRef = useRef<Set<string>>(new Set());
-  // Durable clear. There is no backend feed-delete endpoint yet, so "Clear"
-  // (a) marks everything read (which the server persists) and (b) records a
-  // per-user "cleared through this id" watermark in localStorage. Feed ids are
-  // append-only and are also the backend read/pagination authority, so a new row
-  // can never be hidden because its server timestamp tied or moved backwards.
-  // Remove the old timestamp key on sight. It cannot be losslessly translated
-  // to an id: a row appended later may carry an equal/older timestamp. Showing
-  // old history once is safer than silently losing a genuinely new alert.
+  // A previous release kept Clear only on this device. Keep that old watermark
+  // visible while transferring it to the owner-scoped backend; new removals and
+  // clears are committed on the server before the list changes here.
   const clearedIdStorageKey = user?.uid
     ? feedClearedThroughStorageKey(user.uid)
     : null;
@@ -305,12 +335,8 @@ function FeedPageSession({
     ? `hushh:feed-cleared-at:${user.uid}`
     : null;
 
-  // The persisted watermark is read in the state initialiser. This session
-  // component is remounted per account (`key={user?.uid}`) after auth has
-  // resolved on the client, so there is no server-rendered list to mismatch;
-  // reading it in an effect instead forced every visit to paint the skeleton
-  // first and the warm cached list one commit later (two full layouts per
-  // tab switch). Storage can be disabled; that falls back to no clear.
+  // The legacy watermark is read before the first client paint so previously
+  // cleared history does not flash while its server migration is in flight.
   const readPersistedWatermark = () => readFeedClearedThroughId(user?.uid ?? null);
   const [clearedThroughId, setClearedThroughId] = useState<string | null>(
     readPersistedWatermark,
@@ -504,13 +530,69 @@ function FeedPageSession({
     },
   });
 
-  // Keep the open list live. `force` is required: without it a cache entry that
-  // is still inside its TTL short-circuits the load, which is exactly how the
-  // Feed could sit open showing activity that had already been answered.
+  // Import the old per-device Clear once, then retire it. A failed request
+  // leaves the old watermark in place for another attempt on the next visit.
+  useEffect(() => {
+    if (!user || !clearedIdStorageKey) return;
+    const oldWatermark = readFeedClearedThroughId(user.uid);
+    if (!oldWatermark) return;
+    let active = true;
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        await FeedService.clear({ idToken, userId: user.uid, upToId: oldWatermark });
+        if (!active) return;
+        try {
+          window.localStorage.removeItem(clearedIdStorageKey);
+        } catch {
+          // Storage can be disabled; the server clear still succeeded.
+        }
+        setClearedThroughId((current) =>
+          current === oldWatermark ? null : current,
+        );
+        dispatchFeedStateChanged("action");
+        void refresh({ force: true });
+      } catch {
+        // The old device filter remains until a later visit can sync it.
+      }
+    })();
+    return () => { active = false; };
+  }, [user, clearedIdStorageKey, refresh]);
+
+  // Keep the open list live. A direct authoritative read also detects an Undo
+  // from another session after this session removed a row. The service seeds
+  // the shared Feed cache, so the page and the profile preview update together.
   useFeedLiveRefresh(
     useCallback(() => {
-      void refresh({ force: true });
-    }, [refresh]),
+      if (!user || dismissedGroupsRef.current.size === 0) {
+        void refresh({ force: true });
+        return;
+      }
+      void (async () => {
+        try {
+          const idToken = await user.getIdToken();
+          const latest = await FeedService.list({
+            idToken, userId: user.uid, limit: 20, force: true,
+          });
+          const returnedIds = new Set(latest.items.map((item) => item.id));
+          const restoredIds = new Set<string>();
+          for (const [selectedId, groupIds] of dismissedGroupsRef.current) {
+            if (!groupIds.some((id) => returnedIds.has(id))) continue;
+            for (const id of groupIds) restoredIds.add(id);
+            dismissedGroupsRef.current.delete(selectedId);
+          }
+          if (restoredIds.size > 0) {
+            setDismissedItemIds((current) => {
+              const next = new Set(current);
+              for (const id of restoredIds) next.delete(id);
+              return next;
+            });
+          }
+        } catch {
+          // Keep the server-acknowledged hide until a later read succeeds.
+        }
+      })();
+    }, [refresh, user]),
     Boolean(user?.uid),
   );
 
@@ -626,6 +708,7 @@ function FeedPageSession({
     ]) {
       if (isFeedItemHidden(item, isLocalCrmBuildEnabled())) continue;
       if (seen.has(feedItemIdentity(item))) continue;
+      if (dismissedItemIds.has(item.id)) continue;
       if (clearedThroughId && isFeedIdAtOrBefore(item.id, clearedThroughId)) {
         continue;
       }
@@ -652,6 +735,7 @@ function FeedPageSession({
     pagination.additionalItems,
     clearedThroughId,
     clearWatermarkHydrated,
+    dismissedItemIds,
   ]);
 
   const retryFeed = useCallback(async () => {
@@ -688,45 +772,110 @@ function FeedPageSession({
     [router],
   );
 
+  const restoreItem = useCallback(async (itemId: string, dismissalToken: string) => {
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const restored = await FeedService.restore({
+        idToken, userId: user.uid, itemId, dismissalToken,
+      });
+      if (!restored) {
+        toast.error("This item can no longer be restored.");
+        return;
+      }
+      setDismissedItemIds((current) => {
+        const next = new Set(current);
+        for (const id of dismissedGroupsRef.current.get(itemId) ?? [itemId]) {
+          next.delete(id);
+        }
+        return next;
+      });
+      dismissedGroupsRef.current.delete(itemId);
+      dispatchFeedStateChanged("action");
+      void refresh({ force: true });
+    } catch {
+      toast.error("Couldn't restore this item. Try again.");
+    }
+  }, [user, refresh]);
+
+  const removeItem = useCallback(async (item: FeedItem) => {
+    if (!user || removalInFlightRef.current.has(item.id)) return;
+    const startingUndoEpoch = undoEpochRef.current;
+    removalInFlightRef.current.add(item.id);
+    setRemovingItemId(item.id);
+    try {
+      const idToken = await user.getIdToken();
+      const dismissalToken = await FeedService.dismiss({
+        idToken, userId: user.uid, itemId: item.id,
+      });
+      if (startingUndoEpoch !== undoEpochRef.current) {
+        void refresh({ force: true });
+        return;
+      }
+      const groupIds = [
+        ...(data?.items ?? []),
+        ...pagination.additionalItems,
+      ].filter((candidate) => belongsToDismissedRow(candidate, item))
+        .map((candidate) => candidate.id);
+      if (!groupIds.includes(item.id)) groupIds.push(item.id);
+      dismissedGroupsRef.current.set(item.id, groupIds);
+      setDismissedItemIds((current) => {
+        const next = new Set(current);
+        for (const id of groupIds) next.add(id);
+        return next;
+      });
+      dispatchFeedStateChanged("action");
+      void refresh({ force: true });
+      const undoEpoch = undoEpochRef.current;
+      const toastId = toast.success("Removed from Feed", dismissalToken ? {
+        action: { label: "Undo", onClick: () => {
+          if (undoEpoch !== undoEpochRef.current) return;
+          void restoreItem(item.id, dismissalToken);
+        } },
+      } : undefined);
+      if (typeof toastId === "string" || typeof toastId === "number") {
+        undoToastIdsRef.current.add(toastId);
+      }
+    } catch {
+      toast.error("Couldn't remove this item. Try again.");
+    } finally {
+      removalInFlightRef.current.delete(item.id);
+      setRemovingItemId((current) => current === item.id ? null : current);
+    }
+  }, [user, refresh, restoreItem, data?.items, pagination.additionalItems]);
+
   const handleClearAll = useCallback(async () => {
     if (!user || clearing) return;
     setClearArmed(false);
     setClearing(true);
     try {
       if (items.length > 0) {
-        // Persist what the backend supports today: mark everything read so
-        // the unread badge is cleared durably. Hiding history is a per-device,
-        // per-user watermark until a real feed-delete endpoint exists.
         const idToken = await user.getIdToken();
         const latestId = latestFeedId(items);
         if (!latestId) throw new Error("Feed contains no valid row id");
-        CacheSyncService.onFeedReadStarted(user.uid, latestId);
-        try {
-          await FeedService.markRead({ idToken, upToId: latestId });
-          CacheSyncService.onFeedReadSettled(user.uid);
-        } catch (error) {
-          CacheSyncService.onFeedReadFailed(user.uid);
-          dispatchFeedStateChanged("read");
-          throw error;
-        }
-        dispatchFeedStateChanged("read");
+        await FeedService.clear({ idToken, userId: user.uid, upToId: latestId });
+        undoEpochRef.current += 1;
+        for (const toastId of undoToastIdsRef.current) toast.dismiss?.(toastId);
+        undoToastIdsRef.current.clear();
+        dispatchFeedStateChanged("action");
         markedReadUpToRef.current = latestId;
         setPagination(createFeedPaginationState());
         setClearedThroughId(latestId);
         if (clearedIdStorageKey && legacyClearedStorageKey) {
           try {
-            window.localStorage.setItem(clearedIdStorageKey, latestId);
+            window.localStorage.removeItem(clearedIdStorageKey);
             window.localStorage.removeItem(legacyClearedStorageKey);
           } catch {
-            // Storage disabled: clear still applies for this session.
+            // The server still owns the clear when browser storage is disabled.
           }
         }
+        void refresh({ force: true });
       }
       // Revoked/expired SOS cards have nothing left to act on. Dismiss them
       // only after the durable read mutation succeeds, so a backend failure is
       // a true no-op instead of reporting failure after partially clearing UI.
       if (hasClearableSmsEmergencies) clearSmsEmergencies();
-      toast.success("Feed cleared on this device");
+      toast.success("Feed cleared");
     } catch {
       toast.error("Couldn't clear your feed.");
     } finally {
@@ -740,6 +889,7 @@ function FeedPageSession({
     legacyClearedStorageKey,
     hasClearableSmsEmergencies,
     clearSmsEmergencies,
+    refresh,
   ]);
 
   // Present strictly newest-first by wall-clock time, then club into day
@@ -954,6 +1104,9 @@ function FeedPageSession({
                             !item.read || visitUnreadIdsRef.current.has(item.id)
                           }
                           onOpen={openItem}
+                          onRemove={removeItem}
+                          onKeep={() => toast.success("Kept in Feed")}
+                          removing={removingItemId === item.id}
                         />
                       ))}
                     </SettingsGroup>
@@ -1003,10 +1156,10 @@ function FeedPageSession({
                   disabled={clearing}
                   aria-label={
                     clearArmed
-                      ? "Confirm clear feed notifications on this device"
-                      : "Clear feed notifications on this device"
+                      ? "Confirm clear feed notifications"
+                      : "Clear feed notifications"
                   }
-                  data-testid="feed-clear-on-device"
+                  data-testid="feed-clear"
                   className={
                     clearArmed
                       ? "w-auto max-w-full whitespace-nowrap bg-destructive/10 px-4 text-destructive hover:bg-destructive/15"
@@ -1017,7 +1170,7 @@ function FeedPageSession({
                     ? "Clearing…"
                     : clearArmed
                       ? "Confirm clear"
-                      : "Clear on this device"}
+                      : "Clear Feed"}
                 </StockButton>
               </div>
             ) : null}
@@ -1027,6 +1180,7 @@ function FeedPageSession({
       <OwnerConsentUnlockPrompt prompt={consentUnlockPrompt} />
       {/* One price step for every document request row; Allow only opens it. */}
       <DocumentRequestPriceSheet
+        moneyPolicy="drive_cents"
         open={documentPricePrompt.open}
         requesterLabel={documentPricePrompt.requesterLabel}
         purpose={documentPricePrompt.purpose}

@@ -13,7 +13,6 @@
  */
 
 import { useState } from "react";
-import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account";
 
 import { AuthService } from "@/lib/services/auth-service";
 import {
@@ -81,73 +80,97 @@ export function AnswerRequestReview({
 
   return (
     <div className="min-w-0 space-y-4">
-      <div className="space-y-1">
-        <HelperText as="p">Request scope · Memory</HelperText>
-        <HelperText as="p">The requester asked</HelperText>
-        <BodyText className="break-words">“{request.question}”</BodyText>
-        {request.periodStart && request.periodEnd ? (
-          <HelperText as="p">
-            Covering {request.periodStart} to {request.periodEnd}
-          </HelperText>
-        ) : null}
-      </div>
+      {/* Exactly one modal on screen at a time: once the price sheet opens,
+          this review's own form is not rendered behind it. The outer detail
+          panel (titled "Request scope · Memory") stays mounted so Back/Escape
+          still close the whole flow, but its body is empty while the nested
+          price sheet is the thing actually showing. */}
+      {!priceOpen ? (
+        <>
+          <div className="space-y-1">
+            <HelperText as="p">Request scope · Memory</HelperText>
+            <HelperText as="p">The requester asked</HelperText>
+            <BodyText className="break-words">“{request.question}”</BodyText>
+            {request.periodStart && request.periodEnd ? (
+              <HelperText as="p">
+                Covering {request.periodStart} to {request.periodEnd}
+              </HelperText>
+            ) : null}
+          </div>
 
-      <HelperText as="p">One will look in your memory for the information needed to answer this question.</HelperText>
-      {matched ? (
-        <HelperText as="p">Uses: {request.proposedScopes.map(entry => {
-          const labels: Record<string, string> = {
-            "attr.identity.identity_profile.full_name": "Name",
-            "attr.identity.identity_profile.declared_age": "Age",
-            "attr.identity.identity_profile.sex": "Sex",
-            "attr.identity.identity_profile.profile_photo_url": "Profile photo",
-          };
-          return labels[entry.scope] || entry.label || "Matched memory";
-        }).join(", ")}</HelperText>
-      ) : (
-        <div role="status" className="space-y-2">
-          <HelperText as="p">{request.resolutionMode === null ? "Matching this question to your memory…" : "We couldn’t match this question to your memory."}</HelperText>
-          {request.resolutionMode !== null && <Button type="button" disabled={busy} onClick={() => void run(token => AnswerRequestService.retryResolution(token, request.requestId))}>Retry matching</Button>}
-        </div>
-      )}
+          <HelperText as="p">One will use the matched memory with Gemini to prepare this answer.</HelperText>
+          {matched ? (
+            <>
+              <HelperText as="p">Uses: {request.proposedScopes.map(entry => {
+                const labels: Record<string, string> = {
+                  "attr.identity.identity_profile.full_name": "Name",
+                  "attr.identity.identity_profile.declared_age": "Age",
+                  "attr.identity.identity_profile.sex": "Sex",
+                  "attr.identity.identity_profile.profile_photo_url": "Profile photo",
+                };
+                return labels[entry.scope] || entry.label || "Matched memory";
+              }).join(", ")}</HelperText>
+              {/* Consent is captured here, bound to the exact question and
+                  matched scopes, before a price is ever chosen. The price
+                  sheet that follows asks only for the price. */}
+              <Label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={consented}
+                  disabled={busy}
+                  onChange={event => setConsented(event.target.checked)}
+                />
+                I agree to Google Gemini processing this question and the matched information.
+              </Label>
+            </>
+          ) : (
+            <div role="status" className="space-y-2">
+              <HelperText as="p">{request.resolutionMode === null ? "Matching this question to your memory…" : "We couldn’t match this question to your memory."}</HelperText>
+              {request.resolutionMode !== null && <Button type="button" disabled={busy} onClick={() => void run(token => AnswerRequestService.retryResolution(token, request.requestId))}>Retry matching</Button>}
+            </div>
+          )}
 
-      {error ? (
-        <HelperText as="p" role="alert">
-          {error}
-        </HelperText>
-      ) : null}
+          {error ? (
+            <HelperText as="p" role="alert">
+              {error}
+            </HelperText>
+          ) : null}
 
-      <FlowActionGroup
-        primary={
-          <Button
-            type="button"
-            size="prominent"
-            disabled={busy || !matched}
-            onClick={() => setPriceOpen(true)}
-          >
-            Set a price
-          </Button>
-        }
-        secondary={
-          <Button
-            type="button"
-            size="standard"
-            variant="none"
-            disabled={busy}
-            onClick={() =>
-              void run((token) =>
-                AnswerRequestService.decline(token, request.requestId),
-              )
+          <FlowActionGroup
+            primary={
+              <Button
+                type="button"
+                size="prominent"
+                disabled={busy || !matched || !consented}
+                onClick={() => setPriceOpen(true)}
+              >
+                Set a price
+              </Button>
             }
-          >
-            Don&apos;t allow
-          </Button>
-        }
-      />
+            secondary={
+              <Button
+                type="button"
+                size="standard"
+                variant="none"
+                disabled={busy}
+                onClick={() =>
+                  void run((token) =>
+                    AnswerRequestService.decline(token, request.requestId),
+                  )
+                }
+              >
+                Don&apos;t allow
+              </Button>
+            }
+          />
+        </>
+      ) : null}
 
       {/* Drive's price sheet, with this lane's own description. Its whole-dollar
           rule, presets and "Allow · $N" affordance are unchanged.
           paymentRequired is always true here: a paid answer with no price is
-          not a thing this lane can express. */}
+          not a thing this lane can express. Consent was already recorded on
+          the review step above, so this step asks only for the price. */}
       <DocumentRequestPriceSheet
         open={priceOpen}
         requesterLabel={requesterLabel}
@@ -159,11 +182,9 @@ export function AnswerRequestReview({
         periodStart={request.periodStart}
         periodEnd={request.periodEnd}
         paymentRequired
-        settlement={<>
-          <HelperText as="p">Google Gemini on Vertex AI receives this question and only the matched memory to write the answer, under its retention and caching policies. Your device encrypts the answer for the requester before payment.</HelperText>
-          <Label className="flex items-start gap-2"><input type="checkbox" checked={consented} disabled={busy} onChange={event => setConsented(event.target.checked)} />I agree to Google Gemini processing this question and the matched information at this price.</Label>
-          <AnswerPayoutAccount />
-        </>}
+        // Consent and payout management already have their own places
+        // (the review step above, and Settings); the price step is price only.
+        settlement={<></>}
         busy={busy}
         error={error}
         onSubmit={approve}

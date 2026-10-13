@@ -2628,6 +2628,8 @@ def _compile_service_onboarding_workflows(
             candidate_id
             for candidate_id in _clean_strings(route.get("action_ids"))
             if candidate_id in by_id
+            # The passive introduction is separate from the verified v2 runtime.
+            and not (service_id == "location" and candidate_id == "setup.finish_location_intro")
             and str((by_id[candidate_id].get("execution_target") or {}).get("status") or "")
             == "wired"
         ]

@@ -110,6 +110,10 @@ class DirectMessageReactionBody(_CamelModel):
     emoji: str = Field(..., min_length=1, max_length=32)
 
 
+class DirectMessageDeliveryBody(_CamelModel):
+    message_ids: list[UUID] = Field(..., alias="messageIds", min_length=1, max_length=100)
+
+
 class DirectMessageBlockBody(_CamelModel):
     """A durable, directed block; either identifier form is service-validated."""
 
@@ -304,6 +308,23 @@ async def mark_conversation_read(
             firebase_uid,
             conversation_id,
             **({"through_message_id": str(through_message_id)} if through_message_id else {}),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.post("/conversations/{conversation_id}/delivered")
+async def acknowledge_message_delivery(
+    payload: DirectMessageDeliveryBody,
+    conversation_id: str = Path(..., min_length=1, max_length=64),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return await run_in_threadpool(
+            _service().acknowledge_delivery,
+            firebase_uid,
+            conversation_id,
+            message_ids=[str(value) for value in payload.message_ids],
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc

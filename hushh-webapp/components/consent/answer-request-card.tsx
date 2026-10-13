@@ -36,7 +36,10 @@ import { AnswerRequestReview } from "@/components/consent/answer-request-review"
 import { Button } from "@/lib/morphy-ux/button";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
-import { runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
+import {
+  runAnswerDeliverySweep,
+  type AnswerSweepResult,
+} from "@/lib/answers/answer-delivery-sweep";
 import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
@@ -85,6 +88,13 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Local, per-view confirmation of the owner's own last preparation attempt.
+  // `requestStatus` legitimately stays "approved" after a successful prepare
+  // (it only advances on payment), so this is the only signal the owner gets
+  // that writing the answer actually worked, rather than nothing happening.
+  const [prepareOutcome, setPrepareOutcome] = useState<
+    "delivered" | "empty" | "failed" | null
+  >(null);
   const [pendingOpen, setPendingOpen] = useState<{ userId: string; requestId: string } | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
 
@@ -102,15 +112,20 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       const token = await AuthService.getIdToken();
       if (!token) throw new Error("Sign in to open this request.");
       // The owner's copy and the requester's copy are different endpoints;
-      // whichever answers is the role this person actually holds.
-      const [inbox, paid, requestState, gates] = await Promise.all([
+      // whichever answers is the role this person actually holds. `/payment`
+      // is the requester's lane only -- the backend 404s it for the owner by
+      // design, so the owner's device must never poll it at all.
+      const [inbox, requestState, gates] = await Promise.all([
         AnswerRequestService.inbox(token).catch(() => []),
-        AnswerRequestService.payment(token, requestId).catch(() => null),
         AnswerRequestService.state(token, requestId),
         // Swallowed on purpose: an unreadable gate must not take down the
         // owner's review of a question, which needs no payment lane at all.
         AnswerRequestService.gates(token).catch(() => null),
       ]);
+      const paid =
+        requestState.role === "owner"
+          ? null
+          : await AnswerRequestService.payment(token, requestId).catch(() => null);
       if (!valid()) return;
       if (requestState.role === "owner") answerStageTiming(requestId, "owner_projection", projectionStarted);
       setState(requestState);
@@ -145,6 +160,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     setError(null);
     setPendingOpen(null);
     setUnlockOpen(false);
+    setPrepareOutcome(null);
   }, [identity]);
 
   useEffect(() => {
@@ -201,11 +217,27 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     }
   }, [load, requestId, user?.uid]);
 
+  // Most "Preparation could not finish" failures are a single transient
+  // revision conflict (another write landed mid-read) that a fresh reread
+  // clears on its own. Retrying here, bounded and automatic, is what turns
+  // that into one clean attempt instead of the owner clicking Retry by hand
+  // several times before it happens to land between writes.
+  const PREPARE_ATTEMPTS = 3;
   const prepare = () => run(async (token, epoch) => {
     if (!user?.uid || !vaultKey || !vaultOwnerToken) throw new Error("Unlock your memory to prepare this answer.");
-    const result = await runAnswerDeliverySweep({ userId: user.uid, vaultKey, vaultOwnerToken,
-      firebaseIdToken: token, requestId, ownerIdentity: { displayName: user.displayName, photoUrl: user.photoURL } }, epoch);
-    if (!result.delivered && !result.empty) throw new Error("Preparation could not finish. Keep your memory unlocked and retry preparation.");
+    setPrepareOutcome(null);
+    let result: AnswerSweepResult | null = null;
+    for (let attempt = 1; attempt <= PREPARE_ATTEMPTS; attempt += 1) {
+      result = await runAnswerDeliverySweep({ userId: user.uid, vaultKey, vaultOwnerToken,
+        firebaseIdToken: token, requestId, ownerIdentity: { displayName: user.displayName, photoUrl: user.photoURL } }, epoch);
+      if (result.delivered || result.empty) break;
+      if (attempt < PREPARE_ATTEMPTS) await new Promise(resolve => window.setTimeout(resolve, 500 * attempt));
+    }
+    if (!result || (!result.delivered && !result.empty)) {
+      setPrepareOutcome("failed");
+      throw new Error("Preparation could not finish. Keep your memory unlocked and retry preparation.");
+    }
+    setPrepareOutcome(result.delivered ? "delivered" : "empty");
   });
 
   const openCheckout = () =>
@@ -292,14 +324,28 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         <HelperText as="p" role="status">
           {state.requestStatus === "answering"
             ? "Payment verified. Unlock and choose Write answer. Failed attempts can be retried until the 72-hour deadline; then a full refund is due."
-            : state.requestStatus === "approved" ? "Your device prepares the approved answer while your memory is unlocked. If preparation stops, retry here." : `Request ${state.requestStatus}.`}
+            : state.requestStatus === "approved"
+              ? busy
+                ? "Preparing answer…"
+                : prepareOutcome === "delivered"
+                  ? "Answer prepared. They can pay once they see it."
+                  : prepareOutcome === "empty"
+                    ? "Answer not present in their memory. They will not be charged."
+                    : "Your device prepares the approved answer while your memory is unlocked."
+              : `Request ${state.requestStatus}.`}
         </HelperText>
         {["approved", "answering"].includes(state.requestStatus) ? (
           <Button
             disabled={busy || !isVaultUnlocked}
             onClick={() => void prepare()}
           >
-            {busy ? "Preparing your answer…" : state.requestStatus === "approved" ? "Retry preparation" : "Write answer"}
+            {busy
+              ? "Preparing answer…"
+              : state.requestStatus === "answering"
+                ? "Write answer"
+                : prepareOutcome === "failed"
+                  ? "Retry preparation"
+                  : "Prepare answer"}
           </Button>
         ) : null}
         {error ? <HelperText role="alert">{error}</HelperText> : null}

@@ -59,6 +59,7 @@ capabilities:
   - { capability_id: location.setup.advance, kind: action, feature_group_id: onboarding }
   - { capability_id: setup.open_location, kind: action, feature_group_id: onboarding }
   - { capability_id: setup.finish_location, kind: action, feature_group_id: onboarding }
+  - { capability_id: setup.finish_location_intro, kind: action, feature_group_id: onboarding }
   - { capability_id: setup.skip_location, kind: action, feature_group_id: onboarding }
   - { capability_id: native.request_device_location_permission, kind: native_action, feature_group_id: onboarding }
   - capability_id: location.onboarding.choose_place

@@ -28,6 +28,23 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Main integration verification — 2026-10-13 UTC
 
+The latest continuation integrates main `811101872f74`. Main migrations 327–331
+remain intact; the seven task registrations move from 327–333 to 332–338 with
+all fourteen forward/rollback bodies byte-identical. Active consumers and schema
+contracts use head 338. Read-only target evidence at
+`2026-10-13T17:38:33.037952+00:00` finds 59 applied private-Dev receipts (900–958),
+no accepted canonical 291 or 327–338 entries, and no baseline. The original
+preservation receipt remains unchanged. Release replay and schema checks remain
+required; this source relocation does not authorize rewriting accepted history.
+Main migration 330 has no rollback registration, an inherited recovery gap.
+
+Candidate `80df81d7e2ce` passed canonical core in 587 seconds. The combined
+source preserves separate scope, document and answer financial contracts and
+fixes obsolete Memory publication after bounded encrypted-write retries. Consent
+stream errors are read before transport cleanup; unconfigured receipt logos keep
+merchant domains out of implicit third-party requests. Focused negative controls
+and fresh combined core/CI qualify these boundaries before deployment.
+
 The continuation incorporates main `4d067d6ce126` through the existing branch.
 Search preserves curated presentation order while projecting labels, aliases,
 discovery and availability from the generated action contracts. Payment aliases
@@ -371,7 +388,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/328_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/333_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -716,7 +733,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/328_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/333_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 

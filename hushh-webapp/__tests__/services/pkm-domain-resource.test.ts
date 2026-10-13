@@ -256,6 +256,40 @@ describe("PkmDomainResourceService", () => {
     );
   });
 
+  // A domain under continuous write pressure (another failed writer retrying
+  // the same domain, or one that will keep 404ing because it was never
+  // created) used to recurse here with no cap and no backoff: one page load
+  // produced well over a hundred identical network fetches in production.
+  it.each(["response", "device write"])("discards obsolete information after bounded retries during %s", async (phase) => {
+    const owner = `storm-owner-${phase}`;
+    const invalidate = () => {
+      PkmDomainResourceService.invalidateDomain(owner, "storm-domain", {
+        includeBackingCaches: true,
+      });
+    };
+    secureWriteMock.mockImplementation(async () => {
+      if (phase === "device write") invalidate();
+    });
+    secureInvalidateMock.mockResolvedValue(undefined);
+    loadDomainDataWithBlobMock.mockImplementation(async () => {
+      if (phase === "response") invalidate();
+      return {
+        data: { value: "churned" },
+        blob: { dataVersion: 1, updatedAt: "2026-09-20T00:00:00.000Z" },
+      };
+    });
+
+    const result = await PkmDomainResourceService.refresh({
+      userId: owner,
+      domain: "storm-domain",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+    });
+
+    expect(result).toBeNull();
+    expect(loadDomainDataWithBlobMock).toHaveBeenCalledTimes(4);
+  });
+
   it("rejects a secure snapshot read that finishes after a domain clear", async () => {
     let resolveRead!: (value: unknown) => void;
     secureReadMock.mockImplementationOnce(

@@ -42,7 +42,7 @@ import {
   PageTitle,
   TYPOGRAPHY_CLASSNAMES,
 } from "@/components/app-ui/typography";
-import { Lock, Plus } from "@/components/icons";
+import { Lock } from "@/components/icons";
 import { ProfilePaneSearchIcon } from "@/components/profile/profile-pane-icons";
 import {
   AlertDialog,
@@ -780,16 +780,6 @@ export function WalletWorkspace() {
     >
       Done
     </Button>
-  ) : hasCards ? (
-    <Button
-      variant="secondary"
-      size="compact"
-      onClick={() => dispatch({ type: "open_add" })}
-      data-testid="one-wallet-add"
-    >
-      <Plus aria-hidden="true" />
-      Add card
-    </Button>
   ) : null;
 
   const cardDetails = (
@@ -857,7 +847,6 @@ export function WalletWorkspace() {
             actionsInlineMobile
             titleRole="agent"
             className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-            // Keep the same action track across tabs and loading states.
             actions={
               <span className="flex h-11 items-center sm:h-[53px]" data-slot="wallet-header-action">
                 {headerAction}
@@ -997,6 +986,7 @@ export function WalletWorkspace() {
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
                 backRoute={ROUTES.ONE_WALLET}
+                showIntroduction={false}
                 getNetworkContext={vaultContext}
                 scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}

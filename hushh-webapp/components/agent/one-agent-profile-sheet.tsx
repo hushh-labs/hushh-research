@@ -2,7 +2,6 @@
 
 import { useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { User } from "firebase/auth";
 
@@ -27,6 +26,9 @@ import {
   ArrowUpRight,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
+import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
+import { ownerStyleFromBranch } from "@/lib/agent/owner-style-settings";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import {
@@ -44,6 +46,7 @@ import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-avai
 import { ROUTES } from "@/lib/navigation/routes";
 
 import styles from "./one-agent-profile-sheet.module.css";
+import { OnePresenceAvatar, type OnePresenceState } from "./one-presence-avatar";
 
 /** A read-only feed preview; the full Feed owns actions and read acknowledgements. */
 function OneFeedPreview({
@@ -173,12 +176,26 @@ export function OneAgentProfileSheet({
   open,
   onOpenChange,
   triggerRef,
+  presenceState = "connected",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
+  presenceState?: OnePresenceState;
 }) {
   const { user } = useAuth();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const identity = usePkmDomainResource({
+    userId: user?.uid ?? "",
+    domain: "identity",
+    vaultKey,
+    vaultOwnerToken,
+    enabled: open && isVaultUnlocked && Boolean(vaultKey && vaultOwnerToken),
+  });
+  const profileName = isVaultUnlocked && vaultKey && vaultOwnerToken &&
+    identity.data?.key.userId === user?.uid
+    ? ownerStyleFromBranch(identity.data?.data.communication_preferences).preferred_name || "One"
+    : "One";
   const router = useRouter();
   const [tab, setTab] = useState("feed");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -221,19 +238,9 @@ export function OneAgentProfileSheet({
         </SheetClose>
         <div className={styles.hero}>
           <div className={styles.avatar}>
-            <Image
-              src="/one-presence/profile-hd.png"
-              alt=""
-              aria-hidden="true"
-              width={1254}
-              height={1254}
-              unoptimized
-              loading="eager"
-              decoding="async"
-              className={styles.artwork}
-            />
+            <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
           </div>
-          <SheetTitle className={styles.title}>One</SheetTitle>
+          <SheetTitle className={styles.title}>{profileName}</SheetTitle>
           <SheetDescription className="sr-only">
             One profile and activity.
           </SheetDescription>

@@ -149,6 +149,32 @@ describe("captureCurrentPosition when the device stops answering", () => {
     expect(LocationBus.getState().status).toBe("error");
   });
 
+  it("rejects a restored stale coordinate when a current measurement is required", async () => {
+    mockMemory.readLastKnownFix.mockResolvedValue(point({ capturedAt: new Date(Date.now() - 4 * 60_000).toISOString() }));
+    await LocationBus.attachUser(USER);
+    mockLocation.getCurrentPosition.mockRejectedValue(positionUnavailable());
+    await expect(OneLocationService.captureCurrentPosition({ requireMeasurement: true })).rejects.toThrow();
+    // Display-only callers retain the existing graceful degradation.
+    await expect(OneLocationService.captureCurrentPosition()).resolves.toMatchObject({ latitude: 19.076 });
+  });
+
+  it("uses a newer movement fix that arrives before a capture continuation", async () => {
+    mockLocation.getCurrentPosition.mockResolvedValue(point());
+    const fresh = await OneLocationService.captureCurrentPosition();
+    const older = { ...fresh, latitude: 1, capturedAt: new Date(Date.now() - 4 * 60_000).toISOString(), capturedAtMs: Date.now() - 4 * 60_000 };
+    const ensure = vi.spyOn(LocationBus, "ensure").mockResolvedValueOnce(older);
+    try {
+      await expect(OneLocationService.captureCurrentPosition({ requireMeasurement: true })).resolves.toMatchObject({ latitude: fresh.latitude });
+    } finally { ensure.mockRestore(); }
+  });
+
+  it("reuses a recent successful measurement without acquiring it twice", async () => {
+    mockLocation.getCurrentPosition.mockResolvedValue(point());
+    await OneLocationService.captureCurrentPosition({ requireMeasurement: true });
+    await OneLocationService.captureCurrentPosition({ requireMeasurement: true });
+    expect(mockLocation.getCurrentPosition).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses to serve a fix older than the stale-fallback budget", async () => {
     const ancient = new Date(
       Date.now() - (CAPTURE_STALE_FALLBACK_MAX_AGE_MS + 60_000),

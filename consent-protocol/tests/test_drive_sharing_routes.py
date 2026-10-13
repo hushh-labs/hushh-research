@@ -100,7 +100,7 @@ def test_pricing_routes_bind_authenticated_owner_and_validate_price(setup, monke
     service.update_owner_pricing.assert_awaited_once_with(
         user_id="recipient", enabled=True, amount_cents=2500, expected_version=0
     )
-    for invalid in (2050, 0, 50100, True):
+    for invalid in (49, 0, 50001, True):
         response = client.put(
             base + "/pricing",
             json={
@@ -358,7 +358,7 @@ def test_withdraw_refuses_paid_requests_and_never_fails_on_checkout_retirement(s
         {"revision": 0, "confirmed": 1},
         {"revision": 0, "confirmed": "true"},
         {"revision": 0, "confirmed": True, "amountCents": 0},
-        {"revision": 0, "confirmed": True, "amountCents": 2050},
+        {"revision": 0, "confirmed": True, "amountCents": 49},
         {"revision": 0, "confirmed": True, "amountCents": 50100},
         {"revision": 0, "confirmed": True, "amountCents": 2000.0},
         {"revision": 0, "confirmed": True, "amountCents": "2000"},
@@ -366,13 +366,25 @@ def test_withdraw_refuses_paid_requests_and_never_fails_on_checkout_retirement(s
         {"revision": 0, "confirmed": True, "trustedAuto": True},
     ],
 )
-def test_allow_needs_explicit_confirmation_and_a_whole_dollar_price(setup, body):
+def test_allow_needs_explicit_confirmation_and_integer_cent_price(setup, body):
     client, app, service, _ = setup
     unlock(app)
     response = client.post(BASE + f"/{REQUEST_ID}/allow", json=body)
     assert response.status_code == 422
     assert "no-store" in response.headers["Cache-Control"]
     service.allow.assert_not_called()
+
+
+@pytest.mark.parametrize("amount", [50, 51, 99, 100, 1234, 49999, 50000])
+def test_allow_keeps_owner_cent_amount_without_rounding(setup, amount):
+    client, app, service, _ = setup
+    unlock(app)
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/allow",
+        json={"revision": 3, "confirmed": True, "amountCents": amount},
+    )
+    assert response.status_code == 202
+    assert service.allow.await_args.kwargs["amount_cents"] == amount
 
 
 def test_allow_forwards_the_owners_price_and_reports_refusals(setup):
@@ -410,7 +422,7 @@ def test_allow_forwards_the_owners_price_and_reports_refusals(setup):
         assert "no-store" in response.headers["Cache-Control"]
 
 
-@pytest.mark.parametrize("amount", [None, 0, 99, 2050, 50100, 2000.0, "2000", True])
+@pytest.mark.parametrize("amount", [None, 0, 49, 50001, 2000.0, "2000", True])
 def test_trusted_price_rejects_missing_or_invalid_amount(setup, amount):
     client, app, service, _ = setup
     unlock(app)

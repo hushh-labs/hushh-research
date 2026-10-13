@@ -795,9 +795,10 @@ def test_non_trusted_approval_creates_order_without_premature_pay_notification(
 
 def test_new_owner_settlement_never_falls_back_to_platform_price():
     private = {"owner_settlement_required": True}
-    for missing_price in (None, 0, 1050):
+    for missing_price in (None, 0, 49):
         with pytest.raises(DriveSharingError, match="owner_price_required"):
             _order_amount_cents({"quoted_amount_cents": missing_price}, private)
+    assert _order_amount_cents({"quoted_amount_cents": 1050}, private) == 1050
     assert _order_amount_cents({"quoted_amount_cents": 200}, private) == 200
     assert _order_amount_cents({}, {}) == 1000  # Legacy payment terms stay unchanged.
 
@@ -3360,3 +3361,40 @@ def test_withdraw_and_decline_follow_the_settlement_lock_order():
         < decline.index("require_unpaid_and_undispatched(")
         < decline.index("UPDATE drive_share_requests SET status")
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_url", [None, "https://checkout.stripe.com/c/synthetic"])
+async def test_changed_package_source_cannot_create_or_reveal_checkout(monkeypatch, existing_url):
+    """Provider version drift blocks both first checkout and an old link refresh."""
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import drive_request_payment_service as payment_module
+    from hushh_mcp.services import drive_trusted_auto_service as auto_module
+
+    monkeypatch.setattr(
+        payment_module,
+        "_config",
+        lambda: ("synthetic-test-key", "synthetic-secret", "https://example.invalid"),
+    )
+    preflight = AsyncMock(side_effect=DriveSharingError("source_changed"))
+    monkeypatch.setattr(
+        auto_module,
+        "DriveTrustedAutoService",
+        lambda **kw: SimpleNamespace(preflight_package=preflight),
+    )
+    monkeypatch.setattr(payment_module, "DriveSharingStore", lambda **kw: SimpleNamespace())
+    create = Mock()
+    service = object.__new__(DriveRequestPaymentService)
+    service.db = object()
+    service.stripe_api = SimpleNamespace(
+        checkout=SimpleNamespace(Session=SimpleNamespace(create=create))
+    )
+    service.payment_state = AsyncMock(return_value={"status": "awaiting_payment"})
+    service._transaction = AsyncMock(
+        return_value={"_package_owner_user_id": "owner", "stripe_checkout_url": existing_url}
+    )
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await service.checkout(requester_user_id="recipient", request_id=str(uuid4()))
+    preflight.assert_awaited_once()
+    create.assert_not_called()

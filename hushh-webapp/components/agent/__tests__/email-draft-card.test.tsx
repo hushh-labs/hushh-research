@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -443,10 +443,12 @@ describe("EmailDraftCard", () => {
     let completeSave!: () => void;
     vi.mocked(EmailDeliveryService.saveGmailDraft).mockReturnValue(new Promise<void>(resolve => { completeSave = resolve; }));
     const onSaveStateChange = vi.fn();
+    const onDraftingChange = vi.fn();
     render(
       <EmailDraftCard
         initialInstruction="Write a note"
         onSaveStateChange={onSaveStateChange}
+        onDraftingChange={onDraftingChange}
         initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "Hello", body: "Reviewed body" }}
         getAuth={getAuth}
         onRequireVault={vi.fn()}
@@ -467,6 +469,7 @@ describe("EmailDraftCard", () => {
     completeSave();
     await waitFor(() => expect(onSaveStateChange).toHaveBeenLastCalledWith("saved", attemptId));
     expect(onSaveStateChange).toHaveBeenCalledTimes(2);
+    expect(onDraftingChange).not.toHaveBeenCalledWith(true);
   });
 
   it("shows the resolved Drive file and recipient before a separate Send click", async () => {
@@ -524,6 +527,7 @@ describe("EmailDraftCard", () => {
   });
 
   it("does not send a Drive file if server review omits bound metadata", async () => {
+    const onDraftingChange = vi.fn();
     vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({
       actionId: "action-without-file",
       expiresAt: null,
@@ -531,6 +535,7 @@ describe("EmailDraftCard", () => {
     render(
       <EmailDraftCard
         initialInstruction="Send a file"
+        onDraftingChange={onDraftingChange}
         initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "Brief", body: "Hello", driveFileId: "drive-file-1" }}
         getAuth={getAuth}
         onRequireVault={vi.fn()}
@@ -541,6 +546,7 @@ describe("EmailDraftCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review attachment" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("could not be reviewed"));
     expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+    expect(onDraftingChange).not.toHaveBeenCalledWith(true);
   });
 
   it("invalidates the Drive confirmation when a recipient changes", async () => {
@@ -742,11 +748,13 @@ describe("EmailDraftCard", () => {
       () => new Promise<never>(() => {}),
     );
     const onDismiss = vi.fn();
+    const onDraftingChange = vi.fn();
 
-    render(
+    const view = render(
       <EmailDraftCard
         autoDraft
         initialInstruction="Write a welcome email"
+        onDraftingChange={onDraftingChange}
         getAuth={getAuth}
         onRequireVault={vi.fn()}
         onDismiss={onDismiss}
@@ -755,6 +763,7 @@ describe("EmailDraftCard", () => {
     );
 
     await waitFor(() => expect(EmailDeliveryService.draft).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onDraftingChange).toHaveBeenLastCalledWith(true));
     expect(screen.getByTestId("one-email-draft-preparing")).toHaveAttribute(
       "aria-busy",
       "true",
@@ -766,6 +775,30 @@ describe("EmailDraftCard", () => {
 
     fireEvent.click(screen.getByText("Close draft"));
     expect(onDismiss).toHaveBeenCalledTimes(1);
+    view.unmount();
+    expect(onDraftingChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it.each(["success", "failure"])("clears drafting presence after %s", async (outcome) => {
+    type Draft = Awaited<ReturnType<typeof EmailDeliveryService.draft>>;
+    let resolve!: (draft: Draft) => void;
+    let reject!: (error: Error) => void;
+    vi.mocked(EmailDeliveryService.draft).mockImplementation(() => new Promise<Draft>((done, fail) => {
+      resolve = done;
+      reject = fail;
+    }));
+    const onDraftingChange = vi.fn();
+    render(<EmailDraftCard autoDraft initialInstruction="Write a welcome email"
+      getAuth={getAuth} onRequireVault={vi.fn()} onDismiss={vi.fn()} onSent={vi.fn()}
+      onDraftingChange={onDraftingChange} />);
+    await waitFor(() => expect(onDraftingChange).toHaveBeenLastCalledWith(true));
+    await act(async () => {
+      if (outcome === "success") resolve({ to: "pat@example.com", cc: "", bcc: "", subject: "Hello", body: "Welcome", missingDetails: [] });
+      else reject(new Error("Synthetic unavailable draft"));
+    });
+    await waitFor(() => expect(onDraftingChange).toHaveBeenLastCalledWith(false));
+    expect(screen.queryByTestId("one-email-draft-preparing")).not.toBeInTheDocument();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
   });
 
   it("offers safe rich formatting and submits its Gmail HTML representation", async () => {

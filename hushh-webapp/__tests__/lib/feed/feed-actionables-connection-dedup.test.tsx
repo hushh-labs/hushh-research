@@ -803,6 +803,18 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     }
   });
 
+  it("opens package review from Feed even when an older row omitted its package marker", async () => {
+    mocks.review.mockResolvedValue(ownerReview({ agentPackage: { status: "ready" } }));
+    const { result } = renderWith(documentEntry(DOC_ID));
+    act(() => { actionOf(documentRow(result), "allow").run(); });
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    expect(mocks.push.mock.lastCall?.[0]).toContain(encodeURIComponent(`document_share_request:${DOC_ID}`));
+    expect(result.current.documentPricePrompt.open).toBe(false);
+    act(() => result.current.documentPricePrompt.submit(2000));
+    expect(mocks.allow).not.toHaveBeenCalled();
+    expect(mocks.setRequestPrice).not.toHaveBeenCalled();
+  });
+
   it("Allow opens the price step at once and sends the owner's price on this vault session", async () => {
     mocks.allow.mockResolvedValue({
       requestId: DOC_ID,
@@ -897,11 +909,11 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
       expect(result.current.documentPricePrompt.detailsPending).toBe(false),
     );
 
-    // A price that is not whole dollars never leaves the device.
-    act(() => result.current.documentPricePrompt.submit(2050));
+    // An amount below the Drive minimum never leaves the device.
+    act(() => result.current.documentPricePrompt.submit(49));
     expect(mocks.allow).not.toHaveBeenCalled();
     expect(result.current.documentPricePrompt.error).toBe(
-      "Choose a whole-dollar price from $1 to $500.",
+      "Choose a price from $0.50 to $500.",
     );
 
     act(() => result.current.documentPricePrompt.submit(2000));
@@ -977,7 +989,7 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
 
   it.each([
     ["missing", undefined],
-    ["fractional", 1050],
+    ["sub-cent", 1050.5],
     ["above the limit", 50_100],
     ["not a number", "2500"],
   ])("never lets a %s estimate block pricing", async (_label, estimateCents) => {

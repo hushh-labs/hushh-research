@@ -5871,6 +5871,7 @@
         "action_ids": [
           "location.onboarding.choose_place",
           "setup.finish_location",
+          "setup.finish_location_intro",
           "setup.skip_location"
         ],
         "delegate_agent_ids": [],
@@ -6696,21 +6697,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "c9012ed22868680285a52b2fb6eb1c20d386ab0255d67793ac59d97ff09e5ac6",
-    "agent_registry": "7eaeb0ee8096b62886e0c804ab9ed05093113f59b863678f7e647b0e02e2d6f3",
+    "action_gateway": "48b98dee3c35d7ed7e1839bf1154d00e5e84129083f8c4b75b6ca9f1bf8e1840",
+    "agent_registry": "42d111ae9afaf4ba79f19f789dad2beb08bc3be212967a22504dd9e43470dbb7",
     "cache_manifest": "c7262af5c5aef35ab22518245c58d001a7637304a61f2416b702877b0b6b3102",
     "data_plane": "fc5a7f75045bd9a8b6e3e7c7512f72672e133f6f72f2c8c9eb8821f33a074025",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "cb76edf8be0ad6bbef975a9a9db27c9564dd768e7edd3da999ec5d3a5877b283",
-    "route_index": "53414f7f22a7b7b1e06e9306ca43e2a503d8f315d344af2a73ec38bd78c48680",
-    "route_layout": "357d7cda5e28b5ee98fbde64f5d3566d1b3dbd9521d361e489a375fb460760ee",
-    "surface_map": "9a01a37ea1c06e67e34b577314c79a5adf7cb2cc2c1af06df84da66ce8b1c5da",
+    "route_index": "a3b14536eeccc287a8ae245df74deda4eef62336166480e3d05f8ce15edc6dc6",
+    "route_layout": "4efcf51f10fd68fd47f3b12f9757d5f968cde932f4d94c5ff762a58ffcd9f6e9",
+    "surface_map": "e168d67a5ff66f860a2e8c1434335688135c2e8c64bb9f649df36111652bb85a",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 241,
+    "actions": 243,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,

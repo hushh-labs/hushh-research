@@ -28,6 +28,17 @@ describe("Location setup route contract", () => {
     expect(adapter).not.toContain("<SetupCapabilityTerminalFooter");
   });
 
+  it("completes the passive introduction without requesting device permission", () => {
+    const contract = JSON.parse(read("app/one/setup/location/page.voice-action-contract.json"));
+    const intro = contract.actions.find((action: { action_id: string }) => action.action_id === "setup.finish_location_intro");
+    const legacy = contract.actions.find((action: { action_id: string }) => action.action_id === "setup.finish_location");
+    expect(intro.command?.permission).toBeUndefined();
+    expect(intro.control_ids).toContain("one-setup-location-intro-terminal");
+    expect(legacy.command.permission).toBe("location");
+    expect(read("app/one/setup/location/location-onboarding-setup-client.tsx")).toContain('finishActionId: "setup.finish_location_intro"');
+    expect(read("app/one/location/page.tsx")).toContain('completeControlId={mode === "setup" ? "one-setup-location-intro-terminal" : undefined}');
+  });
+
   it("keeps One Voice readiness from replacing the canonical onboarding tree", () => {
     const adapter = read(
       "app/one/setup/location/location-onboarding-setup-client.tsx",
@@ -67,14 +78,10 @@ describe("Location setup route contract", () => {
     expect(locationPage).toContain(
       'Boolean(auth.userId && (mode === "setup" || vaultOwnerToken))',
     );
-    expect(locationPage).toContain(
-      "onLocationReady={promptSaveLocationDuringOnboarding}",
-    );
+    expect(locationPage).not.toContain("onLocationReady=");
+    expect(locationPage).not.toContain("onRequestLocation=");
     expect(locationPage).toContain(
       "PreVaultSensitiveDraftService.stageSavedLocation(auth.userId, input)",
-    );
-    expect(locationPage).toContain(
-      "deferredUntilVault={!vaultKey || !vaultOwnerToken}",
     );
     expect(locationPage).toContain(
       "vaultOwnerToken ? reverseGeocodeForSavedLocation : undefined",

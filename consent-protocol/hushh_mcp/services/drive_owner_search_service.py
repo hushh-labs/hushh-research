@@ -727,7 +727,7 @@ class DriveOwnerSearchService:
         after_page=None,
     ):
         """Start or resume the owner-approved request's durable metadata search."""
-        if authority_mode not in {"owner", "trusted_auto"}:
+        if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
             raise DriveReadError("invalid_argument")
         if not (purpose.get("periodStart") and purpose.get("periodEnd")):
             raise DriveReadError("date_range_required")
@@ -744,7 +744,9 @@ class DriveOwnerSearchService:
             plan, purpose, timezone, requested_at=requested_at
         )
         time_intent = plan.get("time_intent", "document_coverage")
-        owner_review_required = time_intent == "document_coverage"
+        owner_review_required = (
+            time_intent == "document_coverage" or authority_mode == "agent_package"
+        )
         result_limit = plan.get("result_limit")
         direct_originals = (
             result_limit is not None and not plan.get("terms") and not plan.get("exact_title")
@@ -763,6 +765,7 @@ class DriveOwnerSearchService:
                 "request_origin_id": request_id,
                 "request_revision": request_revision,
                 "authority_mode": authority_mode,
+                "agent_package_required": authority_mode == "agent_package",
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
                 "request_time_intent": time_intent,

@@ -1966,26 +1966,6 @@ function locationPermissionBlocksSharing(
   return locationBlockReason(permission) !== null;
 }
 
-function locationServicesErrorMessage(error: unknown): string {
-  const message =
-    error instanceof Error
-      ? error.message
-      : String((error as { message?: unknown })?.message || error || "");
-  const normalized = message.toLowerCase();
-  if (
-    normalized.includes("services are unavailable") ||
-    normalized.includes("location services") ||
-    normalized.includes("provider") ||
-    normalized.includes("unavailable on this device")
-  ) {
-    return "Turn on Location from your phone settings before sharing.";
-  }
-  if (normalized.includes("permission") || normalized.includes("not granted")) {
-    return "Allow location permission before sharing.";
-  }
-  return message || "Location is needed before sharing.";
-}
-
 function oneLocationShareMessage(text: string, url: string): string {
   return `${text}\n${url}`;
 }
@@ -2219,6 +2199,11 @@ function savedLocationPromptKey(prefix: string, userId: string): string {
   return `${prefix}:${userId}`;
 }
 
+function readPlacesBannerDismissed(key: string | null): boolean {
+  if (!key || typeof window === "undefined") return false;
+  try { return window.localStorage.getItem(key) === "1"; } catch { return false; }
+}
+
 /**
  * How long a confirmed nearby checkout suppresses the next one.
  *
@@ -2252,7 +2237,7 @@ export function OneLocationAgentPageContent({
 }: OneLocationAgentPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // The onboarding Back layer calls this only at Welcome. Its exit has an
+  // The onboarding Back layer calls this only at Features. Its exit has an
   // explicit destination so native Back cannot recurse into that same layer.
   const handleOnboardingBack = useCallback(() => {
     requestInternalAppNavigation({
@@ -2362,10 +2347,9 @@ export function OneLocationAgentPageContent({
   const [locationDenialObserved, setLocationDenialObserved] = useState(false);
   useEffect(() => {
     onSetupReadinessChange?.(
-      permission?.state === "granted" &&
-        !isLocationServicesDisabled(permission),
+      true,
     );
-  }, [onSetupReadinessChange, permission]);
+  }, [onSetupReadinessChange]);
   const [busy, setBusy] = useState<BusyState>(null);
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
@@ -2454,8 +2438,10 @@ export function OneLocationAgentPageContent({
   const [sosEmergency, setSosEmergency] = useState<EmergencyInfo | null>(null);
   const [sosEmergencyStatus, setSosEmergencyStatus] =
     useState<EmergencyNumberLookupStatus>("idle");
-  const sosLocationResolutionRef =
-    useRef<Promise<PlainLocationPoint | null> | null>(null);
+  const sosLocationResolutionRef = useRef<{
+    allowPermissionPrompt: boolean;
+    promise: Promise<PlainLocationPoint | null>;
+  } | null>(null);
   const sosEmergencyLookupIdRef = useRef(0);
   /**
    * The fix the currently displayed emergency number was confirmed at, so a
@@ -2489,25 +2475,30 @@ export function OneLocationAgentPageContent({
     setScreen: setLocationOnboardingStep,
     clearProgress: clearLocationOnboardingProgress,
   } = useLocationOnboardingProgress(auth.userId, mode);
-  const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
+  const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
+  const [savedPlaceCaptureBusy, setSavedPlaceCaptureBusy] = useState(false);
+  const placesBannerKey = auth.userId
+    ? `one_location_places_banner_dismissed_v1:${auth.userId}`
+    : null;
+  const [placesBannerEntry, setPlacesBannerEntry] = useState(() => ({
+    key: placesBannerKey,
+    dismissed: readPlacesBannerDismissed(placesBannerKey),
+  }));
+  if (placesBannerEntry.key !== placesBannerKey) {
+    setPlacesBannerEntry({ key: placesBannerKey, dismissed: readPlacesBannerDismissed(placesBannerKey) });
+  }
+  const dismissPlacesBanner = useCallback((announce = true) => {
+    setPlacesBannerEntry({ key: placesBannerKey, dismissed: true });
+    if (placesBannerKey) {
+      try { window.localStorage.setItem(placesBannerKey, "1"); } catch { /* Mounted dismissal still works. */ }
+    }
+    if (announce) toast.info("You can save places anytime in Location settings.");
+  }, [placesBannerKey]);
   // Saved-place prompt shown once per mounted journey after Location is ready.
   // Active root-setup replay deliberately gets a fresh opportunity.
   const [saveLocationPoint, setSaveLocationPoint] =
     useState<PlainLocationPoint | null>(null);
-  /**
-   * The point onboarding confirmed, kept ALIVE past the save-place modal.
-   *
-   * `saveLocationPoint` above is that modal's draft, and both of its exits null
-   * it -- the save at `saveOnboardingLocation` and the skip at
-   * `handleSkipSaveOnboardingLocation`. That is right for a draft and was fatal
-   * for the finale: "You're on the map." renders two screens later, so it
-   * received null every single time and always drew its stylised fallback. The
-   * feature shipped and nobody could see it, in any environment.
-   *
-   * So the finale gets its own state. Written wherever a real fix is
-   * established, never cleared by the modal closing, cleared only when the
-   * account changes (below, with the rest of that reset).
-   */
+  // A confirmed place is memory-only and isolated to the active account.
   const [onboardingConfirmedPoint, setOnboardingConfirmedPoint] =
     useState<PlainLocationPoint | null>(null);
   const [saveLocationAddress, setSaveLocationAddress] = useState<string | null>(
@@ -2521,12 +2512,17 @@ export function OneLocationAgentPageContent({
   const [savedLocationSessionUserId, setSavedLocationSessionUserId] = useState(
     auth.userId,
   );
-  const savedLocationPromptedRef = useRef(false);
   const savedLocationPromptInFlightRef = useRef<Promise<boolean> | null>(null);
   const savedLocationAddressResolutionIdRef = useRef(0);
   const savedLocationSessionEpochRef = useRef(0);
   const savedLocationPointUserIdRef = useRef<string | null>(null);
-  const locationOnboardingRetryOnResumeRef = useRef(false);
+
+  useEffect(() => () => {
+    // Device work can finish after route navigation; it no longer owns this UI.
+    savedLocationSessionEpochRef.current += 1;
+    savedLocationAddressResolutionIdRef.current += 1;
+    savedLocationPromptInFlightRef.current = null;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2839,7 +2835,8 @@ export function OneLocationAgentPageContent({
     const previousUserId = savedLocationSessionUserId;
     savedLocationSessionEpochRef.current += 1;
     savedLocationAddressResolutionIdRef.current += 1;
-    savedLocationPromptedRef.current = false;
+    setSaveLocationModalOpen(false);
+    setSavedPlaceCaptureBusy(false);
     savedLocationPromptInFlightRef.current = null;
     savedLocationPointUserIdRef.current = null;
     setSaveLocationPoint(null);
@@ -4402,6 +4399,8 @@ export function OneLocationAgentPageContent({
       capturePoint?: boolean;
       autoOpenSettings?: boolean;
       requestNativePrompt?: boolean;
+      /** Passive panel warm-up may use granted access but never request it. */
+      allowPermissionPrompt?: boolean;
       /**
        * Lets a caller whose request has been superseded discard the fix instead
        * of applying it. A capture can outlive the intent that started it, and
@@ -4429,6 +4428,7 @@ export function OneLocationAgentPageContent({
        * check-in confirmation draw the same line for the same reason.
        */
       requireMeasurement?: boolean;
+      requirePoint?: boolean;
     }): Promise<{
       ready: boolean;
       point?: PlainLocationPoint;
@@ -4459,7 +4459,7 @@ export function OneLocationAgentPageContent({
       // device round trip anyway — and could be toasted at for the privilege.
       // On Safari, where the permission value is unreadable, it took that path
       // every single time.
-      if (!shouldCapturePoint && !observedLocationDenialRef.current) {
+      if (!shouldCapturePoint && !options?.requireMeasurement && !observedLocationDenialRef.current) {
         const held = heldFix();
         if (held) {
           return {
@@ -4473,7 +4473,20 @@ export function OneLocationAgentPageContent({
         }
       }
 
-      const currentPermission = await refreshLocationPermission();
+      // Passive warm-up must not overwrite an explicit request's newer permission state.
+      const currentPermission = options?.allowPermissionPrompt === false
+        ? await OneLocationService.getPermissionState().catch(() => ({
+            state: "prompt" as const,
+            precise: null,
+            background: "foreground-only" as const,
+            locationServicesEnabled: null,
+          }))
+        : await refreshLocationPermission();
+      if (options?.isStale?.()) return { ready: false };
+
+      if (options?.allowPermissionPrompt === false && currentPermission.state !== "granted") {
+        return { ready: false };
+      }
 
       // Only two things stop us before we have tried, and neither can be fixed
       // by asking: the OS location service is off, or the platform forbids the
@@ -4496,13 +4509,18 @@ export function OneLocationAgentPageContent({
       if (
         currentPermission.state === "granted" &&
         !shouldCapturePoint &&
+        !options?.requirePoint &&
         !observedLocationDenialRef.current
       ) {
         return { ready: true };
       }
 
       try {
-        const point = await OneLocationService.captureCurrentPosition();
+        const point = await OneLocationService.captureCurrentPosition({
+          fresh: options?.requireMeasurement,
+          requireMeasurement: options?.requireMeasurement,
+        });
+        if (options?.isStale?.()) return { ready: false };
         // A coordinate in hand outranks anything the permission API says. This
         // is what keeps Safari honest, where the value is simply unreadable.
         observedLocationDenialRef.current = false;
@@ -4514,16 +4532,18 @@ export function OneLocationAgentPageContent({
         // this path goes on to read. Fire it and let it land on its own.
         void OneLocationService.getPermissionState()
           .catch(() => null)
-          .then((nextPermission) =>
+          .then((nextPermission) => {
+            if (options?.isStale?.()) return;
             setPermission(
-              nextPermission ?? {
+              nextPermission && nextPermission.state !== "prompt" ? nextPermission : {
+                ...nextPermission,
                 state: "granted",
                 precise: null,
                 background: "foreground-only",
                 locationServicesEnabled: true,
               },
-            ),
-          );
+            );
+          });
         if (shouldCapturePoint && !options?.isStale?.()) {
           activateMyLocation(point);
         }
@@ -4540,8 +4560,10 @@ export function OneLocationAgentPageContent({
               : "fresh",
         };
       } catch (error) {
+        if (options?.isStale?.()) return { ready: false };
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
+        if (options?.isStale?.()) return { ready: false };
         if (nextPermission) {
           setPermission(nextPermission);
         }
@@ -5594,14 +5616,21 @@ export function OneLocationAgentPageContent({
     [runEmergencyLookup, vaultOwnerToken],
   );
 
-  const resolveSosLocation = useCallback(() => {
+  const resolveSosLocation = useCallback((options?: { allowPermissionPrompt?: boolean }) => {
+    const allowPermissionPrompt = options?.allowPermissionPrompt !== false;
     const inFlight = sosLocationResolutionRef.current;
-    if (inFlight) return inFlight;
+    // An explicit request must not inherit the passive panel's no-prompt limit.
+    if (inFlight && (!allowPermissionPrompt || inFlight.allowPermissionPrompt)) {
+      return inFlight.promise;
+    }
 
     const resolution = (async (): Promise<PlainLocationPoint | null> => {
       try {
         const result = await ensureForegroundLocationReady({
-          capturePoint: true,
+          capturePoint: options?.allowPermissionPrompt !== false,
+          requirePoint: true,
+          requireMeasurement: true,
+          allowPermissionPrompt: options?.allowPermissionPrompt,
           autoOpenSettings: false,
           // This runs when Save my Soul is merely OPENED. Nobody has asked for
           // anything yet, so a failure here has nothing to tell them — and on
@@ -5640,15 +5669,16 @@ export function OneLocationAgentPageContent({
       }
     })();
 
-    sosLocationResolutionRef.current = resolution;
+    const entry = { allowPermissionPrompt, promise: resolution };
+    sosLocationResolutionRef.current = entry;
     void resolution.then(
       () => {
-        if (sosLocationResolutionRef.current === resolution) {
+        if (sosLocationResolutionRef.current === entry) {
           sosLocationResolutionRef.current = null;
         }
       },
       () => {
-        if (sosLocationResolutionRef.current === resolution) {
+        if (sosLocationResolutionRef.current === entry) {
           sosLocationResolutionRef.current = null;
         }
       },
@@ -13280,7 +13310,6 @@ export function OneLocationAgentPageContent({
     markLocationOnboardingSeen();
     clearLocationOnboardingProgress();
     setLocationOnboardingGate("hidden");
-    setLocationOnboardingBusy(false);
   }, [
     clearContactInvitations,
     clearLocationOnboardingProgress,
@@ -13346,44 +13375,12 @@ export function OneLocationAgentPageContent({
     setFirstRunGuideDismissed(alreadyDismissed || hasAnyActivity);
   }, [auth.userId, state]);
 
-  const openLocationSettingsForOnboarding = useCallback(async () => {
-    locationOnboardingRetryOnResumeRef.current = true;
-    await OneLocationService.openLocationSettings().catch(() => null);
-    // On web the app can't open device settings; guide the user to the browser's
-    // own site-permission UI instead of a nonexistent "phone Location" switch.
-    toast.info(
-      isWeb()
-        ? "Allow location in your browser's site settings (lock icon in the address bar), then try again."
-        : "Turn on phone Location, then return to continue.",
-    );
-    window.setTimeout(() => void refreshLocationPermission(), 1200);
-  }, [refreshLocationPermission]);
-
-  const openAppSettingsForOnboarding = useCallback(async () => {
-    locationOnboardingRetryOnResumeRef.current = true;
-    await OneLocationService.openAppSettings().catch(() => null);
-    toast.info(
-      isWeb()
-        ? "Allow location for this site in your browser settings, then try again."
-        : "Allow Location for One in Settings, then return.",
-    );
-    window.setTimeout(() => void refreshLocationPermission(), 1200);
-  }, [refreshLocationPermission]);
-
-  // The "Save this place" step must appear on EVERY Location onboarding run once
-  // access is ready — even if the owner discarded a previous onboarding or has
-  // already saved a place. We only guard against double-firing within a single
-  // mounted journey (savedLocationPromptedRef) and against concurrent captures
-  // (savedLocationPromptInFlightRef). The legacy "skipped"/existing-location
-  // suppression is deliberately retired: those localStorage markers are now only
-  // cleared, never read to hide the prompt, so a prior skip can never permanently
-  // suppress it.
-  const promptSaveLocationDuringOnboarding =
-    useCallback((): Promise<boolean> => {
-      if (savedLocationSessionUserId !== auth.userId) {
+  // This entry point belongs to the optional Now banner, never onboarding.
+  // Coalesce taps and retain the account epoch while device/network work settles.
+  const openSavedPlaceFromBanner = useCallback((): Promise<boolean> => {
+      if (savedLocationSessionUserId !== auth.userId || !auth.userId) {
         return Promise.resolve(false);
       }
-      if (savedLocationPromptedRef.current) return Promise.resolve(true);
       if (savedLocationPromptInFlightRef.current) {
         return savedLocationPromptInFlightRef.current;
       }
@@ -13396,40 +13393,26 @@ export function OneLocationAgentPageContent({
       const sessionIsCurrent = () =>
         savedLocationSessionEpochRef.current === sessionEpoch &&
         savedLocationSessionUserId === userId;
-      const legacyKey = savedLocationPromptKey(
-        SAVED_LOCATION_PROMPT_LEGACY_KEY_PREFIX,
-        userId,
-      );
-      const outcomeKey = savedLocationPromptKey(
-        SAVED_LOCATION_PROMPT_OUTCOME_KEY_PREFIX,
-        userId,
-      );
+      setSavedPlaceCaptureBusy(true);
       let attempt: Promise<boolean>;
       attempt = (async (): Promise<boolean> => {
-        // Retire any legacy suppression markers so the prompt keeps appearing on
-        // every onboarding, regardless of a previous skip or existing places.
-        if (typeof window !== "undefined") {
-          try {
-            window.localStorage.removeItem(legacyKey);
-            window.localStorage.removeItem(outcomeKey);
-          } catch {
-            // Encrypted PKM remains the saved-state authority.
-          }
-        }
-
-        let point: PlainLocationPoint;
-
-        try {
-          point = await OneLocationService.captureCurrentPosition();
-        } catch {
-          if (!sessionIsCurrent()) return false;
-          toast.error("Check permission and try again.");
-          return false;
-        }
+        // One shared acquisition: browsers prompt through capture; native bridges
+        // request their OS permission when needed. The returned fix is reused.
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: false,
+          requirePoint: true,
+          requireMeasurement: true,
+          isStale: () => !sessionIsCurrent(),
+          autoOpenSettings: false,
+          announce: true,
+        });
+        if (!sessionIsCurrent() || !readiness.ready) return false;
+        const point = readiness.point;
+        if (!point) return false;
 
         if (!sessionIsCurrent()) return false;
 
-        savedLocationPromptedRef.current = true;
+        setSaveLocationModalOpen(true);
         savedLocationPointUserIdRef.current = userId;
         const addressResolutionId =
           savedLocationAddressResolutionIdRef.current + 1;
@@ -13490,14 +13473,15 @@ export function OneLocationAgentPageContent({
       })().finally(() => {
         if (savedLocationPromptInFlightRef.current === attempt) {
           savedLocationPromptInFlightRef.current = null;
+          if (sessionIsCurrent()) setSavedPlaceCaptureBusy(false);
         }
       });
 
       savedLocationPromptInFlightRef.current = attempt;
       return attempt;
-    }, [auth.userId, savedLocationSessionUserId, vaultOwnerToken]);
+    }, [auth.userId, savedLocationSessionUserId, vaultOwnerToken, ensureForegroundLocationReady]);
 
-  const handleSaveOnboardingLocation = useCallback(
+  const handleSaveBannerLocation = useCallback(
     async (
       category: SavedLocationCategory,
       label: string,
@@ -13535,6 +13519,7 @@ export function OneLocationAgentPageContent({
       }
       const savingUserId = auth.userId;
       const sessionEpoch = savedLocationSessionEpochRef.current;
+      const saveLocationIntent = locationIntentSeqRef.current;
       setSaveLocationSaving(true);
       try {
         // What was on screen wins over what state happened to hold.
@@ -13549,6 +13534,8 @@ export function OneLocationAgentPageContent({
           address: details
             ? buildSavedLocationAddress(composedFrom, details)
             : composedFrom,
+          addressBase: composedFrom,
+          addressDetails: details ?? null,
         };
         const canPersistNow = Boolean(vaultKey && vaultOwnerToken);
         if (vaultKey && vaultOwnerToken) {
@@ -13566,31 +13553,16 @@ export function OneLocationAgentPageContent({
           // existing Finish setup transaction commits it after vault unlock.
           PreVaultSensitiveDraftService.stageSavedLocation(auth.userId, input);
         }
-        // Confirming a place turns the live preview on.
-        //
-        // Onboarding captures a position directly rather than through
-        // `ensureForegroundLocationReady`, so it never reached
-        // `activateMyLocation` and never set `selfPreviewEnabled`. A brand-new
-        // owner also has no grants and no nearby presence, so all three
-        // disjuncts behind `locationEnabled` were false and the hub they are
-        // redirected to greeted them with "Location off" — seconds after they
-        // granted permission, let the device take a fix, dragged a pin and
-        // tagged it Home. Saving a place really is a different authority from
-        // sharing one, but "my location is off" is not a true reading of the
-        // state the person just created.
-        //
-        // The same two-field write the header switch itself performs, so both
-        // entry points leave the control in one state.
-        updateOneLocationControlState(auth.userId, (current) => ({
-          ...current,
-          paused: false,
-          selfPreviewEnabled: true,
-        }));
-        if (
-          savedLocationSessionEpochRef.current !== sessionEpoch ||
-          savedLocationSessionUserId !== savingUserId
-        ) {
+        if (savedLocationSessionEpochRef.current !== sessionEpoch || savedLocationSessionUserId !== savingUserId) {
           return false;
+        }
+        // Saving can enable the preview, but a later pause/turn-off wins.
+        if (locationIntentSeqRef.current === saveLocationIntent) {
+          updateOneLocationControlState(savingUserId, (current) => ({
+            ...current,
+            paused: false,
+            selfPreviewEnabled: true,
+          }));
         }
         if (typeof window !== "undefined") {
           try {
@@ -13613,7 +13585,8 @@ export function OneLocationAgentPageContent({
         savedLocationAddressResolutionIdRef.current += 1;
         setSaveLocationPoint(selectedPoint);
         setOnboardingConfirmedPoint(selectedPoint);
-        setLocationOnboardingStep("ready");
+        setSaveLocationModalOpen(false);
+        dismissPlacesBanner(false);
         toast.success(
           canPersistNow
             ? "Location saved securely."
@@ -13647,41 +13620,23 @@ export function OneLocationAgentPageContent({
       savedLocationSessionUserId,
       saveLocationAddress,
       saveLocationPoint,
-      setLocationOnboardingStep,
+      dismissPlacesBanner,
       vaultKey,
       vaultOwnerToken,
     ],
   );
 
-  const handleSkipSaveOnboardingLocation = useCallback(() => {
-    if (auth.userId) {
-      PreVaultSensitiveDraftService.clearSavedLocation(auth.userId);
-    }
-    if (typeof window !== "undefined" && auth.userId) {
-      try {
-        window.localStorage.removeItem(
-          savedLocationPromptKey(
-            SAVED_LOCATION_PROMPT_LEGACY_KEY_PREFIX,
-            auth.userId,
-          ),
-        );
-        window.localStorage.setItem(
-          savedLocationPromptKey(
-            SAVED_LOCATION_PROMPT_OUTCOME_KEY_PREFIX,
-            auth.userId,
-          ),
-          "skipped",
-        );
-      } catch {
-        // best-effort
-      }
-    }
+  const closeSavedPlaceModal = useCallback(() => {
+    if (saveLocationSaving) return;
     savedLocationAddressResolutionIdRef.current += 1;
+    setSaveLocationModalOpen(false);
+    setSaveLocationPoint(null);
+    setSaveLocationAddress(null);
     setSaveLocationAddressLoading(false);
-    setLocationOnboardingStep("ready");
-  }, [auth.userId, setLocationOnboardingStep]);
+    savedLocationPointUserIdRef.current = null;
+  }, [saveLocationSaving]);
 
-  const searchOnboardingSavedPlaces = useCallback(
+  const searchBannerSavedPlaces = useCallback(
     async (input: string) => {
       if (!vaultOwnerToken) {
         throw new Error("Vault owner token required.");
@@ -13694,7 +13649,7 @@ export function OneLocationAgentPageContent({
     [vaultOwnerToken],
   );
 
-  const selectOnboardingSavedPlace = useCallback(
+  const selectBannerSavedPlace = useCallback(
     async (placeId: string) => {
       if (
         !auth.userId ||
@@ -13823,6 +13778,7 @@ export function OneLocationAgentPageContent({
       // same place and saves the user a full acquisition.
       const point = await OneLocationService.captureCurrentPosition({
         fresh: true,
+        requireMeasurement: true,
       });
       if (
         savedLocationSessionEpochRef.current !== sessionEpoch ||
@@ -13854,99 +13810,8 @@ export function OneLocationAgentPageContent({
     [vaultOwnerToken],
   );
 
-  const handleLocationOnboardingPermission =
-    useCallback(async (): Promise<boolean> => {
-      if (locationOnboardingBusy) return false;
-      setLocationOnboardingBusy(true);
-      try {
-        if (isLocationServicesDisabled(permission)) {
-          await openLocationSettingsForOnboarding();
-          return false;
-        }
-
-        if (
-          permission?.state === "restricted" ||
-          permission?.state === "denied"
-        ) {
-          await openAppSettingsForOnboarding();
-          return false;
-        }
-
-        if (permission?.state === "granted") {
-          const refreshedPermission = await refreshLocationPermission();
-          if (isLocationServicesDisabled(refreshedPermission)) {
-            await openLocationSettingsForOnboarding();
-            return false;
-          }
-          if (
-            refreshedPermission?.state === "denied" ||
-            refreshedPermission?.state === "restricted"
-          ) {
-            await openAppSettingsForOnboarding();
-            return false;
-          }
-          toast.success("Location access is on.");
-          return true;
-        }
-
-        const requestedPermission =
-          await OneLocationService.requestLocationPermission();
-        setPermission(requestedPermission);
-
-        if (
-          requestedPermission.locationServicesEnabled === false ||
-          (requestedPermission.state === "unavailable" &&
-            requestedPermission.precise !== false)
-        ) {
-          await openLocationSettingsForOnboarding();
-          return false;
-        }
-
-        if (
-          requestedPermission.state !== "granted" &&
-          !(await OneLocationService.captureCurrentPosition()
-            .then(() => true)
-            .catch(() => false))
-        ) {
-          await openAppSettingsForOnboarding();
-          return false;
-        }
-
-        if (isLocationServicesDisabled(requestedPermission)) {
-          await openLocationSettingsForOnboarding();
-          return false;
-        }
-        toast.success("Location access enabled.");
-        return true;
-      } catch (error) {
-        toast.error(locationServicesErrorMessage(error));
-        return false;
-      } finally {
-        setLocationOnboardingBusy(false);
-      }
-    }, [
-      locationOnboardingBusy,
-      openAppSettingsForOnboarding,
-      openLocationSettingsForOnboarding,
-      permission,
-      refreshLocationPermission,
-    ]);
-
   useEffect(() => {
-    // Onboarding's own retry, unchanged: it owns the flag and the ordering that
-    // the saved-place prompt depends on.
-    const refreshIfPending = () => {
-      if (!locationOnboardingRetryOnResumeRef.current) return;
-      locationOnboardingRetryOnResumeRef.current = false;
-      // The shared foreground reconciliation below performs the permission
-      // read. Keep onboarding's one-shot bookkeeping without issuing a
-      // duplicate native/browser permission request.
-    };
-    // Separately, and for everyone: permission is changed outside the app — iOS
-    // Settings, Safari's site settings, the Android sheet — so coming back is
-    // exactly when our copy of it is most likely to be stale. Re-reading only
-    // behind onboarding's flag left every other surface showing an old verdict
-    // until a full reload.
+    // Observe permission changes on foreground return without prompting.
     const refreshPermissionOnReturn = async () => {
       return refreshLocationPermission().then((next) => {
         // Once it is actually granted, an old observed denial is history, so
@@ -13971,7 +13836,6 @@ export function OneLocationAgentPageContent({
         return;
       }
       lastForegroundReconcileAtRef.current = now;
-      refreshIfPending();
 
       const run = async () => {
         do {
@@ -14070,9 +13934,7 @@ export function OneLocationAgentPageContent({
       <BodyPortal>
         <OneLocationOnboardingExperience
           key={auth.userId}
-          startAt={
-            locationOnboardingStep === "welcome" ? "welcome" : "permissions"
-          }
+          startAt="features"
           activeScreen={locationOnboardingStep}
           onScreenChange={setLocationOnboardingStep}
           currentUserName={
@@ -14080,18 +13942,12 @@ export function OneLocationAgentPageContent({
               auth.user?.displayName || auth.user?.email || "You",
             ).trim() || "You"
           }
-          locationPermission={permission}
-          locationBusy={locationOnboardingBusy}
           nativeTest={nativeTestConfig}
           // Setup hands back to the wizard to finish the remaining capabilities;
           // the workspace lands on the Location hub. Naming the destination beats
           // a generic "Done" that leaves the person guessing.
           completeLabel={mode === "setup" ? "Finish" : "Open One Location"}
-          onRequestLocation={handleLocationOnboardingPermission}
-          // Every onboarding run opens the pin-and-address flow once Location
-          // is ready. Root setup stages the confirmed draft in memory; an
-          // unlocked workspace persists it immediately.
-          onLocationReady={promptSaveLocationDuringOnboarding}
+          completeControlId={mode === "setup" ? "one-setup-location-intro-terminal" : undefined}
           onBack={handleOnboardingBack}
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
@@ -14101,17 +13957,7 @@ export function OneLocationAgentPageContent({
           // back to the pre-vault bootstrap call, so the screen is always
           // reachable and a failure degrades to its own retry rather than to a
           // missing screen.
-          // The point onboarding already captured for the save-place step.
-          // Reused rather than re-requested: asking the device twice for the
-          // same fix costs a second permission round-trip and a visible delay
-          // on the one screen that has to feel instant. Null renders the
-          // stylised map, which is a composed screen rather than an error.
-          //
-          // It reads `onboardingConfirmedPoint`, NOT `saveLocationPoint`. That
-          // is the whole fix: the modal's draft is nulled when the modal
-          // closes, two screens before this map exists, so feeding the finale
-          // from it meant the finale was fed null on every run. See the state
-          // declaration above for the full account.
+          // Reuse an existing point without acquiring one during onboarding.
           mapPoint={onboardingFinaleMapPoint}
           contactsStepAvailable={contactsStepAvailable}
           contactsSource={googleContactsFallback ? "google" : "device"}
@@ -14147,59 +13993,7 @@ export function OneLocationAgentPageContent({
           onRequestConnection={handleRequestContactMatch}
         />
 
-        <SaveLocationModal
-          key={`saved-location-${auth.userId}`}
-          open={
-            locationOnboardingStep === "place" &&
-            savedLocationSessionUserId === auth.userId
-          }
-          address={saveLocationAddress}
-          loadingAddress={saveLocationAddressLoading}
-          saving={saveLocationSaving}
-          onSearchPlaces={
-            vaultOwnerToken ? searchOnboardingSavedPlaces : undefined
-          }
-          onSelectPlace={
-            vaultOwnerToken ? selectOnboardingSavedPlace : undefined
-          }
-          mapInitial={
-            saveLocationPoint
-              ? {
-                  latitude: saveLocationPoint.latitude,
-                  longitude: saveLocationPoint.longitude,
-                }
-              : null
-          }
-          reverseGeocode={
-            vaultOwnerToken ? reverseGeocodeForSavedLocation : undefined
-          }
-          onLocateMe={locateMeForSavedLocation}
-          onPickExactLocation={handlePickExactSavedLocation}
-          startWithMapPicker
-          // This is a STEP of onboarding, not a sheet over a screen. Without
-          // it the surface sat at z-600/601 under a takeover that has since
-          // moved to z-[9000], and what showed above it was the app's back
-          // arrow, avatar and Now / People / Links strip -- navigation that
-          // does nothing yet, over a step nobody has finished.
-          takeover
-          collectAddressDetails
-          unifiedOnboarding
-          onBack={() => setLocationOnboardingStep("features")}
-          deferredUntilVault={!vaultKey || !vaultOwnerToken}
-          initialAccuracyM={saveLocationPoint?.accuracyM}
-          rendererDisclosureAccepted={savedLocationRendererAccepted}
-          onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
-          onSave={(category, label, details, addressLine, picked) =>
-            handleSaveOnboardingLocation(
-              category,
-              label,
-              details,
-              addressLine,
-              picked,
-            )
-          }
-          onSkip={handleSkipSaveOnboardingLocation}
-        />
+
       </BodyPortal>
     );
   }
@@ -14217,6 +14011,17 @@ export function OneLocationAgentPageContent({
   const locationHubVm: LocationHubViewModel = {
     userId: auth.userId ?? null,
     canShare,
+    savedPlacesBanner: {
+      visible: placesBannerEntry.key === placesBannerKey && !placesBannerEntry.dismissed,
+      busy: savedPlaceCaptureBusy,
+      onSave: () => void openSavedPlaceFromBanner(),
+      onDismiss: () => {
+        savedLocationSessionEpochRef.current += 1;
+        savedLocationPromptInFlightRef.current = null;
+        setSavedPlaceCaptureBusy(false);
+        dismissPlacesBanner();
+      },
+    },
     shareDeliveryPending,
     busy,
     revokingGrantId,
@@ -14543,6 +14348,47 @@ export function OneLocationAgentPageContent({
             <LocationRedesignHub vm={locationHubVm} />
           )}
         </AppPageContentRegion>
+        <SaveLocationModal
+          key={`saved-location-${auth.userId}`}
+          open={saveLocationModalOpen && savedLocationSessionUserId === auth.userId}
+          address={saveLocationAddress}
+          loadingAddress={saveLocationAddressLoading}
+          saving={saveLocationSaving}
+          onSearchPlaces={
+            vaultOwnerToken ? searchBannerSavedPlaces : undefined
+          }
+          onSelectPlace={
+            vaultOwnerToken ? selectBannerSavedPlace : undefined
+          }
+          mapInitial={
+            saveLocationPoint
+              ? {
+                  latitude: saveLocationPoint.latitude,
+                  longitude: saveLocationPoint.longitude,
+                }
+              : null
+          }
+          reverseGeocode={
+            vaultOwnerToken ? reverseGeocodeForSavedLocation : undefined
+          }
+          onLocateMe={locateMeForSavedLocation}
+          onPickExactLocation={handlePickExactSavedLocation}
+          startWithMapPicker
+          initialAccuracyM={saveLocationPoint?.accuracyM}
+          rendererDisclosureAccepted={savedLocationRendererAccepted}
+          onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
+          collectAddressDetails
+          onSave={(category, label, details, addressLine, picked) =>
+            handleSaveBannerLocation(
+              category,
+              label,
+              details,
+              addressLine,
+              picked,
+            )
+          }
+          onSkip={closeSavedPlaceModal}
+        />
         <ContactSyncResultsSheet
           googleSync={googleContactSync}
           open={contactSyncResultsOpen}

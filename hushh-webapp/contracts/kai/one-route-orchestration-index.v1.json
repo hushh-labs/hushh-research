@@ -6071,25 +6071,25 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.location",
-        "purpose": "Request device location permission, then explicitly finish or skip Location setup.",
+        "purpose": "Introduce Location features and Circle invitations, then finish or skip the two-screen introduction.",
         "screen": "one_setup_location",
-        "entry_cue": "Allow Location when you are ready, or say skip Location setup.",
+        "entry_cue": "Explore Location features and invite your Circle, or say skip Location setup.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.skip_location",
         "happy_path_action_ids": [
           "setup.skip_location",
-          "setup.finish_location"
+          "setup.finish_location_intro"
         ],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
           "cancelled": "Keep Location setup open and preserve the active goal.",
-          "failed": "Explain that permission is still needed before finishing.",
+          "failed": "Keep the introduction open and offer to retry finishing.",
           "timeout": "Retain the goal and offer a safe retry.",
           "callback_error": "Use the verified current route and its generated actions only.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Location setup finishes only after device permission is granted and the hub route settles.",
+        "completion_boundary": "The Location introduction finishes when its completion marker is saved and the setup hub settles. Device location access is requested later from the Location workspace.",
         "next_route": "/one/setup",
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6104,6 +6104,7 @@
       "action_ids": [
         "location.onboarding.choose_place",
         "setup.finish_location",
+        "setup.finish_location_intro",
         "setup.skip_location"
       ],
       "action_coverage": "inherited",

@@ -232,13 +232,18 @@ unless the delta is exactly the declared UAT overlay).
 - `content_ciphertext` (`text`)
 - `content_iv` (`text`)
 - `content_algorithm` (`text`)
-- `created_at` / `read_at` / `edited_at` (`timestamp with time zone`)
+- `created_at` / `delivered_at` / `read_at` / `edited_at` (`timestamp with time zone`)
 - `reply_to_message_id` (`uuid`, same-conversation parent)
 - participant-only and global deletion timestamps
 
 Message text is AES-256-GCM ciphertext under the server-managed direct-message
 key; the ciphertext field includes the authentication tag. Conversation history
-remains visible but no new message can be written after disconnect or block.
+has one receipt authority: nullable `messages.delivered_at` (migration 327).
+Only an authenticated recipient body acknowledgment or a read establishes it;
+the first timestamp cannot be cleared or rewritten. Legacy read timestamps
+still imply delivery. Voice-note WAV bytes use `direct_message_attachments`,
+with duration metadata in the existing encrypted envelope; no new store.
+History remains visible but no new message can be written after disconnect or block.
 The sender can edit or tombstone a sent message for both participants; either
 participant can hide a message only from their own history.
 

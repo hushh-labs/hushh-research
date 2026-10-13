@@ -388,6 +388,14 @@ def test_partial_refund_and_actual_stripe_fee_are_distinct_from_commission():
     )
 
 
+@pytest.mark.parametrize("gross", [50, 51, 99, 1234, 49999, 50000])
+def test_cent_denominated_partial_delivery_conserves_money(gross):
+    amounts = delivery_amounts(gross_cents=gross, confirmed=2, expected=3)
+    assert amounts["retained_amount_cents"] + amounts["refund_amount_cents"] == gross
+    assert amounts["retained_amount_cents"] == (gross * 2 * 2 + 3) // 6
+    assert 0 <= amounts["platform_fee_cents"] <= amounts["retained_amount_cents"]
+
+
 def test_paid_legacy_order_cannot_be_enrolled(monkeypatch):
     monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
     order = {
@@ -1380,3 +1388,61 @@ async def test_existing_production_earnings_adopt_legacy_bank_without_profile_vi
     await service._adopt_production_transfer_accounts([REQUEST])
     service._transaction.assert_not_awaited()
     refresh.assert_not_awaited()
+
+
+def test_package_refund_denominator_includes_every_frozen_file(connector_postgres_url):
+    """25 successes in a 46-file approved package must not earn the full price."""
+    engine = create_engine(connector_postgres_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text("""CREATE TABLE drive_bulk_shares (
+            share_id INT PRIMARY KEY,origin_request_id TEXT,approved_at TIMESTAMPTZ,
+            progressive_batch BOOLEAN,status TEXT)""")
+        )
+        connection.execute(
+            text("""CREATE TABLE drive_bulk_share_files (
+            share_id INT,position INT,file_digest TEXT,origin_request_id TEXT)""")
+        )
+        connection.execute(
+            text("""CREATE TABLE drive_bulk_share_recipients (
+            share_id INT,recipient_user_id TEXT)""")
+        )
+        connection.execute(
+            text("""CREATE TABLE drive_bulk_share_effects (
+            share_id INT,position INT,recipient_user_id TEXT,state TEXT,safe_error_code TEXT)""")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO drive_bulk_shares VALUES (1,'r',clock_timestamp(),TRUE,'completed'),(2,'r',NULL,TRUE,'stopped')"
+            )
+        )
+        connection.execute(
+            text("INSERT INTO drive_bulk_share_recipients VALUES (1,'recipient'),(2,'recipient')")
+        )
+        connection.execute(
+            text("""INSERT INTO drive_bulk_share_files
+            SELECT CASE WHEN i<=25 THEN 1 ELSE 2 END,i,'digest-'||i,'r'
+            FROM generate_series(1,46) AS i""")
+        )
+        connection.execute(
+            text("""INSERT INTO drive_bulk_share_effects
+            SELECT 1,i,'recipient','succeeded',NULL FROM generate_series(1,25) AS i""")
+        )
+        summary = DriveRequestOwnerPayoutService._delivery_summary(
+            connection, "r", "recipient", package_count=46
+        )
+        assert summary == {"expected": 46, "confirmed": 25, "unsettled": 0}
+        assert (
+            delivery_amounts(
+                gross_cents=1250, **{k: summary[k] for k in ("expected", "confirmed")}
+            )["retained_amount_cents"]
+            == 679
+        )
+        legacy = DriveRequestOwnerPayoutService._delivery_summary(connection, "r", "recipient")
+        assert legacy == {"expected": 25, "confirmed": 25, "unsettled": 0}
+        connection.execute(text("DELETE FROM drive_bulk_share_files WHERE share_id=2"))
+        missing = DriveRequestOwnerPayoutService._delivery_summary(
+            connection, "r", "recipient", package_count=46
+        )
+        assert missing == {"expected": 46, "confirmed": 25, "unsettled": 1}
+    engine.dispose()

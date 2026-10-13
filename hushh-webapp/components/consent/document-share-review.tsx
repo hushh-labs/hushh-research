@@ -293,12 +293,14 @@ function allowErrorCopy(cause: unknown): string {
 }
 
 function isDurableReview(review: SharingReview | undefined): boolean {
-  return review?.durableAvailable === true;
+  return !review?.agentPackage && review?.durableAvailable === true;
 }
 
 function requestSetup(snapshot: Snapshot | null) {
   if (!snapshot || !UNDECIDED.has(snapshot.status.status)) return null;
-  return documentRequestSetupState({ ...snapshot.status, ...snapshot.review });
+  const setup = documentRequestSetupState({ ...snapshot.status, ...snapshot.review });
+  // A prepared package supplies a suggested price; the owner edits it in Allow.
+  return snapshot.review?.agentPackage && setup === "price" ? null : setup;
 }
 
 /**
@@ -307,6 +309,11 @@ function requestSetup(snapshot: Snapshot | null) {
  */
 function isOwnerDecision(snapshot: Snapshot | null): boolean {
   const setup = requestSetup(snapshot);
+  const agentPackage = snapshot?.review?.agentPackage;
+  if (agentPackage) return snapshot?.status.direction === "incoming" &&
+    UNDECIDED.has(snapshot.status.status) && agentPackage.status === "ready" &&
+    agentPackage.canAllow && !!agentPackage.digest && agentPackage.selectedCount > 0 &&
+    setup === null;
   return snapshot?.status.direction === "incoming" &&
     snapshot.status.status === "pending" &&
     (snapshot.review?.allowAvailable === true || snapshot.review?.priceOnlyAvailable === true) &&
@@ -314,7 +321,7 @@ function isOwnerDecision(snapshot: Snapshot | null): boolean {
 }
 
 function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
-  return review?.trustedAuto === true && review.priceOnlyAvailable !== true &&
+  return !review?.agentPackage && review?.trustedAuto === true && review.priceOnlyAvailable !== true &&
     review.search?.coverage?.ownerReviewRequired !== true &&
     documentRequestSetupState(review) === null &&
     review.preparationError !== "trusted_relationship_changed" &&
@@ -334,6 +341,9 @@ function needsSearchRefresh(review: SharingReview | undefined): boolean {
 /** The private agent is still looking for files for this incoming request. */
 function isFinding(snapshot: Snapshot | null): boolean {
   const review = snapshot?.review;
+  if (review?.agentPackage) return snapshot?.status.direction === "incoming" &&
+    UNDECIDED.has(snapshot.status.status) && review.agentPackage.status === "preparing" &&
+    review.preparationError !== "background_preparation_required";
   if (requestSetup(snapshot) || review?.preparationError === "date_range_required" || isOwnerDecision(snapshot)) return false;
   if (isDurableReview(review))
     return !!review && !review.bulkShare &&
@@ -545,6 +555,11 @@ function UnlockedDocumentReview({
       }
       let review = await DriveSharingService.review(token, requestId, guard);
       guard();
+      // Package preparation belongs to the server. Never enter legacy file selection.
+      if (review.agentPackage) {
+        const delivery = review.agentPackage.status === "allowed" ? await pendingOwnerDelivery(review) : undefined;
+        return { status, review, ...(delivery ? { delivery } : {}) };
+      }
       // Setup precedes any search; returning to this review cannot bypass it.
       if (requestSetup({ status, review })) return { status, review };
       // Nothing searches Drive until the owner allows the request.
@@ -793,11 +808,12 @@ function UnlockedDocumentReview({
   }, [load, requestId, run]);
 
   const review = snapshot?.review;
+  const agentPackage = snapshot?.status.direction === "incoming" ? review?.agentPackage : undefined;
   const removal = snapshot?.revocation;
   const search = review?.search;
   const bulkShare = review?.bulkShare;
   const ownerDecision = isOwnerDecision(snapshot);
-  const priceOnly = ownerDecision && review?.priceOnlyAvailable === true;
+  const priceOnly = !agentPackage && ownerDecision && review?.priceOnlyAvailable === true;
   const setup = requestSetup(snapshot);
   const automaticSharing = isAutomaticSharingActive(review);
   const ownerReviewRequired = review?.search?.coverage?.ownerReviewRequired === true;
@@ -809,8 +825,8 @@ function UnlockedDocumentReview({
   const durableReview = isDurableReview(review);
   const legacySearch = needsSearchRefresh(review);
   const searchReady = !legacySearch && isDriveSearchSelectionReady(search);
-  const searchJobId = search && (!bulkShare || progressive) && !legacySearch ? search.jobId : null;
-  const bulkPreviewId = bulkShare?.shareId ?? null;
+  const searchJobId = !agentPackage && search && (!bulkShare || progressive) && !legacySearch ? search.jobId : null;
+  const bulkPreviewId = agentPackage ? null : bulkShare?.shareId ?? null;
 
   useEffect(() => { setSearchCursor(null); setSearchPrevious([]); }, [search?.jobId]);
   useEffect(() => { setBulkCursor(null); setBulkPrevious([]); }, [bulkShare?.shareId]);
@@ -888,8 +904,11 @@ function UnlockedDocumentReview({
     (file) =>
       IN_FLIGHT.has(file.status) || IN_FLIGHT.has(file.revocationStatus ?? ""),
   ) || !!snapshot?.delivery?.bulkStatus && ["queued", "running"].includes(snapshot.delivery.bulkStatus);
-  const pollable =
-    !!snapshot &&
+  const pollable = agentPackage
+    ? !!snapshot && !removal && (pendingOutcomes ||
+      UNDECIDED.has(snapshot.status.status) && review?.preparationError !== "background_preparation_required" &&
+      (agentPackage.status === "preparing" || agentPackage.status === "allowed"))
+    : !!snapshot &&
     !removal &&
     !retryLater &&
     // Nothing runs while the owner decides.
@@ -922,6 +941,11 @@ function UnlockedDocumentReview({
   useEffect(() => {
     if (!ownerDecision) setPriceOpen(false);
   }, [ownerDecision]);
+  // A new exact package needs a fresh owner decision, even if both are ready.
+  useEffect(() => {
+    setPriceOpen(false);
+    setAllowError(null);
+  }, [agentPackage?.revision, agentPackage?.digest]);
   const locked = activity !== "idle" && activity !== "finding_files";
   const canApprove =
     !finding &&
@@ -994,10 +1018,14 @@ function UnlockedDocumentReview({
     void run(
       async (token, guard, report) => {
         try {
-          const submit = snapshot.review!.priceOnlyAvailable
+          const packageTerms = snapshot.review!.agentPackage;
+          const submit = !packageTerms && snapshot.review!.priceOnlyAvailable
             ? DriveSharingService.setRequestPrice.bind(DriveSharingService)
             : DriveSharingService.allow.bind(DriveSharingService);
-          await submit(token, requestId, { revision, amountCents }, guard);
+          const input = packageTerms
+            ? { revision, amountCents, packageRevision: packageTerms.revision, packageDigest: packageTerms.digest! }
+            : { revision, amountCents };
+          await submit(token, requestId, input, guard);
         } catch (cause) {
           guard();
           // Read again: the sheet stays open only while the request can still be allowed.
@@ -1118,6 +1146,12 @@ function UnlockedDocumentReview({
             ? error
               ? "Couldn't load request"
               : ACTIVITY_LABELS.loading
+            : agentPackage && review?.preparationError === "background_preparation_required"
+              ? "Background Drive access needed"
+            : agentPackage && UNDECIDED.has(snapshot.status.status)
+              ? ({ preparing: "Preparing your file package", ready: "Package ready for your decision",
+                  no_match: "No matching package found", unavailable: "Package preparation unavailable",
+                  stale: "Package needs a fresh assessment", allowed: "Package allowed" } as const)[agentPackage.status]
             : setup && !ownerDecision
               ? documentRequestSetupLabel(setup, snapshot.status.direction === "incoming")
             : ownerDecision
@@ -1277,7 +1311,68 @@ function UnlockedDocumentReview({
         />
       ) : null}
 
-      {review && ownerDecision && !removal ? <>
+      {review && agentPackage && !removal ? <>
+        <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
+        <dl className={HAIRLINES}>
+          <Fact label="Share with" value={review.recipientEmail} />
+          {review.purpose.periodStart ? <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
+          <Fact label="Access" value="Viewer, until removed" />
+          <Fact label="Package" value={`${agentPackage.selectedCount.toLocaleString()} ${agentPackage.selectedCount === 1 ? "file" : "files"}`} />
+          <Fact label="Evaluated" value={`${agentPackage.evaluatedCount.toLocaleString()} of ${agentPackage.candidateCount.toLocaleString()} candidates`} />
+          <Fact label="Coverage" value={{ complete: "Complete", partial: "Partial", unknown: "Not established" }[agentPackage.coverageStatus]} />
+          {agentPackage.confidenceScore !== null ? <Fact label="Agent assessment" value={`${agentPackage.confidenceScore}/100`} /> : null}
+          {agentPackage.importanceScore !== null ? <Fact label="Importance" value={`${agentPackage.importanceScore}/500`} /> : null}
+          {agentPackage.suggestedPriceCents !== null ? <Fact label="Suggested price" value={formatDocumentRequestPrice(agentPackage.suggestedPriceCents)} /> : null}
+          {agentPackage.status === "allowed" && review.priceCents != null ? <Fact label="Agreed price" value={formatDocumentRequestPrice(review.priceCents)} /> : null}
+        </dl>
+        {agentPackage.summary ? <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">{agentPackage.summary}</BodyText> : null}
+        {agentPackage.confidenceScore !== null ? <HelperText>The score is your private agent&apos;s assessment, not a measured probability of correctness.</HelperText> : null}
+        {agentPackage.priceReason ? <HelperText className="[overflow-wrap:anywhere]">{agentPackage.priceReason}</HelperText> : null}
+        {agentPackage.gaps.length ? <ul aria-label="Package coverage gaps" className="divide-y divide-border/60">
+          {agentPackage.gaps.map((gap, index) => <li key={index} className="py-2"><HelperText className="[overflow-wrap:anywhere]">{gap}</HelperText></li>)}
+        </ul> : null}
+        {review.preparationError === "background_preparation_required" ? <div className="space-y-3">
+          <BodyText>Background Drive access is off. Enable it so your private agent can prepare this package.</BodyText>
+          <HelperText>One may read relevant files and send excerpts to Gemini while you&apos;re away. You can turn this off again in Connections. The requester sees an original file only after you allow the package, any required payment completes, and Google Drive confirms access.</HelperText>
+          <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
+        </div> : <HelperText>{agentPackage.status === "preparing"
+          ? "Your private agent is evaluating files and preparing this package. You can return later."
+          : agentPackage.status === "allowed"
+            ? review.paymentRequired ? "The requester pays before this approved package is shared." : "Your approved package is being shared."
+          : agentPackage.status === "ready"
+            ? "Allow approves this exact package. You can edit the suggested price before confirming."
+          : agentPackage.status === "no_match"
+            ? "Your private agent could not prepare a matching package. Nothing has been shared."
+          : agentPackage.status === "stale"
+            ? "The files or request changed. A fresh assessment is needed before you can allow this package."
+            : "Your private agent could not finish evaluating this request. Nothing has been shared."}</HelperText>}
+        {snapshot && UNDECIDED.has(snapshot.status.status) && agentPackage.status !== "allowed" ? <FlowActionGroup
+          primary={<Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked || !ownerDecision} onClick={openPriceSheet}>Allow</Button>}
+          secondary={<Button size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
+            className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
+            disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
+            onClick={() => denyConfirm.activate(() => decide("decline"))}>{denyConfirm.label("Deny")}</Button>}
+        /> : null}
+        <DocumentRequestPriceSheet
+          moneyPolicy="drive_cents"
+          open={priceOpen && ownerDecision}
+          requesterLabel={review.recipientEmail}
+          purpose={review.purpose.purpose}
+          recipientEmail={review.recipientEmail}
+          periodStart={review.purpose.periodStart}
+          periodEnd={review.purpose.periodEnd}
+          paymentRequired={review.paymentRequired === true}
+          description={review.paymentRequired ? "Allow this exact package at your chosen price. Files are shared after the requester pays." : "Allow your private agent to share this exact package."}
+          estimateCents={review.estimateCents ?? null}
+          initialAmountCents={agentPackage.suggestedPriceCents ?? review.priceCents ?? null}
+          busy={activity === "allowing"}
+          error={allowError}
+          onSubmit={allow}
+          onCancel={closePriceSheet}
+        />
+      </> : null}
+
+      {review && !agentPackage && ownerDecision && !removal ? <>
         <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
         <dl className={HAIRLINES}>
           <Fact label="Share with" value={review.recipientEmail} />
@@ -1306,6 +1401,7 @@ function UnlockedDocumentReview({
           }
         />
         <DocumentRequestPriceSheet
+          moneyPolicy="drive_cents"
           open={priceOpen}
           requesterLabel={review.recipientEmail}
           purpose={review.purpose.purpose}
@@ -1366,7 +1462,7 @@ function UnlockedDocumentReview({
         </div> : null}
       </> : null}
 
-      {review && !setup && durableReview && !automaticSharing && !ownerDecision && !removal ? (
+      {review && !agentPackage && !setup && durableReview && !automaticSharing && !ownerDecision && !removal ? (
         <>
           {review.trustedAuto && review.preparationError === "trusted_relationship_changed" ?
             <BodyText>{review.ownerAllowed === true
@@ -1617,7 +1713,7 @@ function UnlockedDocumentReview({
         </>
       ) : null}
 
-      {review && !setup && !durableReview && !automaticSharing && !ownerDecision && !removal ? (
+      {review && !agentPackage && !setup && !durableReview && !automaticSharing && !ownerDecision && !removal ? (
         <>
           <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
             “{review.purpose.purpose}”

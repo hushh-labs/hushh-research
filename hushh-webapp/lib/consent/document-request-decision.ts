@@ -25,7 +25,7 @@ export function ownerDocumentDecision(
 ): OwnerDocumentDecision | null {
   if (entry.kind !== "incoming_request") return null;
   const metadata = entry.metadata;
-  if (metadata?.direction !== "incoming") return null;
+  if (metadata?.direction !== "incoming" || metadata.agent_package === true) return null;
   const priceOnly = metadata.owner_price_available === true;
   if (metadata.owner_decision_available !== true && !priceOnly) return null;
   const revision = metadata.revision;

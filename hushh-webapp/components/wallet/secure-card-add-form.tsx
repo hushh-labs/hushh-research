@@ -60,6 +60,7 @@ export interface SecureCardAddFormProps {
   backRoute?: string;
   getNetworkContext?: () => WalletNetworkContext | null;
   compact?: boolean;
+  showIntroduction?: boolean;
   /** Read a physical card locally, then review before saving. */
   scanEnabled?: boolean;
   scanInToolbar?: boolean;
@@ -71,7 +72,7 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
@@ -206,18 +207,19 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
     {scanInToolbar ? <div className="mb-3.5">{scanner}</div> : null}
     <form
       className={cn(styles.form, compact && styles.compact)}
+      aria-label="Add a card"
       data-testid="secure-card-add-form"
       onSubmit={handleSubmit}
       noValidate
       aria-busy={submitting || scanning}
     >
-      {!compact ? <div className={styles.heading}>
+      {showIntroduction && !compact ? <div className={styles.heading}>
         <h2 className={TYPOGRAPHY_CLASSNAMES.sectionTitle}>Add your card</h2>
         <p>Enter the details printed on your card.</p>
       </div> : null}
       {!scanInToolbar ? scanner : null}
       <fieldset disabled={submitting || scanning || !active} className={styles.fields}>
-        <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p>
+        {showIntroduction ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p> : null}
         <div className={cn(styles.field, styles.number)}>
           <Label htmlFor={`${id}-number`}><ProfilePaneCardIcon className={styles.fieldIcon} />Card number</Label>
           <Input

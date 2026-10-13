@@ -1,12 +1,14 @@
 import { ApiService } from "@/lib/services/api-service";
 import { validateChatAttachmentBytes, MAX_CHAT_IMAGE_BYTES } from "@/lib/circle-chat/crypto";
+import { inspectVoiceMessage } from "@/lib/direct-messages/voice-message";
 
-export type DirectMessageKind = "text" | "photo" | "video" | "document";
+export type DirectMessageKind = "text" | "photo" | "video" | "document" | "audio";
 export type DirectMessageAttachment = {
-  kind: "photo" | "video" | "document";
+  kind: "photo" | "video" | "document" | "audio";
   name: string;
   mimeType: string;
   size: number;
+  durationMs?: number;
 };
 
 export type DirectMessageReaction = {
@@ -32,6 +34,7 @@ export type DirectMessage = {
   content: string;
   createdAt: string;
   readAt: string | null;
+  deliveredAt?: string | null;
   editedAt?: string | null;
   deletedForEveryoneAt?: string | null;
   replyTo?: DirectMessageReplyPreview | null;
@@ -166,11 +169,16 @@ function parseAttachment(value: unknown): DirectMessageAttachment | null {
   const source = value as Record<string, unknown>;
   const name = asTrimmedString(source.name);
   const mimeType = asTrimmedString(source.mimeType);
-  const kind = source.kind;
+  const durationMs = Number(source.durationMs);
+  const validVoice = mimeType === "audio/wav" && Number.isSafeInteger(durationMs) && durationMs > 0 && durationMs <= 60_000;
+  // Older revisions retain the WAV file but can omit duration when editing a
+  // caption. Keep that file downloadable instead of hiding existing history.
+  const kind = source.kind === "document" && validVoice ? "audio" : source.kind;
   const size = Number(source.size);
-  if (!name || !mimeType || !["photo", "video", "document"].includes(String(kind))
+  if (!name || !mimeType || !["photo", "video", "document", "audio"].includes(String(kind))
       || !Number.isSafeInteger(size) || size < 1 || size > MAX_CHAT_IMAGE_BYTES) return null;
-  return { name, mimeType, kind: kind as DirectMessageAttachment["kind"], size };
+  if (kind === "audio" && !validVoice) return null;
+  return { name, mimeType, kind: kind as DirectMessageAttachment["kind"], size, ...(kind === "audio" ? { durationMs } : {}) };
 }
 
 function parseMessage(value: unknown): DirectMessage | null {
@@ -190,6 +198,7 @@ function parseMessage(value: unknown): DirectMessage | null {
     content,
     createdAt,
     readAt: asTrimmedString(source.readAt),
+    deliveredAt: asTrimmedString(source.deliveredAt) ?? asTrimmedString(source.readAt),
     editedAt: asTrimmedString(source.editedAt),
     deletedForEveryoneAt: asTrimmedString(source.deletedForEveryoneAt),
     replyTo: parseReplyPreview(source.replyTo),
@@ -375,7 +384,8 @@ export class DirectMessagesService {
         throw new Error("Choose a file up to 5 MB.");
       }
       const bytes = new Uint8Array(await input.attachment.arrayBuffer());
-      validateChatAttachmentBytes(bytes, input.attachment.type);
+      if (input.attachment.type === "audio/wav") inspectVoiceMessage(bytes);
+      else validateChatAttachmentBytes(bytes, input.attachment.type);
       attachment = { name: input.attachment.name, mimeType: input.attachment.type, data: encodeBase64Url(bytes) };
     }
     const response = await ApiService.apiFetch("/api/one/messages", {
@@ -406,16 +416,34 @@ export class DirectMessagesService {
     idToken: string;
     conversationId: string;
     messageId: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<Blob> {
     const conversationId = String(input.conversationId || "").trim();
     const messageId = String(input.messageId || "").trim();
     if (!conversationId || !messageId) throw new Error("This attachment is no longer available.");
     const response = await ApiService.apiFetch(
       `/api/one/messages/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/attachment`,
-      { method: "GET", cache: "no-store", headers: authHeaders(input.idToken) },
+      { method: "GET", cache: "no-store", headers: authHeaders(input.idToken), responseType: "arraybuffer", isEffectCurrent: input.isEffectCurrent },
     );
     if (!response.ok) await jsonOrThrow(response);
     return response.blob();
+  }
+
+  static async acknowledgeDelivery(input: {
+    idToken: string;
+    conversationId: string;
+    messageIds: string[];
+    isEffectCurrent: () => boolean;
+  }): Promise<void> {
+    if (!input.conversationId.trim() || input.messageIds.length < 1 || input.messageIds.length > 100) throw new Error("Choose received messages.");
+    const response = await ApiService.apiFetch(`/api/one/messages/conversations/${encodeURIComponent(input.conversationId)}/delivered`, {
+      method: "POST", headers: authHeaders(input.idToken), isEffectCurrent: input.isEffectCurrent,
+      body: JSON.stringify({ messageIds: input.messageIds }),
+    });
+    const result = await jsonOrThrow<{ deliveredCount?: unknown }>(response);
+    if (!Number.isSafeInteger(result.deliveredCount) || Number(result.deliveredCount) < 0 || Number(result.deliveredCount) > input.messageIds.length) {
+      throw new Error("Delivery could not be verified.");
+    }
   }
 
   static async editMessage(input: {

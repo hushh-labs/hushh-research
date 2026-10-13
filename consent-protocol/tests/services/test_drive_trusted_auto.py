@@ -1379,3 +1379,69 @@ async def test_search_drain_cancellation_leaves_no_planner_running(monkeypatch):
         with pytest.raises(asyncio.CancelledError):
             await worker
     assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "actual_version,generation,error",
+    [("7", 7, None), ("8", 7, "source_changed"), ("7", 8, "connection_changed")],
+)
+async def test_package_precheckout_preflight_rechecks_version_and_generation(
+    monkeypatch, actual_version, generation, error
+):
+    from hushh_mcp.services import drive_live_reader
+    from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+    sharing = SimpleNamespace(db=None, trusted_request_authority=AsyncMock())
+    bulk = SimpleNamespace(
+        package_sources=AsyncMock(
+            return_value=[
+                {
+                    "id": "file-1",
+                    "name": "Statement.pdf",
+                    "sourceVersion": "7",
+                    "generation": 7,
+                    "contentFingerprint": "a" * 64,
+                }
+            ]
+        )
+    )
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(
+            return_value=SimpleNamespace(name="Statement.pdf", version=actual_version)
+        )
+    )
+    reader = SimpleNamespace(
+        _generation=generation,
+        adapter=adapter,
+        _credential=AsyncMock(return_value={"accessToken": "synthetic-token"}),
+    )
+    monkeypatch.setattr(drive_live_reader, "DriveLiveReader", lambda **kwargs: reader)
+    service = DriveTrustedAutoService(
+        sharing=sharing, bulk=bulk, payment=SimpleNamespace(), wake=AsyncMock()
+    )
+    if error:
+        with pytest.raises(DriveReadError, match=error):
+            await service.preflight_package(user_id="owner", request_id="request")
+    else:
+        await service.preflight_package(user_id="owner", request_id="request")
+        assert sharing.trusted_request_authority.await_count == 2
+    if generation != 7:
+        adapter.get_metadata.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_precheckout_preflight_does_not_open_connector(monkeypatch):
+    from hushh_mcp.services import drive_live_reader
+
+    def unavailable(**kwargs):
+        raise AssertionError("legacy request must not invoke package provider reads")
+
+    monkeypatch.setattr(drive_live_reader, "DriveLiveReader", unavailable)
+    service = DriveTrustedAutoService(
+        sharing=SimpleNamespace(db=None),
+        bulk=SimpleNamespace(package_sources=AsyncMock(return_value=[])),
+        payment=SimpleNamespace(),
+        wake=AsyncMock(),
+    )
+    await service.preflight_package(user_id="owner", request_id="request")

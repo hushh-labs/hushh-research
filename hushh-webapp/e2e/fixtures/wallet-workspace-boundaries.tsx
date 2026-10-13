@@ -6,6 +6,7 @@ import React from "react";
 import type { WalletCardPayload } from "../../lib/services/wallet-card-service";
 import { createEncryptedCardFile } from "../../lib/wallet/wallet-card-file";
 import type { CardShareContext } from "../../lib/services/wallet-card-share-service";
+import type { CardSharingHistory, CardSharingHistoryItem } from "../../lib/services/wallet-card-access-service";
 
 type FixtureCard = {
   cardId: string;
@@ -30,6 +31,7 @@ type Scenario = {
   error?: boolean;
   profile?: WalletCardPayload;
   artworkGallery?: boolean;
+  sharingHistory?: boolean;
 };
 
 const SYNTHETIC: FixtureCard[] = [
@@ -219,16 +221,41 @@ export const toDurationBucket = (durationMs: number) => {
 export const trackApiRequestCompleted = () => undefined;
 export const NativeTestBeacon = () => null;
 
+const sharedCardHistory: CardSharingHistoryItem = {
+  id: "fixture-history-grant", cardId: "card_a", cardType: "payment",
+  displayLabel: "Everyday •••• 4242", last4: "4242",
+  senderName: "Alex Rivera", recipientName: "Sample recipient",
+  createdAt: "2026-10-12T10:00:00Z", expiresAt: "2026-10-12T10:15:00Z",
+  durationMinutes: 15, status: "active", trustedCircle: false,
+  method: "standard_connection", verificationMethod: "identity_reauthentication",
+  verifiedAt: null, revokedAt: null, lastAccessedAt: null, permittedFields: [],
+  activity: [{ event: "SHARE_CREATED", at: "2026-10-12T10:00:00Z", actor: "owner", outcome: "recorded" }],
+};
+let sharedCardRevoked = false;
+
 // The production Wallet Card service imports ApiService through the shared
 // client. Keep that transport inert in this fixture so a layout test never
 // initializes Firebase or performs a network request just to load an empty
 // card state.
 export const ApiService = {
   getDirectBackendUrl: () => "",
-  apiFetch: async (requestPath: string) => {
+  apiFetch: async (requestPath: string, options?: { method?: string }) => {
+    if (scenario().sharingHistory && requestPath === "/api/one/wallet/card-access/grants/fixture-history-grant" && options?.method === "DELETE") {
+      record("sharing-revoke:fixture-history-grant");
+      sharedCardRevoked = true;
+      return new Response(JSON.stringify({ revoked: true }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
     // Production profile/referral views keep their rendering; only network
     // responses are synthetic. No live profile, visitor, or payment is touched.
-    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? { items: [], nextCursor: null }
+    const hasSharingHistory = scenario().sharingHistory && !requestPath.includes("direction=received");
+    const history: CardSharingHistory = {
+      items: hasSharingHistory ? [{ ...sharedCardHistory, status: sharedCardRevoked ? "revoked" : "active", revokedAt: sharedCardRevoked ? "2026-10-12T10:02:00Z" : null }] : [],
+      recipientCount: hasSharingHistory ? 1 : 0,
+      hasMore: false, nextCursor: null, serverNow: "2026-10-12T10:02:00Z",
+    };
+    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? history
       : requestPath.startsWith("/api/one/wallet/card-access/profile") ? { eligible: false, cardId: null }
       : requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
       items: [

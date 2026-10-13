@@ -67,6 +67,38 @@ def test_mark_read_requires_a_positive_snapshot_watermark() -> None:
     )
 
 
+def test_dismiss_restore_and_clear_are_auth_scoped_and_validate_bigint() -> None:
+    client = _client("signed-in-owner")
+    service = Mock()
+    token = "11111111-1111-4111-8111-111111111111"
+    service.dismiss.return_value = {"status": "ok", "dismissal_token": token}
+    service.restore.return_value = {"status": "ok", "restored": True}
+    service.clear.return_value = {"status": "ok"}
+
+    with patch("api.routes.one.feed._service", return_value=service):
+        assert client.post("/api/one/feed/42/dismiss").json() == {
+            "status": "ok",
+            "dismissal_token": token,
+        }
+        assert client.post("/api/one/feed/42/restore", json={"dismissal_token": token}).json() == {
+            "status": "ok",
+            "restored": True,
+        }
+        assert client.post("/api/one/feed/clear", json={"up_to_id": "99"}).json() == {
+            "status": "ok"
+        }
+
+    service.dismiss.assert_called_once_with("signed-in-owner", item_id=42)
+    service.restore.assert_called_once_with("signed-in-owner", item_id=42, dismissal_token=token)
+    service.clear.assert_called_once_with("signed-in-owner", up_to_id=99)
+    assert client.post("/api/one/feed/0/dismiss").status_code == 422
+    assert client.post(f"/api/one/feed/{POSTGRES_BIGINT_MAX + 1}/restore").status_code == 422
+    assert (
+        client.post("/api/one/feed/42/restore", json={"dismissal_token": "bad"}).status_code == 422
+    )
+    assert client.post("/api/one/feed/clear", json={"up_to_id": 0}).status_code == 422
+
+
 def test_feed_preserves_retryable_database_unavailable_semantics() -> None:
     service = Mock()
     service.list_feed.side_effect = DatabaseExecutionError(

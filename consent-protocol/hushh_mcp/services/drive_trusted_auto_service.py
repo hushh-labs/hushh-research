@@ -39,6 +39,35 @@ class DriveTrustedAutoService:
         self.payment = payment or DriveRequestPaymentService(db=self.sharing.db)
         self.wake = wake or wake_drive_work
 
+    async def preflight_package(self, *, user_id: str, request_id: str) -> None:
+        """Fence evaluated bytes by their exact Drive version before checkout."""
+        from hushh_mcp.services.drive_live_reader import DriveLiveReader
+
+        require_current = self._authority(user_id, request_id)
+        files = await self.bulk.package_sources(user_id=user_id, request_id=request_id)
+        if not files:
+            return
+        reader = DriveLiveReader(user_id=user_id, require_access=require_current)
+        credential = await reader._credential()
+        semaphore = asyncio.Semaphore(4)
+
+        async def inspect(file):
+            async with semaphore:
+                await require_current()
+                if reader._generation != file["generation"]:
+                    raise DriveReadError("connection_changed")
+                actual = await reader.adapter.get_metadata(
+                    file_id=file["id"],
+                    access_token=credential["accessToken"],
+                    require_app_authorized=False,
+                    require_genai_eligibility=False,
+                )
+                if actual.version != file["sourceVersion"] or actual.name != file["name"]:
+                    raise DriveReadError("source_changed")
+                await require_current()
+
+        await asyncio.gather(*(inspect(file) for file in files))
+
     async def _payment_ready(self, *, user_id: str, request_id: str, share_id: str) -> bool:
         state = await self.payment.ensure_payment_for_frozen_batch(
             user_id=user_id, request_id=request_id, share_id=share_id
@@ -62,7 +91,16 @@ class DriveTrustedAutoService:
         request_id = await self.sharing.trusted_request_for_job(user_id=user_id, job_id=job_id)
         if request_id is None:
             return None
-        require_current = self._authority(user_id, request_id)
+        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
+        require_current = (
+            (
+                lambda: self.sharing.package_preparation_authority(
+                    user_id=user_id, request_id=request_id
+                )
+            )
+            if context.get("agentPackageRequired")
+            else self._authority(user_id, request_id)
+        )
         dates_checked = False
 
         async def guarded():
@@ -97,7 +135,18 @@ class DriveTrustedAutoService:
                 await self.wake("suggestions")
                 break
             user_id, request_id = item["user_id"], item["request_id"]
-            require_current = self._authority(user_id, request_id)
+            package = item.get("agent_package") is True
+            require_current = (
+                (
+                    lambda user_id=user_id, request_id=request_id: (
+                        self.sharing.package_preparation_authority(
+                            user_id=user_id, request_id=request_id
+                        )
+                    )
+                )
+                if package
+                else self._authority(user_id, request_id)
+            )
             try:
                 await require_current()
                 service = DriveRequestBulkService(
@@ -110,16 +159,16 @@ class DriveTrustedAutoService:
                     await service.start_search(
                         user_id=user_id,
                         request_id=request_id,
-                        authority_mode="trusted_auto",
-                        after_page=self.after_search_page,
+                        authority_mode="agent_package" if package else "trusted_auto",
+                        after_page=None if package else self.after_search_page,
                     )
                 else:
                     async with asyncio.timeout_at(deadline_at - 15):
                         await service.start_search(
                             user_id=user_id,
                             request_id=request_id,
-                            authority_mode="trusted_auto",
-                            after_page=self.after_search_page,
+                            authority_mode="agent_package" if package else "trusted_auto",
+                            after_page=None if package else self.after_search_page,
                         )
                 outcomes["started"] += 1
                 # The durable search may have no committed rows yet. Wake its
@@ -155,6 +204,22 @@ class DriveTrustedAutoService:
         share_service = DriveBulkShareService(
             store=self.bulk, require_owner=require_current, wake=self.wake
         )
+        if context.get("agentPackageRequired"):
+            await self.preflight_package(user_id=user_id, request_id=request_id)
+            # The whole purchased set exists before any order is created.
+            for _ in range(5):
+                await require_current()
+                positions = await self.bulk.unclaimed_positions(
+                    user_id=user_id, request_id=request_id, limit=25
+                )
+                if not positions:
+                    break
+                await request_bulk.prepare(
+                    user_id=user_id, request_id=request_id, positions=positions
+                )
+            if await self.bulk.unclaimed_positions(user_id=user_id, request_id=request_id, limit=1):
+                raise DriveReadError("package_incomplete")
+            max_batches = max(max_batches, 5)
         queued = 0
         remaining = []
         # A worker may have died after freezing an exact batch but before its
@@ -223,6 +288,10 @@ class DriveTrustedAutoService:
     async def after_search_slice(self, *, user_id: str, job_id: str, max_batches: int = 8) -> int:
         request_id = await self.sharing.trusted_request_for_job(user_id=user_id, job_id=job_id)
         if request_id is None:
+            return 0
+        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
+        if context.get("agentPackageRequired") and not context.get("packageAllowed"):
+            await self.wake("suggestions")
             return 0
         try:
             return await self.share_available(

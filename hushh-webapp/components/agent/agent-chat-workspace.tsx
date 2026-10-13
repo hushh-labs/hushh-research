@@ -34,7 +34,7 @@ import {
   type ExplicitPkmSaveJobResult,
 } from "@/lib/pkm/pkm-save-job";
 import { isCommittedPkmSave, type AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
-import { OnePresenceAvatar } from "@/components/agent/one-presence-avatar";
+import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/one-presence-avatar";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
@@ -2831,6 +2831,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // operation is requested while the vault is locked.
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [emailDraftOpen, setEmailDraftOpen] = useState(false);
+  const [isEmailDrafting, setIsEmailDrafting] = useState(false);
   const [emailDraftInstruction, setEmailDraftInstruction] = useState("");
   const [emailDraftAutoDraft, setEmailDraftAutoDraft] = useState(false);
   const [emailDraftInitialValue, setEmailDraftInitialValue] =
@@ -3078,6 +3079,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const isVisiblePkmMemoryWorking = visiblePkmToolCount > 0;
+  const onePresenceState = resolveOnePresenceState({
+    drafting: isEmailDrafting,
+    answering: isChatLoading || isStreaming || isToolWorking || appActionBusy || specialistBusy,
+  });
   const rootChatReady = useRootChatDeferredReady();
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentCommandEnabled();
@@ -8373,6 +8378,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           }}
           sourceBoundEnvelope={gmailKycEmailDraftEnvelope}
           onDraftChange={handleEmailDraftChange}
+          onDraftingChange={setIsEmailDrafting}
           onOpenConnections={openConnectorSurface}
           sourceBoundReply={
             workflowId
@@ -9119,9 +9125,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-11 md:!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                    className="!size-11 md:!size-[72px] !rounded-none !border-0 !bg-transparent !shadow-none hover:!bg-transparent focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
-                    <OnePresenceAvatar state={activeToolCalls.length > 0 || isPkmMemoryWorking ? "working" : isStreaming ? "answering" : isChatLoading ? "thinking" : "connected"} />
+                    <OnePresenceAvatar state={onePresenceState} />
                   </ShellActionSurface>
                 )}
               </div>
@@ -9286,7 +9292,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <OneAgentProfileSheet open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
+          <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface

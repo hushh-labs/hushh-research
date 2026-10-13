@@ -260,7 +260,7 @@ export interface DocumentPricePrompt {
   detailsPending: boolean;
   busy: boolean;
   error: string | null;
-  /** Whole-dollar cents, or null when no payment is required. */
+  /** Integer US cents, or null when no payment is required. */
   submit: (amountCents: number | null) => void;
   cancel: () => void;
 }
@@ -298,7 +298,7 @@ export function documentDecisionErrorCopy(code: string): string {
     case "payout_unavailable":
       return "Payments are unavailable. Try again later.";
     case "invalid_payment_amount":
-      return "Choose a whole-dollar price from $1 to $500.";
+      return "Choose a price from $0.50 to $500.";
     // The server says request_already_decided for every closed state as well:
     // answered elsewhere, cancelled, expired or already allowed.
     case "review_changed":
@@ -1022,6 +1022,17 @@ export function useFeedActionables(): UseFeedActionablesResult {
         return;
       }
       if (load !== priceLoadRef.current) return;
+      if (review.agentPackage) {
+        // Package approval requires the owner to read its current assessment.
+        priceLoadRef.current += 1;
+        setPriceOpen(false);
+        setPriceTerms(null);
+        setPriceError(null);
+        router.push(buildConsentCenterHref("pending", {
+          requestId: target.entryId, from: "/one/feed",
+        }));
+        return;
+      }
       if (
         (target.priceOnly
           ? review.priceOnlyAvailable
@@ -1066,6 +1077,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       getVaultOwnerToken,
       refreshDocumentRequests,
       settleDocumentRequest,
+      router,
     ],
   );
 

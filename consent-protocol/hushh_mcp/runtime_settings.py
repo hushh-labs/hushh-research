@@ -117,6 +117,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "google_drive_picker": "GOOGLE_DRIVE_PICKER",
     "drive_document_indexing": "DRIVE_DOCUMENT_INDEXING",
     "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",
+    "drive_agent_packages_enabled": "DRIVE_AGENT_PACKAGES_ENABLED",
     "gmail_chat_reads": "GMAIL_CHAT_READS",
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
     "curated_mcp_connectors": "CURATED_MCP_CONNECTORS",
