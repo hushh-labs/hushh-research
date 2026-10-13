@@ -1026,6 +1026,15 @@ final class AppUITests: XCTestCase {
                     printNativeControlStatuses(web)
                     XCTFail("COHERENT_PROFILE_NOT_ADMITTED"); return
                 }
+                // Profile preserves the originating menu's scroll position.
+                // Reveal the authored row instead of assuming a fresh menu
+                // always starts at its top after another warm journey.
+                let profileMenu = app.scrollViews["native-profile-menu-scroll"].firstMatch
+                for _ in 0..<5 {
+                    if preferences.exists && preferences.isHittable { break }
+                    guard profileMenu.exists else { break }
+                    profileMenu.swipeDown()
+                }
                 guard waitForAdmittedControl(preferences) else { XCTFail("COHERENT_PROFILE_PREFERENCES_NOT_ADMITTED"); return }
                 XCTAssertFalse(editor.isHittable)
                 preferences.tap()
