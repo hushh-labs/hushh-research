@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import os
 import uuid
+import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
@@ -20,6 +22,186 @@ from sqlalchemy.exc import DBAPIError
 from db.migration_authority import MigrationMode, apply_manifest_entries, build_manifest_entries
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_delivery_is_recipient_scoped_atomic_and_monotonic(projection_db, monkeypatch):
+    from hushh_mcp.services.direct_messages_service import DirectMessagesError
+
+    _seed_people(projection_db)
+    service = _message_service(projection_db, monkeypatch)
+    first = service.send_message("alice", recipient_user_id="bob", content="Received body")
+    own = service.send_message("bob", recipient_user_id="alice", content="Own body")
+    other = service.send_message("alice", recipient_user_id="carol", content="Other conversation")
+    conversation, message = first["conversation"]["id"], first["message"]["id"]
+    assert first["message"]["deliveredAt"] is None
+    for viewer, ids in [
+        ("alice", [message]),
+        ("outsider", [message]),
+        ("bob", [message, own["message"]["id"]]),
+        ("bob", [message, other["message"]["id"]]),
+    ]:
+        with pytest.raises(DirectMessagesError):
+            service.acknowledge_delivery(viewer, conversation, message_ids=ids)
+    with projection_db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT delivered_at FROM messages WHERE id=CAST(:id AS UUID)"),
+                {"id": message},
+            ).scalar_one()
+            is None
+        )
+    result = service.acknowledge_delivery("bob", conversation, message_ids=[message, message])
+    assert result["deliveredCount"] == 1
+    assert (
+        service.acknowledge_delivery("bob", conversation, message_ids=[message])["deliveredCount"]
+        == 0
+    )
+    for value in ("NULL", "clock_timestamp() + interval '1 second'"):
+        with pytest.raises(DBAPIError, match="DIRECT_MESSAGE_DELIVERY_INVALID"):
+            with projection_db.engine.begin() as connection:
+                connection.execute(
+                    text(f"UPDATE messages SET delivered_at={value} WHERE id=CAST(:id AS UUID)"),
+                    {"id": message},
+                )
+    hidden = service.send_message("alice", recipient_user_id="bob", content="Hidden body")
+    service.delete_message("bob", conversation, hidden["message"]["id"], scope="me")
+    with pytest.raises(DirectMessagesError):
+        service.acknowledge_delivery("bob", conversation, message_ids=[hidden["message"]["id"]])
+
+
+def test_concurrent_read_and_delivery_keep_the_first_delivery_time(projection_db, monkeypatch):
+    _seed_people(projection_db)
+    sender = _message_service(projection_db, monkeypatch)
+    sent = sender.send_message("alice", recipient_user_id="bob", content="Concurrent receipt")
+    conversation, message = sent["conversation"]["id"], sent["message"]["id"]
+    barrier = Barrier(2)
+
+    def update(read):
+        reader = _message_service(projection_db, monkeypatch)
+        barrier.wait(timeout=5)
+        return (
+            reader.mark_as_read("bob", conversation, through_message_id=message)
+            if read
+            else reader.acknowledge_delivery("bob", conversation, message_ids=[message])
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        read, delivery = list(executor.map(update, [True, False]))
+    with projection_db.engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT created_at,delivered_at,read_at FROM messages WHERE id=CAST(:id AS UUID)"),
+            {"id": message},
+        ).one()
+    assert row.created_at <= row.delivered_at <= row.read_at
+    assert read["readCount"] == 1
+    if delivery["deliveredCount"]:
+        assert (
+            delivery["deliveredAt"]
+            == sender.list_messages("alice", conversation)["items"][0]["deliveredAt"]
+        )
+    assert (
+        sender.acknowledge_delivery("bob", conversation, message_ids=[message])["deliveredCount"]
+        == 0
+    )
+
+
+def test_delivery_replay_and_rollback_preserve_encrypted_history_and_rls(
+    projection_db, monkeypatch
+):
+    _seed_people(projection_db)
+    service = _message_service(projection_db, monkeypatch)
+    sent = service.send_message(
+        "alice", recipient_user_id="bob", content="Preserved encrypted history"
+    )
+    message = sent["message"]["id"]
+    service.acknowledge_delivery("bob", sent["conversation"]["id"], message_ids=[message])
+    query = text(
+        "SELECT id,content_ciphertext,content_iv,content_algorithm,read_at FROM messages WHERE id=CAST(:id AS UUID)"
+    )
+    with projection_db.engine.connect() as connection:
+        original = connection.execute(query, {"id": message}).one()
+        delivered = connection.execute(
+            text("SELECT delivered_at FROM messages WHERE id=CAST(:id AS UUID)"), {"id": message}
+        ).scalar_one()
+        authority = connection.execute(
+            text("SELECT relrowsecurity,relacl FROM pg_class WHERE oid='messages'::regclass")
+        ).one()
+    projection_db.apply_migrations(["327_direct_message_delivery_receipts.sql"])
+    with projection_db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT delivered_at FROM messages WHERE id=CAST(:id AS UUID)"),
+                {"id": message},
+            ).scalar_one()
+            == delivered
+        )
+        connection.exec_driver_sql(
+            (
+                ROOT / "db/migrations/rollback/327_direct_message_delivery_receipts.rollback.sql"
+            ).read_text()
+        )
+        assert connection.execute(query, {"id": message}).one() == original
+        assert (
+            connection.execute(
+                text("SELECT relrowsecurity,relacl FROM pg_class WHERE oid='messages'::regclass")
+            ).one()
+            == authority
+        )
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM pg_attribute WHERE attrelid='messages'::regclass AND attname='delivered_at' AND NOT attisdropped"
+                )
+            ).scalar_one()
+            == 0
+        )
+    projection_db.apply_migrations(["327_direct_message_delivery_receipts.sql"])
+    assert (
+        service.list_messages("alice", sent["conversation"]["id"])["items"][0]["content"]
+        == "Preserved encrypted history"
+    )
+
+
+def test_voice_bytes_reply_and_attachment_authority_round_trip(projection_db, monkeypatch):
+    from hushh_mcp.services.direct_messages_service import DirectMessagesError
+
+    _seed_people(projection_db)
+    service = _message_service(projection_db, monkeypatch)
+    output = io.BytesIO()
+    with wave.open(output, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16000)
+        audio.writeframes(b"\x00\x40" * 16000)
+    raw = output.getvalue()
+    sent = service.send_message(
+        "alice",
+        recipient_user_id="bob",
+        content="",
+        attachment={
+            "name": "Voice message.wav",
+            "mimeType": "audio/wav",
+            "data": base64.urlsafe_b64encode(raw).decode().rstrip("="),
+        },
+    )
+    conversation, message = sent["conversation"]["id"], sent["message"]["id"]
+    assert sent["message"]["attachment"]["kind"] == "document"
+    assert sent["message"]["attachment"]["durationMs"] == 1000
+    assert service.get_attachment("bob", conversation, message)["content"] == raw
+    with pytest.raises(DirectMessagesError):
+        service.get_attachment("outsider", conversation, message)
+    reply = service.send_message(
+        "bob", recipient_user_id="alice", content="Voice reply", reply_to_message_id=message
+    )
+    assert reply["message"]["replyTo"]["content"] == "Voice message"
+    with projection_db.engine.connect() as connection:
+        stored = connection.execute(
+            text(
+                "SELECT ciphertext FROM direct_message_attachments WHERE message_id=CAST(:id AS UUID)"
+            ),
+            {"id": message},
+        ).scalar_one()
+        assert bytes(stored) != raw
 
 
 @pytest.fixture
@@ -94,6 +276,7 @@ def projection_db():
                     "284_direct_message_multiple_reactions.sql",
                     "290_chat_push_delivery.sql",
                     "295_direct_message_attachments.sql",
+                    "327_direct_message_delivery_receipts.sql",
                 ]
             )
 

@@ -361,9 +361,21 @@ The gate also validates literal `data-voice-control-id` values against authored 
 The `/one/messages` workspace hides the shared top profile header and retains
 persistent bottom navigation with no route-specific footer styling. The inbox
 provides a Home link; its Chat title matches the conversation contact title.
-Outgoing bubbles use royal blue, and editing uses a compact dialog with a
-separate inner message field. The phone control reports that calls are not
-available yet; the composer mic retains the private-agent voice entry. The message composer projects into
+Outgoing bubbles use light Apple Blue (`#EAF4FF`), incoming bubbles `#F2F2F7`,
+and both use dark text. Apple Blue (`#0071E3`) identifies actions, read states and
+voice progress. Inter message text is 16px/22px, bubbles have an 18px radius,
+and the flat white transcript has 16px gutters with a centered 820px reading
+measure. Date labels and the latest-message control use compact centered tints.
+The header provides Back, avatar, name and connection status, an unavailable
+voice-call control, and contact Info with message search; no video-call control.
+Editing uses a compact dialog with a separate inner message field.
+In a selected writable conversation the mic records a bounded voice note,
+staging its WAV for explicit sending. Playback uses actual sampled waveform
+peaks and releases its lease on backgrounding, navigation or another voice
+interaction. File cards retain authenticated download/share actions; legacy
+video files remain downloadable without video-message UI. Quoted previews have
+a blue accent, at most two lines, and fetch older history before scrolling to
+the original without replacing live updates. The message composer projects into
 the existing centered Agent Dock above navigation; both panes reserve the full
 dock height, while keyboard lift reserves only navigation and outer insets.
 Every bubble shows its timestamp beside the existing delivery status. The inbox

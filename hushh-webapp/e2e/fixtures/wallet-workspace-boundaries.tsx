@@ -5,7 +5,7 @@
 import React from "react";
 import { createEncryptedCardFile } from "../../lib/wallet/wallet-card-file";
 import type { CardShareContext } from "../../lib/services/wallet-card-share-service";
-import type { CardSharingHistoryItem } from "../../lib/services/wallet-card-access-service";
+import type { CardSharingHistory, CardSharingHistoryItem } from "../../lib/services/wallet-card-access-service";
 
 type FixtureCard = {
   cardId: string;
@@ -247,11 +247,13 @@ export const ApiService = {
     }
     // Production profile/referral views keep their rendering; only network
     // responses are synthetic. No live profile, visitor, or payment is touched.
-    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? scenario().sharingHistory ? {
-      items: [{ ...sharedCardHistory, status: sharedCardRevoked ? "revoked" : "active", revokedAt: sharedCardRevoked ? "2026-10-12T10:02:00Z" : null }],
-      recipientCount: 1,
+    const hasSharingHistory = scenario().sharingHistory && !requestPath.includes("direction=received");
+    const history: CardSharingHistory = {
+      items: hasSharingHistory ? [{ ...sharedCardHistory, status: sharedCardRevoked ? "revoked" : "active", revokedAt: sharedCardRevoked ? "2026-10-12T10:02:00Z" : null }] : [],
+      recipientCount: hasSharingHistory ? 1 : 0,
       hasMore: false, nextCursor: null, serverNow: "2026-10-12T10:02:00Z",
-    } : { items: [], nextCursor: null }
+    };
+    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? history
       : requestPath.startsWith("/api/one/wallet/card-access/profile") ? { eligible: false, cardId: null }
       : requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
       items: [

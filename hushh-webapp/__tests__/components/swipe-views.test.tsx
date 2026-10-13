@@ -275,6 +275,12 @@ describe("SwipeViews", () => {
     expect(translate.to).toHaveBeenCalledWith(0);
     expect(scrollBody.useDuration).toHaveBeenCalledWith(0);
     expect(scrollBody.seek).toHaveBeenCalledOnce();
+    // WebKit left the full-width Sharing pane 0.27px beyond the viewport.
+    offsetLocation.set(-0.27001953125);
+    embla.listeners.get("settle")?.();
+    expect(offsetLocation.get()).toBe(0);
+    expect(translate.to).toHaveBeenLastCalledWith(0);
+    expect(scrollBody.seek).toHaveBeenCalledTimes(2);
   });
 
   it("starts pane motion immediately when the shared top tab is pressed", () => {

@@ -702,10 +702,9 @@ for (const width of [320, 390, 1440]) {
     await expect(sharing.getByText("Revoked | Connection", { exact: true })).toBeVisible();
     await expect(revoke).toHaveCount(0);
     await expect(sharing.getByText("Everyday •••• 4242 | Sample recipient", { exact: true })).toBeVisible();
-    // Embla retains a fractional pixel after its terminal interpolation. Match
-    // the same 2px pane-arrival contract above; visible content and document
-    // overflow still use strict viewport boundaries.
-    await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThan(-2);
+    // Terminal settle must remove fractional interpolation so the Sharing
+    // pane remains fully inside the viewport; live drag keeps its own transform.
+    await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
     const recipientBounds = (await sharing.getByText("Everyday •••• 4242 | Sample recipient", { exact: true }).boundingBox())!;
     expect(recipientBounds.x).toBeGreaterThanOrEqual(0);
     expect(recipientBounds.x + recipientBounds.width).toBeLessThanOrEqual(width);
