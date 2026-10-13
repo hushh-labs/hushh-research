@@ -128,6 +128,12 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:[a-z]+\.riv|rive\.wasm)$/, route =>
+    route.fulfill({
+      contentType: route.request().url().endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
     route.fulfill({
       contentType: "image/webp",
@@ -879,9 +885,8 @@ test("background processing needs explicit consent and can be paused without rem
     await page.getByRole("button", { name: "Pick synthetic file" }).click();
   };
   await selectFile();
-  const consent = page.getByRole("checkbox", { name: /Prepare these files while the app is closed/ });
-  await expect(page.getByText(/Relevant excerpts may be sent to Gemini/)).toBeVisible();
-  await expect(page.getByText(/Prepared file information is stored outside your vault/)).toBeVisible();
+  const consent = page.getByRole("checkbox", { name: "Agent One prepares these files while you’re away." });
+  await expect(consent).toBeVisible();
   await expect(consent).not.toBeChecked();
   await consent.check();
   expect(writes).toHaveLength(0);
@@ -893,7 +898,7 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("button", { name: "Add selected files" }).click();
   const processing = page.getByRole("checkbox", { name: /^Background processing for / });
   await expect(processing).toBeChecked();
-  await expect(page.getByText(/Turning this off stops new preparation; remove the file to clear what was prepared/)).toBeVisible();
+  await expect(page.getByText("Agent One prepares this file while you’re away.", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 440 });
   const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
   const remove = dialog.getByRole("button", { name: /^Remove .+$/ });
@@ -1397,7 +1402,13 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
 
 async function presencePixels(artwork: Locator) {
   return artwork.evaluate((canvas: HTMLCanvasElement) => {
-    const pixels = canvas.getContext("2d")!.getImageData(0, 0, 128, 128).data;
+    // Rive sizes its drawing surface for device pixel density. Sample the whole
+    // rendered image instead of only the former fixed 128px corner.
+    const sample = document.createElement("canvas");
+    sample.width = 128; sample.height = 128;
+    const context = sample.getContext("2d")!;
+    context.drawImage(canvas, 0, 0, 128, 128);
+    const pixels = context.getImageData(0, 0, 128, 128).data;
     let hash = 0, opaque = 0;
     for (let i = 0; i < pixels.length; i += 1) {
       hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
@@ -1448,10 +1459,14 @@ test.describe("One profile artwork and mapped work frames", () => {
         await expect.poll(() => profile.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
       } else {
         for (const artwork of [header, profile]) {
-          await expect.poll(async () => (await presencePixels(artwork)).opaque).toBeGreaterThan(0);
-          expect((await presencePixels(artwork)).cornerAlpha).toEqual([0, 0, 0, 0]);
-          const first = (await presencePixels(artwork)).hash;
-          await expect.poll(async () => (await presencePixels(artwork)).hash).not.toBe(first);
+          const canvas = artwork.locator("canvas");
+          await expect(canvas).toHaveCSS("visibility", "visible");
+          await expect(artwork.locator("img")).toHaveAttribute("src", `/one-presence/${phase.file}`);
+          await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
+          await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
+          expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
+          const first = (await presencePixels(canvas)).hash;
+          await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(first);
         }
       }
       await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
@@ -1466,19 +1481,29 @@ test.describe("One profile artwork and mapped work frames", () => {
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
-    const profile = panel.locator("canvas[data-one-presence-state]");
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
+    const profile = panel.locator('[data-one-presence-state="working"]');
+    const canvas = profile.locator("canvas"), poster = profile.locator("img");
+    await expect(canvas).toHaveCSS("visibility", "visible");
+    await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect(profile).toHaveCSS("background-image", /drafting-hd\.png/);
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBe(0);
+    await expect(canvas).toHaveCSS("visibility", "hidden");
+    await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
+    await expect(poster).toHaveCSS("visibility", "visible");
+    await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
+    await expect(canvas).toHaveCSS("visibility", "visible");
+    await expect(poster).toHaveCSS("visibility", "hidden");
+    await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
-    const paused = (await presencePixels(profile)).hash;
+    await expect(canvas).toHaveCSS("visibility", "hidden");
+    await expect(poster).toHaveCSS("visibility", "visible");
+    const paused = (await presencePixels(canvas)).hash;
     await page.waitForTimeout(200);
-    expect((await presencePixels(profile)).hash).toBe(paused);
+    expect((await presencePixels(canvas)).hash).toBe(paused);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("active"));
-    await expect.poll(async () => (await presencePixels(profile)).hash).not.toBe(paused);
+    await expect(canvas).toHaveCSS("visibility", "visible");
+    await expect(poster).toHaveCSS("visibility", "hidden");
+    await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(paused);
     await page.getByRole("button", { name: "Close One profile", exact: true }).click();
     await expect(panel).toBeHidden();
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false }));
