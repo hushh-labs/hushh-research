@@ -3464,6 +3464,33 @@ final class AppUITests: XCTestCase {
             }
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             destination.tap()
+            if id == "invite" {
+                // Invite now opens the authored Referrals route, not a nested
+                // Profile detail. Its route parent is One; use those real
+                // controls before restoring the originating Chat menu.
+                let routeBack = app.buttons["Go back"].firstMatch
+                guard waitForNativeRoute(app, route: "/one/referrals", timeout: 15),
+                      web.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 10),
+                      waitForAdmittedControl(routeBack) else {
+                    XCTFail("PROFILE_BATCH_REFERRALS_ROUTE_UNAVAILABLE"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+                XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
+                routeBack.tap()
+                guard waitForNativeRoute(app, route: "/one", timeout: 15) else {
+                    XCTFail("PROFILE_BATCH_REFERRALS_PARENT_NOT_RESTORED"); return
+                }
+                perfTapNav(app, label: "Chat")
+                guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else {
+                    XCTFail("PROFILE_BATCH_CHAT_NOT_RESTORED"); return
+                }
+                XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
+                opener.tap()
+                XCTAssertTrue(waitForAdmittedControl(root("account")), "PROFILE_BATCH_MENU_NOT_RESTORED")
+                XCTAssertFalse(web.buttons["Unlock"].exists)
+                print("PROFILE_NATIVE_DESTINATION family=invite warm=true single_host=true")
+                continue
+            }
             guard admittedBack() else { XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
             // Native menu isolation deliberately removes the covered WebView
             // from AX. Count it while its authored content layer is active,
@@ -3641,7 +3668,7 @@ final class AppUITests: XCTestCase {
                     }
                 }) else { return }
                 select("Cards")
-                let cardsActions = ["All cards", "Add your first card", "Add another card"].map { web.buttons[$0].firstMatch }
+                let cardsActions = ["All cards", "Add a payment card", "Add another card"].map { web.buttons[$0].firstMatch }
                 for _ in 0..<4 {
                     if cardsActions.contains(where: { $0.exists && $0.isHittable }) { break }
                     web.swipeUp()
