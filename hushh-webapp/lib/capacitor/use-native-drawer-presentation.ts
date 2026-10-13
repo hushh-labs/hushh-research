@@ -12,6 +12,7 @@ export type NativeDrawerPort = {
   family: NativeDrawerFamily; owner: string | null; vaultEpoch: number; ready: boolean;
   open: boolean; title: string; searchable?: boolean; loading?: boolean;
   profileMenuRows?: boolean;
+  surfaceOpen?: boolean;
   onPresented?: () => void;
   project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; actions: NativeDrawerActions };
 };
@@ -25,6 +26,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
   const [privacy, setPrivacy] = useState<NativeSessionPrivacyState | null>(null);
   const [admission, readmit] = useState(0);
   const previousOpen = useRef(port.open);
+  const contentHandoffSupported = useRef(false);
   const current = useRef({ port, theme }); current.current = { port, theme };
   const privacyRef = useRef(privacy); privacyRef.current = privacy;
   const replica = useRef<{ presentation: NativeDrawerPresentation; update: number; privacy: number;
@@ -44,6 +46,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     const next = nextPort.project(live.handles);
     const state = { ...live.presentation.identity, ...current.current.theme, privacyGeneration: live.privacy,
       title: nextPort.title, open: nextPort.open, enabled: true, backEnabled: !!next.actions.back,
+      ...(contentHandoffSupported.current && nextPort.family === "profile" && nextPort.surfaceOpen !== undefined ? { surfaceOpen: nextPort.surfaceOpen } : {}),
       searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections };
     const fingerprint = JSON.stringify(state); // Private in-memory comparison only.
     if (fingerprint === live.fingerprint) { live.presentation.refreshActions(next.actions); return; }
@@ -65,6 +68,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       });
     }).catch(() => { if (active) setPhase("blocked"); });
     void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(capability => {
+      if (active) contentHandoffSupported.current = capability.profileContentHandoff === true;
       if (active) setSupported(capability.contractVersion === 1 && capability.supported && capability.wholePresentation &&
         (port.family !== "history" || capability.historyActions === true) &&
         (port.family !== "agent-profile" || capability.agentProfileMenu === true) &&

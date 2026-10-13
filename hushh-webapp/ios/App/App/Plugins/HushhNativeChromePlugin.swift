@@ -152,7 +152,7 @@ struct NativeChromeButton: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // The symbol and empty label area invoke the same Button.
                 // Stay inside its reserved host; never add a second tap handler.
-                .contentShape(.interaction, Rectangle())
+                .contentShape([.interaction, .hoverEffect], Circle())
                 .foregroundStyle(Color(uiColor: theme.foreground))
         }
         .buttonStyle(.glass)

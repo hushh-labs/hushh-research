@@ -126,6 +126,20 @@ describe("private native drawer action boundary", () => {
     }
   });
 
+  it("bounds Profile content handoff metadata without changing action authority", () => {
+    const menu = { ...state(), family: "profile" as const, surfaceOpen: true };
+    expect(validNativeDrawerProjection(menu)).toBe(true);
+    const detail = { ...menu, open: false };
+    expect(validNativeDrawerProjection(detail)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile" }, detail)).toBe(false);
+    for (const invalid of [
+      { ...menu, surfaceOpen: false },
+      { ...menu, surfaceOpen: "true" },
+      { ...menu, family: "history" },
+    ]) expect(validNativeDrawerProjection(invalid as NativeDrawerProjection)).toBe(false);
+    expect(validNativeDrawerProjection({ ...menu, open: false, surfaceOpen: false })).toBe(true);
+  });
+
   it("shares one opaque auth/vault boundary across families and never resets revisions on remount", () => {
     publishValidatedAuthSessionOwner("synthetic-first-owner");
     const history = createNativeDrawerIdentity("history")!;

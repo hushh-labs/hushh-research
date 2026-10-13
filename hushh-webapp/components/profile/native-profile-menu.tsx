@@ -25,12 +25,13 @@ export function projectNativeProfileMenu(name: string, email: string | null, rea
 
 /** Explicit authored port. Identity information is private presentation only;
  * native receives no URL, credential, permission or executable operation. */
-export function NativeProfileMenu({ owner, ready, open, name, email, groups, actions, onClose }: {
+export function NativeProfileMenu({ owner, ready, open, surfaceOpen, name, email, groups, actions, onClose }: {
   owner: string; ready: boolean; open: boolean; name: string; email: string | null;
+  surfaceOpen?: boolean;
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: () => void;
 }) {
   const renderer = useNativeDrawerPresentation({ family: "profile", owner, vaultEpoch: snapshotVaultSessionEpoch(), ready, open,
-    title: "Profile", profileMenuRows: true, onPresented: () => window.dispatchEvent(new CustomEvent(PROFILE_PANE_SHOWN_EVENT)),
+    title: "Profile", profileMenuRows: true, surfaceOpen, onPresented: () => window.dispatchEvent(new CustomEvent(PROFILE_PANE_SHOWN_EVENT)),
     project: () => projectNativeProfileMenu(name, email, ready, groups, actions, onClose) });
   // Confirmed absence is not a silent successful Open. Keep failures in a
   // bounded app-owned page; an uncertain native retirement remains isolated.

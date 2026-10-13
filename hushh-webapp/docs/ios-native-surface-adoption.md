@@ -13,6 +13,34 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Profile content handoffs and circular controls — 2026-10-13
+
+Custom-native product controls remain qualification-launch-only; they are not a
+user-facing preference and are not enabled by an ordinary app launch. The native
+bottom navigation remains independently enabled. Preserving both current device
+sessions means this follow-up is built locally, not installed or relaunched.
+
+NativeDrawers v1 now negotiates `profileContentHandoff`. Its optional, Profile-only
+`surfaceOpen` field distinguishes the encompassing Profile lifetime from menu
+visibility. Once detail content is acknowledged, menu/detail replacements within
+the same enabled, owner-bound privacy generation settle without another outer
+drawer slide. Initial opening, real dismissal and unnegotiated wrappers retain
+their existing motion. Nested detail content keeps the existing React stack and
+Back owner; this does not introduce a native router or another WebView.
+
+The focused native regression passes, fails when the former animated handoff is
+restored, and retains negative controls for actual opening and privacy changes.
+The 160 nearest web cases, 443 Back cases, typecheck, plugin parity, generated UI
+checks, design and static render checks pass. The signed device build passes.
+
+Shared native circle buttons now use circular interaction and hover shapes, with
+the existing 44-point layout, standard glass border and action owner. Apple's
+[`hoverEffect` shape](https://developer.apple.com/documentation/swiftui/contentshapekinds/hovereffect)
+supports iOS; the custom `focusEffect` shape does not, so system focus remains
+unchanged. This corrects inconsistent authoring but does not establish the cause
+or physical resolution of the reported square artifact. Visual/cardinal-edge,
+integrated transition and device performance acceptance remain open.
+
 ### Retained nested panes and History actions — 2026-10-13
 
 The follow-up separates a pane's revealed lifetime from its changing Back

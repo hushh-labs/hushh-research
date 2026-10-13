@@ -198,6 +198,10 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             deleteConfirmation?.retire {}
         }
         let changedOpen = model.projection.open != projection.open
+        let contentHandoff = changedOpen && projection.family == "profile" &&
+            model.projection.surfaceOpen == true && projection.surfaceOpen == true &&
+            model.projection.enabled && projection.enabled &&
+            model.projection.privacyGeneration == projection.privacyGeneration
         if changedOpen { view.endEditing(true) }
         let withdrawn = model.projection.enabled && !projection.enabled
         let compatibleTerminal = intentPending && !changedOpen && model.projection.enabled == projection.enabled &&
@@ -213,6 +217,17 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         }
         intentTimeout?.cancel(); intentTimeout = nil
         awaitingReadmission = false
+        if contentHandoff {
+            // The acknowledged detail plane replaces menu content inside the
+            // same Profile lifetime. Never replay the outer drawer's slide.
+            intentPending = false
+            dragging = false
+            beginDrag()
+            let target: CGFloat = projection.open ? 1 : 0
+            guard motion.commit(open: projection.open, generation: motion.generation) else { return }
+            pose(target)
+            return
+        }
         if intentPending && projection.open == motion.committedOpen && animator == nil {
             intentPending = false; pose(motion.progress)
         } else if changedOpen || intentPending || withdrawn { intentPending = false; settle(open: projection.open, userIntent: false) }
@@ -689,7 +704,7 @@ struct NativeDrawerContent: View {
             Button(action: action) {
                 Image(systemName: symbol).font(.system(size: 18))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(.interaction, Rectangle())
+                    .contentShape([.interaction, .hoverEffect], Circle())
             }
                 .buttonStyle(.glass).buttonBorderShape(.circle).frame(width: 44, height: 44).accessibilityLabel(label)
                 .accessibilityIdentifier(identifier)

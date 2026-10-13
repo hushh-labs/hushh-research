@@ -4826,6 +4826,7 @@ function ProfilePageContent({
   if (presentation !== "native-page") return page;
   return <>
     <NativeProfileMenu owner={user.uid} ready={isVaultUnlocked} open={nativeMenuOpen && (!activePanel || nativeDetailReady !== nativeDetailOwner)}
+      surfaceOpen={nativeMenuOpen}
       name={user.displayName || "Your account"} email={user.email} onClose={() => onNativeMenuClose?.()}
       groups={menuGroups} actions={menuActions} />
     <NativeFeaturePage pane open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}

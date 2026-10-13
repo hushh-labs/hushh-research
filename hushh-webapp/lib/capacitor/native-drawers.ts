@@ -37,6 +37,8 @@ export type NativeDrawerProjection = NativeDrawerIdentity & NativeControlAppeara
   backEnabled: boolean;
   searchable?: boolean;
   loading?: boolean;
+  /** Negotiated Profile drawer lifetime, not menu/body visibility. */
+  surfaceOpen?: boolean;
 };
 export type NativeDrawerReceipt = NativeDrawerIdentity & {
   updateSequence: number;
@@ -54,7 +56,7 @@ export type NativeDrawerChoice = NativeDrawerIdentity & {
 };
 export type NativeDrawerIsolation = { generation: number; isolated: boolean };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; profileMenuRows?: boolean; agentProfileMenu?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; agentProfileMenu?: boolean }>;
   apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
   confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;
   settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
@@ -146,13 +148,14 @@ function closedShape(value: object, keys: readonly string[]): boolean {
  * arbitrary view tree, provider payload or action transport in this contract. */
 export function validNativeDrawerProjection(value: NativeDrawerProjection): boolean {
   if (!value || !closedShape(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "appearance", "accentHex", "foregroundHex",
-      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading"]) ||
+      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading", "surfaceOpen"]) ||
       !validIdentifier(value.documentId) || !validIdentifier(value.ownerEpoch) ||
       !validSequence(value.ownerGeneration) || !validSequence(value.revision) || !validSequence(value.updateSequence) ||
       !["history", "profile", "agent-profile"].includes(value.family) ||
       !Number.isSafeInteger(value.privacyGeneration) || value.privacyGeneration < 0 ||
       ![value.open, value.enabled, value.backEnabled].every(item => typeof item === "boolean") ||
       [value.searchable, value.loading].some(item => item !== undefined && typeof item !== "boolean") ||
+      value.surfaceOpen !== undefined && (typeof value.surfaceOpen !== "boolean" || value.family !== "profile" || value.open && !value.surfaceOpen) ||
       !["light", "dark"].includes(value.appearance) ||
       ![value.accentHex, value.foregroundHex].every(color => /^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(color)) ||
       !validText(value.title, 256) || !Array.isArray(value.sections) || value.sections.length > 32) return false;

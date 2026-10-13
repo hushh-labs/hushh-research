@@ -542,6 +542,50 @@ final class NativeSupportTests: XCTestCase {
         controller.retire()
     }
 
+    @MainActor
+    func testProfileContentHandoffDoesNotReplayTheOuterDrawerSlide() {
+        var detail = privateDrawerState(open: false)
+        detail.surfaceOpen = true
+        let controller = NativeDrawerPresentationController(detail)
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.activateInitialPresentation()
+        let host = controller.host
+        var menu = privateDrawerState(update: 2)
+        menu.surfaceOpen = true
+        controller.update(menu)
+        XCTAssertTrue(controller.motion.committedOpen, "Returning to menu content must not start another outer opening animation")
+        XCTAssertEqual(controller.motion.progress, 1)
+        XCTAssertTrue(controller.host === host)
+        detail = privateDrawerState(open: false, update: 3)
+        detail.surfaceOpen = true
+        controller.update(detail)
+        XCTAssertFalse(controller.motion.committedOpen)
+        XCTAssertEqual(controller.motion.progress, 0)
+        XCTAssertFalse(controller.allowsInteraction("row", row: "row-handle"))
+        controller.retire()
+
+        // Negative control: an actual closed-to-open drawer still settles
+        // asynchronously; the content handoff must not disable its animation.
+        var closed = privateDrawerState(open: false)
+        closed.surfaceOpen = false
+        let opening = NativeDrawerPresentationController(closed)
+        opening.view.frame = controller.view.frame
+        opening.activateInitialPresentation()
+        opening.update(menu)
+        XCTAssertFalse(opening.motion.committedOpen)
+        opening.retire()
+
+        // A changed privacy generation cannot take the content-only path.
+        let changedPrivacy = NativeDrawerPresentationController(detail)
+        changedPrivacy.view.frame = controller.view.frame
+        changedPrivacy.activateInitialPresentation()
+        var next = privateDrawerState(update: 4, privacy: 1)
+        next.surfaceOpen = true
+        changedPrivacy.update(next)
+        XCTAssertFalse(changedPrivacy.motion.committedOpen)
+        changedPrivacy.retire()
+    }
+
     #if DEBUG
     func testNativeHistoryQualificationNeverReactivatesExperimentalProductControls() {
         XCTAssertTrue(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: true))
