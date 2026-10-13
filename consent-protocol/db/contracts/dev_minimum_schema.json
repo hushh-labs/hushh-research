@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 332,
+  "expected_migration_version": 333,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1913,7 +1913,9 @@
       "updated_at",
       "composer_consent_at",
       "composer_consent_version",
-      "composer_consent_digest"
+      "composer_consent_digest",
+      "resolution_lease_until",
+      "resolution_attempts"
     ],
     "pkm_blobs": [
       "user_id",
@@ -2779,5 +2781,5 @@
       "duration_minutes"
     ]
   },
-  "expected_schema_head": 332
+  "expected_schema_head": 333
 }

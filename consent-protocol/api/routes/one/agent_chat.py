@@ -129,7 +129,8 @@ from hushh_mcp.one_adk.pending_email_draft import (
 )
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
-from hushh_mcp.one_adk.receipt_memory_turn import STATE_RECEIPT_MEMORY, admit_receipt_memory
+from hushh_mcp.one_adk.receipt_memory_turn import STATE_RECEIPT_MEMORY
+from hushh_mcp.one_adk.receipt_turn_admission import admit_receipt_continuation, admit_receipt_tool
 from hushh_mcp.one_adk.request_secrets import (
     consume_request_secret,
     resolve_request_secret,
@@ -312,6 +313,10 @@ def _selected_share_authorized(input_data: RunAgentInput) -> bool:
 async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
     if any(message.role == "system" for message in input_data.messages):
         raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
+    from hushh_mcp.one_adk.receipt_client_tools import (
+        STATE_RECEIPT_RESULT,
+    )
+
     authorization = request.headers.get("authorization")
     consent_header = request.headers.get("x-hushh-consent")
     token: dict[str, Any] | None = None
@@ -352,6 +357,13 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # Client-provided tools are frontend execution requests, never new
     # authority. Every tool must already exist in the generated Action Gateway.
     for tool in input_data.tools:
+        try:
+            if admit_receipt_tool(tool):
+                continue
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Receipt tool contract is invalid."
+            ) from None
         action_id = action_id_from_tool_name(tool.name)
         if not action_id or get_action_gateway_action(action_id) is None:
             raise HTTPException(
@@ -448,6 +460,21 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     feed_attention = await _admit_feed_attention(
         forwarded, input_data=input_data, owner_id=user_id if token else ""
     )
+    try:
+        receipt_result = await admit_receipt_continuation(
+            forwarded,
+            owner_id=user_id if token else "",
+            conversation_id=input_data.thread_id,
+            messages=input_data.messages,
+            execution_head=_one_head,
+            load_session=lambda: _shared_sessions().get_session(
+                app_name=ONE_APP_NAME, user_id=user_id, session_id=input_data.thread_id
+            ),
+        )
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=403, detail="Receipt continuation is unavailable. Ask again."
+        ) from None
     # The device sends a coarse position only when the person already granted
     # location; pre-vault turns never keep it.
     turn_location = admit_turn_location(forwarded)
@@ -456,7 +483,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     pending_email_draft = admit_pending_email_draft(forwarded)
     # The owner's saved receipt index, decrypted on their device for this turn.
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
-    receipt_memory = admit_receipt_memory(forwarded)
+    # Old clients may send it; never admit detailed PKM rows into a new turn.
+    forwarded.pop("receiptMemory", None)
+    receipt_memory = ""
     # The owner's Settings style choices, sent apart from the memory packet.
     # Closed schema: anything outside it refuses the turn instead of clipping.
     try:
@@ -514,6 +543,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
         STATE_RECEIPT_MEMORY: receipt_memory,
+        STATE_RECEIPT_RESULT: receipt_result,
     }
 
 

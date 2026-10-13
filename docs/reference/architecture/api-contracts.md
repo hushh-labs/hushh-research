@@ -2056,6 +2056,12 @@ opaque thought signatures and function-call associations stay server-side.
 The client rejects legacy reasoning events before SDK message storage and uses
 deterministic activity/status text instead of a reasoning detail view.
 
+Shared and private-pod AG-UI routes admit the same closed receipt-tool
+declarations. A receipt continuation must match the authenticated owner,
+conversation and pending call in that owner's encrypted session. Client state
+and caller-selected schemas cannot grant receipt authority; invalid pod
+continuations fail with `POD_CHAT_RECEIPT_NOT_ADMITTED` before agent construction.
+
 #### One Voice
 
 `consent-protocol/api/routes/one/voice.py` owns One Live Voice (Gemini Live on

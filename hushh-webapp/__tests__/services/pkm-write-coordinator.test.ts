@@ -485,6 +485,33 @@ describe("PkmWriteCoordinator", () => {
   });
 
   describe("conflict retry", () => {
+    it("serializes competing writes and rebuilds against the latest revision after a remote conflict", async () => {
+      stubNoUpgradeNeeded();
+      let revision = 1;
+      let writes = 0;
+      let active = 0;
+      let peak = 0;
+      prepareDomainWriteContextMock.mockImplementation(async () => ({
+        baseFullBlob: {}, domainData: { remoteRevision: revision }, expectedDataVersion: revision,
+        encryptedDomain: { dataVersion: revision }, manifest: null, snapshot: null,
+      }));
+      pkmStoreMergedDomainWithPreparedBlobMock.mockImplementation(async () => {
+        active++; peak = Math.max(peak, active);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        active--; writes++; revision++;
+        return writes === 1 ? { success: false, conflict: true, fullBlob: {} } : { success: true, fullBlob: {}, dataVersion: revision };
+      });
+      const seen: number[] = [];
+      const save = () => PkmWriteCoordinator.saveMergedDomain({ ...BASE_PARAMS, build: context => {
+        seen.push(context.currentDomainData.remoteRevision as number);
+        return { domainData: { ...context.currentDomainData, fact: "current" }, summary: {} };
+      } });
+      const results = await Promise.all([save(), save()]);
+      expect(results.every(result => result.success)).toBe(true);
+      expect(peak).toBe(1);
+      expect(seen).toEqual([1, 2, 3]);
+    });
+
     it("retries on version conflict and succeeds on second attempt", async () => {
       stubNoUpgradeNeeded();
       stubWriteContext();

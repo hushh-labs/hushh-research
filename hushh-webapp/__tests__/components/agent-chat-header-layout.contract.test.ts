@@ -107,11 +107,8 @@ describe("agent chat header layout", () => {
 
   it("uses the larger One profile avatar with the canonical mark", () => {
     const header = headerBlock();
-    expect(header).toContain("<HushhMark");
-    expect(header).toContain(
-      'className="size-[72px] items-center justify-center overflow-visible"',
-    );
-    expect(header).toContain('imageClassName="!size-16"');
+    expect(header).toContain("<OnePresenceAvatar");
+    expect(header).toContain("!size-11 md:!size-[72px]");
     expect(header).not.toContain("🤫");
   });
 });

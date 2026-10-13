@@ -58,37 +58,119 @@ is not reformatted.
 
 ## Receipt Radar memory
 
-After an owner-started Radar scan finishes, the headless receipt saver computes
-a bounded factual aggregate snapshot from the same canonical live rows the
-receipt list renders: top merchant/category counts, month/sample coverage, and
-currency-separated recorded paid/delivered totals supported by multiple rows.
-Totals are observations, not bank spending; invoices, trials, refunds,
-cancellations, missing amounts and single-row currency buckets are not counted
-as paid totals. Partial scans remain explicitly sample-qualified.
+Mail owns detailed canonical receipts; PKM and Soul.md contain only lightweight
+durable summaries. Neither store receives email bodies, subjects, senders,
+source passages, PDFs, URLs, provider message IDs or tokens.
 
-The existing memory agents select durable statements from these aggregate
-sentences. They receive no email text, source/message IDs, order/invoice/PNR
-numbers, transaction rows or individual transaction dates/details. No host
-infers merchant preferences or recurring cadence. Incomplete or degraded
-assessment leaves the last accepted summary intact.
+### Mail receipt snapshot
 
-Selected statements update Soul.md in RAM and use its existing background
-encrypted FIFO/checkpoint/CAS queue. Private `_source_summaries` envelope
-metadata tracks the exact generated bullets by a hashed account key and scan
-timestamp; it is excluded from the file, prompts, summaries and shareable paths.
-Later scans replace unchanged generated bullets rather than appending old
-versions. Unrelated facts and owner corrections/deletions survive. Older
-timestamps cannot replace newer accepted snapshots; cross-device clock skew
-remains a limit until Radar supplies an authoritative scan generation.
-Owner, account, key and token transitions cancel obsolete assessment/retry jobs;
-validated token renewal retries unfinished assessment instead of consuming it.
+`mail_receipt_snapshot.v1` uses the existing vault AES-GCM encryption and
+IndexedDB secure-resource database's durable store. Its resource key is
+`mail_receipts.v1:<hashed account binding>`. Encryption AAD binds the owner,
+resource key, Reset generation and monotonically increasing revision. Writes
+compare generation/revision atomically and verify decrypted read-back before
+memory migration. The closed snapshot is limited to 2 MiB UTF-8, 10,000
+canonical groups and 300 normalized events per group; excess or invalid
+information fails without replacing the prior saved snapshot.
 
-The legacy hidden artifact preview/save pipeline is no longer mounted, and new
-scans never write `shopping.receipts_memory` or `_canonical_index`. Existing
-encrypted records and compatibility readers remain untouched. Individual
-receipts stay in Radar's owner/vault-gated live list; One answers high-level
-trend questions from Soul.md, never treats a trend summary as an individual
-receipt lookup, and retains Finance as the authority for bank spending totals.
+Rows preserve the existing canonical grouping decision and its UI projection:
+merchant, category, decimal amount/currency, status, transaction date, typed
+identifiers, recurrence/attention state, reviewed brand enum, confidence and
+normalized lifecycle events. Coverage and freshness describe the saved scan.
+Current `short_detail` contains source prose, so it is excluded. The optional
+sealed `grs1_` action locator is opaque, conveys no access authority and is bound
+to owner, Mail account and connection generation. It is resolved only during
+an explicit owner-authorized detail read.
+
+The existing Receipts list renders the same DTO/projection, filters and
+pagination after an owner reauthenticates and unlocks following reload. Saved
+canonical rows remain visible offline or disconnected. Email evidence and
+original/payment/invoice actions require a live authorized read when opened;
+unavailable reads show a reconnect/sync message. No provider read occurs merely
+to restore a saved list. The retired `kai_gmail_receipts` write path is unused.
+
+Retention is the latest revision per owner/account until confirmed Reset,
+account deletion or browser-storage removal. Sign-out, disconnect and vault
+lock clear session information but retain ciphertext. Reset/delete atomically
+remove device snapshots, legacy archives and pending encrypted jobs, advance
+the owner's generation and notify same-origin tabs. Existing account erasure
+removes lightweight cloud memory. Late scans, assessments and retries cannot
+adopt a newer generation or overwrite a newer snapshot revision. Other devices
+must process their own erasure/cleanup; this local store is not a cloud backup.
+Storage loss or a new device requires an authorized rescan. Failed persistence
+leaves the visible session rows and the prior durable snapshot intact.
+
+### Lightweight PKM and migration
+
+`shopping.receipts_memory` has a strict 16 KiB UTF-8 JSON budget:
+
+```ts
+{
+  schema_version: 2,
+  readable_summary: { text, highlights, updated_at, source_label: "Mail receipts" },
+  observed_facts: { merchant_affinity, category_affinity, purchase_patterns },
+  inferred_preferences: { preference_signals },
+  confidence,
+  coverage: { canonical_count, partial, truncated },
+  provenance: { source_kind: "mail_receipt_snapshot", updated_at }
+}
+```
+
+Affinities contain bounded labels and purchase counts; patterns contain verified
+recurring counts. Receipts do not establish durable preferences by themselves.
+No individual amounts, transaction dates, identifiers, rows or product lines
+are saved in PKM. Assessment selects approved aggregate sentences for Soul.md;
+it cannot rewrite them into transaction details. Receipt-owned generated bullets
+use source replacement, preserving unrelated facts and owner corrections.
+Empty completed scans replace old owned summaries. Incomplete assessment keeps
+the last accepted summary; current-turn detail never becomes a memory candidate.
+
+On the next authorized update, allowed facts from the old `_canonical_index`
+and legacy `recent_highlights` are projected into a separate encrypted
+`mail_receipts_legacy.v1` archive and read-back verified before branch replacement.
+Excluded source prose is dropped. Invalid permitted facts or failed read-back
+stop replacement. The archive has incomplete account/payment provenance and is
+kept for recovery, excluded from the current UI and analytical source. Historical
+encrypted PKM revisions are not erased by this migration. Routine Chat reads
+project legacy affinities through an allowlist immediately; they never traverse
+the old index, detailed highlights or free-form receipt summaries. Unrelated
+shopping memory remains intact.
+
+### On-demand receipt functions
+
+The existing governed native client-tool continuation exposes
+`list_recent_receipts`, `receipt_spending`, `highest_receipt_spend` and
+`most_frequently_purchased_products`. Requests require `from_date` and `to_date`
+(`YYYY-MM-DD`, end exclusive), the current owner timezone and an optional
+`limit` (default 10, maximum 25). Spending/ranking additionally requires
+`group_by: merchant | category | product`. Owner, unlocked vault session,
+conversation, issued call ID, request digest and short-lived result admission
+are checked before analysis/continuation. Analysis uses one saved account
+snapshot; without an account selection it uses the owner's freshest snapshot,
+never merges accounts or falls back to inbox keyword search.
+
+Results include requested range/timezone, source freshness, snapshot revision,
+canonical/matched/included counts, coverage, truncation, dedupe policy,
+refund/cancellation handling and limitations. Lists return bounded normalized
+records; group results return decimal-string paid amounts and ranks separately
+per currency, plus exact `currency_totals` covering every included transaction
+even when the ranking is truncated. Chat never adds group rows. They use integer
+decimal minor units, never floating-point sums.
+Unpaid, failed, cancelled, trial, suspended and due records are excluded;
+delivery alone is not paid evidence. Refund events are reported separately.
+Current evidence does not verify refund amounts/allocation, so refund amounts
+and net with observed refunds remain unknown. Products always return
+`unsupported: product_data_unavailable` until structured line/quantity evidence
+exists. A function result is at most 64 KiB; group limits apply per currency.
+Unavailable results keep the requested range/timezone and policy/limitations,
+with unknown freshness, counts and coverage explicitly null.
+
+Only the authorized continuation's model request receives detailed results.
+Native tool messages, encrypted session history and restored answers contain
+value-free receipts. Receipt-result invocations cannot execute further tools.
+Private answers expire or disappear on a new turn, conversation/owner change,
+vault transition or Reset. One explains deterministic function output; it never
+computes totals from memory rows. Finance remains the bank-spending authority.
 
 ### PKM table map
 

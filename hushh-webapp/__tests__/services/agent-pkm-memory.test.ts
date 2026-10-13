@@ -1047,7 +1047,7 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).not.toContain("must-not-reach-agent-context");
   });
 
-  it("keeps the saved receipt index out of One's packet and offers it only as typed turn data", async () => {
+  it("keeps legacy receipt rows and highlights out of routine Chat context", async () => {
     const transaction = {
       ref: `txn_${"a".repeat(24)}`,
       merchant: "Supabase",
@@ -1073,7 +1073,7 @@ describe("agent PKM memory helpers", () => {
     pkmGetMetadataMock.mockResolvedValue(shoppingMetadata);
     pkmBlob = {
       preferences: { writing: { default_style: "concise summaries" } },
-      shopping: { wishlists: { first: "noise-cancelling headphones" }, receipts_memory: { _canonical_index: index } },
+      shopping: { wishlists: { first: "noise-cancelling headphones" }, receipts_memory: { _canonical_index: index, readable_summary: { text: "RAW_SUBJECT USD 124.01" }, observed_facts: { recent_highlights: [{ amount: 124.01, transaction_date: "2026-10-04", subject: "RAW_SUBJECT" }], merchant_affinity: [{ merchant_label: "Amazon", receipt_count_365d: 5 }, { merchant_label: "Amazon paid USD 124.01 on 2026-10-04", receipt_count_365d: 1 }] } } },
     };
 
     const context = await loadLegacyPkmContext({
@@ -1084,10 +1084,10 @@ describe("agent PKM memory helpers", () => {
     });
     // The rest of the shopping domain still reaches One; the transaction index never does.
     expect(context.text).toContain("noise-cancelling headphones");
-    for (const leaked of ["Supabase", "ZSUQHV", "124.01", "txn_aaaa"]) {
+    for (const leaked of ["Supabase", "ZSUQHV", "124.01", "txn_aaaa", "RAW_SUBJECT", "2026-10-04"]) {
       expect(context.text).not.toContain(leaked);
     }
-    expect(peekReceiptMemoryIndex({ userId: "user_1" })).toEqual(index);
+    expect(peekReceiptMemoryIndex({ userId: "user_1" })).toBeNull();
     expect(peekReceiptMemoryIndex({ userId: "someone_else" })).toBeNull();
 
     // Negative control: an index carrying a field the reader's closed schema forbids is not offered.

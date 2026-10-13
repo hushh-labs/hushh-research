@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ history: vi.fn(), revoke: vi.fn(), profile: vi.fn(), subscribe: vi.fn(), current: true }));
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: mocks }));
 vi.mock("@/components/profile/settings-ui", () => ({
+  SettingsPresentationProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   SettingsGroup: ({ title, children }: { title: string; children: React.ReactNode }) => <section aria-label={title}>{children}</section>,
   SettingsRow: ({ title, description, trailing }: { title: string; description: React.ReactNode; trailing: React.ReactNode }) => <div>{title}{description}{trailing}</div>,
 }));

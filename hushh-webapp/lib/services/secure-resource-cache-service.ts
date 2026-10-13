@@ -13,72 +13,15 @@ interface SecureResourceCacheRecord {
   payload: Awaited<ReturnType<typeof encryptData>>;
 }
 
-const DB_NAME = "hushh-secure-resource-cache";
-const DB_VERSION = 2;
-const STORE_NAME = "resource_cache";
-
-/**
- * Added in DB_VERSION 2 for the local-first onboarding buffer.
- *
- * `local_device_keys` holds one NON-EXTRACTABLE AES-GCM `CryptoKey` per Firebase
- * UID. IndexedDB stores a `CryptoKey` natively, so only the handle is persisted —
- * the raw key material never becomes reachable from JavaScript and never leaves
- * the browser. `onboarding_buffer` holds the ciphertext written under that key.
- *
- * Both are keyed and indexed by `userId` exactly like `resource_cache`, so a
- * shared device with two accounts keeps two disjoint namespaces.
- */
-const LOCAL_KEY_STORE_NAME = "local_device_keys";
-const BUFFER_STORE_NAME = "onboarding_buffer";
+import { BUFFER_STORE_NAME, DURABLE_GENERATION_STORE, LOCAL_KEY_STORE_NAME, STORE_NAME,
+  openSecureResourceDb } from "@/lib/services/secure-resource-database";
+export { DURABLE_GENERATION_STORE, DURABLE_RESOURCE_STORE, openSecureResourceDb } from "@/lib/services/secure-resource-database";
 
 function buildStorageKey(userId: string, resourceKey: string): string {
   return `${userId}:${resourceKey}`;
 }
 
-async function openDb(): Promise<IDBDatabase | null> {
-  if (typeof window === "undefined" || typeof window.indexedDB === "undefined") {
-    return null;
-  }
-
-  return await new Promise((resolve, reject) => {
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: "key" });
-        store.createIndex("userId", "userId", { unique: false });
-      }
-      if (!db.objectStoreNames.contains(LOCAL_KEY_STORE_NAME)) {
-        db.createObjectStore(LOCAL_KEY_STORE_NAME, { keyPath: "userId" });
-      }
-      if (!db.objectStoreNames.contains(BUFFER_STORE_NAME)) {
-        const buffer = db.createObjectStore(BUFFER_STORE_NAME, { keyPath: "key" });
-        buffer.createIndex("userId", "userId", { unique: false });
-      }
-    };
-
-    // A version bump only proceeds once every older connection closes, and the
-    // connections handed out here are long-lived. Without both handlers the
-    // v1 -> v2 upgrade blocks and this promise never settles: `onversionchange`
-    // makes each live connection yield, `onblocked` turns the residual case into
-    // an observable error instead of a hang.
-    request.onblocked = () =>
-      reject(
-        new Error(
-          "Secure resource cache is open in another tab. Reload to continue.",
-        ),
-      );
-
-    request.onsuccess = () => {
-      const db = request.result;
-      db.onversionchange = () => db.close();
-      resolve(db);
-    };
-    request.onerror = () =>
-      reject(request.error ?? new Error("Failed to open secure resource cache"));
-  });
-}
+const openDb = openSecureResourceDb;
 
 function readRecord<T>(
   database: IDBDatabase,
@@ -118,13 +61,17 @@ function writeRecord<T>(
   database: IDBDatabase,
   value: T,
   storeName: string = STORE_NAME,
+  generation?: { userId: string; expected: number },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(storeName, "readwrite");
+    const transaction = database.transaction(generation ? [storeName, DURABLE_GENERATION_STORE] : storeName, "readwrite");
     const store = transaction.objectStore(storeName);
-    store.put(value);
+    if (generation) {
+      const request = transaction.objectStore(DURABLE_GENERATION_STORE).get(generation.userId);
+      request.onsuccess = () => { if ((request.result ?? 0) !== generation.expected) transaction.abort(); else store.put(value); };
+    } else store.put(value);
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
+    transaction.onerror = transaction.onabort = () =>
       reject(transaction.error ?? new Error("Failed to write secure cache record"));
   });
 }
@@ -268,6 +215,7 @@ export class SecureResourceCacheService {
     value: T;
     ttlMs: number;
     vaultKey: string;
+    ownerGeneration?: number;
   }): Promise<void> {
     const database = await openDb();
     if (!database) {
@@ -283,7 +231,7 @@ export class SecureResourceCacheService {
       cachedAt: new Date().toISOString(),
       ttlMs: params.ttlMs,
       payload,
-    });
+    }, STORE_NAME, params.ownerGeneration === undefined ? undefined : { userId: params.userId, expected: params.ownerGeneration });
   }
 
   static async invalidateResource(userId: string, resourceKey: string): Promise<void> {

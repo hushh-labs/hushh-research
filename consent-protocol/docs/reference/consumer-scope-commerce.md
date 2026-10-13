@@ -28,6 +28,34 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Main integration verification — 2026-10-13 UTC
 
+The continuation incorporates main `f34f995d16d2` through a normal merge on the
+existing infrastructure branch. Its answer-resolution lease remains migration
+326; this lane's registrations move from 326–332 to 327–333 with identical
+forward and rollback SQL. The target-bound Dev readback at
+`2026-10-13T06:51:06.907108+00:00` found no accepted canonical 326–333 receipts or
+baseline. The original preservation receipt remains unchanged; a separate
+relocation receipt records the verified mapping. Generated release contracts
+use head 333. Release-time receipt checks remain authoritative.
+
+The browser database upgrades either shipped version-2 layout to version 3,
+retaining ciphertext, onboarding stores and durable-resource generation fences.
+Its single database-opening owner preserves blocked-upgrade and version-change
+closure; the existing cache API remains compatible. Private-pod chat uses the
+same closed receipt-tool admission as shared chat, with owner/conversation-bound
+encrypted continuation checks before agent construction. These are source and
+focused regression findings, not deployed reviewer acceptance. Funding and
+capital are not repeated; purchases, payouts and One's authenticated Stripe
+reads still require runtime evidence.
+
+Focused checks pass 29 encrypted-cache cases, 17 private-pod route cases,
+98 chat-client cases and 170 affected receipt/native cases. Removing either
+owner or conversation identity guard fails the valid-continuation regression;
+retaining version 2 fails both cache-upgrade controls. Independent review
+qualifies 48 inherited main/composed architecture occurrences, preserving the
+unchanged detector, budgets, duplicate occurrences and unrelated measurements.
+The database and admission leaves introduce no new size finding. Full core,
+hosted CI and exact-candidate Dev verification remain required.
+
 Normal integration of main `1d691714135e` retains the existing infrastructure
 branch, prepared-answer settlement ownership and timed scope-access authority.
 The combined interface continues to use one Payments and earnings destination;
@@ -279,7 +307,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/327_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/328_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -624,7 +652,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/327_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/328_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 

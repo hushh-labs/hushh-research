@@ -1716,7 +1716,7 @@ function ProfilePageContent({
             settlement.committed = true;
 
             CacheSyncService.onAccountDeleted(user.uid);
-            await UserLocalStateService.clearForUser(user.uid);
+            await UserLocalStateService.clearForUser(user.uid, { deleteDurableReceipts: true });
             await refreshPersonaState({ force: true });
 
             // Reset returns the account to a fresh, just-onboarded state: keep

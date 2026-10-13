@@ -222,7 +222,7 @@ import {
   shareReplacementsLosingTime,
 } from "@/lib/one-location/share-replacement";
 import { parseTimestamp } from "@/lib/one-location/share-countdown";
-import { summarizeShareEndTimes } from "@/lib/one-location/grant-lanes";
+import { summarizeShareAudience, summarizeShareEndTimes } from "@/lib/one-location/grant-lanes";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import {
@@ -3495,15 +3495,25 @@ export function OneLocationAgentPageContent({
     );
   }, [activeOwnerGrants, auth.userId, commitLiveShareEntries, state]);
 
+  // One presentation snapshot for the banner and Manage sharing. Expired grants
+  // disappear from both even before the next server refresh acknowledges expiry.
+  const liveShareDisplayEntries = useMemo(
+    () => state
+      ? reconcileLiveShareEntries(liveShareEntries, activeOwnerGrants, nowMs)
+      : pruneLiveShareEntries(liveShareEntries, nowMs),
+    [activeOwnerGrants, liveShareEntries, nowMs, state],
+  );
+  const liveOwnerGrantsForDisplay = useMemo(() => {
+    const liveGrantIds = new Set(liveShareDisplayEntries.map((entry) => entry.grantId));
+    return activeOwnerGrants.filter((grant) => liveGrantIds.has(grant.id));
+  }, [activeOwnerGrants, liveShareDisplayEntries]);
+
   const liveShareStatus = useMemo<LiveShareStatus | null>(() => {
-    const shareWindow = summarizeLiveShareEntries(liveShareEntries);
+    // Older persisted entries cannot authoritatively distinguish SMS sharing.
+    const effectiveEntries = liveShareDisplayEntries;
+    const shareWindow = summarizeLiveShareEntries(effectiveEntries);
     if (!shareWindow) return null;
-    const liveGrantIds = new Set(
-      liveShareEntries.map((entry) => entry.grantId),
-    );
-    const activeLiveGrants = activeOwnerGrants.filter((grant) =>
-      liveGrantIds.has(grant.id),
-    );
+    const activeLiveGrants = liveOwnerGrantsForDisplay;
     const people = Array.from(
       new Map(
         activeLiveGrants.map((grant) => [
@@ -3519,7 +3529,8 @@ export function OneLocationAgentPageContent({
       activeLiveGrants.length === 1 ? activeLiveGrants[0] : null;
     return {
       count: shareWindow.count,
-      grantCount: activeLiveGrants.length || liveShareEntries.length,
+      grantCount: effectiveEntries.length,
+      audience: state ? summarizeShareAudience(activeLiveGrants) : null,
       // Names come from the server state only. The device record stays
       // coordinate- and identity-free, so a cold start shows "2 people" rather
       // than inventing who they are.
@@ -3535,9 +3546,9 @@ export function OneLocationAgentPageContent({
       endsAt: shareWindow.endsAt,
       timeSummary: summarizeShareEndTimes(activeLiveGrants),
       singleGrantIsSms: singleGrant ? isSmsTriggeredGrant(singleGrant) : false,
-      stoppableGrantId: resolveStoppableGrantId(liveShareEntries),
+      stoppableGrantId: resolveStoppableGrantId(effectiveEntries),
     };
-  }, [activeOwnerGrants, liveShareEntries]);
+  }, [liveOwnerGrantsForDisplay, liveShareDisplayEntries, state]);
 
   const locationEnabled = deriveLocationEnabled(
     locationControl,
@@ -4323,8 +4334,10 @@ export function OneLocationAgentPageContent({
   // trip instead of sitting at 00:00.
   const handleLiveShareEnded = useCallback(() => {
     const userId = auth.userId;
+    const endedNow = Date.now();
+    setNowMs(endedNow);
     commitLiveShareEntries(
-      pruneLiveShareEntries(liveShareEntriesRef.current, Date.now()),
+      pruneLiveShareEntries(liveShareEntriesRef.current, endedNow),
     );
     if (!userId) return;
     OneLocationStateResource.invalidate(userId);
@@ -14259,6 +14272,7 @@ export function OneLocationAgentPageContent({
       loadRecipientPage({ page: recipientPage + 1, append: true }),
     visibleShareRecipients,
     activeOwnerGrants,
+    manageSharingGrants: liveOwnerGrantsForDisplay,
     liveShare: liveShareStatus,
     onLiveShareEnded: handleLiveShareEnded,
     // Received grants stay reachable in their focused detail view. Dismissing

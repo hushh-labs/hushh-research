@@ -49,6 +49,8 @@ export function watchMemoryFreshness(userId: string): () => void {
       users: 0,
       stop: subscribeToPkmDomainChanges((detail) => {
         if (detail.userId !== userId) return;
+        // Derived projection writes cannot invalidate their authoritative sources.
+        if (detail.domain === "one_living_sources" && detail.operation === "stored") return;
         changes.set(userId, (changes.get(userId) ?? 0) + 1);
       }),
     };
@@ -217,7 +219,7 @@ export async function refreshMemoryDocument(
           // A concurrent source-sync changes the inventory. Retry from its
           // fresh read instead of saving a document over a changed source.
           if (JSON.stringify(privateData.inventory) !== JSON.stringify(livingPrivate.inventory)) throw new Error("Memory inventory changed");
-          return { domainData: { ...current, _private: { ...privateData, memory_document: {
+          return { unchanged: (privateData.memory_document as { signature?: string } | undefined)?.signature === sourceSignature, domainData: { ...current, _private: { ...privateData, memory_document: {
             ...((privateData.memory_document ?? {}) as Record<string, unknown>),
             schemaVersion: "source_linked_memory.v1", name: "memory.md", signature: sourceSignature, document, builtAt,
           } } }, summary: { source_projection_complete: true } };

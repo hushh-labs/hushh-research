@@ -276,3 +276,13 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+it("unrelated projection writes do not invalidate a narrow current fact", async () => {
+  const answer = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME], ownerIdentity: { displayName: "Synthetic Ava" }, readOwnerIdentity: async () => ({ displayName: "Synthetic Ava" }) });
+  expect(answer.complete).toBe(true);
+  bumpPkmInvalidationEpoch(USER, "one_living_sources");
+  bumpPkmInvalidationEpoch(USER, "financial");
+  await expect(answer.assertCurrent()).resolves.toBeUndefined();
+  bumpPkmInvalidationEpoch(USER, "identity");
+  await expect(answer.assertCurrent()).rejects.toThrow();
+});

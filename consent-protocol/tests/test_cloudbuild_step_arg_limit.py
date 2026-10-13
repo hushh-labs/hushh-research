@@ -327,3 +327,110 @@ def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
     assert GitIgnoreSpec.from_lines([*rules, "*.sh"]).match_file(
         "scripts/deploy/pod-release-env.sh"
     ), "The regression control must detect an excluded release reader"
+
+
+@pytest.mark.parametrize("deploy_env,custom", [("dev", True), ("uat", True), ("dev", False)])
+def test_configured_counterpart_secret_references_survive_deploy_extraction(deploy_env, custom):
+    config = _load("deploy/backend.cloudbuild.yaml")
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    packed = next(e for e in step["env"] if e.startswith("_REVIEWER_SECRET_SETTINGS="))
+    values = {**config["substitutions"]}
+    if custom:
+        values.update(
+            {
+                "_REVIEWER_COUNTERPART_UID_SECRET": "OWNER_COUNTERPART_UID",
+                "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET": "OWNER_COUNTERPART_PHRASE",
+            }
+        )
+    rendered = _SUBSTITUTION.sub(lambda m: values[m[1]], packed).split("=", 1)[1]
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    start = script.index("IFS='|' read -r _REVIEWER_UID_SECRET")
+    parser = script[start : script.index("# The Cloud Run capacity knobs", start)]
+    start = script.index('append_optional_secret "${_REVIEWER_UID_SECRET}"')
+    bindings = script[start : script.index('append_optional_secret "${_RIA_INTELLIGENCE', start)]
+    result = subprocess.run(  # noqa: S603 - fixed parser and mount projection, no cloud calls
+        [
+            "bash",
+            "-c",
+            'set -eu\nappend_optional_secret() { [ -z "$1" ] || printf \'%s=%s\\n\' "$2" "$1"; }\n'
+            + parser
+            + bindings,
+        ],
+        env={
+            **os.environ,
+            "_REVIEWER_SECRET_SETTINGS": rendered,
+            "_DEPLOY_ENV": deploy_env,
+            "commerce_preview_prefix": "",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    expected = (
+        {
+            "REVIEWER_COUNTERPART_UID=OWNER_COUNTERPART_UID",
+            "REVIEWER_COUNTERPART_VAULT_PASSPHRASE=OWNER_COUNTERPART_PHRASE",
+        }
+        if custom
+        else {
+            "REVIEWER_COUNTERPART_UID=REVIEWER_COUNTERPART_UID",
+            "REVIEWER_COUNTERPART_VAULT_PASSPHRASE=REVIEWER_COUNTERPART_VAULT_PASSPHRASE",
+        }
+    )
+    assert expected <= set(result.stdout.splitlines())
+
+
+def test_flag_off_payment_helper_keeps_default_and_isolated_provider_mounts() -> None:
+    names = (
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+        "STRIPE_CONNECT_WEBHOOK_SECRET",
+        "SCOPE_COMMERCE_STRIPE_SECRET_KEY",
+        "SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
+        "SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
+        "STRIPE_CONNECT_SECRET_KEY",
+        "STRIPE_CONNECT_TEST_WEBHOOK_SECRET",
+        "PKM_ANSWER_STRIPE_SECRET_KEY",
+        "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
+        "PKM_ANSWER_STRIPE_TEST_SECRET_KEY",
+        "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
+        "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY",
+        "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET",
+    )
+    for prefix in ("", "SCOPE_COMMERCE_SANDBOX_"):
+        section = (
+            (REPO_ROOT / "scripts/deploy/backend-deploy.sh")
+            .read_text()
+            .split("# Disabling new paid requests", 1)[1]
+            .split('append_optional_secret "${_OPENAI_API_KEY_SECRET}"', 1)[0]
+        )
+        section = section.replace(
+            'source "$(dirname "${BASH_SOURCE[0]}")/scope-commerce-secrets.sh"',
+            "source scripts/deploy/scope-commerce-secrets.sh",
+        )
+        script = (
+            'append_optional_secret() { printf \'%s=%s%s\\n\' "$2" "$PREFIX" "$1"; }\n'
+            + "# Disabling new paid requests"
+            + section
+        )
+        result = subprocess.run(  # noqa: S603 - repository helper with a binding recorder
+            ["bash", "-eu", "-c", script],
+            cwd=REPO_ROOT,
+            env={
+                **os.environ,
+                "PREFIX": prefix,
+                "_DRIVE_REQUEST_PAYMENTS_ENABLED": "false",
+                "_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED": "false",
+                "SCOPE_COMMERCE_ENABLED": "false",
+                **{
+                    f"_{name}_SECRET": name
+                    for name in names
+                    if not name.startswith("SCOPE_COMMERCE_")
+                },
+            },
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        assert result.stdout.splitlines() == [f"{name}={prefix}{name}" for name in names]

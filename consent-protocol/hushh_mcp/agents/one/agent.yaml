@@ -41,6 +41,10 @@ system_instruction: |
   - What One remembers about you, what you have made available, section prices, recorded earnings, costs, refunds, or payments for access: the Memory Agent. Use ask_memory_agent for current recorded commercial facts through its owner-bound read tools.
   - Consent decisions, sharing authority, and information requests: you, directly, with the tools in the next section. Do not hand consent questions to a specialist; financial status uses Memory's read-only commerce tools.
 
+  # Emailing the owner's own information
+
+  "Share my saved academic details to student@example.com": open_gmail_email_draft, never an information request. Use requested Soul.md facts; missing facts stay unknown. Prefill known fields. A supplied email needs no connection or person lookup. For a named circle member, call list_my_connections first; put the unambiguous active connection's actual email in the next editable draft. Never use masked emails. Duplicate names or missing email need clarification, not guesses or access requests. Confirm only through the normal Send email tap.
+
   # Consent and sharing: which tool answers which question
 
   Cancellation priority: for "cancel that request I just sent", "cancel the request I just sent", or "withdraw that", call run_app_action("consent.cancel_request", {}) directly. The server rechecks the newest open information request. List only for another named request or a comparison. This exact rule overrides the general action-discovery rule.
@@ -145,7 +149,7 @@ system_instruction: |
 
   - Use it. When CONSENTED TURN INFORMATION holds the answer, answer from it; never ask for what it already says. Describe their private details only from that authorized information.
   - Personal recall (college, year, branch, minor, roll number, preferences) uses supplied Soul.md, not Drive. Missing details are unknown; never connect Google or search Drive/Mail unless that source is requested.
-  - High-level receipt or purchase trends use Soul.md's Receipt Radar observations, not the Email receipt-list tool. Keep sample/date limits and currencies distinct: recorded amounts are not total spending, frequency is not preference. If no summary exists, say so. Individual receipts, invoices, orders and fresh scans belong in Radar; never invent them from trends.
+  - Shopping habits use lightweight memory; frequency is not preference. Receipt details use dedicated functions with owner timezone/exclusive end. Cite totals by currency, coverage, freshness and refund limits. Results are turn-only; missing snapshots require sync, never inbox search, memory arithmetic or the Email agent.
   - Save when asked to save, remember, or keep something: call add_to_pkm once. For a pasted document or long passage, set whole_message=true with a one-line summary; the device receives the entire original turn. Never summarize away sections or call per heading. For one detail, pass that detail.
   - add_to_pkm hands the request to the owner's device for reconciliation and encryption; it does not prove persistence. The durable save job and owner review control completion. Never invent a successful save, queue admission or confirmation.
   - Evolve, never duplicate: a newer statement updates the older one, which stays in their history, and a known detail is never stored twice. Keep past, current, planned, and uncertain as stated, and facts about organizations, projects, or other people attributed to them.
@@ -580,6 +584,22 @@ tools:
     description: Delegate one explicit owner-authorized browser task to the qualified native private-pod specialist; return task metadata only, with private model/screen and website reviews handled in the owner UI.
     py_func: hushh_mcp.one_adk.computer_use_agent.start_browser_task
     required_scope: browser.invoke
+  - name: list_recent_receipts
+    description: Owner-authorized device canonical receipt list; current turn only.
+    py_func: hushh_mcp.one_adk.receipt_client_tools.list_recent_receipts
+    required_scope: vault.owner
+  - name: receipt_spending
+    description: Deterministic canonical receipt spend by merchant, category or product; currencies separate.
+    py_func: hushh_mcp.one_adk.receipt_client_tools.receipt_spending
+    required_scope: vault.owner
+  - name: highest_receipt_spend
+    description: Deterministic canonical receipt ranking within each currency.
+    py_func: hushh_mcp.one_adk.receipt_client_tools.highest_receipt_spend
+    required_scope: vault.owner
+  - name: most_frequently_purchased_products
+    description: Product analysis unavailable until structured product evidence exists.
+    py_func: hushh_mcp.one_adk.receipt_client_tools.most_frequently_purchased_products
+    required_scope: vault.owner
   - name: inspect_private_connectors
     description: Check whether the authenticated owner can open private connector setup in Chat. Returns safe saved names and setup state, not credentials or callable authority.
     py_func: hushh_mcp.one_adk.registered_mcp_toolset.inspect_private_connectors

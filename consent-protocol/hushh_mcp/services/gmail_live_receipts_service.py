@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from email.utils import parseaddr, parsedate_to_datetime
 from typing import Any, Literal
 
 import httpx
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from hushh_mcp.agents.email.runtime import (
@@ -975,6 +977,42 @@ class GmailLiveReceiptsService:
         )
         return f"gmail_live_{encoded_id}.{digest}"
 
+    def _locator_aad(self, authority: _ReadAuthority) -> bytes:
+        return json.dumps(
+            [
+                "mail-receipt-locator.v1",
+                authority.user_id,
+                authority.account,
+                authority.connected_at,
+            ],
+            separators=(",", ":"),
+        ).encode()
+
+    def _sealed_locator(self, authority: _ReadAuthority, message_id: str) -> str:
+        # Routing information only: this never conveys access authority. The
+        # outer device snapshot is separately encrypted with the owner's key.
+        key = hashlib.sha256(b"mail-receipt-locator.v1\x00" + self._secret()).digest()
+        nonce = os.urandom(12)
+        sealed = AESGCM(key).encrypt(
+            nonce, message_id.encode("ascii"), self._locator_aad(authority)
+        )
+        return "grs1_" + base64.urlsafe_b64encode(nonce + sealed).decode().rstrip("=")
+
+    def _open_locator(self, authority: _ReadAuthority, locator: str) -> str | None:
+        if not re.fullmatch(r"grs1_[A-Za-z0-9_-]{40,310}", locator):
+            return None
+        try:
+            sealed = base64.urlsafe_b64decode(locator[5:] + "=" * (-len(locator[5:]) % 4))
+            key = hashlib.sha256(b"mail-receipt-locator.v1\x00" + self._secret()).digest()
+            message_id = (
+                AESGCM(key)
+                .decrypt(sealed[:12], sealed[12:], self._locator_aad(authority))
+                .decode("ascii")
+            )
+            return message_id if _PROVIDER_ID.fullmatch(message_id) else None
+        except Exception:
+            return None
+
     @staticmethod
     def _message_id_from_source(source_id: str) -> str | None:
         match = _SOURCE_ID.fullmatch(source_id)
@@ -1482,12 +1520,24 @@ class GmailLiveReceiptsService:
                     code="GMAIL_RECEIPT_EXTRACTION_INVALID",
                 )
             try:
-                return _validated_projection(
+                projection = _validated_projection(
                     message=message,
                     evidence=evidence,
                     model=model,
                     source_id=self._source_id(authority, str(message["id"])),
                 )
+                if projection is not None:
+                    projection["durable_source_ref"] = self._sealed_locator(
+                        authority, str(message["id"])
+                    )
+                    # Exact normalized decimal, not a float sum or inferred refund.
+                    selected_total = _selected(
+                        evidence["total_candidates"], model.get("amount_evidence_id")
+                    )
+                    projection["amount_decimal"] = (
+                        str(selected_total["amount"]) if selected_total else None
+                    )
+                return projection
             except GmailApiError as exc:
                 # Only fixed validator labels enter logs, never model/email fields.
                 field = {
@@ -1779,8 +1829,9 @@ class GmailLiveReceiptsService:
         consent_token: str,
         require_access: RequireAccess,
     ) -> dict[str, Any]:
-        gmail_message_id = self._message_id_from_source(source_id)
-        if not gmail_message_id:
+        sealed_locator = source_id.startswith("grs1_")
+        gmail_message_id = None if sealed_locator else self._message_id_from_source(source_id)
+        if not sealed_locator and not gmail_message_id:
             raise GmailApiError(
                 "The selected receipt is not available.",
                 status_code=404,
@@ -1789,7 +1840,14 @@ class GmailLiveReceiptsService:
         try:
             async with asyncio.timeout(_DEADLINE_SECONDS):
                 authority = await self._authority(user_id=user_id, require_access=require_access)
-                if not hmac.compare_digest(source_id, self._source_id(authority, gmail_message_id)):
+                if sealed_locator:
+                    gmail_message_id = self._open_locator(authority, source_id)
+                if not gmail_message_id or (
+                    not sealed_locator
+                    and not hmac.compare_digest(
+                        source_id, self._source_id(authority, gmail_message_id)
+                    )
+                ):
                     raise GmailApiError(
                         "The selected receipt is not available for this Gmail connection.",
                         status_code=404,
@@ -1814,7 +1872,7 @@ class GmailLiveReceiptsService:
                 if (
                     len(projected) != 1
                     or projected[0][0] is None
-                    or projected[0][0]["source_id"] != source_id
+                    or projected[0][0]["source_id"] != self._source_id(authority, gmail_message_id)
                 ):
                     raise GmailApiError(
                         "The selected message is not a verified receipt.",
@@ -1823,6 +1881,9 @@ class GmailLiveReceiptsService:
                     )
                 item, evidence, _reason = projected[0]
                 public_item = dict(item)
+                if sealed_locator:
+                    public_item["source_id"] = source_id
+                    public_item["receipt_key"] = source_id
                 source_evidence = public_item.pop("_source_evidence", [])
                 public_item["source_evidence"] = source_evidence
                 # The dedicated extractor selects a bounded, source-verified passage.

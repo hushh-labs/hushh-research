@@ -1535,7 +1535,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
               ? null
               : `Pay ${formatDocumentRequestPrice(amountCents)}`;
           const description = owner
-            ? state === "answering"
+            ? state === "approved" && !staged
+              ? "Retry answer preparation"
+              : state === "pending_resolution"
+                ? "Matching the question to your memory"
+                : state === "answering"
               ? "Write answer"
               : stagedEmpty
                 ? "Nothing of yours answers this question"
@@ -1543,7 +1547,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
             : stagedEmpty
               ? "Answer not found"
               : preparing
-                ? "Checking their memory for an answer"
+                ? entry.metadata?.preparation_overdue === true
+                  ? "Ask them to unlock memory and retry preparation"
+                  : "Their answer is being prepared"
                 : state === "approved"
                   ? // Approved and prepared: a price exists. Without the
                     // amount in this projection the row still reaches the card.

@@ -140,6 +140,9 @@ export interface GmailSyncQueueResponse {
 
 export interface ReceiptListItem {
   id: number;
+  /** Server-sealed routing locator. Never conveys authorization. */
+  durable_source_ref?: string;
+  amount_decimal?: string | null;
   /** Stable, account-bound identity used for backend detail selection. */
   source_id?: string;
   receipt_key?: string;
@@ -457,6 +460,8 @@ function isSourceEvidenceList(value: unknown): value is GmailReceiptSourceEviden
 
 function parseLiveReceiptItem(value: unknown): GmailLiveReceiptItem {
   if (!isRecord(value)) throw invalidLiveReceiptResponse();
+  if ((value.durable_source_ref != null && (typeof value.durable_source_ref !== "string" || !/^grs1_[A-Za-z0-9_-]{40,310}$/.test(value.durable_source_ref))) ||
+      (value.amount_decimal != null && (typeof value.amount_decimal !== "string" || !/^\d{1,12}(?:\.\d{1,2})?$/.test(value.amount_decimal)))) throw invalidLiveReceiptResponse();
   if (value.source_evidence != null && !isSourceEvidenceList(value.source_evidence)) {
     throw invalidLiveReceiptResponse();
   }

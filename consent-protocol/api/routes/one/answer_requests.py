@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import date, datetime
 from typing import Annotated, Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Response
 
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
 from api.models.hosted_payouts import OnboardBody
@@ -367,6 +368,8 @@ async def create_answer_request(
     response: Response,
     body: dict[str, Any] = Body(...),
     requester_user_id: str = Depends(require_firebase_auth),
+    *,
+    background_tasks: BackgroundTasks,
 ) -> dict[str, Any]:
     _require_requests_enabled()
     response.headers["Cache-Control"] = "private, no-store"
@@ -397,15 +400,34 @@ async def create_answer_request(
     # The public reference locates the person; the store separately locks and
     # checks the active connection before admitting the question.
     try:
-        return dict(
-            await _requests().create(
-                requester_user_id=requester_user_id,
-                owner_user_id=owner_user_id,
-                question=str(body.get("question") or ""),
-                period_start=body.get("periodStart"),
-                period_end=body.get("periodEnd"),
-            )
+        service = _requests()
+        result = await service.create(
+            requester_user_id=requester_user_id,
+            owner_user_id=owner_user_id,
+            question=str(body.get("question") or ""),
+            period_start=body.get("periodStart"),
+            period_end=body.get("periodEnd"),
         )
+        background_tasks.add_task(service.resolve_pending, request_id=result["requestId"])
+        return dict(result)
+    except Exception as error:
+        raise _http(error) from None
+
+
+@router.post("/{request_id}/resolve")
+async def retry_answer_resolution(
+    request_id: UUID,
+    background_tasks: BackgroundTasks,
+    response: Response,
+    owner_user_id: str = Depends(require_firebase_auth),
+) -> dict[str, bool]:
+    _require_requests_enabled()
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        service = _requests()
+        await service.retry_resolution(request_id=str(request_id), owner_user_id=owner_user_id)
+        background_tasks.add_task(service.resolve_pending, request_id=str(request_id))
+        return {"accepted": True}
     except Exception as error:
         raise _http(error) from None
 
@@ -598,6 +620,7 @@ async def compose_answer(
         )
     ):
         raise HTTPException(status_code=422, detail="Check the approved information.")
+    started = time.monotonic()
     try:
         await admit_hub_content(owner_user_id, "paid_answer_writer")
         written = await AnswerComposer().compose(
@@ -610,6 +633,12 @@ async def compose_answer(
         # A model failure remains queued on the device for retry; the deadline
         # worker refunds it if a written answer cannot be delivered.
         return {"answerMode": "projection", "answer": None}
+    finally:
+        logger.info(
+            "answer.lifecycle request=%s stage=gemini_compose duration_ms=%.2f",
+            request_id,
+            (time.monotonic() - started) * 1000,
+        )
     if written["gaps"]:
         # Gemini reports incomplete coverage. There is no payable answer or
         # receipt; preparation remains available for an explicit retry.

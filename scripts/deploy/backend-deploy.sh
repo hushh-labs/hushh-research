@@ -33,6 +33,12 @@ fi
 
 source scripts/deploy/commerce-preview-bindings.sh
 
+# Preserve both reviewers' configured secret references within the step env cap.
+IFS='|' read -r _REVIEWER_UID_SECRET _REVIEWER_VAULT_PASSPHRASE_SECRET _REVIEWER_COUNTERPART_UID_SECRET _REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET _reviewer_extra <<< "${_REVIEWER_SECRET_SETTINGS:?missing reviewer settings}"
+if [[ -n "${_reviewer_extra}" ]]; then
+  echo "Invalid reviewer settings." >&2; exit 1
+fi
+
 # The Cloud Run capacity knobs arrive packed in one env entry (Cloud Build caps a
 # step at 100 env entries; see deploy/backend.cloudbuild.yaml). Unpack them into
 # the _CLOUD_RUN_* names the rest of this script reads, and refuse a missing key
@@ -294,9 +300,11 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   # Temporary owner-bound reviewer phone transport. No UAT/production binding;
   # absent or expired configuration fails closed in the application.
   append_optional_secret HUSHH_DEV_REVIEWER_PHONE_TEST_CONFIG_JSON HUSHH_DEV_REVIEWER_PHONE_TEST_CONFIG_JSON
-  append_optional_secret REVIEWER_COUNTERPART_UID REVIEWER_COUNTERPART_UID
-  append_optional_secret REVIEWER_COUNTERPART_VAULT_PASSPHRASE REVIEWER_COUNTERPART_VAULT_PASSPHRASE
+  _REVIEWER_COUNTERPART_UID_SECRET="${_REVIEWER_COUNTERPART_UID_SECRET:-REVIEWER_COUNTERPART_UID}"
+  _REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET="${_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET:-REVIEWER_COUNTERPART_VAULT_PASSPHRASE}"
 fi
+append_optional_secret "${_REVIEWER_COUNTERPART_UID_SECRET}" "REVIEWER_COUNTERPART_UID"
+append_optional_secret "${_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET}" "REVIEWER_COUNTERPART_VAULT_PASSPHRASE"
 append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
 append_optional_secret "${_RIA_IDENTITY_BASE_URL_SECRET}" "RIA_IDENTITY_BASE_URL"
 append_optional_secret "${_RIA_IDENTITY_API_KEY_SECRET}" "RIA_IDENTITY_API_KEY"

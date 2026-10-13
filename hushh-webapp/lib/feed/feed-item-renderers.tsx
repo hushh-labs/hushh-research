@@ -798,7 +798,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         ],
         answer_request_payment_ready: [
           "Answer priced",
-          "They approved your question. Pay to have it answered.",
+          "They approved your question. Open it to check answer preparation.",
         ],
         answer_request_declined: [
           "Question declined",
@@ -817,7 +817,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         "Question",
         "",
       ];
-      const description = terminal
+      const description = item.event_type === "answer_request_payment_ready" && state === "staged"
+        ? "Their answer is prepared. Open the request to review the price and pay."
+        : terminal
         ? `Request ${state}. Open its current status.`
         : state === "answering"
           ? "Payment verified. Open the request to continue."

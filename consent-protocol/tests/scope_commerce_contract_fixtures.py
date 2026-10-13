@@ -202,7 +202,7 @@ async def seed_authorities(
             "009_consent_exports.sql",
             "035_strict_zero_knowledge_consent_exports.sql",
             "088_consent_export_envelope_v2.sql",
-            "327_consumer_scope_commerce.sql",
+            "328_consumer_scope_commerce.sql",
         ):
             await conn.execute((MIGRATIONS / migration).read_text())
         await service.bind_environment(
