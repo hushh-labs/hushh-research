@@ -37,6 +37,7 @@ import {
 } from "@/lib/pkm/pkm-save-job";
 import { isCommittedPkmSave, type AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
+import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
   AgentConsentContinuationContext,
@@ -2884,6 +2885,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   } | null>(null);
   const [appActionBusy, setAppActionBusy] = useState(false);
   const [pendingMcpReviews, setPendingMcpReviews] = useState<McpChatReview[]>([]);
+  const [browserTasksRefresh, setBrowserTasksRefresh] = useState(0);
   // runAgentTurn and enqueuePrompt close over a render's state; this keeps their
   // view of the review card current.
   const pendingMcpReviewsRef = useRef(pendingMcpReviews);
@@ -6527,6 +6529,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               offerQueuedPromptsToLiveTurn();
             }
           },
+          onBrowserTaskCreated: () => {
+            if (!streamAbortController.signal.aborted) setBrowserTasksRefresh((revision) => revision + 1);
+          },
           onQueuedInput: (notice) => {
             if (streamAbortController.signal.aborted) return;
             const settled = liveTurnQueueRef.current?.apply(notice);
@@ -9982,6 +9987,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 vaultOwnerToken={vaultOwnerToken ?? null}
                 enabled={hasChatAccess && !isPuppySurface}
               />
+
+              {hasChatAccess && !isPuppySurface && user?.uid ? (
+                <ComputerUseActiveTasks key={user.uid} ownerId={user.uid} refreshKey={browserTasksRefresh} route={pathname || "/"} />
+              ) : null}
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
                 <McpCallReviewCard

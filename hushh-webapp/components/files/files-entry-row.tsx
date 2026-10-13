@@ -34,6 +34,7 @@ import {
   type OrganizationJob,
 } from "@/lib/files/service";
 import type { FilesAction } from "./files-settings-panel";
+import { ScheduleFileDialog } from "@/components/scheduled-tasks/schedule-file-dialog";
 export type FileEdit = {
   entry?: FileEntry;
   operation: "rename" | "move" | "create";
@@ -82,6 +83,7 @@ export function FilesEntryRow({
     );
   }, [renaming, entry.id, entry.kind, entry.name]);
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [downloads, setDownloads] = useState<
     Record<string, DownloadCheckpoint>
   >({});
@@ -162,6 +164,7 @@ export function FilesEntryRow({
           false,
         ),
     });
+    actions.push({ id: "schedule", label: "Schedule organization…", onSelect: () => setScheduleOpen(true) });
   }
   actions.push({
     id: trash ? "restore" : "trash",
@@ -328,6 +331,7 @@ export function FilesEntryRow({
           }
         />
       )}
+      {scheduleOpen && <ScheduleFileDialog file={entry} open={scheduleOpen} onOpenChange={setScheduleOpen} />}
       <AlertDialog open={confirmTrash} onOpenChange={setConfirmTrash}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -45,6 +45,8 @@ const OWNER_POD_ROUTES = new Set([
   "actions/gmail/proposals",
   "browser/capability",
   "browser/tasks",
+  "tasks",
+  "tasks/control",
 ]);
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -161,9 +163,22 @@ export async function ownerPodRequest(
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${session.session}`);
   const method = (init.method ?? "GET").toUpperCase();
+  if (route === "tasks" || route === "tasks/control") {
+    if (!(route === "tasks" && method === "GET") && method !== "POST")
+      throw new Error("SCHEDULE_ROUTE_REFUSED");
+    const scope = method === "GET" ? "pod.status" : "pod.act";
+    if (
+      session.role !== "app" ||
+      !session.scopes.includes(scope) ||
+      (method !== "GET" && !session.scopes.includes("files.manage"))
+    ) {
+      throw new Error("SCHEDULE_GRANT_REFUSED");
+    }
+  }
   if (route.startsWith("browser/")) {
     const read =
       route === "browser/capability" ||
+      (route === "browser/tasks" && method === "GET") ||
       /^browser\/tasks\/browser_[a-f0-9]{32}(\/frame)?$/.test(route);
     const scope = read
       ? "browser.observe"

@@ -5,6 +5,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { OneAgentRoster } from "@/components/dashboard/one-agent-roster";
+import { ScheduledTasksPanel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 import { PublicProfileDiscoveryEntry } from "@/components/profile/public-profile-discovery-card";
 import { type CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 
@@ -40,6 +41,7 @@ export function OneDashboardPage({
           displayName={displayName}
           userId={userId}
         />
+        {userId && <ScheduledTasksPanel key={userId} ownerId={userId} />}
       </AppPageContentRegion>
     </AppPageShell>
   );

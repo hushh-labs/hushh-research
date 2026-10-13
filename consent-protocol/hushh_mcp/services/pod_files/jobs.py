@@ -52,12 +52,26 @@ def worker_origin() -> str:
 
 
 async def prepare_delivery(
-    library: Any, *, file_id: str, automatic: bool = False, request_id: str = ""
+    library: Any,
+    *,
+    file_id: str,
+    automatic: bool = False,
+    request_id: str = "",
+    expected_file_revision: int | None = None,
+    expected_analysis_revision: int | None = None,
 ) -> dict[str, Any]:
     settings = await library.analysis_allowed(file_id)
     entry = await library.stat(file_id)
     if entry["kind"] != "file" or entry["state"] != "ready":
         raise FilesRefused("FILES_SOURCE_UNAVAILABLE")
+    # Called under the existing mutation operation. A scheduled approval names
+    # exact revisions; a read before acquiring that operation cannot authorize
+    # a different file or analysis setting that changed while waiting.
+    if (expected_file_revision is not None and entry["revision"] != expected_file_revision) or (
+        expected_analysis_revision is not None
+        and settings["revision"] != expected_analysis_revision
+    ):
+        raise FilesRefused("FILES_APPROVED_REVISION_CHANGED")
     if automatic:
         manifest, _ = await library._read(library._path(file_id))
         if (

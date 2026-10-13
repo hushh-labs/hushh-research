@@ -1,14 +1,14 @@
 """Synthetic native SandboxGroups qualification; never an owner browser launcher.
 
-Wire contract: Microsoft's azure-containerapps-sandbox 0.1.0b4, dataplane
-2026-02-01-preview. No SDK dependency, exec/files bridge, snapshots, suspension,
+Wire contract: Microsoft's published September 2026 sandbox dataplane.
+No SDK dependency, exec/files bridge, snapshots, suspension,
 provider key in a sandbox, or fallback executor. Policy readback is configuration
 evidence; it does not prove network isolation or an ephemeral private bridge.
 
 Primary contracts:
 https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-quickstart-python-sdk
 https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-egress-policies
-https://pypi.org/project/azure-containerapps-sandbox/0.1.0b4/
+https://raw.githubusercontent.com/Azure/azure-rest-api-specs/main/specification/app/data-plane/ContainerApps/preview/2026-09-01-preview/containerappssandbox.json
 """
 
 from __future__ import annotations
@@ -24,10 +24,14 @@ from typing import Literal, Protocol
 import httpx
 from pydantic import Field
 
+from .azure_probe_wire import CONTAINER_NAME as _CONTAINER_NAME
+from .azure_probe_wire import SOURCE as _SOURCE
+from .azure_probe_wire import creation_body
 from .contracts import BrowserAction, BrowserFrame, BrowserRefused, StrictContract
 
-API_VERSION = "2026-02-01-preview"
-DATA_PLANE_SCOPE = "https://dynamicsessions.io/.default"
+API_VERSION = "2026-09-01-preview"
+DATA_PLANE_SCOPE = "https://management.azuredevcompute.io/.default"
+
 _MARKER = "hushh-azure-native-synthetic-v1\n"
 _COMMAND = "printf '%s\\n' 'hushh-azure-native-synthetic-v1'"
 _SEGMENT = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -106,7 +110,7 @@ class AzureCliCredential:
 
 
 JSONType = Literal["absent", "null", "boolean", "number", "string", "array", "object"]
-PolicyField = Literal["defaultAction", "trafficInspection", "hostRules", "rules"]
+PolicyField = Literal["defaultAction", "trafficInspection", "enforcementMode", "hostRules", "rules"]
 
 
 class AzurePolicyRefusalDiagnostics(StrictContract):
@@ -128,7 +132,7 @@ class AzurePolicyRefusalDiagnostics(StrictContract):
 class AzureNativeQualification(StrictContract):
     probe_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     sandbox_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,128}$")
-    api_version: Literal["2026-02-01-preview"] = API_VERSION
+    api_version: Literal["2026-09-01-preview"] = API_VERSION
     policy_verified: bool = False
     synthetic_execution_verified: bool = False
     termination_confirmed: bool = False
@@ -211,7 +215,7 @@ class _NativeClient:
             params = {"api-version": API_VERSION}
             if labels:
                 params["labels"] = f"hushhProbe={self.probe_id}"
-            if method == "PUT" and not suffix:
+            if method == "POST" and not suffix:
                 self.create_attempted = True
             async with self.client.stream(
                 method,
@@ -256,7 +260,7 @@ class _NativeClient:
     def policy_refused(self, code: str, value: dict) -> None:
         policy = value.get("egressPolicy")
         fields = policy if isinstance(policy, dict) else {}
-        names = ("defaultAction", "trafficInspection", "hostRules", "rules")
+        names = ("defaultAction", "trafficInspection", "enforcementMode", "hostRules", "rules")
         default = fields.get("defaultAction")
         inspection = fields.get("trafficInspection")
         skip = value.get("skipEgressProxy")
@@ -301,11 +305,12 @@ class _NativeClient:
             key: item
             for key, item in policy.items()
             if key not in {"hostRules", "rules"} or item != []
-        } != {"defaultAction": "Deny", "trafficInspection": "Full"}:
+        } != {"defaultAction": "Deny", "trafficInspection": "Full", "enforcementMode": "Enforced"}:
             self.policy_refused("AZURE_PROBE_EGRESS_REFUSED", value)
         lifecycle = value.get("lifecycle")
         if (
-            lifecycle != {"autoSuspendPolicy": {"enabled": False}}
+            lifecycle
+            != {"autoSuspendPolicy": {"enabled": False}, "autoDeletePolicy": {"enabled": False}}
             or lifecycle["autoSuspendPolicy"]["enabled"] is not False
         ):
             self.policy_refused("AZURE_PROBE_SUSPENSION_REFUSED", value)
@@ -318,10 +323,7 @@ class _NativeClient:
             "customerVnetConnectionName"
         ):
             self.policy_refused("AZURE_PROBE_EGRESS_REFUSED", value)
-        if (
-            value.get("sourcesRef") != {"diskImage": {"name": "ubuntu", "isPublic": True}}
-            or value["sourcesRef"]["diskImage"]["isPublic"] is not True
-        ):
+        if value.get("sourcesRef") != _SOURCE:
             self.policy_refused("AZURE_PROBE_IMAGE_REFUSED", value)
 
     def qualification_receipt(
@@ -400,15 +402,8 @@ async def qualify_azure_sandbox(
         try:
             async with asyncio.timeout(config.timeout_seconds):
                 status, value = await native.request(
-                    "PUT",
-                    body={
-                        "sourcesRef": {"diskImage": {"name": "ubuntu", "isPublic": True}},
-                        "resources": {"cpu": "1000m", "memory": "2048Mi"},
-                        "labels": {"hushhProbe": native.probe_id},
-                        "lifecycle": {"autoSuspendPolicy": {"enabled": False}},
-                        "egressPolicy": {"defaultAction": "Deny", "trafficInspection": "Full"},
-                        "skipEgressProxy": False,
-                    },
+                    "POST",
+                    body=creation_body(native.probe_id),
                 )
                 if status not in {200, 201, 202}:
                     raise BrowserRefused("AZURE_PROBE_CREATE_UNCERTAIN")
@@ -428,16 +423,20 @@ async def qualify_azure_sandbox(
                 native.verify_policy(value)
                 policy_verified = True
                 status, result = await native.request(
-                    "POST", suffix + "/executeShellCommand", body={"command": _COMMAND}
+                    "POST",
+                    suffix + "/executeShellCommand",
+                    body={"command": _COMMAND, "containerName": _CONTAINER_NAME},
                 )
                 if (
                     status != 200
                     or not isinstance(result, dict)
-                    or set(result) != {"exitCode", "stdout", "stderr"}
+                    or set(result) != {"exitCode", "stdout", "stderr", "executionTimeMs"}
                     or type(result["exitCode"]) is not int
                     or result["exitCode"] != 0
                     or result["stdout"] != _MARKER
                     or result["stderr"] != ""
+                    or type(result["executionTimeMs"]) is not int
+                    or not 0 <= result["executionTimeMs"] <= config.timeout_seconds * 1000
                 ):
                     raise BrowserRefused("AZURE_PROBE_EXECUTION_REFUSED")
                 status, value = await native.request("GET", suffix)

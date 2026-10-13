@@ -1446,6 +1446,7 @@
         "calendar.read",
         "consent.chat.turn",
         "location.chat.turn",
+        "one.scheduled_tasks.open",
         "route.one_agents",
         "route.one_feed",
         "route.one_location",

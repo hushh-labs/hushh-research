@@ -1,3 +1,4 @@
+import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use/chat-progress";
 import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import { ApiService } from "@/lib/services/api-service";
@@ -218,6 +219,8 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
+  onBrowserTaskCreated?: () => void;
   /** Ephemeral native review: never append its references or receipt to history/debug events. */
   onMcpReview?: (review: {
     reference: McpCallReviewReference;
@@ -1535,16 +1538,7 @@ export async function streamAgentChat(input: {
           return;
         }
       }
-      const workspaceConnectorTool =
-        toolCallName === "discover_workspace_tools" ||
-        toolCallName === "read_workspace_tool";
-      const safeArgs = workspaceConnectorTool
-        ? { provider: toolCallArgs.provider }
-        : toolCallName === "inspect_private_connectors" || toolCallName === "probe_private_connector"
-          ? {}
-        : toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent" || toolCallName === "inspect_selected_drive_files" || toolCallName === "read_selected_drive_search_result"
-          ? {}
-          : toolCallArgs;
+      const safeArgs = privateToolProgressArgs(toolCallName, toolCallArgs);
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
         toolPayload(event.toolCallId, toolCallName, safeArgs),
@@ -1552,6 +1546,12 @@ export async function streamAgentChat(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (toolName === "start_browser_task") {
+        const result = browserTaskProgress(event.content, input.userId);
+        if (result.accepted) handlers.onBrowserTaskCreated?.();
+        handlers.onToolResult?.({ ...toolPayload(event.toolCallId, toolName, {}), ...result.event });
+        return;
+      }
       if (toolName === REACTION_TOOL_NAME) {
         const result = parseMessageReaction(event.content);
         if (result && !reactionShown) {

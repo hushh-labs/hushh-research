@@ -2347,6 +2347,7 @@
       },
       "voice_action_contract_file": "app/one/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "one.scheduled_tasks.open",
         "route.one_agents",
         "route.one_feed",
         "route.one_location",
@@ -10595,5 +10596,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "7988ff80eb2bbb09337550c361aea40e8609e5034d342b23b92d053852f7edfd"
+  "content_sha256": "970c216224f511617697fff2f08f82d11d1ed6d139cffdac123d91a32dce3236"
 }

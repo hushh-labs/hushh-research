@@ -17,6 +17,181 @@ from tests.test_pod_session_authority import Subject, World, _binding
 from tests.test_pod_session_authority import hub_key as hub_key
 
 
+async def test_scheduled_owner_control_refuses_device_and_read_only_app(
+    tmp_path, hub_key, monkeypatch
+):
+    from api.routes.one import pod_scheduled_tasks as routes
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
+    from tests.test_pod_files_jobs import schedule_request
+    from tests.test_pod_session_authority import OWNER, USER
+
+    world = World(tmp_path / "pod")
+    authority = await world.boot()
+    monkeypatch.setattr("api.routes.one.pod_session.authority_or_503", lambda: authority)
+    reader, writer, device = (
+        Subject("reader", "web"),
+        Subject("writer", "web"),
+        Subject("device", "macos"),
+    )
+    tokens = [
+        await world.admit(subject, _binding(subject, scopes=scopes))
+        for subject, scopes in [
+            (reader, ["pod.status"]),
+            (writer, ["pod.status", "pod.act", "files.manage"]),
+            (device, ["puppy.inference"]),
+        ]
+    ]
+    capability = SimpleNamespace(
+        prepare=AsyncMock(return_value={"file_revision": 1}), run=AsyncMock()
+    )
+    runtime = ScheduledTasks(
+        access=ScheduleAccess(USER, OWNER, "epoch", AsyncMock()),
+        log=world.log,
+        capabilities={"agent_files.organize_file.v1": capability},
+        delivery=SimpleNamespace(require_ready=lambda: None, offer=AsyncMock()),
+        admission=SimpleNamespace(acquire_turn=AsyncMock()),
+        check_grant=AsyncMock(return_value=10_000_000),
+        clock=lambda: 1000,
+    )
+    monkeypatch.setattr(routes, "active_scheduled_tasks", lambda: runtime)
+    app = FastAPI()
+    app.include_router(routes.router)
+    body = schedule_request().model_dump()
+    with TestClient(app) as client:
+        for token, _ in (tokens[0], tokens[2]):
+            assert (
+                client.post(
+                    "/api/one/pod/tasks", headers={"Authorization": "Bearer " + token}, json=body
+                ).status_code
+                == 403
+            )
+        capability.prepare.assert_not_awaited()
+        created = client.post(
+            "/api/one/pod/tasks", headers={"Authorization": "Bearer " + tokens[1][0]}, json=body
+        )
+        assert created.status_code == 200 and created.json()["state"] == "scheduled"
+        assert created.headers["cache-control"] == "no-store, private"
+        assert "grant" not in created.json() and "terms" not in created.json()
+        listing = client.get(
+            "/api/one/pod/tasks", headers={"Authorization": "Bearer " + tokens[0][0]}
+        )
+        assert [row["id"] for row in listing.json()["tasks"]] == [created.json()["id"]]
+        invalid = client.post(
+            "/api/one/pod/tasks",
+            headers={"Authorization": "Bearer " + tokens[1][0]},
+            json={**body, "unsupported": "private-marker"},
+        )
+        assert invalid.status_code == 422
+        assert "private-marker" not in invalid.text
+        assert invalid.json()["detail"]["code"] == "SCHEDULE_REQUEST_INVALID"
+
+
+async def test_revoked_request_caller_cannot_resume_another_valid_apps_schedule(
+    tmp_path, hub_key, monkeypatch
+):
+    from api.routes.one import pod_scheduled_tasks as routes
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
+    from tests.test_pod_files_jobs import schedule_request
+    from tests.test_pod_session_authority import OWNER, USER
+
+    world = World(tmp_path / "pod")
+    authority = await world.boot()
+    monkeypatch.setattr("api.routes.one.pod_session.authority_or_503", lambda: authority)
+    original, caller = Subject("original", "web"), Subject("caller", "web")
+    original_token, _ = await world.admit(original, _binding(original))
+    caller_token, _ = await world.admit(caller, _binding(caller))
+    runtime = ScheduledTasks(
+        access=ScheduleAccess(USER, OWNER, "epoch", AsyncMock()),
+        log=world.log,
+        capabilities={
+            "agent_files.organize_file.v1": SimpleNamespace(
+                prepare=AsyncMock(return_value={}), run=AsyncMock()
+            )
+        },
+        delivery=SimpleNamespace(require_ready=lambda: None, offer=AsyncMock()),
+        admission=SimpleNamespace(acquire_turn=AsyncMock()),
+        check_grant=AsyncMock(return_value=10000000),
+        clock=lambda: 1000,
+    )
+    monkeypatch.setattr(routes, "active_scheduled_tasks", lambda: runtime)
+    app = FastAPI()
+    app.include_router(routes.router)
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/one/pod/tasks",
+            headers={"Authorization": "Bearer " + original_token},
+            json=schedule_request().model_dump(),
+        ).json()
+        paused = await runtime.control(created["id"], created["revision"], "pause")
+        before = len(runtime.delivery.offer.mock_calls)
+        snapshot = runtime.journal.snapshot
+        revoked = False
+
+        async def interleaved_snapshot():
+            nonlocal revoked
+            rows = await snapshot()
+            if not revoked:
+                revoked = True
+                await authority.revoke_subject(caller.subject_id)
+            return rows
+
+        monkeypatch.setattr(runtime.journal, "snapshot", interleaved_snapshot)
+        result = client.post(
+            "/api/one/pod/tasks/control",
+            headers={"Authorization": "Bearer " + caller_token},
+            json={
+                "schedule_id": paused["id"],
+                "revision": paused["revision"],
+                "operation": "resume",
+                "confirmed": True,
+            },
+        )
+        assert result.status_code == 403
+        authority.verify_session(original_token)  # The schedule's original grant remains valid.
+        assert len(runtime.delivery.offer.mock_calls) == before
+        assert (await snapshot())[0][paused["id"]]["state"] == "paused"
+
+
+def test_schedule_worker_requires_exact_machine_identity_not_owner_session(monkeypatch):
+    from api.routes.one import pod_scheduled_tasks as routes
+    from hushh_mcp.services.scheduler_identity import SchedulerIdentityError
+
+    monkeypatch.setenv(
+        "POD_FILES_WORKER_SERVICE_ACCOUNT", "worker@owner-project.iam.gserviceaccount.com"
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_files.jobs.worker_origin", lambda: "https://owner.example"
+    )
+    run = AsyncMock(return_value={"state": "completed"})
+    monkeypatch.setattr(routes, "active_scheduled_tasks", lambda: SimpleNamespace(run=run))
+
+    def verify(**kwargs):
+        assert kwargs["audience"] == "https://owner.example"
+        assert kwargs["allowed_emails"] == ("worker@owner-project.iam.gserviceaccount.com",)
+        if kwargs["authorization_header"] != "Bearer synthetic-machine-identity":
+            raise SchedulerIdentityError("refused")
+
+    monkeypatch.setattr("hushh_mcp.services.scheduler_identity.verify_scheduler_request", verify)
+    app = FastAPI()
+    app.include_router(routes.router)
+    payload = {"schedule_id": "schedule_" + "a" * 32, "revision": 2, "occurrence_id": "b" * 32}
+    with TestClient(app) as client:
+        refused = client.post(
+            "/api/one/pod/tasks/worker",
+            headers={"Authorization": "Bearer owner-session"},
+            json=payload,
+        )
+        assert refused.status_code == 403
+        run.assert_not_awaited()
+        accepted = client.post(
+            "/api/one/pod/tasks/worker",
+            headers={"Authorization": "Bearer synthetic-machine-identity"},
+            json=payload,
+        )
+        assert accepted.status_code == 200
+        run.assert_awaited_once_with(payload["schedule_id"], 2, payload["occurrence_id"])
+
+
 async def test_read_only_app_cannot_write_and_device_cannot_read(tmp_path, hub_key, monkeypatch):
     world = World(tmp_path / "pod")
     authority = await world.boot()

@@ -614,6 +614,25 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE SEARCH");
   });
 
+  it.each(["u1", "other-owner"])("keeps browser content private and rediscovers only the current owner: %s", async (owner) => {
+    const onBrowserTaskCreated = vi.fn();
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "browser", toolCallName: "start_browser_task" } });
+      subscriber.onToolCallEndEvent({ event: { toolCallId: "browser" }, toolCallName: "start_browser_task",
+        toolCallArgs: { goal: "PRIVATE GOAL" } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "browser", content: JSON.stringify({
+        status: "accepted", binding: { owner_id: owner, task_id: "browser_" + "a".repeat(32) },
+        summary: "PRIVATE WEBSITE", review: { secret: "PRIVATE COOKIE" },
+      }) } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Research a site", vaultOwnerToken: "fixture",
+      handlers: { onBrowserTaskCreated, onToolResult, onToolWaiting } });
+    expect(onBrowserTaskCreated).toHaveBeenCalledTimes(owner === "u1" ? 1 : 0);
+    expect(JSON.stringify([onToolResult.mock.calls, onToolWaiting.mock.calls])).not.toContain("PRIVATE");
+  });
+
   it("keeps private connector setup names out of transport diagnostics", async () => {
     const onStructuredExperience = vi.fn();
     const onToolResult = vi.fn();

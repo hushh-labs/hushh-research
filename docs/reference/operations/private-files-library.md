@@ -117,6 +117,34 @@ calls are bounded, cancellation persists, and an expired uncertain execution req
 review. History is paginated. A lost queue-delivery response leaves a recoverable
 pending-delivery record with an explicit retry; no autonomous outbox sweep is claimed.
 
+### Scheduled tasks — local source, not deployed acceptance
+
+One's **Scheduled tasks** view exposes approved work without keeping a pod awake.
+The first customer action is **Schedule organization** on a ready file. It reviews
+a one-time run in the owner's timezone against the existing Files analysis opt-in.
+The existing `agent_files` task specialist remains the semantic decision-maker.
+General goals and scheduled browser tasks are not registered execution templates.
+
+The sealed pod log owns the schedule, occurrence claim, cancellation and settlement.
+The due-time delivery contains identifiers only; an exact authenticated worker route
+checks current owner, pod incarnation, signed grant version and expiry. Exact file,
+analysis and agent revisions are rechecked inside Files mutation before creating work.
+A competing Files job is not adopted. Lost queue acknowledgements repair the same
+durable outbox; interrupted effects are not automatically repeated. Cancellation
+remains **Stopping current work** until execution settles. The update admission
+permit remains held through settlement.
+
+The GCP adapter reuses the owner-project Cloud Tasks queue and dedicated Files worker
+identity. Long-horizon delivery uses bounded metadata checkpoints, not inference or
+polling. Azure's queue does not yet provide a qualified due-time wake adapter; scheduling
+there returns unavailable. This source does not provision an always-running timer.
+Both clouds still need live queue/wake/idle acceptance for this slice.
+
+Scheduling cannot outlive the exact signed authorization or survive a replacement
+pod through an old grant. The UI shows the verified access deadline. Changes to the
+file, permission, binding or pod require review; this is not a standing unlimited
+agent permission. Existing settings, Files jobs and owner resources are preserved.
+
 ## Provisioning and on-demand operation
 
 New owner-selected Files setup requires the dev Files erasure contract (migration
