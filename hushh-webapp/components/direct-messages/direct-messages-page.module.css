@@ -1169,7 +1169,23 @@ article[data-message-role="user"] .messageActionError {
 .composerInput, .messageEditInput, .threadSearchField input, .inboxSearchField input { font-size: 16px; }
 .composerInput { overflow-y: auto; }
 .bottomMarker { flex: 0 0 1px; height: 1px; }
-.latestControl { position: absolute; z-index: 1; bottom: 5rem; right: 1rem; min-height: 44px; padding: .5rem 1rem; border: 1px solid var(--one-chat-divider); border-radius: 2rem; background: var(--one-chat-canvas); color: var(--foreground); box-shadow: var(--app-shadow-soft); }
+.latestControl {
+  position: absolute;
+  z-index: 1;
+  bottom: 5rem;
+  left: 50%;
+  right: auto;
+  width: max-content;
+  max-width: calc(100% - 2rem);
+  min-height: 44px;
+  padding: .5rem 1rem;
+  border: 1px solid color-mix(in oklab, var(--chat-line, var(--one-chat-divider)) 70%, transparent);
+  border-radius: 2rem;
+  background: color-mix(in oklab, var(--chat-surface, var(--one-chat-raised)) 70%, var(--chat-incoming, var(--one-chat-raised)));
+  color: var(--chat-muted, var(--muted-foreground));
+  box-shadow: none;
+  transform: translateX(-50%);
+}
 .messageFeedItem { margin-top: .25rem; }
 .messageFeedItem[data-group-start="true"] { margin-top: .75rem; }
 @media (max-width: 374px) { .threadHeaderContent { gap: .25rem; padding-inline: .25rem; } .threadAvatar { width: 32px; height: 32px; } .composer { gap: .25rem; padding-inline: .5rem; } }
@@ -1388,21 +1404,24 @@ article[data-message-role="peer"] .messageCluster {
 .page[data-theme="light"] {
   --chat-accent: var(--chat-ios-accent);
   --chat-surface: #ffffff;
-  --chat-surface-2: #eef0f4;
-  --chat-surface-3: #e5e8ed;
-  --chat-text: #111318;
-  --chat-muted: #6c727e;
+  --chat-surface-2: #f2f2f7;
+  --chat-surface-3: #e5e5ea;
+  --chat-text: #1d1d1f;
+  --chat-muted: #6e6e73;
   --chat-faint: #969ba5;
-  --chat-line: #e2e5ea;
-  --chat-blue-tint: #e7f2ff;
-  --chat-incoming: #ffffff;
-  --chat-outgoing: #d9eeff;
-  --chat-outgoing-text: #17324d;
-  --chat-outgoing-meta: #4a6178;
+  --chat-line: #e5e5ea;
+  --chat-blue-tint: #d7ebff;
+  --chat-incoming: #f2f2f7;
+  --chat-outgoing: #eaf4ff;
+  --chat-outgoing-pressed: #d7ebff;
+  --chat-reply-outgoing: #ddeeff;
+  --chat-reply-incoming: #e8e8ed;
+  --chat-outgoing-text: #1d1d1f;
+  --chat-outgoing-meta: #6e6e73;
   --chat-glass: rgba(255, 255, 255, .66);
   --chat-glass-strong: rgba(255, 255, 255, .84);
   --chat-glass-edge: rgba(255, 255, 255, .72);
-  --chat-row-active: #e7f2ff;
+  --chat-row-active: #d7ebff;
   --foreground: var(--chat-text);
   --muted-foreground: var(--chat-muted);
   --app-accent: var(--chat-accent);
@@ -1413,7 +1432,7 @@ article[data-message-role="peer"] .messageCluster {
   --one-chat-raised: var(--chat-surface);
   --one-chat-row-hover: var(--chat-surface-2);
   --one-chat-row-active: var(--chat-row-active);
-  background: #f5f6f8;
+  background: #ffffff;
 }
 .page[data-theme="dark"] {
   --chat-accent: var(--chat-ios-accent);
@@ -1673,4 +1692,41 @@ article[data-message-role="user"] .messageDeliveryState {
 @media (prefers-reduced-motion: reduce) {
   .page, .laneSwitcher button, .sendButton { transition: none; }
   .reactionPicker { animation: none; }
+}
+
+/* Exact light-theme palette from the Chat UI handoff. */
+.page[data-theme="light"] .messageBubbleMeta,
+.page[data-theme="light"] .deletedMessage {
+  color: var(--chat-muted);
+}
+.page[data-theme="light"] article[data-message-role="user"] .replyPreview {
+  border-left-color: var(--chat-accent);
+  background: var(--chat-reply-outgoing);
+}
+.page[data-theme="light"] article[data-message-role="peer"] .replyPreview {
+  border-left-color: var(--chat-accent);
+  background: var(--chat-reply-incoming);
+}
+.page[data-theme="light"] article[data-message-role="user"] .messageDeliveryState[aria-label="Read"] {
+  color: var(--chat-accent);
+}
+.page[data-theme="light"] .messageBubble:active,
+.page[data-theme="light"] article[data-message-role="user"][data-actions-visible="true"] .messageBubble {
+  background: var(--chat-outgoing-pressed) !important;
+}
+.page[data-theme="light"] article[data-message-role="peer"] .messageBubble:active {
+  background: var(--chat-line) !important;
+}
+/* Pressed fills need stronger supporting-text contrast than the resting fills. */
+.page[data-theme="light"] .messageBubble:active :is(.messageBubbleMeta, .deletedMessage),
+.page[data-theme="light"] article[data-message-role="user"][data-actions-visible="true"] :is(.messageBubbleMeta, .deletedMessage) {
+  color: var(--chat-text);
+}
+.page[data-theme="light"] .messageDateMarker {
+  background: transparent;
+  color: var(--chat-muted);
+}
+.page[data-theme="light"] .messageDateMarker time {
+  background: var(--chat-incoming);
+  box-shadow: none;
 }

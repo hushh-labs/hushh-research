@@ -27,7 +27,7 @@
 .outgoing .meta { color: var(--muted-foreground); }
 :global([data-circle-chat-lane]) .outgoing .meta { color: var(--chat-outgoing-meta, rgba(255,255,255,.75)); }
 .meta span { display: inline-flex; }
-:global([data-circle-chat-lane]) .outgoing .seen { color: var(--chat-outgoing-text, #fff); }
+:global([data-circle-chat-lane]) .outgoing .seen { color: var(--chat-accent, #fff); }
 .reactionControl { position: absolute; right: -16px; top: -13px; z-index: 5; }
 .addReaction { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--chat-line, var(--border)); background: var(--chat-surface, var(--card)); color: var(--chat-muted, var(--muted-foreground)); box-shadow: 0 2px 9px rgba(0,0,0,.1); font-size: 20px; line-height: 1; opacity: 0; transition: opacity 150ms ease; }
 .bubbleWrap:hover .addReaction, .bubbleWrap:focus-within .addReaction { opacity: 1; }
@@ -43,3 +43,6 @@
 @media (max-width: 959px) { .stack { max-width: min(84%, 36rem); } }
 @media (prefers-reduced-motion: reduce) { .addReaction, .picker { animation: none; transition: none; } }
 @keyframes pickerIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+:global([data-direct-message-page][data-theme="light"]) .outgoing:active { background: var(--chat-outgoing-pressed); }
+:global([data-direct-message-page][data-theme="light"]) .outgoing:active .meta { color: var(--chat-text); }

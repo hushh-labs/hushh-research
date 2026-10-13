@@ -94,7 +94,7 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
 
   await page.getByRole("button", { name: "Switch to light mode" }).click();
   await expect(chat).toHaveAttribute("data-theme", "light");
-  await expect(activeNav).toHaveCSS("color", "rgb(0, 122, 255)");
+  await expect(activeNav).toHaveCSS("color", "rgb(0, 113, 227)");
   await expect(lanes.getByRole("tab", { name: "People 2" })).toBeVisible();
   await expect(lanes.getByRole("tab", { name: "Circles 3" })).toBeVisible();
   await page.reload();
@@ -204,6 +204,25 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
   test(`keeps chat navigation and keyboard controls reachable at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width: width!, height: height! });
     const errors = await mount(page, width === 430);
+    // Date tint belongs to the compact label, never the full conversation row.
+    const date = page.locator('[class*="messageDateMarker"]').first();
+    await expect(date).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const dateRow = (await date.boundingBox())!;
+    const datePill = (await date.locator("time").boundingBox())!;
+    expect(datePill.width).toBeLessThan(dateRow.width);
+    expect(Math.abs(datePill.x + datePill.width / 2 - dateRow.x - dateRow.width / 2)).toBeLessThanOrEqual(1);
+    // A reading-position control stays centered within the active conversation.
+    await transcript(page).evaluate(node => { node.scrollTop = Math.max(0, node.scrollTop - 300); });
+    const latest = page.getByRole("button", { name: "Go to latest messages", exact: true });
+    await expect(latest).toBeVisible();
+    const latestBox = (await latest.boundingBox())!;
+    const threadBox = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
+    expect(Math.abs(latestBox.x + latestBox.width / 2 - threadBox.x - threadBox.width / 2)).toBeLessThanOrEqual(1);
+    expect(latestBox.x).toBeGreaterThanOrEqual(threadBox.x);
+    expect(latestBox.x + latestBox.width).toBeLessThanOrEqual(threadBox.x + threadBox.width);
+    expect(latestBox.height).toBeGreaterThanOrEqual(44);
+    await latest.click();
+    await expect(latest).toBeHidden();
     const layout = await page.evaluate(() => {
       const root = document.querySelector('[data-app-scroll-root="true"]')!;
       const canvas = document.querySelector('[data-direct-message-page]')!;
@@ -495,7 +514,13 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "Message options" }).click();
   await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
-  await expect(page.getByText("This message was deleted.", { exact: true })).toHaveCount(1);
+  const deleted = page.getByText("This message was deleted.", { exact: true });
+  await expect(deleted).toHaveCount(1);
+  // Muted ink on the darker pressed fill fell below the text contrast floor.
+  await deleted.hover();
+  await page.mouse.down();
+  try { await expect(deleted).toHaveCSS("color", "rgb(29, 29, 31)"); }
+  finally { await page.mouse.up(); }
 });
 
 
