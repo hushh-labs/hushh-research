@@ -66,6 +66,10 @@ hold identities, versions, operational states and money needed for policy checks
   exact membership and separately allowed listings. Equivalent requests reuse
   current evidence. Catalog requests reuse the exact prepared packet. New source
   versions invalidate affected packets without changing old approval terms.
+  During rolling policy upgrades, bounded reconciliation replays completed
+  current-policy facts into membership if a retired worker finishes late. It
+  preserves the immutable facts, rejects stale sources, and does no work when
+  membership is already current.
 - UAT's existing documents lane runs every minute with bounded work and prompt
   wakeups. Extraction, discovery, facts and packet construction receive reserved
   slices. The documents lane permits at most 20 jobs per drain and obeys its
@@ -88,7 +92,9 @@ Private packets are built progressively from available current facts; unrelated
 files do not have to finish indexing first. Packet content readiness and purchase
 availability are separate. A private packet can have verified content while the
 initial collection scan is unfinished; it remains unavailable for listing until
-the collection freshness and source/access checks pass. This does not establish
+provider enumeration has finished, change sync is fresh, and source/access checks
+pass. Unrelated pending extraction does not block a verified packet after that
+provider checkpoint. This does not establish
 whole-collection recall or absence of undiscovered documents.
 
 Readiness requires complete current evidence, explicit membership, accounted
@@ -173,6 +179,14 @@ Real-document reports and titles stay outside the repository. Freeze each run
 before corrections and append separately identified replays; never overwrite a
 failed baseline with a later passing result. Whole-Drive counts and initial or
 incremental indexing time come from live collection status, not sample timings.
+
+The current 24-document development replay completed all documents. Independent
+agent-authored core-field labels passed for 21 and failed for three; exact source
+citations passed for all 24. A 208-page original completed in 913.402 seconds over
+136 model calls. The short-document packet replay produced nine independently
+correct Ready groups out of 16 proposed groups, two nonready groups and five
+validation failures; six originals had no proposed canonical packet. These are
+different denominators, and neither result proves the 99.9% target or delivery.
 
 ### Earlier development results (October 13, 2026)
 
