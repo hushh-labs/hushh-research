@@ -725,6 +725,112 @@ async def test_rejected_model_evidence_retains_safe_failure_code_without_publish
         assert connection.execute(text("SELECT count(*) FROM drive_packet_heads")).scalar_one() == 0
 
 
+@pytest.mark.parametrize(
+    "failure,code,stage",
+    [
+        ("citation", "model_citation_invalid", "construct_packet"),
+        ("membership", "model_membership_invalid", "verify_members"),
+        ("source", "packet_source_changed", "load_member_evidence"),
+        ("timeout", "model_timeout", "construct_packet"),
+        ("storage", "connector_storage_unavailable", "persist_packet_build"),
+        ("unexpected", "packet_unavailable", "construct_packet"),
+        ("unsafe_model", "packet_unavailable", "construct_packet"),
+        ("unsafe_source", "packet_unavailable", "construct_packet"),
+        ("invalid", "packet_integrity_invalid", "construct_packet"),
+    ],
+)
+async def test_packet_failures_keep_safe_diagnostics_and_retry_behavior(
+    reusable, caplog, failure, code, stage
+):
+    from hushh_mcp.services.drive_packet_intelligence import EvidenceValidationError
+    from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
+
+    secret = "private-document-text-and-secret-token"
+    errors = {
+        "citation": EvidenceValidationError("model_citation_invalid"),
+        "membership": EvidenceValidationError("model_membership_invalid"),
+        "source": DriveReadError("packet_source_changed"),
+        "timeout": TimeoutError(secret),
+        "storage": ConnectorLifecycleError(secret),
+        "unexpected": RuntimeError(secret),
+        "unsafe_model": EvidenceValidationError(secret),
+        "unsafe_source": DriveReadError(secret),
+        "invalid": ValueError(secret),
+    }
+    error = errors[failure]
+    await originals(reusable)
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    if failure == "membership":
+        assert await reusable.worker.run_packet_one(user_id="owner") == "packet_queued"
+        reusable.worker.checker = AsyncMock(side_effect=error)
+    elif failure == "source":
+        reusable.packets.evidence_page = AsyncMock(side_effect=error)
+    elif failure == "storage":
+        reusable.packets.commit_build = AsyncMock(side_effect=error)
+    else:
+        reusable.worker.constructor = AsyncMock(side_effect=error)
+    caplog.clear()
+    assert await reusable.worker.run_packet_one(user_id="owner") == "packet_unavailable"
+    with reusable.facts.db.engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT *,extract(epoch FROM next_at-updated_at) AS delay FROM drive_packet_heads"
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert row["error_code"] == code and row["dirty"]
+        assert row["lease_id"] is None and row["lease_expires_at"] is None
+        assert row["delay"] == pytest.approx(3600 if isinstance(error, ValueError) else 60, abs=0.1)
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_packet_versions")).scalar_one() == 0
+        )
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if "drive_packet_failed" in record.getMessage()
+    ]
+    assert len(messages) == 1
+    assert f"stage={stage} code={code}" in messages[0]
+    # A successful phase commit resets the next phase's retry counter.
+    assert "attempt=1" in messages[0]
+    assert "elapsed_ms=" in messages[0]
+    assert secret not in caplog.text
+
+
+async def test_packet_claim_failure_is_logged_without_changing_exception_or_exposing_text(caplog):
+    from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
+
+    secret = "private-sql-parameters-and-token"
+    error = ConnectorLifecycleError(secret)
+    store = SimpleNamespace(claim_packet=AsyncMock(side_effect=error), release_packet=AsyncMock())
+    worker = DrivePacketWorker(
+        facts_store=SimpleNamespace(), packet_store=store, policy=lambda: POLICY
+    )
+    with pytest.raises(ConnectorLifecycleError) as captured:
+        await worker.run_packet_one(user_id="private-owner-id")
+    assert captured.value is error
+    store.release_packet.assert_not_awaited()
+    assert (
+        "stage=claim_packet code=connector_storage_unavailable attempt=0 elapsed_ms=" in caplog.text
+    )
+    assert secret not in caplog.text and "private-owner-id" not in caplog.text
+
+
+async def test_packet_release_rejects_untrusted_failure_code(reusable):
+    await originals(reusable)
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    job = await reusable.packets.claim_packet(user_id="owner", policy_version=POLICY)
+    await reusable.packets.release_packet(job, code="private-document-or-token")
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT error_code FROM drive_packet_heads")).scalar_one()
+            == "packet_unavailable"
+        )
+
+
 async def test_canonical_key_context_is_current_bounded_and_owner_private(reusable):
     from uuid import uuid4
 

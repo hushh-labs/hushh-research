@@ -28,6 +28,36 @@ from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 LISTING_DISCLOSURE = "drive-packet-listing-connections-v1"
+PACKET_FAILURE_CODES = frozenset(
+    {
+        "packet_unavailable",
+        "packet_integrity_invalid",
+        "packet_superseded",
+        "packet_policy_changed",
+        "packet_source_changed",
+        "packet_incomplete",
+        "source_changed",
+        "source_unavailable",
+        "evidence_budget_exceeded",
+        "model_schema_invalid",
+        "model_period_invalid",
+        "model_citation_invalid",
+        "model_pages_unaccounted",
+        "model_readiness_invalid",
+        "model_membership_invalid",
+        "model_timeout",
+        "packet_timeout",
+        "connector_storage_unavailable",
+        "connector_unavailable",
+        "reconnect_required",
+        "collection_processing_required",
+        "background_processing_required",
+    }
+)
+
+
+def safe_packet_failure_code(code):
+    return code if isinstance(code, str) and code in PACKET_FAILURE_CODES else "packet_unavailable"
 
 
 class DrivePacketStore(DriveDocumentFactsStore):
@@ -572,16 +602,19 @@ class DrivePacketStore(DriveDocumentFactsStore):
         return await self._transaction(operation)
 
     async def release_packet(self, job, *, code="packet_unavailable", retryable=True):
+        safe = safe_packet_failure_code(code)
+
         def operation(connection):
             connection.execute(
                 text("""UPDATE drive_packet_heads SET lease_id=NULL,lease_expires_at=NULL,
-              error_code='packet_unavailable',next_at=clock_timestamp()+make_interval(secs=>:delay),updated_at=clock_timestamp()
+              error_code=:code,next_at=clock_timestamp()+make_interval(secs=>:delay),updated_at=clock_timestamp()
               WHERE packet_id=:id AND user_id=:user AND revision=:revision AND lease_id=:lease"""),
                 {
                     "id": job["packet_id"],
                     "user": job["user_id"],
                     "revision": job["revision"],
                     "lease": job["lease_id"],
+                    "code": safe,
                     "delay": 60 if retryable else 3600,
                 },
             )
