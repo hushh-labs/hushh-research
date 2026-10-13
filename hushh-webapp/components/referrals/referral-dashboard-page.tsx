@@ -4,10 +4,11 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
 import { AppPageShell, AppPageHeaderRegion, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { ReferralJourney } from "./referral-journey";
 import { ReferralInviteActions } from "./referral-invite-actions";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import type { User } from "firebase/auth";
-import { Coins, Link2, Users, ShieldCheck, Zap, Trophy, Flame } from "@/components/icons";
+import { Coins, Users, Trophy, Flame } from "@/components/icons";
 import "./referral-dashboard.css";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
@@ -436,7 +437,7 @@ function ShellRoot({
       as="div"
       width="agent"
       className={`referral-dashboard${showHowItWorks ? " referral-help-page" : ""}`}
-      style={{ background: COLORS.bg, color: COLORS.text }}
+      style={{ background: "transparent", color: COLORS.text }}
       nativeTest={{ routeId: ROUTES.ONE_REFERRALS, marker: "native-route-one-referrals", authState: "authenticated", dataState }}
     >
       <AppPageHeaderRegion>
@@ -614,7 +615,7 @@ function YouTab({
             )}
           </Section>
           <div className="referral-circle-preview">
-            <Trophy size={20} aria-hidden="true" />
+            <Trophy size={20} weight="fill" aria-hidden="true" />
             <span>Circle Wars</span>
             <span className="referral-preview-label">Not active</span>
           </div>
@@ -965,21 +966,14 @@ function StandingsTab({
         <div
           role="group"
           aria-label="Standings type"
-          className="referral-ranking-switch inline-flex gap-0.5 rounded-xl p-0.5"
-          style={{ background: COLORS.fill }}
+          className="referral-ranking-switch"
         >
           {(["individual", "circles"] as const).map((key) => (
             <button
               key={key}
               aria-pressed={board === key}
               onClick={() => onBoardChange(key)}
-              className="rounded-[10px] px-[15px] text-sm font-semibold capitalize"
-              style={{
-                height: 32,
-                background: board === key ? COLORS.card : "transparent",
-                color: board === key ? COLORS.blueText : COLORS.text2,
-                boxShadow: board === key ? "0 1px 2px rgba(0,0,0,.1)" : undefined,
-              }}
+              className="referral-ranking-option"
             >
               {key}
             </button>
@@ -1263,48 +1257,8 @@ function RewardsTab({
 
 function RulesTab({ policyRes, onRetry }: { policyRes: Res<ReferralPolicy>; onRetry: () => void }) {
   return (
-    <>
-      <div className="referral-rules-grid">
-        <Section res={policyRes} onRetry={onRetry} retryLabel="referral rules">{(policy) => (
-          <Card className="referral-rules-points">
-            <div className="referral-rules-card-title">
-              <span className="referral-rules-heading-icon"><Coins aria-hidden="true" /></span>
-              <div><h3 className="ui-text-section-title">Coins</h3><p>Rewards for qualifying referrals.</p></div>
-            </div>
-            <ul className="referral-points-list">
-              {[
-                { title: "Qualified referral", value: `${fmt(policy.points.qualified_referral_points)} coins`, icon: <ShieldCheck aria-hidden="true" /> },
-                { title: "Referral streak bonus", value: `+${fmt(policy.streak_rules.bonus_points)} coins`, icon: <Flame aria-hidden="true" /> },
-                { title: "Flash referral, when active", value: `${fmt(policy.points.flash_window_total_points)} total`, icon: <Zap aria-hidden="true" /> },
-              ].map((point) => (
-                <li key={point.title}>
-                  <span className="referral-rule-icon">{point.icon}</span>
-                  <div className="referral-rule-label">
-                    <h4 className="referral-point-title">{point.title}</h4>
-                  </div>
-                  <b className="referral-rule-value font-semibold tabular-nums">{point.value}</b>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}</Section>
-        <Card className="referral-rules-details">
-          <div className="referral-rules-card-title">
-            <span className="referral-rules-heading-icon"><Trophy aria-hidden="true" /></span>
-            <div><h3 className="ui-text-section-title">Rules</h3><p>Three steps to your next reward.</p></div>
-          </div>
-          <ol className="referral-visual-rules">
-            <li><span><Link2 aria-hidden="true" /></span><div><h4>Invite a friend</h4><p>Share your link with someone new.</p></div></li>
-            <li><span><ShieldCheck aria-hidden="true" /></span><div><h4>They finish setup</h4><p>Sign up, verify their phone, and finish setup.</p></div></li>
-            <li><span><Trophy aria-hidden="true" /></span><div><h4>You earn coins</h4><p>Every qualifying friend brings your next reward closer.</p></div></li>
-          </ol>
-          <div className="referral-rule-highlights">
-            <p><Flame aria-hidden="true" /><span><b>Keep your streak</b>One qualifying friend a day. Keep it going.</span></p>
-            <p><ShieldCheck aria-hidden="true" /><span><b>New friends only</b>Self-referrals and unfinished sign-ups do not count.</span></p>
-            <p><Zap aria-hidden="true" /><span><b>Flash boost</b>When active, flash coins replace the standard award.</span></p>
-          </div>
-        </Card>
-      </div>
-    </>
+    <Section res={policyRes} onRetry={onRetry} retryLabel="referral rules">
+      {(policy) => <ReferralJourney policy={policy} />}
+    </Section>
   );
 }
