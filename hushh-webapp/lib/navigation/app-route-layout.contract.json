@@ -1184,7 +1184,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The active Location onboarding layer unwinds optional panels and Ready, Place, Features before Welcome exits to agents home. Pending permission, contact, join and save operations consume Back; topmost modal dismissal retains precedence. Outside onboarding, the authored route parent applies."
+      "reason": "The two-screen Location introduction unwinds optional panels, then Ready to Features, then exits to agents home. Pending contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
     }
   },
   {
@@ -3580,25 +3580,25 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.location",
-      "purpose": "Request device location permission, then explicitly finish or skip Location setup.",
+      "purpose": "Introduce Location features and Circle invitations, then finish or skip the two-screen introduction.",
       "screen": "one_setup_location",
-      "entryCue": "Allow Location when you are ready, or say skip Location setup.",
+      "entryCue": "Explore Location features and invite your Circle, or say skip Location setup.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.skip_location",
       "happyPathActionIds": [
         "setup.skip_location",
-        "setup.finish_location"
+        "setup.finish_location_intro"
       ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Keep Location setup open and preserve the active goal.",
-        "failed": "Explain that permission is still needed before finishing.",
+        "failed": "Keep the introduction open and offer to retry finishing.",
         "timeout": "Retain the goal and offer a safe retry.",
         "callbackError": "Use the verified current route and its generated actions only.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Location setup finishes only after device permission is granted and the hub route settles.",
+      "completionBoundary": "The Location introduction finishes when its completion marker is saved and the setup hub settles. Device location access is requested later from the Location workspace.",
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3615,7 +3615,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The active Location onboarding layer unwinds optional panels and Ready, Place, Features before Welcome exits to agents home. Pending permission, contact, join and save operations consume Back; topmost modal dismissal retains precedence. Outside onboarding, the authored route parent applies."
+      "reason": "The two-screen Location introduction unwinds optional panels, then Ready to Features, then exits to agents home. Pending contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
     }
   },
   {

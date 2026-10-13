@@ -51,15 +51,21 @@ Opening a contact source always requires the user's contact-check action.
 
 ## Onboarding Resume
 
+The introduction has two screens: Features, then the existing Circle invite,
+copy/share, Join and Find contacts finale. Device location permission and position
+capture are deferred to explicit workspace actions. Finishing or skipping this
+introduction does not require a location grant.
+
+
 Location onboarding checkpoints the current screen in tab-scoped session storage,
 separately for each account and for setup versus the workspace. Returning from an
 invite share or another tab still performs the normal session validation; when
 auth guards remount the route, onboarding resumes at the checkpoint instead of
-restarting at Welcome. Admission refreshes do not reset an active journey.
+restarting at Features. Admission refreshes do not reset an active journey.
 
 The checkpoint contains only a screen name. Contacts, invite codes, coordinates,
-saved-place drafts and vault material are not stored there. A remounted place
-editor returns to Features to capture a fresh memory-only draft. Restoring Ready
+saved-place drafts and vault material are not stored there. Legacy Welcome and
+Place checkpoints return to Features. Restoring Ready
 does not automatically resync contacts or request location permission. Successful
 completion or skip clears the checkpoint; failed settlement retains it for retry.
 
@@ -153,16 +159,19 @@ live-location grants:
   rechecks this invariant against the latest PKM state after write conflicts,
   while existing legacy duplicates are preserved for explicit owner cleanup
 - before saving, the owner may replace the captured place from the same
-  onboarding prompt; authenticated Maps autocomplete and place details replace
+  saved-place modal; authenticated Maps autocomplete and place details replace
   the display address and coordinates together in memory, while raw coordinates
   and free-form coordinate/address mismatches are never exposed
-- active root-setup replay offers the saved-place step once per mounted journey
-  until setup is resolved; workspace onboarding treats encrypted PKM as the
-  saved-state authority and uses device storage only for an explicit skip
-  outcome
-- the old binary prompt marker is cleared only after an empty encrypted-PKM
-  read proves it is ambiguous; no prompt marker contains coordinates, an
-  address, or a place label
+- the Now tab offers a dismissible banner directly below Location. Save a place
+  acquires permission and a current position once through the shared device gate,
+  then opens the existing pin/address modal. Successful saving uses encrypted PKM
+  and enables the owner's preview without granting anyone sharing access
+- dismissal stores only a non-sensitive per-account flag and explains that places
+  remain available in Location settings; no flag contains a coordinate or address
+- desktop web starts a low-accuracy network read when the precise provider reports
+  unavailable/timeout, while preserving its high-accuracy watch and bounded deadline
+- measurement-required actions reject stale display-only fixes; iOS keeps a bounded
+  capture alive through transient Core Location locationUnknown errors
 
 Saved places do not create sharing authority. They enter a consented PKM export
 only when the owner separately approves the applicable Location information
