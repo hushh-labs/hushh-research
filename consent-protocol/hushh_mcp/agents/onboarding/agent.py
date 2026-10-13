@@ -49,6 +49,7 @@ _PHASE_ACTIONS = {
         "setup.finish_gmail",
         "setup.skip_gmail",
         "setup.finish_location",
+        "setup.finish_location_intro",
         "setup.skip_location",
         "setup.finish_email",
         "setup.skip_email",
@@ -72,7 +73,7 @@ _CAPABILITY_TERMINAL_ACTIONS = {
         "setup.finish_gmail",
         "setup.skip_gmail",
     },
-    "location": {"setup.finish_location", "setup.skip_location"},
+    "location": {"setup.finish_location", "setup.finish_location_intro", "setup.skip_location"},
     "email": {"setup.finish_email", "setup.skip_email"},
     "finance": {
         "setup.finish_finance",
