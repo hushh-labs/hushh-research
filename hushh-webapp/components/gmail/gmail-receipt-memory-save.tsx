@@ -5,7 +5,6 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { saveReceiptCanonicalIndexToMemory } from "@/lib/profile/gmail-receipt-memory-save";
-import { receiptStoreVersion } from "@/lib/mail/receipt-store";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -93,16 +92,12 @@ export function GmailReceiptMemorySave({
         return "failed";
       }
     };
-    let generation = ownerGeneration;
-    let revision = snapshotRevision;
+    // Only the page's verified snapshot supplies the originating fence. A
+    // legacy caller cannot adopt a newer generation after Reset; the service
+    // rejects these impossible sentinels before writing anything.
+    const generation = ownerGeneration ?? -1;
+    const revision = snapshotRevision ?? -1;
     void (async () => {
-      try {
-        // Capture once for this origin; retries may never adopt a Reset fence.
-        if (generation === undefined || revision === undefined) {
-          const version = await receiptStoreVersion(origin.userId!, String(origin.accountKey));
-          generation ??= version.generation; revision ??= version.revision;
-        }
-      } catch { generation = -1; revision = -1; }
       for (let attempt = 0; ; attempt += 1) {
         const outcome = await saveOnce();
         if (outcome !== "failed" || runRef.current !== run) return;

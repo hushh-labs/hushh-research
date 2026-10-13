@@ -120,7 +120,7 @@ function session(scopes = [NAME_SCOPE, AGE_SCOPE]) {
 
 async function rawCache(): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
-    const open = indexedDB.open("hushh-secure-resource-cache", 1);
+    const open = indexedDB.open("hushh-secure-resource-cache");
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
       const database = open.result;
@@ -409,7 +409,11 @@ describe("actual application Gemini preparation and encrypted staging", () => {
     expect(state.staged[0]!.hasContent).toBe(false);
     const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
     expect(readable).toMatchObject({ answerMode: "projection", answer: null, unavailableScopes: [] });
-    for (const forbidden of ["STALE_SEX", "1998-03-14", "999", "STALE_CITIZENSHIP", "STALE_EMPLOYMENT"]) expect(JSON.stringify(readable)).not.toContain(forbidden);
+    // Compare private content, excluding generated timestamps whose milliseconds
+    // can coincidentally equal the synthetic stale age (999).
+    const privateContent = JSON.stringify(readable, (key, value) => key === "builtAt" ? null
+      : key === "memory" && typeof value === "string" ? value.replace(/^_Built on this device at [^\n]+_$/m, "") : value);
+    for (const forbidden of ["STALE_SEX", "1998-03-14", "999", "STALE_CITIZENSHIP", "STALE_EMPLOYMENT"]) expect(privateContent).not.toContain(forbidden);
     expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
   });
 

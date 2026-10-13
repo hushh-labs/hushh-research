@@ -7,8 +7,16 @@ vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-o
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token", isVaultUnlocked: true }) }));
 
 import { GmailReceiptMemorySave } from "@/components/gmail/gmail-receipt-memory-save";
+import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+it("passes an impossible fence for a legacy caller instead of reading a newer Reset generation", async () => {
+  render(<GmailReceiptMemorySave receipts={[{ id: 1 } as ReceiptListItem]}
+    accountKey="synthetic-mail-account" syncCompletion={1} savedCompletionRef={{ current: 0 }} />);
+  await act(async () => {});
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ ownerGeneration: -1, snapshotRevision: -1 }));
+});
 
 it("clears a completed empty scan only after the page supplies its verified snapshot fence", async () => {
   const ledger = { current: 0 };
