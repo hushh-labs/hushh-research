@@ -150,6 +150,10 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 }
                 representative.update(
                     periods=[{"start": p["start"], "end": p["end"]} for p in facts["periods"]],
+                    date_evidence=[
+                        {key: item[key] for key in ("role", "start", "end", "meaning")}
+                        for item in facts.get("date_evidence", [])
+                    ],
                     topics=[fact["value"] for fact in facts["topics"]],
                     facts=[fact["value"] for fact in facts["facts"]],
                     missing_information=facts["missing_information"],

@@ -1024,6 +1024,18 @@ async def test_canonical_key_context_is_current_bounded_and_owner_private(reusab
 
     from hushh_mcp.services.drive_document_facts_store import seal_evidence
 
+    date_evidence = {
+        "role": "planned_action",
+        "start": None,
+        "end": None,
+        "meaning": "Undated proposed action, not a records coverage window",
+        "citations": [{"page": 1, "quote": "Synthetic statement evidence"}],
+    }
+
+    async def assessed_dates(**kwargs):
+        return {**await assess_pages(**kwargs), "date_evidence": [date_evidence]}
+
+    reusable.worker.page_assessor = assessed_dates
     await ready_packet(reusable)
     context = await reusable.packets.canonical_key_context(user_id="owner", policy_version=POLICY)
     assert len(context["packets"]) == 1 and not context["truncated"]
@@ -1031,6 +1043,9 @@ async def test_canonical_key_context_is_current_bounded_and_owner_private(reusab
     item = context["packets"][0]
     assert item["key"] == "synthetic-statement-account"
     assert item["representative_document"]["document_type"] == "statement"
+    assert item["representative_document"]["date_evidence"] == [
+        {key: value for key, value in date_evidence.items() if key != "citations"}
+    ]
     assert "citations" not in json.dumps(item)
     assert (
         await reusable.packets.canonical_key_context(user_id="owner", policy_version="new-policy")
