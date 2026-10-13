@@ -796,3 +796,91 @@ def test_final_duplicate_check_keeps_substantive_differences():
     summaries = [compact_evidence(document) for document in documents]
     assert summaries[0]["facts"] == ["Trade A: 10 shares"]
     assert summaries[1]["facts"] == ["Trade B: 20 shares"]
+
+
+@pytest.mark.parametrize(
+    "mode", ["old_key", "old_empty", "current_empty", "no_heads", "source_changed"]
+)
+async def test_late_old_policy_membership_is_reconciled_from_current_facts(reusable, mode):
+    await originals(reusable)
+    assert await reusable.facts.enqueue(user_id="owner", policy_version="retired-policy") == 1
+    old_job = await reusable.facts.claim(user_id="owner", policy_version="retired-policy")
+    if mode == "current_empty":
+
+        async def no_groups(**kwargs):
+            result = await fold(**kwargs)
+            result["canonical_packets"] = []
+            return result
+
+        reusable.worker.consolidator = no_groups
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    pages = [{"page": 1}]
+    old_facts = document_facts(pages)
+    if mode == "old_empty":
+        old_facts["canonical_packets"] = []
+    else:
+        old_facts["canonical_packets"][0]["key"] = "retired-group"
+    await reusable.facts.commit_batch(
+        old_job, page_facts=page_facts(pages), document_facts=old_facts
+    )
+    with reusable.facts.db.engine.begin() as connection:
+        original = (
+            connection.execute(
+                text(
+                    "SELECT facts_envelope,updated_at FROM drive_document_facts WHERE facts_profile=:policy"
+                ),
+                {"policy": POLICY},
+            )
+            .mappings()
+            .one()
+        )
+        if mode == "no_heads":
+            connection.execute(text("DELETE FROM drive_packet_heads"))
+        elif mode == "source_changed":
+            connection.execute(text("UPDATE connected_documents SET source_version='2'"))
+    if mode == "no_heads":
+        assert await reusable.facts.due_owners() == ["owner"]
+    assert await reusable.facts.enqueue(user_id="owner", policy_version=POLICY) == 0
+    with reusable.facts.db.engine.connect() as connection:
+        current = (
+            connection.execute(
+                text(
+                    "SELECT facts_version,facts_envelope,updated_at FROM drive_document_facts WHERE facts_profile=:policy"
+                ),
+                {"policy": POLICY},
+            )
+            .mappings()
+            .one()
+        )
+        members = (
+            connection.execute(text("SELECT facts_version FROM drive_packet_members"))
+            .scalars()
+            .all()
+        )
+        assert current["facts_envelope"] == original["facts_envelope"]
+        if mode == "source_changed":
+            assert current["updated_at"] == original["updated_at"]
+            assert members == [old_job["facts_version"]]
+            return
+        assert members == ([] if mode == "current_empty" else [current["facts_version"]])
+        snapshot = connection.execute(
+            text("SELECT packet_id,revision,updated_at FROM drive_packet_heads ORDER BY packet_id")
+        ).all()
+    # No new interpretation, source mutation or repeated packet revision churn.
+    assert await reusable.facts.enqueue(user_id="owner", policy_version=POLICY) == 0
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT packet_id,revision,updated_at FROM drive_packet_heads ORDER BY packet_id"
+                )
+            ).all()
+            == snapshot
+        )
+        assert (
+            connection.execute(
+                text("SELECT updated_at FROM drive_document_facts WHERE facts_profile=:policy"),
+                {"policy": POLICY},
+            ).scalar_one()
+            == current["updated_at"]
+        )

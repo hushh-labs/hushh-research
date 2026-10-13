@@ -342,6 +342,13 @@ class DrivePacketStore(DriveDocumentFactsStore):
     async def claim_packet(self, *, user_id, policy_version):
         def operation(connection):
             active, collection, preference = self._authority(connection, user_id=user_id)
+            self._reconcile_membership_locked(
+                connection,
+                user_id=user_id,
+                generation=active["connection_generation"],
+                revision=collection["revision"],
+                policy=policy_version,
+            )
             # Build from the current canonical members while unrelated Drive
             # documents continue indexing. Membership revisions fence concurrent
             # changes; finalization still checks every exact source. Waiting for
