@@ -15,17 +15,22 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const viewport = vi.hoisted(() => ({ mobile: false }));
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => viewport.mobile }));
+beforeEach(() => { viewport.mobile = false; });
 
 import { SharedWithMeCard } from "@/components/one-location/redesign/cards";
 import {
   ACTIVE_SHARE_LANE_ROW_CLASSNAME,
 } from "@/components/one-location/redesign/active-share-row-layout";
-import { PersonShareLanes } from "@/components/one-location/redesign/share-lanes";
+import { ActiveShareComparison, PersonShareLanes } from "@/components/one-location/redesign/share-lanes";
 import {
   grantLaneLabel,
   groupGrantsByCounterpart,
+  summarizeShareAudience,
 } from "@/lib/one-location/grant-lanes";
 import type { OneLocationGrant } from "@/lib/one-location/types";
 
@@ -55,6 +60,16 @@ const sos = grant({
 });
 
 describe("grouping grants by the person on the other end", () => {
+  it("counts overlapping channel audiences as six people, not seven", () => {
+    const shares = [ordinary, sos,
+      grant({ id: "location_c", recipientUserId: "user_c" }),
+      grant({ id: "location_d", recipientUserId: "user_d", shareKind: "check_in" }),
+      ...["e", "f", "g"].map((id) => grant({ id: `sms_${id}`, recipientUserId: `user_${id}`, shareKind: "sos" })),
+      grant({ id: "duplicate_lane", recipientUserId: "user_c", shareKind: "drive_to" }),
+      grant({ id: "revoked", recipientUserId: "user_h", status: "revoked" }),
+    ];
+    expect(summarizeShareAudience(shares)).toEqual({ peopleCount: 6, locationCount: 3, smsCount: 4, bothCount: 1 });
+  });
   it("puts one person's two shares in ONE group, and names each lane", () => {
     const groups = groupGrantsByCounterpart([sos, ordinary], "owner");
 
@@ -110,6 +125,67 @@ describe("grouping grants by the person on the other end", () => {
   it("labels the SMS lane with the product-facing Save My Soul copy", () => {
     expect(grantLaneLabel(sos)).toBe("Save My Soul");
     expect(grantLaneLabel(ordinary)).toBe("Location share");
+  });
+});
+
+describe("Manage sharing recipient comparison", () => {
+  it("keeps both lanes visible with their own revoke and duration targets", () => {
+    const onStopGrant = vi.fn();
+    const onChangeEndTime = vi.fn();
+    render(<ActiveShareComparison
+      groups={groupGrantsByCounterpart([sos, ordinary, grant({ id: "legacy_ordinary", shareKind: "drive_to" })], "owner")}
+      recipientName={() => "Rohan Mehta"}
+      renderAvatar={() => <span aria-hidden="true">RM</span>}
+      onStopGrant={onStopGrant}
+      onChangeEndTime={onChangeEndTime}
+      revokingGrantId="grant_sos"
+    />);
+    const lanes = screen.getAllByTestId("one-location-share-lane");
+    expect(lanes).toHaveLength(3);
+    const locationLane = lanes.find((lane) => lane.dataset.shareLane === "ordinary")!;
+    const smsLane = lanes.find((lane) => lane.dataset.shareLane === "sos")!;
+    const smsStop = within(smsLane).getByRole("button", { name: "Stop the SMS share with Rohan Mehta" });
+    expect(smsStop).toHaveTextContent("Stopping…");
+    expect(smsStop).toBeDisabled();
+    expect(within(smsLane).queryByRole("button", { name: /Change end time/ })).toBeNull();
+    const locationStop = within(locationLane).getByRole("button", { name: "Stop the location share with Rohan Mehta" });
+    expect(locationStop).toHaveTextContent("Stop");
+    fireEvent.click(locationStop);
+    expect(onStopGrant).toHaveBeenCalledWith("grant_ordinary");
+    const change = within(locationLane).getByRole("button", { name: "Change end time for Rohan Mehta" });
+    fireEvent.click(change);
+    expect(onChangeEndTime).toHaveBeenCalledWith("grant_ordinary", change);
+    const legacyLane = lanes.find((lane) => lane.dataset.grantId === "legacy_ordinary")!;
+    fireEvent.click(within(legacyLane).getByRole("button", { name: "Stop the location share with Rohan Mehta" }));
+    expect(onStopGrant).toHaveBeenLastCalledWith("legacy_ordinary");
+    expect(screen.getAllByText("Rohan Mehta")).toHaveLength(1);
+  });
+
+  it("separates mobile categories while each Stop still targets only its grant", () => {
+    viewport.mobile = true;
+    const onStopGrant = vi.fn();
+    const onChangeEndTime = vi.fn();
+    render(<ActiveShareComparison
+      groups={groupGrantsByCounterpart([sos, ordinary], "owner")}
+      recipientName={() => "Rohan Mehta"}
+      renderAvatar={() => <span aria-hidden="true">RM</span>}
+      onStopGrant={onStopGrant}
+      onChangeEndTime={onChangeEndTime}
+      revokingGrantId={null}
+    />);
+    const location = within(screen.getByTestId("one-location-ordinary-shares"));
+    const sms = within(screen.getByTestId("one-location-sms-shares"));
+    expect(location.getByText("Rohan Mehta")).toBeTruthy();
+    expect(sms.getByText("Rohan Mehta")).toBeTruthy();
+    expect(screen.getAllByTestId("one-location-share-lane")).toHaveLength(2);
+    expect(sms.queryByRole("button", { name: /Change end time/ })).toBeNull();
+    fireEvent.click(sms.getByRole("button", { name: "Stop the SMS share with Rohan Mehta" }));
+    expect(onStopGrant).toHaveBeenLastCalledWith("grant_sos");
+    fireEvent.click(location.getByRole("button", { name: "Stop the location share with Rohan Mehta" }));
+    expect(onStopGrant).toHaveBeenLastCalledWith("grant_ordinary");
+    const change = location.getByRole("button", { name: "Change end time for Rohan Mehta" });
+    fireEvent.click(change);
+    expect(onChangeEndTime).toHaveBeenCalledWith("grant_ordinary", change);
   });
 });
 
@@ -340,12 +416,13 @@ describe("hub wiring", () => {
     // Active shares, People and Shared with me all group first. A surface that
     // went back to mapping the raw grant list would render one person twice.
     expect(source).toContain(
-      'groupGrantsByCounterpart(vm.activeOwnerGrants, "owner")',
+      'groupGrantsByCounterpart(vm.manageSharingGrants ?? vm.activeOwnerGrants, "owner")',
     );
     expect(source).toContain(
       'groupGrantsByCounterpart(vm.receivedGrants, "recipient")',
     );
-    expect(source).toContain("{ownerGrantGroups.map((group) => {");
+    expect(source).toContain("<ActiveShareComparison");
+    expect(source).toContain("groups={ownerGrantGroups}");
     expect(source).toContain("{receivedGrantGroups.map((group) => {");
     expect(source).not.toContain("{vm.receivedGrants.map((grant) => {");
     expect(source).not.toContain("{vm.activeOwnerGrants.map((grant) => (");
@@ -360,7 +437,18 @@ describe("hub wiring", () => {
   it("keeps the one-tap Stop for a person with a single share", () => {
     // The common case must not have grown a step: the chevron appears only for
     // somebody who genuinely holds two.
-    expect(source).toContain("group.grants.length === 1");
+    const onStopGrant = vi.fn();
+    render(<ActiveShareComparison
+      groups={groupGrantsByCounterpart([ordinary], "owner")}
+      recipientName={() => "Rohan Mehta"}
+      renderAvatar={() => <span aria-hidden="true">RM</span>}
+      onStopGrant={onStopGrant}
+      onChangeEndTime={vi.fn()}
+      revokingGrantId={null}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Stop the location share with Rohan Mehta" }));
+    expect(onStopGrant).toHaveBeenCalledWith("grant_ordinary");
+    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
     expect(liveShareStatusCardSource).toContain(
       "status.grantCount === 1 && Boolean(status.stoppableGrantId)",
     );

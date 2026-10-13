@@ -139,14 +139,10 @@ import { RequestCard, SharedWithMeCard, type GrantViewStatus } from "./cards";
 export type { GrantViewStatus } from "./cards";
 import {
   PersonShareLanes,
+  ActiveShareComparison,
   ShareLanesDisclosure,
   useExpandedShareLanes,
 } from "./share-lanes";
-import {
-  ACTIVE_SHARE_ACTIONS_CLASSNAME,
-  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
-  ACTIVE_SHARE_STOP_CLASSNAME,
-} from "./active-share-row-layout";
 import {
   ShareReplacementConfirmDialog,
   ShareReplacementNotice,
@@ -460,6 +456,8 @@ export type LocationHubViewModel = {
   onLoadMoreRecipients: () => void | Promise<void>;
   visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
+  /** Expiry-reconciled snapshot shared with the Now banner. */
+  manageSharingGrants?: OneLocationGrant[];
   /**
    * Your running shares, restored from the device before the server answers.
    * The Location screen has to keep showing the hour you chose after you leave
@@ -2028,7 +2026,18 @@ function LiveShareDurationDialog({
           event.preventDefault();
           const trigger = triggerRef.current;
           triggerRef.current = null;
-          if (trigger?.isConnected) trigger.focus();
+          if (trigger?.isConnected) {
+            trigger.focus();
+          } else if (trigger?.dataset.shareDurationGrantId) {
+            // Rotation can replace the mobile categories with the desktop
+            // comparison while this dialog is open. Return to the same grant's
+            // newly mounted control rather than its disconnected old trigger.
+            const grantId = trigger.dataset.shareDurationGrantId;
+            const replacement = Array.from(document.querySelectorAll<HTMLButtonElement>(
+              "[data-share-duration-grant-id]",
+            )).find((control) => control.dataset.shareDurationGrantId === grantId && !control.disabled);
+            replacement?.focus();
+          }
         }}
         onEscapeKeyDown={(event) => {
           if (vm.liveShareDurationSaving) event.preventDefault();
@@ -2637,8 +2646,8 @@ function LocationDetailFlow({
   // list rendered the same person twice, each row offering a Stop that left the
   // other share running.
   const ownerGrantGroups = useMemo(
-    () => groupGrantsByCounterpart(vm.activeOwnerGrants, "owner"),
-    [vm.activeOwnerGrants],
+    () => groupGrantsByCounterpart(vm.manageSharingGrants ?? vm.activeOwnerGrants, "owner"),
+    [vm.activeOwnerGrants, vm.manageSharingGrants],
   );
   const receivedGrantGroups = useMemo(
     () => groupGrantsByCounterpart(vm.receivedGrants, "recipient"),
@@ -2808,71 +2817,16 @@ function LocationDetailFlow({
       />
       {kind === "active-shares" ? (
         ownerGrantGroups.length ? (
-          <SettingsGroup separatorInset>
-            {ownerGrantGroups.map((group) => {
-              const name = vm.grantRecipientLabel(group.primaryGrant);
-              const single =
-                group.grants.length === 1 ? group.primaryGrant : null;
-              return (
-                <SettingsRow
-                  key={group.counterpartUserId}
-                  leading={
-                    <ActiveShareAvatar
-                      name={name}
-                      photoUrl={group.primaryGrant.recipientPhotoUrl}
-                    />
-                  }
-                  title={name}
-                  description={
-                    single ? (
-                      <ActiveShareMetadata grant={single} />
-                    ) : (
-                      <>
-                        <span>{`${group.grants.length} active shares`}</span>
-                        <div className="pt-1.5">
-                          <PersonShareLanes
-                            group={group}
-                            counterpartName={name}
-                            onStopGrant={vm.onStopGrant}
-                            onChangeEndTime={onEditLiveShareDurationStart}
-                            revokingGrantId={vm.revokingGrantId}
-                          />
-                        </div>
-                      </>
-                    )
-                  }
-                  trailing={
-                    single ? (
-                      <div className={ACTIVE_SHARE_ACTIONS_CLASSNAME}>
-                        {!isSmsTriggeredGrant(single) ? (
-                          <button
-                            type="button"
-                            className={ACTIVE_SHARE_CHANGE_TIME_CLASSNAME}
-                            onClick={(event) =>
-                              onEditLiveShareDurationStart(
-                                single.id,
-                                event.currentTarget,
-                              )
-                            }
-                          >
-                            {single.durationMode === "until_stopped"
-                              ? "Set end time"
-                              : "Change time"}
-                          </button>
-                        ) : null}
-                        <StopGrantTextButton
-                          grantId={single.id}
-                          revokingGrantId={vm.revokingGrantId}
-                          onStopGrant={vm.onStopGrant}
-                        />
-                      </div>
-                    ) : null
-                  }
-                  stackTrailingOnMobile={Boolean(single)}
-                />
-              );
-            })}
-          </SettingsGroup>
+          <ActiveShareComparison
+            groups={ownerGrantGroups}
+            recipientName={vm.grantRecipientLabel}
+            renderAvatar={(group, name) => (
+              <ActiveShareAvatar name={name} photoUrl={group.primaryGrant.recipientPhotoUrl} />
+            )}
+            onStopGrant={vm.onStopGrant}
+            revokingGrantId={vm.revokingGrantId}
+            onChangeEndTime={onEditLiveShareDurationStart}
+          />
         ) : (
           <EmptyState
             title="No active shares"
@@ -3615,28 +3569,6 @@ function ActiveShareMetadata({
         <ShareCountdownText expiresAt={grant.expiresAt} className="truncate" />
       )}
     </span>
-  );
-}
-
-function StopGrantTextButton({
-  grantId,
-  revokingGrantId,
-  onStopGrant,
-}: {
-  grantId: string;
-  revokingGrantId: string | null;
-  onStopGrant: (grantId: string) => void;
-}) {
-  const stopping = revokingGrantId === grantId;
-  return (
-    <button
-      type="button"
-      className={ACTIVE_SHARE_STOP_CLASSNAME}
-      onClick={() => onStopGrant(grantId)}
-      disabled={stopping}
-    >
-      {stopping ? "Stopping…" : "Stop"}
-    </button>
   );
 }
 
