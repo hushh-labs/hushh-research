@@ -44,7 +44,7 @@
 
 /* Scan into a reviewable draft above the manual fields. */
 .scanner { display: flex; flex-direction: column; gap: 10px; }
-.scanActions { display: flex; justify-content: flex-end; }
+.scanActions { display: flex; min-height: 44px; align-items: center; justify-content: flex-start; gap: 8px; }
 .scanActions .scanAction { background: transparent !important; box-shadow: none !important; border-color: transparent; font-size: 13px; }
 .scanHint,.scanProgress { font-size: 13px; line-height: 1.5; color: var(--muted-foreground); }
 .scanProgress { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -56,3 +56,14 @@
 .field input[id$='-pin']::placeholder { font-size: 11px; }
 
 .field input { background-color: var(--app-card-surface-default-solid); }
+
+.scanIntro { display:flex; justify-content:center; padding:12px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:linear-gradient(160deg, var(--app-card-surface-default-solid) 15%, color-mix(in srgb, var(--app-accent) 18%, var(--app-card-surface-default-solid))); overflow:hidden; }
+.scanArtwork { display:block; width:100%; max-width:253px; aspect-ratio:253 / 212; padding:0; border:0; border-radius:12px; background:transparent; cursor:pointer; }
+.scanArtwork:focus-visible { outline:2px solid var(--app-accent); outline-offset:4px; }
+.scanArtwork:disabled { opacity:.55; cursor:default; }
+/* Render the supplied image unchanged; use only the cutout's alpha as a mask. */
+.scanReference { display:block; width:100%; height:auto; mask-image:url('/wallet/card-scan-reference-mask.png'); mask-size:100% 100%; mask-repeat:no-repeat; }
+
+@layer base {
+  .scanActions .scanAction { font-size: 13px !important; }
+}

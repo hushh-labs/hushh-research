@@ -145,8 +145,7 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
         ],
       } : { title: card.nickname || cardNetworkLabel(card.brand) }} scrollReveal showActions={false} showDetailsLink />
       <div className={styles.quickActions}>
-        <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" />{cards.length ? "Add another card" : "Add a payment card"}</Button>
-
+        <Button variant="ghost" size="compact" className={styles.addAction} onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" className="size-4" />{cards.length ? "Add another card" : "Add a payment card"}</Button>
       </div>
     </> : <div key={selected.cardId} className="motion-step-enter space-y-5" data-testid="wallet-selected-card">
       <div className={styles.detailNavigation}><Button variant="ghost" size="compact" showRipple={false} onClick={showAll} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-4" />All cards</Button><span>{index + 1} / {collection.length}</span><Button variant="ghost" size="compact" showRipple={false} disabled={isBusy || index === collection.length - 1} aria-label="Next card" onClick={() => { const next = collection[index + 1]; if (next) choose(next.cardId); }}><ArrowRight aria-hidden="true" className="size-4" /></Button></div>

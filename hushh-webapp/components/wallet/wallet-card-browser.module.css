@@ -36,7 +36,8 @@
 .transactions li { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid var(--border); font-size:14px; }
 .transactions small { display:block; margin-top:4px; color:var(--muted-foreground); font-size:11px; }
 .transactions strong { flex:none; font-size:13px; font-weight:500; font-variant-numeric:tabular-nums; }
-.quickActions { display:flex; flex-wrap:wrap; gap:12px; padding:16px 0; }
+.quickActions { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:8px; padding-top:12px; }
+.addAction { width:auto; max-width:100%; font-size:13px; }
 .previewPanel { display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding-block:12px; }
 .previewPanel p { color:var(--muted-foreground); font-size:14px; line-height:1.6; }
 @media(prefers-reduced-motion:reduce) { .thumbnailButton { transition:none; } }
@@ -88,6 +89,7 @@
 
 /* Keep card navigation visually lightweight while retaining its hit area. */
 @layer base {
+  .addAction, .searchAction { font-size:13px !important; }
   .detailNavigation > button {
     background: transparent !important;
     box-shadow: none !important;
