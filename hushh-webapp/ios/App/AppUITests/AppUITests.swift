@@ -3224,13 +3224,16 @@ final class AppUITests: XCTestCase {
         // A tablet sheet occupies only the right-hand portion of the WebView.
         // Its authored dialog, not the viewport, owns gestures and scrolling.
         let closeCenter = CGPoint(x: close.frame.midX, y: close.frame.midY)
-        // WebKit can expose an authored dialog as a scroll view or container.
-        // Select its actual accessible bounds; never substitute the viewport.
-        let candidates = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Profile"))
+        // Query the named modal at the app AX boundary, then require its actual
+        // bounds inside the retained WebView and containing its Close control.
+        // WebKit's modal containers need not be descendants of its AX WebView.
+        // Never substitute the viewport or a guessed tablet width.
+        let candidates = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Profile"))
         _ = candidates.firstMatch.waitForExistence(timeout: 10)
         let frames = candidates.allElementsBoundByIndex.map { $0.frame.intersection(web.frame).intersection(app.frame) }
             .filter { !$0.isNull && $0.width >= 200 && $0.height > 100 && $0.contains(closeCenter) }
         guard let frame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
+            print("PROFILE_PANE_PUBLIC_GEOMETRY candidates=\(candidates.count) admitted=\(frames.count) close_x=\(Int(close.frame.minX)) close_y=\(Int(close.frame.minY)) web_width=\(Int(web.frame.width)) web_height=\(Int(web.frame.height))")
             XCTFail("PROFILE_PANE_FRAME_UNAVAILABLE"); throw NSError(domain: "ProfilePaneFixture", code: 1)
         }
         return frame
@@ -3469,15 +3472,17 @@ final class AppUITests: XCTestCase {
                 // Profile detail. Its route parent is One; use those real
                 // controls before restoring the originating Chat menu.
                 let routeBack = app.buttons["Go back"].firstMatch
-                guard waitForNativeRoute(app, route: "/one/referrals", timeout: 15),
-                      web.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 10),
+                // Attach-only qualification does not launch -UITestMode and
+                // has no cold-audit native-test-status overlay. Observe the
+                // actual destination and parent, without restarting the app.
+                guard web.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 15),
                       waitForAdmittedControl(routeBack) else {
                     XCTFail("PROFILE_BATCH_REFERRALS_ROUTE_UNAVAILABLE"); return
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                 XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
                 routeBack.tap()
-                guard waitForNativeRoute(app, route: "/one", timeout: 15) else {
+                guard web.links["Open Memory"].firstMatch.waitForExistence(timeout: 15) else {
                     XCTFail("PROFILE_BATCH_REFERRALS_PARENT_NOT_RESTORED"); return
                 }
                 perfTapNav(app, label: "Chat")
