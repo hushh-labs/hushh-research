@@ -203,9 +203,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     window.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy = "mutation_authorized";
     view.rerender(<ProfileResearchCard {...props} />);
     expect(await screen.findByTestId("profile-research-card")).toBeTruthy();
-    await waitFor(() => {
-      expect(mocks.apiFetch.mock.calls.filter(([path]) => path === "/api/one/profile-research/jobs")).toHaveLength(1);
-    });
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([path]) => path === "/api/one/profile-research/jobs")).toHaveLength(1));
   });
 
   it("keeps cited choices without the duplicate summary or provider chips", async () => {
