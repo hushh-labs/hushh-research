@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 326,
+  "expected_migration_version": 327,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1612,6 +1612,7 @@
       "content_algorithm",
       "created_at",
       "read_at",
+      "delivered_at",
       "edited_at",
       "reply_to_message_id",
       "deleted_for_sender_at",

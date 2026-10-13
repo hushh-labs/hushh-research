@@ -291,7 +291,8 @@
     "323_wallet_sharing_owner_index.sql",
     "324_wallet_sharing_recipient_index.sql",
     "325_wallet_sharing_audit_index.sql",
-    "326_answer_scope_resolution_lease.sql"
+    "326_answer_scope_resolution_lease.sql",
+    "327_direct_message_delivery_receipts.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -616,6 +617,7 @@
     "323_wallet_sharing_owner_index.sql": "rollback/323_wallet_sharing_owner_index.rollback.sql",
     "324_wallet_sharing_recipient_index.sql": "rollback/324_wallet_sharing_recipient_index.rollback.sql",
     "325_wallet_sharing_audit_index.sql": "rollback/325_wallet_sharing_audit_index.rollback.sql",
-    "326_answer_scope_resolution_lease.sql": "rollback/326_answer_scope_resolution_lease.rollback.sql"
+    "326_answer_scope_resolution_lease.sql": "rollback/326_answer_scope_resolution_lease.rollback.sql",
+    "327_direct_message_delivery_receipts.sql": "rollback/327_direct_message_delivery_receipts.rollback.sql"
   }
 }

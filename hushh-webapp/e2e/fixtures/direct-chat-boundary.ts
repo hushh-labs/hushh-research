@@ -6,6 +6,11 @@ import type { DirectMessage, DirectMessageConversation } from "../../lib/service
 export const DIRECT_MESSAGE_MAX_LENGTH = 2000;
 export class DirectMessagesServiceRequestError extends Error { status = 503; }
 const rows = new Map<string, DirectMessage[]>();
+const attachments = new Map<string, Blob>();
+const deliveries: { conversationId: string; messageIds: string[] }[] = [];
+let delayOlder = false;
+let settleOlder: (() => void) | null = null;
+let olderPending = false;
 for (const conversationId of ["maya", "arjun"]) rows.set(conversationId, Array.from({ length: 80 }, (_, index) => ({
   id: `${conversationId}-${index}`, conversationId, senderIsViewer: index % 3 === 1,
   content: index === 79 ? "Let’s meet tomorrow. I’ll share the details here 😊" : index === 78 ? "https://example.com/" + "long-path".repeat(50) : `Message ${index + 1} — a friendly conversation.`,
@@ -29,7 +34,30 @@ let pendingHistory = false;
 let delayRead = false;
 let settleRead: (() => void) | null = null;
 const fixture = {
-  sends, reads,
+  sends, reads, deliveries,
+  holdOlder: () => { delayOlder = true; }, olderPending: () => olderPending,
+  releaseOlder: () => { delayOlder = false; settleOlder?.(); settleOlder = null; },
+  quoteOldest: () => {
+    const items = rows.get("maya")!;
+    items.at(-1)!.replyTo = { id: items[0]!.id, content: items[0]!.content, senderIsViewer: false, deletedForEveryoneAt: null };
+    dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: "maya", messageId: "quote", source: "sse" });
+  },
+  addFiles: () => {
+    const bytes = new Uint8Array(44 + 128000), view = new DataView(bytes.buffer);
+    for (const [offset, tag] of [[0, "RIFF"], [8, "WAVE"], [12, "fmt "], [36, "data"]] as const) bytes.set(new TextEncoder().encode(tag), offset);
+    view.setUint32(4, bytes.length - 8, true); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); view.setUint32(40, 128000, true);
+    for (let offset = 44; offset < bytes.length; offset += 2) view.setInt16(offset, Math.sin(offset / 24) * 8000, true);
+    for (const [id, blob, attachment, senderIsViewer] of [
+      ["fixture-file", new Blob(["%PDF-fixture"], { type: "application/pdf" }), { kind: "document", name: "Chat_Spec_v2.pdf", mimeType: "application/pdf", size: 12 }, false],
+      ["fixture-audio", new Blob([bytes], { type: "audio/wav" }), { kind: "audio", name: "Voice message.wav", mimeType: "audio/wav", size: bytes.length, durationMs: 4000 }, true],
+    ] as const) {
+      attachments.set(id, blob);
+      const items = rows.get("maya")!;
+      items.push({ id, conversationId: "maya", content: "", senderIsViewer, createdAt: new Date(Date.parse(items.at(-1)!.createdAt) + 60000).toISOString(), readAt: null, deliveredAt: senderIsViewer ? new Date().toISOString() : null, attachment });
+    }
+    dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: "maya", messageId: "fixture-files", source: "sse" });
+  },
   holdHistory: () => { delayHistory = true; },
   historyPending: () => pendingHistory,
   releaseHistory: () => { delayHistory = false; settleHistory?.(); settleHistory = null; },
@@ -71,9 +99,16 @@ export class DirectMessagesService {
     const page = filtered.slice(-60);
     const result = { conversation: { ...conversation(input.conversationId), unreadCount: 0 }, items: page.map((item) => ({ ...item })), canSend: true, disconnectedNotice: null,
       nextBefore: filtered.length > 60 ? page[0]!.id : null };
+    if (input.before && delayOlder && !olderPending) { olderPending = true; await new Promise<void>(resolve => { settleOlder = resolve; }); olderPending = false; }
     if (delayHistory) { pendingHistory = true; await new Promise<void>((resolve) => { settleHistory = resolve; }); pendingHistory = false; }
     return result;
   }
+  static async acknowledgeDelivery(input: { conversationId: string; messageIds: string[]; isEffectCurrent: () => boolean }) {
+    if (!input.isEffectCurrent()) return;
+    deliveries.push({ conversationId: input.conversationId, messageIds: input.messageIds });
+    for (const item of rows.get(input.conversationId)!) if (input.messageIds.includes(item.id) && !item.senderIsViewer) item.deliveredAt ??= new Date().toISOString();
+  }
+  static async getAttachment(input: { messageId: string }) { return attachments.get(input.messageId)!; }
   static async getConversationWithPerson(input: { personRef: string }) { return { conversation: conversation(input.personRef), canSend: true }; }
   static async sendMessage(input: typeof sends[number]) {
     sends.push({ ...input });
