@@ -31,9 +31,11 @@ GCP's native worker still reports root identity; the attempted identity change w
 refused. A supported non-root Chromium sandbox and private bridge remain required.
 Do not substitute `--no-sandbox`, privileged execution or the private-agent container.
 Azure's current native API read back the exact synthetic source and deny/full/enforced
-policy, but execution admission returned 403. The selected CLI token reports a
-personal Microsoft identity; the provider requires Microsoft Entra identity for
-SandboxGroup use. A policy receipt does not qualify Chromium or the private bridge.
+policy, but execution admission returned 403. The observed personal-identity token
+was refused despite the temporary role.
+Supported Microsoft Entra execution admission remains unresolved; this receipt
+does not establish that every personal or guest identity is unsupported. A policy
+receipt does not qualify Chromium or the private bridge.
 The temporary sandbox, group, resource group and exact temporary role were removed
 and absence verified; the initial failed cleanup receipt is retained.
 
