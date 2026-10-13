@@ -1,0 +1,9402 @@
+from __future__ import annotations
+
+import asyncio
+import csv
+import hashlib
+import io
+import json
+import logging
+import os
+import re
+import threading
+import uuid
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Literal
+
+import asyncpg
+
+from db.connection import get_pool
+from hushh_mcp.consent.scope_helpers import get_scope_description
+from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.consent_request_links import (
+    build_connection_request_url,
+    build_consent_request_url,
+)
+from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
+from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
+from hushh_mcp.services.ria_verification import (
+    FinraVerificationAdapter,
+    NameVerificationResult,
+    RIAIntelligenceStage1LookupAdapter,
+    VerificationGateway,
+    VerificationResult,
+)
+from hushh_mcp.services.symbol_master_service import get_symbol_master_service
+
+logger = logging.getLogger(__name__)
+
+PersonaType = Literal["investor", "ria"]
+ActorType = Literal["investor", "ria"]
+
+_ALLOWED_PERSONAS: set[str] = {"investor", "ria"}
+_ALLOWED_ACTOR_TYPES: set[str] = {"investor", "ria"}
+_DURATION_PRESETS_HOURS: set[int] = {24, 24 * 7, 24 * 30, 24 * 90}
+_MAX_DURATION_HOURS = 24 * 365
+_ALLOWED_PROFESSIONAL_CAPABILITIES: tuple[str, ...] = ("advisory", "brokerage")
+_IAM_REQUIRED_TABLES: tuple[str, ...] = (
+    "actor_profiles",
+    "ria_profiles",
+    "ria_firms",
+    "ria_firm_memberships",
+    "ria_verification_events",
+    "advisor_investor_relationships",
+    "ria_client_invites",
+    "consent_scope_templates",
+    "marketplace_public_profiles",
+    "marketplace_investor_actions",
+    "relationship_share_grants",
+    "relationship_share_events",
+)
+_RUNTIME_PERSONA_STATE_TABLE = "runtime_persona_state"
+# TTL-aware cache: maps table_name -> expiry datetime (UTC).
+# Using a TTL (default 300 s) instead of a permanent boolean means a
+# newly-migrated schema is recognised within 5 minutes without a restart,
+# and avoids stale state across uvicorn worker respawns.
+_TABLE_EXISTS_CACHE_TTL = timedelta(seconds=300)
+_TABLE_EXISTS_CACHE: dict[str, datetime] = {}
+_IAM_SCHEMA_READY_CACHE = False
+_RELATIONSHIP_SHARE_ACTIVE_PICKS = "ria_active_picks_feed_v1"
+_RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT = "relationship_implicit"
+_RIA_PICKS_PKM_DOMAIN = "ria"
+_RIA_PICKS_PKM_PATH = "advisor_package"
+_PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
+
+
+class _PersonaStateCache:
+    """Thread-safe, TTL-aware, size-bounded cache for persona state payloads.
+
+    The cache is keyed by normalised ``user_id``.  Each entry stores the
+    time the payload was written together with the payload dict itself.
+    Stale entries (age > TTL) are evicted lazily on every read and
+    proactively during writes when the cap is reached.
+
+    Memory footprint (default cap = 10 000):
+      10 000 entries x ~600 B per entry ~ 6 MB worst-case.
+    """
+
+    MAX_ENTRIES: int = 10_000
+
+    def __init__(self, max_entries: int = MAX_ENTRIES) -> None:
+        if max_entries < 1:
+            raise ValueError(f"max_entries must be >= 1, got {max_entries}")
+        self._max = max_entries
+        self._data: dict[str, tuple[datetime, dict[str, Any]]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str, ttl: timedelta) -> dict[str, Any] | None:
+        """Return a copy of the cached payload for *key*, or ``None`` if absent/stale."""
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return None
+            cached_at, payload = entry
+            if datetime.now(timezone.utc) - cached_at > ttl:
+                del self._data[key]
+                return None
+            return dict(payload)
+
+    def set(self, key: str, payload: dict[str, Any]) -> None:
+        """Write *payload* under *key*, evicting stale and oldest entries as needed."""
+        with self._lock:
+            # Fast path: update in place if already present (no size change).
+            if key in self._data:
+                self._data[key] = (datetime.now(timezone.utc), dict(payload))
+                return
+            # Make room if at capacity.
+            if len(self._data) >= self._max:
+                # Step 1: remove entries that are already past the TTL.
+                now = datetime.now(timezone.utc)
+                stale = [
+                    k for k, (ts, _) in self._data.items() if now - ts > _PERSONA_STATE_CACHE_TTL
+                ]
+                for k in stale:
+                    del self._data[k]
+            # Step 2: if still at capacity, evict the oldest-inserted entry.
+            while len(self._data) >= self._max:
+                oldest = next(iter(self._data))
+                del self._data[oldest]
+            self._data[key] = (datetime.now(timezone.utc), dict(payload))
+
+    def invalidate(self, key: str) -> None:
+        """Remove *key* from the cache (no-op if absent)."""
+        with self._lock:
+            self._data.pop(key, None)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._data)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+
+
+_PERSONA_STATE_CACHE = _PersonaStateCache()
+_MARKETPLACE_INVESTOR_ACTION_STATUS: dict[str, str] = {
+    "view_more": "viewed",
+    "pass": "passed",
+    "shortlist": "shortlisted",
+    "connect_request": "connect_requested",
+}
+_RIA_SCREENING_SECTION_ORDER: tuple[str, ...] = (
+    "investable_requirements",
+    "automatic_avoid_triggers",
+    "the_math",
+)
+_RIA_KAI_SPECIALIZED_TEMPLATE_ID = "ria_kai_specialized_v1"
+_RIA_KAI_SPECIALIZED_BUNDLE_KEY = "ria_kai_specialized"
+_RIA_KAI_SPECIALIZED_LABEL = "Kai specialized access"
+_RIA_KAI_SPECIALIZED_DESCRIPTION = (
+    "Advisor-side Kai and explorer access for portfolio, profile, analysis history, "
+    "and runtime context."
+)
+_OFFICIAL_LOCATION_REPORT_URLS: tuple[str, ...] = (
+    "https://reports.adviserinfo.sec.gov/reports/individual/individual_{crd}.pdf",
+    "https://files.brokercheck.finra.org/individual/individual_{crd}.pdf",
+)
+_US_STATE_CODES = {
+    "AL",
+    "AK",
+    "AZ",
+    "AR",
+    "CA",
+    "CO",
+    "CT",
+    "DE",
+    "FL",
+    "GA",
+    "HI",
+    "ID",
+    "IL",
+    "IN",
+    "IA",
+    "KS",
+    "KY",
+    "LA",
+    "ME",
+    "MD",
+    "MA",
+    "MI",
+    "MN",
+    "MS",
+    "MO",
+    "MT",
+    "NE",
+    "NV",
+    "NH",
+    "NJ",
+    "NM",
+    "NY",
+    "NC",
+    "ND",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SC",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VT",
+    "VA",
+    "WA",
+    "WV",
+    "WI",
+    "WY",
+    "DC",
+}
+_OFFICIAL_ADDRESS_RE = re.compile(
+    r"(?P<address>\d{1,6}\s+[A-Z0-9][A-Z0-9 .,#'&/-]{4,120}?)\s+"
+    r"(?P<city>[A-Z][A-Z .'-]{1,60}?),\s*"
+    r"(?P<state>AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\s+"
+    r"(?P<pin_zip>\d{5}(?:-\d{4})?)\b",
+    re.IGNORECASE,
+)
+_BROKERCHECK_BRANCH_ROW_RE = re.compile(
+    r"\b(?:B|IA)?\s*"
+    r"\d{2}/\d{4}\s+-\s+(?:Present|\d{2}/\d{4})\s+"
+    r"(?P<firm>[A-Z0-9][A-Z0-9 .,&'/-]{1,120}?)\s+"
+    r"(?P<firm_crd>\d{2,8})\s+"
+    r"(?P<city>[A-Z][A-Z .'-]{1,60}?),\s*"
+    r"(?P<state>AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b",
+    re.IGNORECASE,
+)
+_BROKERCHECK_SUMMARY_BRANCH_RE = re.compile(
+    r"\b(?:B|IA)\s+"
+    r"(?P<firm>[A-Z0-9][A-Z0-9 .,&'/-]{1,120}?)\s+"
+    r"CRD#\s*(?P<firm_crd>\d{2,8})\s+"
+    r"(?P<city>[A-Z][A-Z .'-]{1,60}?),\s*"
+    r"(?P<state>AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b",
+    re.IGNORECASE,
+)
+_FIRM_CITY_STATE_ZIP_RE = re.compile(
+    r"^(?P<city>[A-Z][A-Z .'-]{1,60}?),\s*"
+    r"(?P<state>AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\s+"
+    r"(?P<pin_zip>\d{5}(?:-\d{4})?)\b",
+    re.IGNORECASE,
+)
+_OFFICIAL_EXAM_LABELS = {
+    "SIE": "SIE - Securities Industry Essentials Examination",
+    "Series 7": "Series 7 - General Securities Representative Examination",
+    "Series 7TO": "Series 7TO - General Securities Representative Examination",
+    "Series 63": "Series 63 - Uniform Securities Agent State Law Examination",
+    "Series 65": "Series 65 - Uniform Investment Adviser Law Examination",
+    "Series 66": "Series 66 - Uniform Combined State Law Examination",
+}
+DEFAULT_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS = 75.0
+
+
+def _first_text_value(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return None
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw_value = str(os.getenv(name) or "").strip()
+    if not raw_value:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError:
+        logger.warning("Invalid %s=%r; using default %.1fs", name, raw_value, default)
+        return default
+    if value <= 0:
+        logger.warning("Invalid %s=%r; using default %.1fs", name, raw_value, default)
+        return default
+    return value
+
+
+def _broker_city(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("city"),
+        payload.get("businessCity"),
+        payload.get("business_city"),
+    )
+
+
+def _broker_pin_zip(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("pinZip"),
+        payload.get("pin_zip"),
+        payload.get("zip"),
+        payload.get("zipCode"),
+        payload.get("postalCode"),
+        payload.get("postal_code"),
+    )
+
+
+def _broker_state(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("state"),
+        payload.get("businessState"),
+        payload.get("business_state"),
+        payload.get("region"),
+    )
+
+
+def _broker_area_locality(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("areaLocality"),
+        payload.get("area_locality"),
+        payload.get("businessArea"),
+        payload.get("business_area"),
+        payload.get("locality"),
+    )
+
+
+def _broker_street_address(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("fullStreetAddress"),
+        payload.get("full_street_address"),
+        payload.get("streetAddress"),
+        payload.get("street_address"),
+        payload.get("businessAddress"),
+        payload.get("business_address"),
+        payload.get("address"),
+    )
+
+
+def _broker_official_location(payload: dict[str, Any]) -> dict[str, Any] | None:
+    value = payload.get("officialLocation") or payload.get("official_location")
+    return value if isinstance(value, dict) else None
+
+
+def _title_case_city(value: str) -> str:
+    small_words = {"of", "and", "the"}
+    parts: list[str] = []
+    for word in value.strip().lower().split():
+        parts.append(word if word in small_words else word.capitalize())
+    return " ".join(parts)
+
+
+def _official_location_from_text(text: str, source_url: str) -> dict[str, str] | None:
+    normalized = " ".join(str(text or "").replace("\xa0", " ").split())
+    if not normalized:
+        return None
+
+    for match in _OFFICIAL_ADDRESS_RE.finditer(normalized):
+        state = match.group("state").upper()
+        if state not in _US_STATE_CODES:
+            continue
+        city = _title_case_city(match.group("city"))
+        pin_zip = match.group("pin_zip")
+        address = " ".join(match.group("address").split()).strip(" ,")
+        return {
+            "city": city,
+            "state": state,
+            "pin_zip": pin_zip,
+            "address": address,
+            "location": f"{city}, {state}",
+            "source_url": source_url,
+        }
+    return None
+
+
+def _same_location_part(left: str | None, right: str | None) -> bool:
+    normalized_left = re.sub(r"[^a-z0-9]+", " ", str(left or "").lower()).strip()
+    normalized_right = re.sub(r"[^a-z0-9]+", " ", str(right or "").lower()).strip()
+    return bool(normalized_left and normalized_right and normalized_left == normalized_right)
+
+
+def _brokercheck_branch_location_from_text(
+    text: str,
+    source_url: str,
+) -> dict[str, str] | None:
+    normalized = " ".join(str(text or "").replace("\xa0", " ").split())
+    if not normalized:
+        return None
+
+    for pattern in (_BROKERCHECK_SUMMARY_BRANCH_RE, _BROKERCHECK_BRANCH_ROW_RE):
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        city = _title_case_city(match.group("city"))
+        state = match.group("state").upper()
+        if state not in _US_STATE_CODES:
+            continue
+        return {
+            "city": city,
+            "state": state,
+            "location": f"{city}, {state}",
+            "firm_crd": match.group("firm_crd"),
+            "firm_name": _clean_official_line(match.group("firm")),
+            "source_url": source_url,
+        }
+    return None
+
+
+def _trim_firm_address_line(line: str) -> str:
+    candidate = _clean_official_line(line)
+    for marker in (
+        " This firm ",
+        " Brokerage firms ",
+        " Regulated by ",
+        " Information ",
+        " Are there ",
+        " Business Telephone ",
+    ):
+        if marker in candidate:
+            candidate = candidate.split(marker, 1)[0]
+    return _clean_official_line(candidate)
+
+
+def _firm_location_from_text(text: str, source_url: str) -> dict[str, str] | None:
+    lines = _official_report_lines(text)
+    for idx, line in enumerate(lines):
+        match = _FIRM_CITY_STATE_ZIP_RE.search(line)
+        if not match:
+            continue
+        state = match.group("state").upper()
+        if state not in _US_STATE_CODES:
+            continue
+        address = ""
+        for previous in reversed(lines[max(0, idx - 4) : idx]):
+            previous_address = _trim_firm_address_line(previous)
+            if re.match(r"^\d{1,6}\s+", previous_address):
+                address = previous_address
+                break
+        city = _title_case_city(match.group("city"))
+        pin_zip = match.group("pin_zip")
+        return {
+            "city": city,
+            "state": state,
+            "pin_zip": pin_zip,
+            "address": address,
+            "location": f"{city}, {state}",
+            "source_url": source_url,
+        }
+    return None
+
+
+def _clean_official_line(value: str) -> str:
+    return " ".join(str(value or "").replace("\xa0", " ").split()).strip(" ,-")
+
+
+def _official_report_lines(text: str) -> list[str]:
+    return [
+        _clean_official_line(line)
+        for line in str(text or "").replace("\xa0", " ").splitlines()
+        if _clean_official_line(line)
+    ]
+
+
+def _official_advisor_name(lines: list[str], normalized: str) -> str | None:
+    for idx, line in enumerate(lines):
+        if line == "IAPD Report" and idx + 1 < len(lines):
+            candidate = lines[idx + 1]
+            if candidate and not candidate.startswith("CRD#"):
+                return candidate
+    match = re.search(r"Report Summary\s+(?P<name>.+?)\s+\(CRD#", normalized)
+    return _clean_official_line(match.group("name")) if match else None
+
+
+def _official_crd_number(lines: list[str], normalized: str) -> str | None:
+    for line in lines:
+        match = re.search(r"\bCRD#\s*(?P<crd>\d+)\b", line)
+        if match:
+            return match.group("crd")
+    match = re.search(r"\bCRD#\s*(?P<crd>\d+)\b", normalized)
+    return match.group("crd") if match else None
+
+
+def _official_current_firm(lines: list[str]) -> str | None:
+    for line in lines:
+        match = re.match(r"^\d+\.\s+(?P<firm>.+?)\s+-\s+", line)
+        if match:
+            return _clean_official_line(match.group("firm"))
+
+    present_row = re.compile(
+        r"^\d{2}/\d{4}\s+-\s+Present\s+"
+        r"(?P<firm>.+?)\s+"
+        r"(?:Insurance Agent|Investment Advisor|Client Acquisition|Financial Advisor|"
+        r"Registered Representative|Wealth Advisor|Advisor|Representative)\b",
+        re.IGNORECASE,
+    )
+    for line in lines:
+        match = present_row.search(line)
+        if match:
+            return _clean_official_line(match.group("firm"))
+    return None
+
+
+def _canonical_official_exam(value: str) -> str:
+    compact = re.sub(r"\s+", " ", value.strip().upper())
+    if compact == "SIE":
+        return "SIE"
+    match = re.match(r"SERIES\s+(?P<number>\d+[A-Z]*)", compact)
+    if not match:
+        return _clean_official_line(value)
+    return f"Series {match.group('number')}"
+
+
+def _official_exams(lines: list[str]) -> list[str]:
+    exams: list[str] = []
+    for line in lines:
+        for raw_exam in re.findall(r"\b(?:Series\s+\d+[A-Z]*|SIE)\b", line, flags=re.IGNORECASE):
+            canonical = _canonical_official_exam(raw_exam)
+            label = _OFFICIAL_EXAM_LABELS.get(canonical, canonical)
+            if label not in exams:
+                exams.append(label)
+    return exams
+
+
+def _official_profile_from_text(text: str, source_url: str) -> dict[str, Any] | None:
+    normalized = " ".join(str(text or "").replace("\xa0", " ").split())
+    if not normalized:
+        return None
+
+    lines = _official_report_lines(text)
+    location = _official_location_from_text(text, source_url)
+    profile: dict[str, Any] = {
+        "advisor_name": _official_advisor_name(lines, normalized),
+        "crd_number": _official_crd_number(lines, normalized),
+        "firm_name": _official_current_firm(lines),
+        "certifications": _official_exams(lines),
+        "official_location": location,
+        "source_url": source_url,
+        "regulator_status": None,
+        "summary": None,
+    }
+
+    if (
+        "This individual is not currently registered as an Investment Adviser Representative."
+        in normalized
+    ):
+        profile["regulator_status"] = (
+            "Not currently registered as an Investment Adviser Representative"
+        )
+    elif "currently registered as an Investment Adviser Representative" in normalized:
+        profile["regulator_status"] = "Investment Adviser Representative"
+
+    if profile["advisor_name"]:
+        profile["summary"] = f"Official IAPD records list {profile['advisor_name']}" + (
+            f" under CRD {profile['crd_number']}." if profile["crd_number"] else "."
+        )
+
+    if not any(
+        (
+            profile["advisor_name"],
+            profile["crd_number"],
+            profile["firm_name"],
+            profile["certifications"],
+            profile["official_location"],
+        )
+    ):
+        return None
+    return profile
+
+
+def _official_location_from_pdf(content: bytes, source_url: str) -> dict[str, str] | None:
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        parts: list[str] = []
+        for page in pdf.pages[:8]:
+            parts.append(page.extract_text() or "")
+            if sum(len(part) for part in parts) > 20_000:
+                break
+    return _official_location_from_text(" ".join(parts), source_url)
+
+
+def _brokercheck_branch_location_from_pdf(
+    content: bytes,
+    source_url: str,
+) -> dict[str, str] | None:
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        parts: list[str] = []
+        for page in pdf.pages[:8]:
+            parts.append(page.extract_text() or "")
+            if sum(len(part) for part in parts) > 30_000:
+                break
+    return _brokercheck_branch_location_from_text("\n".join(parts), source_url)
+
+
+def _firm_location_from_pdf(content: bytes, source_url: str) -> dict[str, str] | None:
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        parts: list[str] = []
+        for page in pdf.pages[:5]:
+            parts.append(page.extract_text() or "")
+            if sum(len(part) for part in parts) > 20_000:
+                break
+    return _firm_location_from_text("\n".join(parts), source_url)
+
+
+def _official_profile_from_pdf(content: bytes, source_url: str) -> dict[str, Any] | None:
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        parts: list[str] = []
+        for page in pdf.pages[:8]:
+            parts.append(page.extract_text() or "")
+            if sum(len(part) for part in parts) > 30_000:
+                break
+    return _official_profile_from_text("\n".join(parts), source_url)
+
+
+async def _official_pdf_profile_for_crd(crd_number: str) -> dict[str, Any] | None:
+    import httpx
+
+    normalized = re.sub(r"\D+", "", str(crd_number or ""))
+    if not normalized:
+        return None
+
+    timeout = httpx.Timeout(connect=6.0, read=24.0, write=6.0, pool=6.0)
+    headers = {
+        "User-Agent": "hushh-ria-onboarding/1.0 (+https://hushh.ai)",
+        "Accept": "application/pdf,*/*",
+    }
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=True,
+        headers=headers,
+    ) as client:
+        for template in _OFFICIAL_LOCATION_REPORT_URLS:
+            source_url = template.format(crd=normalized)
+            try:
+                response = await client.get(source_url)
+                response.raise_for_status()
+                profile = await asyncio.to_thread(
+                    _official_profile_from_pdf,
+                    response.content,
+                    source_url,
+                )
+            except Exception:
+                logger.info(
+                    "verify_ria_license: official PDF profile fallback failed for %s",
+                    normalized,
+                    exc_info=True,
+                )
+                continue
+            if profile:
+                return profile
+    return None
+
+
+async def _official_pdf_location_for_crd(crd_number: str) -> dict[str, str] | None:
+    import httpx
+
+    normalized = re.sub(r"\D+", "", str(crd_number or ""))
+    if not normalized:
+        return None
+
+    timeout = httpx.Timeout(connect=6.0, read=24.0, write=6.0, pool=6.0)
+    headers = {
+        "User-Agent": "hushh-ria-onboarding/1.0 (+https://hushh.ai)",
+        "Accept": "application/pdf,*/*",
+    }
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=True,
+        headers=headers,
+    ) as client:
+        for template in _OFFICIAL_LOCATION_REPORT_URLS:
+            source_url = template.format(crd=normalized)
+            try:
+                response = await client.get(source_url)
+                response.raise_for_status()
+                location = await asyncio.to_thread(
+                    _official_location_from_pdf,
+                    response.content,
+                    source_url,
+                )
+                if not location and "brokercheck.finra.org/individual/" in source_url:
+                    branch_location = await asyncio.to_thread(
+                        _brokercheck_branch_location_from_pdf,
+                        response.content,
+                        source_url,
+                    )
+                    location = branch_location
+                    firm_crd = branch_location.get("firm_crd") if branch_location else None
+                    if firm_crd:
+                        firm_source_url = (
+                            f"https://files.brokercheck.finra.org/firm/firm_{firm_crd}.pdf"
+                        )
+                        try:
+                            firm_response = await client.get(firm_source_url)
+                            firm_response.raise_for_status()
+                            firm_location = await asyncio.to_thread(
+                                _firm_location_from_pdf,
+                                firm_response.content,
+                                firm_source_url,
+                            )
+                        except Exception:
+                            logger.info(
+                                "verify_ria_license: firm PDF location fallback failed for %s",
+                                firm_crd,
+                                exc_info=True,
+                            )
+                            firm_location = None
+                        if (
+                            firm_location
+                            and _same_location_part(
+                                branch_location.get("city"),
+                                firm_location.get("city"),
+                            )
+                            and _same_location_part(
+                                branch_location.get("state"),
+                                firm_location.get("state"),
+                            )
+                        ):
+                            location = {
+                                **branch_location,
+                                **firm_location,
+                                "firm_crd": firm_crd,
+                                "firm_name": branch_location.get("firm_name", ""),
+                                "individual_source_url": source_url,
+                                "source_url": firm_source_url,
+                            }
+            except Exception:
+                logger.info(
+                    "verify_ria_license: official PDF location fallback failed for %s",
+                    normalized,
+                    exc_info=True,
+                )
+                continue
+            if location:
+                return location
+    return None
+
+
+def _broker_exams(payload: dict[str, Any]) -> list[str]:
+    exams = payload.get("exams")
+    if not isinstance(exams, list):
+        return []
+    normalized: list[str] = []
+    for item in exams:
+        if isinstance(item, dict):
+            value = _first_text_value(item.get("name"), item.get("examName"))
+        else:
+            value = _first_text_value(item)
+        if value and value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+_RIA_KAI_SPECIALIZED_PRESENTATIONS: tuple[str, ...] = ("kai", "explorer")
+_RIA_KAI_SPECIALIZED_SCOPES: tuple[str, ...] = (
+    "attr.financial.portfolio.*",
+    "attr.financial.profile.*",
+    "attr.financial.analysis_history.*",
+    "attr.financial.runtime.*",
+)
+_RIA_KAI_SPECIALIZED_SCOPE_SET = set(_RIA_KAI_SPECIALIZED_SCOPES)
+_RIA_LICENSE_VERIFICATION_REUSE_TTL = timedelta(hours=24)
+
+
+class RIAIAMPolicyError(Exception):
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class IAMSchemaNotReadyError(Exception):
+    def __init__(
+        self,
+        message: str = (
+            "IAM schema is not ready. Run `python db/migrate.py --iam` and "
+            "`python db/verify/verify_iam_schema.py`."
+        ),
+    ):
+        super().__init__(message)
+        self.code = "IAM_SCHEMA_NOT_READY"
+
+
+@dataclass(frozen=True)
+class ScopeTemplate:
+    template_id: str
+    requester_actor_type: ActorType
+    subject_actor_type: ActorType
+    template_name: str
+    allowed_scopes: list[str]
+    default_duration_hours: int
+    max_duration_hours: int
+
+
+class _PooledAsyncpgConnection:
+    """Connection wrapper that keeps existing call sites (`await conn.close()`) unchanged."""
+
+    def __init__(self, pool: asyncpg.Pool, connection: asyncpg.Connection) -> None:
+        self._pool = pool
+        self._connection = connection
+        self._released = False
+
+    async def close(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        await self._pool.release(self._connection)
+
+    def __getattr__(self, name: str):
+        return getattr(self._connection, name)
+
+
+class RIAIAMService:
+    def __init__(self) -> None:
+        self._verification_gateway = VerificationGateway(FinraVerificationAdapter())
+        self._name_verification_gateway = RIAIntelligenceStage1LookupAdapter()
+
+    @staticmethod
+    def _runtime_environment() -> str:
+        for name in ("APP_ENV", "ENVIRONMENT", "HUSHH_ENV", "ENV"):
+            value = str(os.getenv(name, "")).strip().lower()
+            if value:
+                return value
+        return "development"
+
+    @classmethod
+    def _is_production_runtime(cls) -> bool:
+        return cls._runtime_environment() in {"prod", "production"}
+
+    @staticmethod
+    def _search_matches(query: str | None, *values: str | None) -> bool:
+        normalized_query = str(query or "").strip().lower()
+        if not normalized_query:
+            return True
+        haystack = " ".join(
+            str(value or "").strip().lower() for value in values if str(value or "").strip()
+        )
+        return normalized_query in haystack
+
+    @staticmethod
+    def _read_cached_persona_state(user_id: str) -> dict[str, Any] | None:
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        return _PERSONA_STATE_CACHE.get(normalized_user_id, _PERSONA_STATE_CACHE_TTL)
+
+    @staticmethod
+    def _write_cached_persona_state(user_id: str, payload: dict[str, Any]) -> None:
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return
+        _PERSONA_STATE_CACHE.set(normalized_user_id, payload)
+
+    @staticmethod
+    def _invalidate_cached_persona_state(user_id: str) -> None:
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id:
+            _PERSONA_STATE_CACHE.invalidate(normalized_user_id)
+
+    @staticmethod
+    def _env_truthy(name: str, fallback: str = "false") -> bool:
+        raw = str(os.getenv(name, fallback)).strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    _RIA_VERIFIED_STATUSES: frozenset[str] = frozenset({"active", "verified", "finra_verified"})
+
+    async def require_ria_verified(self, user_id: str) -> None:
+        """Fail-closed check: raises 403 if the RIA is not verified.
+
+        Checked before any endpoint that exposes investor data.
+        Every RIA must pass Stage 1 CRD-backed verification — no bypass paths.
+        """
+        try:
+            conn = await self._conn()
+        except Exception as exc:
+            raise IAMSchemaNotReadyError() from exc
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            status_val = await conn.fetchval(
+                """
+                SELECT COALESCE(advisory_status, verification_status, 'draft')
+                FROM ria_profiles
+                WHERE user_id = $1
+                """,
+                user_id,
+            )
+        except asyncpg.exceptions.UndefinedColumnError:
+            status_val = await conn.fetchval(
+                "SELECT verification_status FROM ria_profiles WHERE user_id = $1",
+                user_id,
+            )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        except IAMSchemaNotReadyError:
+            raise
+        except Exception as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        if str(status_val or "").strip().lower() not in self._RIA_VERIFIED_STATUSES:
+            raise RIAIAMPolicyError(
+                "RIA verification incomplete. Non-verified advisors cannot access investor data.",
+                status_code=403,
+            )
+
+    @staticmethod
+    def _normalize_persona(value: str) -> PersonaType:
+        normalized = (value or "").strip().lower()
+        if normalized not in _ALLOWED_PERSONAS:
+            raise RIAIAMPolicyError("Invalid persona", status_code=400)
+        return normalized  # type: ignore[return-value]
+
+    @staticmethod
+    def _normalize_actor(value: str) -> ActorType:
+        normalized = (value or "").strip().lower()
+        if normalized not in _ALLOWED_ACTOR_TYPES:
+            raise RIAIAMPolicyError("Invalid actor type", status_code=400)
+        return normalized  # type: ignore[return-value]
+
+    @staticmethod
+    def _now_ms() -> int:
+        return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+    @staticmethod
+    def _normalize_search_query(value: str | None) -> str:
+        return str(value or "").strip().lower()
+
+    @classmethod
+    def _matches_search(cls, item: dict[str, Any], query: str | None) -> bool:
+        needle = cls._normalize_search_query(query)
+        if not needle:
+            return True
+        haystacks = [
+            item.get("investor_display_name"),
+            item.get("investor_email"),
+            item.get("investor_secondary_label"),
+            item.get("investor_headline"),
+            item.get("status"),
+            item.get("relationship_status"),
+            item.get("next_action"),
+        ]
+        return any(needle in str(value or "").lower() for value in haystacks)
+
+    @staticmethod
+    def _normalize_client_status_filter(value: str | None) -> str | None:
+        normalized = str(value or "").strip().lower()
+        return normalized or None
+
+    async def _conn(self) -> asyncpg.Connection:
+        pool = await get_pool()
+        connection = await pool.acquire()
+        return _PooledAsyncpgConnection(pool, connection)
+
+    @staticmethod
+    async def _table_exists(conn: asyncpg.Connection, table_name: str) -> bool:
+        """Check whether a single table exists in the public schema.
+
+        Uses a TTL-aware in-process cache so repeated calls within the TTL
+        window are free.  A TTL (rather than a permanent boolean) ensures
+        that a table added by a migration is recognised without a full
+        process restart.
+        """
+        now = datetime.now(tz=timezone.utc)
+        expiry = _TABLE_EXISTS_CACHE.get(table_name)
+        if expiry is not None and now < expiry:
+            return True
+        exists = bool(await conn.fetchval("SELECT to_regclass($1)", f"public.{table_name}"))
+        if exists:
+            _TABLE_EXISTS_CACHE[table_name] = now + _TABLE_EXISTS_CACHE_TTL
+        return exists
+
+    @staticmethod
+    async def _batch_tables_exist(
+        conn: asyncpg.Connection, table_names: tuple[str, ...]
+    ) -> set[str]:
+        """Return the subset of *table_names* that exist in the public schema.
+
+        Issues a **single** query instead of N individual round-trips.
+        Results are stored in the TTL cache so subsequent single-table
+        lookups within the TTL window are also free.
+
+        Performance: replaces the previous 11-query loop that caused ~1 300 ms
+        latency on the first ``/api/iam/marketplace/opt-in`` request
+        (each ``to_regclass`` round-trip costs ~50-80 ms over Cloud SQL proxy).
+        """
+        now = datetime.now(tz=timezone.utc)
+
+        # Fast path: all tables already cached and unexpired.
+        missing = [
+            t
+            for t in table_names
+            if not ((exp := _TABLE_EXISTS_CACHE.get(t)) is not None and now < exp)
+        ]
+        if not missing:
+            return set(table_names)
+
+        # Single query: ask pg_catalog for all requested table names at once.
+        rows: list[asyncpg.Record] = await conn.fetch(
+            """
+            SELECT tablename
+            FROM   pg_catalog.pg_tables
+            WHERE  schemaname = 'public'
+              AND  tablename  = ANY($1::text[])
+            """,
+            list(missing),
+        )
+        found_in_db: set[str] = {r["tablename"] for r in rows}
+
+        # Populate TTL cache for every table we queried (hit or miss).
+        # Misses are intentionally *not* cached so a pending migration is
+        # picked up on the next call without waiting for the TTL to expire.
+        expiry = now + _TABLE_EXISTS_CACHE_TTL
+        for t in found_in_db:
+            _TABLE_EXISTS_CACHE[t] = expiry
+
+        # Return all tables that are confirmed present (cached + just found).
+        cached_present = {t for t in table_names if t not in missing}
+        return cached_present | found_in_db
+
+    async def _investor_identity_projection(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        user_id_sql: str,
+        marketplace_alias: str = "mp",
+    ) -> tuple[str, str]:
+        if await self._table_exists(conn, "actor_identity_cache"):
+            return (
+                f"""
+                COALESCE(aic.display_name, {marketplace_alias}.display_name, {user_id_sql}) AS investor_display_name,
+                aic.email AS investor_email,
+                COALESCE(aic.email, {marketplace_alias}.headline) AS investor_secondary_label,
+                {marketplace_alias}.headline AS investor_headline
+                """.strip(),
+                f"""
+                LEFT JOIN actor_identity_cache aic
+                  ON aic.user_id = {user_id_sql}
+                """.strip(),
+            )
+        return (
+            f"""
+            COALESCE({marketplace_alias}.display_name, {user_id_sql}) AS investor_display_name,
+            NULL::TEXT AS investor_email,
+            {marketplace_alias}.headline AS investor_secondary_label,
+            {marketplace_alias}.headline AS investor_headline
+            """.strip(),
+            "",
+        )
+
+    async def _is_iam_schema_ready(self, conn: asyncpg.Connection) -> bool:
+        global _IAM_SCHEMA_READY_CACHE
+        if _IAM_SCHEMA_READY_CACHE:
+            return True
+        # Single round-trip instead of N serial to_regclass() calls.
+        present = await self._batch_tables_exist(conn, _IAM_REQUIRED_TABLES)
+        if present >= set(_IAM_REQUIRED_TABLES):
+            _IAM_SCHEMA_READY_CACHE = True
+            return True
+        missing = set(_IAM_REQUIRED_TABLES) - present
+        logger.debug("IAM schema not ready. Missing tables: %s", missing)
+        return False
+
+    async def _ensure_iam_schema_ready(self, conn: asyncpg.Connection) -> None:
+        if not await self._is_iam_schema_ready(conn):
+            raise IAMSchemaNotReadyError()
+
+    @staticmethod
+    def _persona_response(
+        *,
+        user_id: str,
+        personas: list[str],
+        last_active_persona: str,
+        investor_marketplace_opt_in: bool,
+        iam_schema_ready: bool,
+        mode: Literal["full", "compat_investor"],
+    ) -> dict[str, Any]:
+        safe_personas = [persona for persona in personas if persona in _ALLOWED_PERSONAS]
+        if not safe_personas:
+            safe_personas = ["investor"]
+        ria_switch_available = bool(iam_schema_ready and "ria" in safe_personas)
+        ria_setup_available = bool(iam_schema_ready and not ria_switch_available)
+        safe_last = last_active_persona if last_active_persona in _ALLOWED_PERSONAS else "investor"
+        if safe_last == "ria" and not (ria_switch_available or ria_setup_available):
+            safe_last = "investor"
+        if safe_last == "investor" and "investor" not in safe_personas:
+            safe_last = safe_personas[0]
+        return {
+            "user_id": user_id,
+            "personas": safe_personas,
+            "last_active_persona": safe_last,
+            "active_persona": safe_last,
+            "primary_nav_persona": safe_last,
+            "ria_setup_available": ria_setup_available,
+            "ria_switch_available": ria_switch_available,
+            "investor_marketplace_opt_in": bool(investor_marketplace_opt_in),
+            "iam_schema_ready": iam_schema_ready,
+            "mode": mode,
+        }
+
+    @staticmethod
+    def _resolve_full_mode_last_persona(
+        *,
+        personas: list[str],
+        actor_last_persona: str,
+        runtime_last_persona: str,
+    ) -> PersonaType:
+        safe_personas = [persona for persona in personas if persona in _ALLOWED_PERSONAS]
+        if not safe_personas:
+            safe_personas = ["investor"]
+
+        # `actor_profiles` is the canonical persisted persona state. The runtime table
+        # remains only as transitional compatibility for the "same account, entering
+        # RIA setup" path before the actor has earned the real `ria` persona.
+        if actor_last_persona in safe_personas:
+            if (
+                actor_last_persona == "investor"
+                and "ria" not in safe_personas
+                and runtime_last_persona == "ria"
+            ):
+                return "ria"
+            return actor_last_persona  # type: ignore[return-value]
+
+        if "ria" not in safe_personas and runtime_last_persona == "ria":
+            return "ria"
+
+        if "investor" in safe_personas:
+            return "investor"
+        return safe_personas[0]  # type: ignore[return-value]
+
+    @staticmethod
+    def _normalize_optional_text(value: str | None) -> str | None:
+        normalized = (value or "").strip()
+        return normalized or None
+
+    @staticmethod
+    def _normalize_crd_text(value: str | None) -> str:
+        return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+    @staticmethod
+    def _normalize_legacy_verification_status(status: str | None) -> str:
+        normalized = (status or "").strip().lower()
+        if normalized == "finra_verified":
+            return "verified"
+        if normalized in {"draft", "submitted", "verified", "active", "rejected", "bypassed"}:
+            return normalized
+        return "draft"
+
+    @staticmethod
+    def _is_verified_ria_status(status: str | None) -> bool:
+        return RIAIAMService._normalize_legacy_verification_status(status) in {
+            "verified",
+            "active",
+        }
+
+    @staticmethod
+    def _verification_provider_label(result: VerificationResult) -> str:
+        provider = str((result.metadata or {}).get("provider") or "").strip().lower()
+        if provider in {
+            "ria_intelligence",
+            "ria_intelligence_stage1",
+            "iapd",
+        }:
+            return provider
+        return "regulatory_verification"
+
+    @staticmethod
+    def _prepare_professional_onboarding_inputs(
+        *,
+        display_name: str,
+        requested_capabilities: list[str] | tuple[str, ...],
+        individual_legal_name: str | None,
+        individual_crd: str | None,
+        advisory_firm_legal_name: str | None,
+        advisory_firm_iapd_number: str | None,
+        broker_firm_legal_name: str | None,
+        broker_firm_crd: str | None,
+        bio: str | None,
+        strategy: str | None,
+        disclosures_url: str | None,
+        require_regulatory_identity: bool,
+        require_advisory_firm_identifiers: bool = True,
+    ) -> dict[str, Any]:
+        normalized_display_name = (display_name or "").strip()
+        if not normalized_display_name:
+            raise RIAIAMPolicyError("display_name is required", status_code=400)
+
+        normalized_capabilities: list[str] = []
+        for capability in requested_capabilities or []:
+            candidate = str(capability or "").strip().lower()
+            if not candidate:
+                continue
+            if candidate not in _ALLOWED_PROFESSIONAL_CAPABILITIES:
+                raise RIAIAMPolicyError(
+                    "requested_capabilities contains unsupported capability",
+                    status_code=400,
+                )
+            if candidate not in normalized_capabilities:
+                normalized_capabilities.append(candidate)
+
+        if not normalized_capabilities:
+            raise RIAIAMPolicyError(
+                "requested_capabilities must include at least one capability",
+                status_code=400,
+            )
+
+        normalized_individual_legal_name = RIAIAMService._normalize_optional_text(
+            individual_legal_name
+        )
+        normalized_individual_crd = RIAIAMService._normalize_optional_text(individual_crd)
+        normalized_advisory_firm_legal_name = RIAIAMService._normalize_optional_text(
+            advisory_firm_legal_name
+        )
+        normalized_advisory_firm_iapd_number = RIAIAMService._normalize_optional_text(
+            advisory_firm_iapd_number
+        )
+        normalized_broker_firm_legal_name = RIAIAMService._normalize_optional_text(
+            broker_firm_legal_name
+        )
+        normalized_broker_firm_crd = RIAIAMService._normalize_optional_text(broker_firm_crd)
+
+        if require_regulatory_identity:
+            if not normalized_individual_legal_name:
+                raise RIAIAMPolicyError(
+                    "individual_legal_name is required for regulatory verification",
+                    status_code=400,
+                )
+            if not normalized_individual_crd:
+                raise RIAIAMPolicyError(
+                    "individual_crd is required for regulatory verification",
+                    status_code=400,
+                )
+
+        if "advisory" in normalized_capabilities and require_advisory_firm_identifiers:
+            if not normalized_advisory_firm_legal_name:
+                raise RIAIAMPolicyError(
+                    "advisory_firm_legal_name is required when advisory capability is requested",
+                    status_code=400,
+                )
+            if not normalized_advisory_firm_iapd_number:
+                raise RIAIAMPolicyError(
+                    "advisory_firm_iapd_number is required when advisory capability is requested",
+                    status_code=400,
+                )
+
+        if "brokerage" in normalized_capabilities:
+            if not normalized_broker_firm_legal_name:
+                raise RIAIAMPolicyError(
+                    "broker_firm_legal_name is required when brokerage capability is requested",
+                    status_code=400,
+                )
+            if not normalized_broker_firm_crd:
+                raise RIAIAMPolicyError(
+                    "broker_firm_crd is required when brokerage capability is requested",
+                    status_code=400,
+                )
+
+        return {
+            "display_name": normalized_display_name,
+            "requested_capabilities": normalized_capabilities,
+            "individual_legal_name": normalized_individual_legal_name,
+            "individual_crd": normalized_individual_crd,
+            "advisory_firm_legal_name": normalized_advisory_firm_legal_name,
+            "advisory_firm_iapd_number": normalized_advisory_firm_iapd_number,
+            "broker_firm_legal_name": normalized_broker_firm_legal_name,
+            "broker_firm_crd": normalized_broker_firm_crd,
+            "bio": RIAIAMService._normalize_optional_text(bio),
+            "strategy": RIAIAMService._normalize_optional_text(strategy),
+            "disclosures_url": RIAIAMService._normalize_optional_text(disclosures_url),
+            "require_regulatory_identity": bool(require_regulatory_identity),
+        }
+
+    @staticmethod
+    def _serialize_name_verification_result(result: NameVerificationResult) -> dict[str, Any]:
+        return {
+            "status": result.status,
+            "matched_name": result.matched_name,
+            "crd_number": result.crd_number,
+            "current_firm": result.current_firm,
+            "sec_number": result.sec_number,
+            "reason": result.reason,
+            "reason_code": result.reason_code,
+            "suggested_names": list(result.suggested_names or []),
+            "provider": result.provider,
+        }
+
+    async def _verify_ria_name_result(
+        self,
+        query: str,
+        *,
+        crd_number: str | None = None,
+        use_cache: bool = True,
+    ) -> NameVerificationResult:
+        normalized_query = str(query or "").strip()
+        if not normalized_query:
+            raise RIAIAMPolicyError("query is required", status_code=400)
+        return await self._name_verification_gateway.verify_name(
+            query=normalized_query,
+            crd_number=crd_number,
+            use_cache=use_cache,
+        )
+
+    async def verify_ria_name(
+        self,
+        query: str,
+        crd_number: str | None = None,
+        *,
+        use_cache: bool = True,
+    ) -> dict[str, Any]:
+        result = await self._verify_ria_name_result(
+            query,
+            crd_number=crd_number,
+            use_cache=use_cache,
+        )
+        return self._serialize_name_verification_result(result)
+
+    async def verify_ria_license(
+        self,
+        user_id: str,
+        *,
+        license_number: str,
+        regulator: str | None = None,
+        force_live_verification: bool = False,
+    ) -> dict[str, Any]:
+        from hushh_mcp.services.crd_scrape_proxy_service import (
+            CrdScrapeProxyService,
+            normalize_crd_number,
+        )
+
+        normalized = normalize_crd_number(license_number)
+        if not force_live_verification:
+            cached_response = await self._lookup_recent_license_verification_response(
+                user_id=user_id,
+                license_number=normalized,
+                regulator=regulator,
+            )
+            if cached_response is not None:
+                return cached_response
+
+        proxy = CrdScrapeProxyService()
+
+        broker_task = asyncio.create_task(proxy.broker_intelligence(query=normalized))
+        scrape_task = asyncio.create_task(proxy.create_job(crd_number=normalized))
+
+        broker_result = None
+        scrape_result = None
+        try:
+            provider_timeout = _positive_float_env(
+                "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS",
+                DEFAULT_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS,
+            )
+            results = await asyncio.wait_for(
+                asyncio.gather(broker_task, scrape_task, return_exceptions=True),
+                timeout=provider_timeout,
+            )
+            if isinstance(results[0], BaseException):
+                logger.warning("verify_ria_license: broker_intelligence failed for %s", normalized)
+            else:
+                broker_result = results[0]
+            if isinstance(results[1], BaseException):
+                logger.warning("verify_ria_license: create_job failed for %s", normalized)
+            else:
+                scrape_result = results[1]
+        except asyncio.TimeoutError:
+            broker_task.cancel()
+            scrape_task.cancel()
+            logger.warning("verify_ria_license: combined lookup timed out for %s", normalized)
+
+        broker_data = (
+            broker_result.payload if broker_result and broker_result.status_code < 400 else None
+        ) or {}
+        scrape_data = (
+            scrape_result.payload if scrape_result and scrape_result.status_code < 400 else None
+        ) or {}
+
+        broker_status_code = broker_result.status_code if broker_result else None
+        official_profile: dict[str, Any] | None = None
+        broker_status = str(broker_data.get("status", "")).upper()
+        found_from_broker = (
+            bool(broker_data.get("verifiedName") or broker_data.get("crdNumber"))
+            and broker_status != "NOT_FOUND"
+        )
+        if (
+            not found_from_broker
+            and not scrape_data.get("jobId")
+            and (broker_status in {"", "NOT_FOUND"} or (broker_status_code or 0) >= 400)
+        ):
+            official_profile = await _official_pdf_profile_for_crd(normalized)
+
+        response = await self._build_ria_license_verification_response(
+            broker_data=broker_data,
+            scrape_data=scrape_data,
+            normalized_license=normalized,
+            regulator=regulator,
+            official_profile=official_profile,
+            allow_slow_fallbacks=True,
+        )
+        found = response["status"] == "found"
+        response = self._add_license_cache_metadata(response, cache_hit=False)
+
+        # Store audit trail
+        try:
+            audit_payload = self._license_verification_cache_payload(
+                broker_data=broker_data,
+                response=response,
+            )
+            if official_profile:
+                audit_payload["official_profile"] = official_profile
+                audit_payload["broker_status_code"] = broker_status_code
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO ria_license_verifications
+                      (user_id, license_number, regulator, verification_source, raw_response, status)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                    """,
+                    user_id,
+                    normalized,
+                    regulator,
+                    "broker_intelligence",
+                    json.dumps(audit_payload),
+                    "completed" if found else "pending",
+                )
+        except Exception:
+            logger.warning("verify_ria_license: failed to store audit for %s", normalized)
+
+        return response
+
+    async def refresh_ria_profile_from_license(
+        self,
+        user_id: str,
+        *,
+        license_number: str,
+        regulator: str | None = None,
+        force_live_verification: bool = False,
+    ) -> dict[str, Any]:
+        normalized_license = self._normalize_crd_text(license_number)
+        if not normalized_license:
+            raise RIAIAMPolicyError("license_number is required.", status_code=400)
+
+        normalized_regulator = self._normalize_optional_text(regulator) or "SEC"
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            profile = await conn.fetchrow(
+                """
+                SELECT id, user_id, display_name, legal_name, finra_crd, sec_iard
+                FROM ria_profiles
+                WHERE user_id = $1
+                """,
+                user_id,
+            )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        if profile is None:
+            raise RIAIAMPolicyError(
+                "Complete RIA onboarding before refreshing license data.",
+                status_code=409,
+            )
+
+        verification = await self.verify_ria_license(
+            user_id,
+            license_number=normalized_license,
+            regulator=normalized_regulator,
+            force_live_verification=force_live_verification,
+        )
+
+        status = str(verification.get("status") or "").strip().lower()
+        profile_id = profile["id"]
+        provider = (
+            self._normalize_optional_text(verification.get("provider"))
+            or "ria_intelligence_combined"
+        )
+        refreshed_at = datetime.now(timezone.utc)
+        verification_expires_at = refreshed_at + timedelta(days=30)
+
+        if status != "found":
+            conn = await self._conn()
+            try:
+                async with conn.transaction():
+                    await self._ensure_iam_schema_ready(conn)
+                    await conn.execute(
+                        """
+                        INSERT INTO ria_license_verifications
+                          (user_id, license_number, regulator, verification_source, raw_response, status)
+                        VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                        """,
+                        user_id,
+                        normalized_license,
+                        normalized_regulator,
+                        "profile_refresh",
+                        json.dumps(
+                            {
+                                "response": verification,
+                                "applied_fields": [],
+                                "reason": "provider_did_not_return_found_status",
+                            },
+                            default=str,
+                        ),
+                        "pending",
+                    )
+                    await conn.execute(
+                        """
+                        INSERT INTO ria_verification_events (
+                          ria_profile_id,
+                          provider,
+                          outcome,
+                          checked_at,
+                          expires_at,
+                          reference_metadata
+                        )
+                        VALUES ($1, $2, $3, NOW(), NULL, $4::jsonb)
+                        """,
+                        profile_id,
+                        provider,
+                        status or "not_found",
+                        json.dumps(
+                            {
+                                "event_type": "profile_license_refresh",
+                                "response": verification,
+                                "updated": False,
+                            },
+                            default=str,
+                        ),
+                    )
+            except asyncpg.exceptions.UndefinedTableError as exc:
+                raise IAMSchemaNotReadyError() from exc
+            finally:
+                await conn.close()
+
+            return {
+                "updated": False,
+                "status": status or "not_found",
+                "message": "License could not be verified. No profile fields were changed.",
+                "ria_profile_id": str(profile_id),
+                "applied_fields": [],
+                "verification": verification,
+            }
+
+        official_name = self._normalize_optional_text(verification.get("advisor_name"))
+        official_crd = self._normalize_crd_text(
+            self._normalize_optional_text(verification.get("crd_number")) or normalized_license
+        )
+        sec_number = self._normalize_optional_text(verification.get("sec_number"))
+        firm_name = self._normalize_optional_text(verification.get("firm_name"))
+        regulator_status = self._normalize_optional_text(verification.get("regulator_status"))
+        license_expiry_date = self._coerce_date(verification.get("license_expiry"))
+        raw_certifications = verification.get("certifications")
+        certifications = (
+            [str(item).strip() for item in raw_certifications if str(item or "").strip()]
+            if isinstance(raw_certifications, list)
+            else []
+        )
+
+        official_location = verification.get("official_location")
+        official_location = official_location if isinstance(official_location, dict) else {}
+        business_city = self._normalize_optional_text(
+            verification.get("city") or official_location.get("city")
+        )
+        business_pin_zip = self._normalize_optional_text(
+            verification.get("pin_zip")
+            or official_location.get("pin_zip")
+            or official_location.get("pinZip")
+        )
+        business_area = self._normalize_optional_text(
+            verification.get("area_locality")
+            or official_location.get("area_locality")
+            or official_location.get("areaLocality")
+            or verification.get("state")
+            or official_location.get("state")
+        )
+        business_address = self._normalize_optional_text(
+            verification.get("full_street_address")
+            or verification.get("business_address")
+            or official_location.get("address")
+            or official_location.get("streetAddress")
+            or official_location.get("fullStreetAddress")
+        )
+
+        applied_fields: list[str] = [
+            "verification_status",
+            "verification_provider",
+            "verification_expires_at",
+            "advisory_status",
+            "advisory_provider",
+            "advisory_verification_expires_at",
+            "license_number",
+            "regulator",
+        ]
+        if official_name:
+            applied_fields.extend(["display_name", "legal_name", "individual_legal_name"])
+        if official_crd:
+            applied_fields.extend(["finra_crd", "individual_crd"])
+        if sec_number:
+            applied_fields.extend(["sec_iard", "advisory_firm_iapd_number"])
+        if firm_name:
+            applied_fields.append("advisory_firm_legal_name")
+        if regulator_status:
+            applied_fields.append("regulator_status")
+        if license_expiry_date:
+            applied_fields.append("license_expiry_date")
+        if certifications:
+            applied_fields.append("certifications")
+        if any([business_city, business_area, business_address, business_pin_zip]):
+            applied_fields.extend(
+                [
+                    key
+                    for key, value in {
+                        "business_city": business_city,
+                        "business_area": business_area,
+                        "business_address": business_address,
+                        "business_pin_zip": business_pin_zip,
+                    }.items()
+                    if value
+                ]
+            )
+
+        next_profile = {
+            "display_name": official_name or profile["display_name"],
+            "legal_name": official_name or profile["legal_name"],
+            "finra_crd": official_crd or profile["finra_crd"],
+            "sec_iard": sec_number or profile["sec_iard"],
+            "license_number": official_crd or normalized_license,
+            "regulator": normalized_regulator,
+            "regulator_status": regulator_status,
+            "license_expiry_date": license_expiry_date.isoformat() if license_expiry_date else None,
+            "certifications": certifications,
+            "advisory_firm_legal_name": firm_name,
+            "business_city": business_city,
+            "business_area": business_area,
+            "business_address": business_address,
+            "business_pin_zip": business_pin_zip,
+        }
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                current_profile = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM ria_profiles
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+                if current_profile is None:
+                    raise RIAIAMPolicyError(
+                        "Complete RIA onboarding before refreshing license data.",
+                        status_code=409,
+                    )
+                profile_id = current_profile["id"]
+
+                await conn.execute(
+                    """
+                    UPDATE ria_profiles
+                    SET
+                      display_name = COALESCE(NULLIF($2, ''), display_name),
+                      legal_name = COALESCE(NULLIF($2, ''), legal_name),
+                      finra_crd = COALESCE(NULLIF($3, ''), finra_crd),
+                      sec_iard = COALESCE(NULLIF($4, ''), sec_iard),
+                      verification_status = 'verified',
+                      verification_provider = $5,
+                      verification_expires_at = $6,
+                      requested_capabilities = CASE
+                        WHEN 'advisory' = ANY(COALESCE(requested_capabilities, ARRAY[]::text[]))
+                          THEN requested_capabilities
+                        ELSE array_append(COALESCE(requested_capabilities, ARRAY[]::text[]), 'advisory')
+                      END,
+                      individual_legal_name = COALESCE(NULLIF($2, ''), individual_legal_name),
+                      individual_crd = COALESCE(NULLIF($3, ''), individual_crd),
+                      advisory_firm_legal_name = COALESCE(NULLIF($7, ''), advisory_firm_legal_name),
+                      advisory_firm_iapd_number = COALESCE(NULLIF($4, ''), advisory_firm_iapd_number),
+                      advisory_status = 'verified',
+                      advisory_provider = $5,
+                      advisory_verification_expires_at = $6,
+                      license_number = COALESCE(NULLIF($8, ''), license_number),
+                      regulator = COALESCE(NULLIF($9, ''), regulator),
+                      regulator_status = COALESCE(NULLIF($10, ''), regulator_status),
+                      license_expiry_date = COALESCE($11, license_expiry_date),
+                      certifications = CASE
+                        WHEN $12::text[] = '{}' THEN certifications
+                        ELSE $12::text[]
+                      END,
+                      updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    profile_id,
+                    official_name or "",
+                    official_crd or "",
+                    sec_number or "",
+                    provider,
+                    verification_expires_at,
+                    firm_name or "",
+                    official_crd or normalized_license,
+                    normalized_regulator,
+                    regulator_status or "",
+                    license_expiry_date,
+                    certifications,
+                )
+
+                if firm_name:
+                    firm_row = await conn.fetchrow(
+                        """
+                        INSERT INTO ria_firms (legal_name)
+                        VALUES ($1)
+                        ON CONFLICT (legal_name) DO UPDATE
+                        SET updated_at = NOW()
+                        RETURNING id
+                        """,
+                        firm_name,
+                    )
+                    if firm_row:
+                        await conn.execute(
+                            """
+                            INSERT INTO ria_firm_memberships (
+                              ria_profile_id,
+                              firm_id,
+                              role_title,
+                              membership_status,
+                              is_primary
+                            )
+                            VALUES ($1, $2, NULL, 'active', TRUE)
+                            ON CONFLICT (ria_profile_id, firm_id) DO UPDATE
+                            SET
+                              membership_status = 'active',
+                              is_primary = TRUE,
+                              updated_at = NOW()
+                            """,
+                            profile_id,
+                            firm_row["id"],
+                        )
+
+                if any([business_city, business_area, business_address, business_pin_zip]):
+                    await conn.execute(
+                        """
+                        INSERT INTO ria_business_contacts (
+                          user_id,
+                          city,
+                          area_locality,
+                          full_street_address,
+                          pin_zip
+                        )
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (user_id) DO UPDATE
+                        SET
+                          city = COALESCE(NULLIF(EXCLUDED.city, ''), ria_business_contacts.city),
+                          area_locality = COALESCE(NULLIF(EXCLUDED.area_locality, ''), ria_business_contacts.area_locality),
+                          full_street_address = COALESCE(NULLIF(EXCLUDED.full_street_address, ''), ria_business_contacts.full_street_address),
+                          pin_zip = COALESCE(NULLIF(EXCLUDED.pin_zip, ''), ria_business_contacts.pin_zip),
+                          updated_at = NOW()
+                        """,
+                        user_id,
+                        business_city or "",
+                        business_area or "",
+                        business_address or "",
+                        business_pin_zip or "",
+                    )
+
+                await conn.execute(
+                    """
+                    INSERT INTO marketplace_public_profiles (
+                      user_id,
+                      profile_type,
+                      display_name,
+                      headline,
+                      strategy_summary,
+                      verification_badge,
+                      is_discoverable,
+                      updated_at
+                    )
+                    VALUES (
+                      $1,
+                      'ria',
+                      COALESCE(NULLIF($2, ''), 'Registered Investment Advisor'),
+                      'Registered Investment Advisor',
+                      NULL,
+                      'verified',
+                      TRUE,
+                      NOW()
+                    )
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      profile_type = 'ria',
+                      display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), marketplace_public_profiles.display_name),
+                      verification_badge = 'verified',
+                      updated_at = NOW()
+                    """,
+                    user_id,
+                    official_name or "",
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO ria_license_verifications
+                      (user_id, license_number, regulator, verification_source, raw_response, status)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                    """,
+                    user_id,
+                    official_crd or normalized_license,
+                    normalized_regulator,
+                    "profile_refresh",
+                    json.dumps(
+                        {
+                            "response": verification,
+                            "applied_fields": sorted(set(applied_fields)),
+                            "preserved_user_authored_fields": [
+                                "bio",
+                                "strategy",
+                                "services_offered",
+                                "fee_structure",
+                                "min_engagement_amount",
+                                "custom_headline",
+                                "email",
+                                "phone",
+                            ],
+                        },
+                        default=str,
+                    ),
+                    "completed",
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO ria_verification_events (
+                      ria_profile_id,
+                      provider,
+                      outcome,
+                      checked_at,
+                      expires_at,
+                      reference_metadata
+                    )
+                    VALUES ($1, $2, 'verified', NOW(), $3, $4::jsonb)
+                    """,
+                    profile_id,
+                    provider,
+                    verification_expires_at,
+                    json.dumps(
+                        {
+                            "event_type": "profile_license_refresh",
+                            "response": verification,
+                            "updated": True,
+                            "applied_fields": sorted(set(applied_fields)),
+                        },
+                        default=str,
+                    ),
+                )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        self._invalidate_cached_persona_state(user_id)
+        return {
+            "updated": True,
+            "status": "found",
+            "message": "Official RIA data updated.",
+            "ria_profile_id": str(profile_id),
+            "applied_fields": sorted(set(applied_fields)),
+            "profile": next_profile,
+            "verification": verification,
+        }
+
+    @staticmethod
+    def _has_usable_license_location(response: dict[str, Any]) -> bool:
+        official_location = response.get("official_location")
+        official_address = (
+            official_location.get("address") if isinstance(official_location, dict) else None
+        )
+        return bool(
+            _first_text_value(response.get("city"))
+            and _first_text_value(response.get("pin_zip"))
+            and _first_text_value(response.get("state"), response.get("area_locality"))
+            and _first_text_value(response.get("full_street_address"), official_address)
+        )
+
+    @classmethod
+    def _license_verification_cache_payload(
+        cls,
+        *,
+        broker_data: dict[str, Any],
+        response: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(broker_data if isinstance(broker_data, dict) else {})
+        alias_pairs = (
+            ("advisor_name", "verifiedName"),
+            ("firm_name", "currentFirm"),
+            ("regulator_status", "status"),
+            ("crd_number", "crdNumber"),
+            ("city", "city"),
+            ("pin_zip", "pin_zip"),
+            ("state", "state"),
+            ("area_locality", "area_locality"),
+            ("full_street_address", "full_street_address"),
+            ("business_address", "business_address"),
+            ("official_location", "official_location"),
+        )
+        for response_key, payload_key in alias_pairs:
+            value = response.get(response_key)
+            if value and not payload.get(payload_key):
+                payload[payload_key] = value
+
+        certifications = response.get("certifications")
+        if isinstance(certifications, list) and certifications and not payload.get("exams"):
+            payload["exams"] = certifications
+
+        summary = _first_text_value(
+            response.get("broker_intelligence_summary"),
+            response.get("bio"),
+        )
+        if summary and not payload.get("summary"):
+            payload["summary"] = summary
+
+        return payload
+
+    @staticmethod
+    def _coerce_utc_datetime(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        return None
+
+    @classmethod
+    def _isoformat_utc(cls, value: Any) -> str | None:
+        parsed = cls._coerce_utc_datetime(value)
+        if parsed is None:
+            return None
+        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _coerce_date(value: Any) -> date | None:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        if isinstance(value, str):
+            candidate = value.strip()
+            if not candidate:
+                return None
+            try:
+                return datetime.fromisoformat(candidate.replace("Z", "+00:00")).date()
+            except ValueError:
+                try:
+                    return date.fromisoformat(candidate[:10])
+                except ValueError:
+                    return None
+        return None
+
+    @classmethod
+    def _add_license_cache_metadata(
+        cls,
+        response: dict[str, Any],
+        *,
+        cache_hit: bool,
+        cached_at: Any = None,
+    ) -> dict[str, Any]:
+        response["cache_hit"] = cache_hit
+        response["cache_ttl_seconds"] = int(_RIA_LICENSE_VERIFICATION_REUSE_TTL.total_seconds())
+        cached_at_dt = cls._coerce_utc_datetime(cached_at)
+        if cached_at_dt is not None:
+            response["cached_at"] = cls._isoformat_utc(cached_at_dt)
+            response["cache_expires_at"] = cls._isoformat_utc(
+                cached_at_dt + _RIA_LICENSE_VERIFICATION_REUSE_TTL
+            )
+        return response
+
+    async def _build_ria_license_verification_response(
+        self,
+        *,
+        broker_data: dict[str, Any],
+        scrape_data: dict[str, Any],
+        normalized_license: str,
+        regulator: str | None,
+        official_profile: dict[str, Any] | None = None,
+        allow_slow_fallbacks: bool = False,
+    ) -> dict[str, Any]:
+        broker_data = broker_data if isinstance(broker_data, dict) else {}
+        scrape_data = scrape_data if isinstance(scrape_data, dict) else {}
+        if official_profile is None and isinstance(broker_data.get("official_profile"), dict):
+            official_profile = broker_data.get("official_profile")
+            broker_data = {}
+
+        broker_status = str(broker_data.get("status", "")).upper()
+        found = (
+            bool(broker_data.get("verifiedName") or broker_data.get("crdNumber"))
+            and broker_status != "NOT_FOUND"
+        )
+        if official_profile:
+            found = found or bool(
+                official_profile.get("advisor_name")
+                or official_profile.get("crd_number")
+                or official_profile.get("official_location")
+            )
+
+        city = _broker_city(broker_data)
+        pin_zip = _broker_pin_zip(broker_data)
+        state = _broker_state(broker_data)
+        area_locality = _broker_area_locality(broker_data)
+        full_street_address = _broker_street_address(broker_data)
+        official_location: dict[str, Any] | None = _broker_official_location(broker_data)
+        if official_profile and isinstance(official_profile.get("official_location"), dict):
+            official_location = {
+                **official_profile["official_location"],
+                **(official_location or {}),
+            }
+
+        if official_location:
+            city = city or official_location.get("city")
+            pin_zip = pin_zip or official_location.get("pin_zip") or official_location.get("pinZip")
+            state = state or official_location.get("state")
+            area_locality = (
+                area_locality
+                or official_location.get("area_locality")
+                or official_location.get("areaLocality")
+                or official_location.get("state")
+                or official_location.get("location")
+            )
+            full_street_address = (
+                full_street_address
+                or official_location.get("address")
+                or official_location.get("streetAddress")
+                or official_location.get("fullStreetAddress")
+            )
+        if (
+            allow_slow_fallbacks
+            and found
+            and (not city or not pin_zip or not state or not full_street_address)
+        ):
+            pdf_location = await _official_pdf_location_for_crd(
+                str(broker_data.get("crdNumber") or normalized_license)
+            )
+            if pdf_location:
+                official_location = {**pdf_location, **(official_location or {})}
+                city = city or pdf_location.get("city")
+                pin_zip = pin_zip or pdf_location.get("pin_zip")
+                state = state or pdf_location.get("state")
+                area_locality = (
+                    area_locality
+                    or pdf_location.get("area_locality")
+                    or pdf_location.get("state")
+                    or pdf_location.get("location")
+                )
+                full_street_address = full_street_address or pdf_location.get("address")
+
+        broker_exams = _broker_exams(broker_data)
+        official_exams = (
+            official_profile.get("certifications", [])
+            if isinstance(official_profile, dict)
+            and isinstance(official_profile.get("certifications"), list)
+            else []
+        )
+        certifications = broker_exams or [str(item) for item in official_exams if str(item).strip()]
+        advisor_name = broker_data.get("verifiedName") or (
+            official_profile.get("advisor_name") if official_profile else None
+        )
+        firm_name = broker_data.get("currentFirm") or (
+            official_profile.get("firm_name") if official_profile else None
+        )
+        regulator_status = broker_data.get("status") or (
+            official_profile.get("regulator_status") if official_profile else None
+        )
+        broker_summary = broker_data.get("summary") or (
+            official_profile.get("summary") if official_profile else None
+        )
+        return {
+            "status": "found"
+            if found
+            else ("pending" if scrape_data.get("jobId") else "not_found"),
+            "advisor_name": advisor_name,
+            "firm_name": firm_name,
+            "regulator": regulator or ("SEC" if found else None),
+            "regulator_status": regulator_status,
+            "license_expiry": None,
+            "certifications": certifications,
+            "city": city,
+            "pin_zip": pin_zip,
+            "state": state,
+            "area_locality": area_locality,
+            "full_street_address": full_street_address,
+            "business_address": full_street_address,
+            "official_location": official_location,
+            "crd_number": broker_data.get("crdNumber")
+            or (official_profile.get("crd_number") if official_profile else None)
+            or normalized_license,
+            "sec_number": None,
+            "employment_history": broker_data.get("employmentHistory", []),
+            "disclosures_count": broker_data.get("disclosures", {}).get("count", 0)
+            if isinstance(broker_data.get("disclosures"), dict)
+            else 0,
+            "exams_passed": certifications,
+            "provider": "ria_intelligence_combined",
+            "scrape_job_id": scrape_data.get("jobId"),
+            "broker_intelligence_summary": broker_summary,
+            "bio": broker_summary,
+        }
+
+    async def _lookup_recent_license_verification_response(
+        self,
+        *,
+        user_id: str,
+        license_number: str,
+        regulator: str | None = None,
+    ) -> dict[str, Any] | None:
+        try:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT raw_response, regulator, created_at
+                    FROM ria_license_verifications
+                    WHERE user_id = $1
+                      AND license_number = $2
+                      AND verification_source = 'broker_intelligence'
+                      AND status = 'completed'
+                      AND created_at >= $3
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    user_id,
+                    license_number,
+                    datetime.now(timezone.utc) - _RIA_LICENSE_VERIFICATION_REUSE_TTL,
+                )
+        except Exception:
+            logger.warning(
+                "ria.verify_license_cache_lookup_failed user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return None
+
+        if row is None:
+            return None
+
+        raw_response = row["raw_response"] if "raw_response" in row else None
+        payload = self._parse_json_mapping(raw_response)
+        cached_regulator = regulator or (row["regulator"] if "regulator" in row else None)
+        response = await self._build_ria_license_verification_response(
+            broker_data=payload,
+            scrape_data={},
+            normalized_license=license_number,
+            regulator=cached_regulator,
+            allow_slow_fallbacks=False,
+        )
+        if response.get("status") != "found":
+            return None
+        if not self._has_usable_license_location(response):
+            logger.info(
+                "ria.verify_license_cache_incomplete_location user_id=%s license_number=%s",
+                user_id,
+                license_number,
+            )
+            return None
+        return self._add_license_cache_metadata(
+            response,
+            cache_hit=True,
+            cached_at=row["created_at"] if "created_at" in row else None,
+        )
+
+    @staticmethod
+    def _parse_json_mapping(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except Exception:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    @classmethod
+    def _name_lookup_from_license_verification_payload(
+        cls,
+        payload: dict[str, Any],
+        *,
+        license_number: str | None,
+        submitted_individual_crd: str | None,
+    ) -> NameVerificationResult | None:
+        broker_status = str(payload.get("status") or "").strip().upper()
+        if broker_status == "NOT_FOUND":
+            return None
+
+        matched_name = cls._normalize_optional_text(payload.get("verifiedName"))
+        returned_crd = cls._normalize_optional_text(payload.get("crdNumber"))
+        normalized_returned_crd = cls._normalize_crd_text(returned_crd)
+        normalized_license = cls._normalize_crd_text(license_number)
+        normalized_submitted_crd = cls._normalize_crd_text(submitted_individual_crd)
+
+        if not matched_name or not normalized_returned_crd:
+            return None
+        if normalized_license and normalized_returned_crd != normalized_license:
+            return None
+        if normalized_submitted_crd and normalized_returned_crd != normalized_submitted_crd:
+            return None
+
+        disclosures = payload.get("disclosures")
+        disclosures_count = None
+        if isinstance(disclosures, dict):
+            disclosures_count = disclosures.get("count")
+
+        return NameVerificationResult(
+            status="verified",
+            matched_name=matched_name,
+            crd_number=returned_crd,
+            current_firm=cls._normalize_optional_text(payload.get("currentFirm")),
+            sec_number=cls._normalize_optional_text(payload.get("secNumber")),
+            provider="broker_intelligence_license_verification",
+            metadata={
+                "provider": "broker_intelligence_license_verification",
+                "source": "ria_license_verifications",
+                "regulator_status": broker_status or None,
+                "disclosures_count": disclosures_count,
+            },
+        )
+
+    async def _lookup_recent_license_verification_result(
+        self,
+        *,
+        user_id: str,
+        license_number: str | None,
+        submitted_individual_crd: str | None,
+    ) -> NameVerificationResult | None:
+        normalized_license = self._normalize_crd_text(license_number)
+        normalized_submitted_crd = self._normalize_crd_text(submitted_individual_crd)
+        lookup_license = normalized_license or normalized_submitted_crd
+        if not lookup_license:
+            return None
+
+        try:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT raw_response
+                    FROM ria_license_verifications
+                    WHERE user_id = $1
+                      AND license_number = $2
+                      AND status = 'completed'
+                      AND verification_source = 'broker_intelligence'
+                      AND created_at >= $3
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    user_id,
+                    lookup_license,
+                    datetime.now(timezone.utc) - _RIA_LICENSE_VERIFICATION_REUSE_TTL,
+                )
+        except Exception:
+            logger.warning(
+                "ria.submit_license_verification_lookup_failed user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return None
+
+        if row is None:
+            return None
+
+        raw_response = row["raw_response"] if "raw_response" in row else None
+        payload = self._parse_json_mapping(raw_response)
+        return self._name_lookup_from_license_verification_payload(
+            payload,
+            license_number=lookup_license,
+            submitted_individual_crd=normalized_submitted_crd,
+        )
+
+    @staticmethod
+    def _advisory_status_from_row(row: Any) -> str:
+        if isinstance(row, dict):
+            status = row.get("verification_status")
+        else:
+            try:
+                status = row["verification_status"]
+            except (KeyError, TypeError):
+                status = None
+        return RIAIAMService._normalize_legacy_verification_status(
+            str(status) if status is not None else None
+        )
+
+    @staticmethod
+    def _brokerage_status_from_row(row: Any) -> str:
+        _ = row
+        return "draft"
+
+    async def _runtime_persona_table_ready(self, conn: asyncpg.Connection) -> bool:
+        return await self._table_exists(conn, _RUNTIME_PERSONA_STATE_TABLE)
+
+    async def _get_runtime_last_persona(
+        self,
+        conn: asyncpg.Connection,
+        user_id: str,
+    ) -> str:
+        if not await self._runtime_persona_table_ready(conn):
+            return "investor"
+        row = await conn.fetchrow(
+            """
+            SELECT last_active_persona
+            FROM runtime_persona_state
+            WHERE user_id = $1
+            """,
+            user_id,
+        )
+        if row is None:
+            return "investor"
+        candidate = str(row["last_active_persona"] or "").strip().lower()
+        return candidate if candidate in _ALLOWED_PERSONAS else "investor"
+
+    async def _set_runtime_last_persona(
+        self,
+        conn: asyncpg.Connection,
+        user_id: str,
+        persona: str,
+    ) -> None:
+        normalized = self._normalize_persona(persona)
+        if not await self._runtime_persona_table_ready(conn):
+            return
+        await conn.execute(
+            """
+            INSERT INTO runtime_persona_state (user_id, last_active_persona)
+            VALUES ($1, $2)
+            ON CONFLICT (user_id) DO UPDATE
+            SET
+              last_active_persona = $2,
+              updated_at = NOW()
+            """,
+            user_id,
+            normalized,
+        )
+
+    async def _ensure_vault_user_row(self, conn: asyncpg.Connection, user_id: str) -> None:
+        now_ms = self._now_ms()
+        await conn.execute(
+            """
+            INSERT INTO vault_keys (
+                user_id,
+                vault_status,
+                vault_key_hash,
+                primary_method,
+                primary_wrapper_id,
+                recovery_encrypted_vault_key,
+                recovery_salt,
+                recovery_iv,
+                first_login_at,
+                last_login_at,
+                login_count,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                $1,
+                'placeholder',
+                NULL,
+                'passphrase',
+                'default',
+                NULL,
+                NULL,
+                NULL,
+                $2,
+                $2,
+                1,
+                $2,
+                $2
+            )
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            user_id,
+            now_ms,
+        )
+
+    async def _ensure_actor_profile_row(
+        self,
+        conn: asyncpg.Connection,
+        user_id: str,
+        *,
+        include_ria_persona: bool = False,
+    ) -> asyncpg.Record:
+        personas = ["investor", "ria"] if include_ria_persona else ["investor"]
+        last_active_persona = "ria" if include_ria_persona else "investor"
+        row = await conn.fetchrow(
+            """
+            INSERT INTO actor_profiles (
+                user_id,
+                personas,
+                last_active_persona,
+                investor_marketplace_opt_in
+            )
+            VALUES ($1, $2::text[], $3, FALSE)
+            ON CONFLICT (user_id) DO UPDATE
+            SET
+              personas = CASE
+                WHEN $4::boolean = TRUE AND NOT ('ria' = ANY(actor_profiles.personas))
+                  THEN array_append(actor_profiles.personas, 'ria')
+                ELSE actor_profiles.personas
+              END,
+              last_active_persona = CASE
+                WHEN $4::boolean = TRUE THEN 'ria'
+                ELSE actor_profiles.last_active_persona
+              END,
+              updated_at = NOW()
+            RETURNING user_id, personas, last_active_persona, investor_marketplace_opt_in
+            """,
+            user_id,
+            personas,
+            last_active_persona,
+            include_ria_persona,
+        )
+        if row is None:
+            raise RuntimeError("Failed to ensure actor profile row")
+        return row
+
+    async def ensure_actor_profile(self, user_id: str) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, user_id)
+                await self._ensure_iam_schema_ready(conn)
+                row = await self._ensure_actor_profile_row(conn, user_id)
+                return dict(row)
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            self._invalidate_cached_persona_state(user_id)
+            await conn.close()
+
+    async def get_persona_state(self, user_id: str) -> dict[str, Any]:
+        cached = self._read_cached_persona_state(user_id)
+        if cached is not None:
+            return cached
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, user_id)
+                schema_ready = await self._is_iam_schema_ready(conn)
+                if not schema_ready:
+                    # Compatibility mode: preserve investor continuity while IAM schema is unavailable.
+                    last_persona = await self._get_runtime_last_persona(conn, user_id)
+                    safe_last = "investor" if last_persona == "ria" else last_persona
+                    await self._set_runtime_last_persona(conn, user_id, safe_last)
+                    response = self._persona_response(
+                        user_id=user_id,
+                        personas=["investor"],
+                        last_active_persona=safe_last,
+                        investor_marketplace_opt_in=False,
+                        iam_schema_ready=False,
+                        mode="compat_investor",
+                    )
+                    self._write_cached_persona_state(user_id, response)
+                    return response
+
+                row = await self._ensure_actor_profile_row(conn, user_id)
+                actor_last_persona = self._normalize_persona(str(row["last_active_persona"]))
+                runtime_last_persona = await self._get_runtime_last_persona(conn, user_id)
+                effective_last_persona = self._resolve_full_mode_last_persona(
+                    personas=list(row["personas"] or []),
+                    actor_last_persona=actor_last_persona,
+                    runtime_last_persona=runtime_last_persona,
+                )
+                await self._set_runtime_last_persona(
+                    conn,
+                    user_id,
+                    effective_last_persona,
+                )
+                response = self._persona_response(
+                    user_id=str(row["user_id"]),
+                    personas=list(row["personas"] or []),
+                    last_active_persona=effective_last_persona,
+                    investor_marketplace_opt_in=bool(row["investor_marketplace_opt_in"]),
+                    iam_schema_ready=True,
+                    mode="full",
+                )
+                self._write_cached_persona_state(user_id, response)
+                return response
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            logger.warning("iam.schema_not_ready fallback user_id=%s", user_id)
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def switch_persona(self, user_id: str, persona: str) -> dict[str, Any]:
+        target = self._normalize_persona(persona)
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, user_id)
+                schema_ready = await self._is_iam_schema_ready(conn)
+                if not schema_ready:
+                    if target != "investor":
+                        raise IAMSchemaNotReadyError(
+                            "RIA persona is unavailable until IAM schema migration is applied."
+                        )
+                    await self._set_runtime_last_persona(conn, user_id, "investor")
+                    response = self._persona_response(
+                        user_id=user_id,
+                        personas=["investor"],
+                        last_active_persona="investor",
+                        investor_marketplace_opt_in=False,
+                        iam_schema_ready=False,
+                        mode="compat_investor",
+                    )
+                    self._write_cached_persona_state(user_id, response)
+                    return response
+                current = await self._ensure_actor_profile_row(conn, user_id)
+                current_personas = list(current["personas"] or [])
+
+                if target == "ria" and "ria" not in current_personas:
+                    await self._set_runtime_last_persona(conn, user_id, "ria")
+                    response = self._persona_response(
+                        user_id=str(current["user_id"]),
+                        personas=current_personas,
+                        last_active_persona="ria",
+                        investor_marketplace_opt_in=bool(current["investor_marketplace_opt_in"]),
+                        iam_schema_ready=True,
+                        mode="full",
+                    )
+                    self._write_cached_persona_state(user_id, response)
+                    return response
+
+                row = await conn.fetchrow(
+                    """
+                    UPDATE actor_profiles
+                    SET
+                      last_active_persona = $2,
+                      updated_at = NOW()
+                    WHERE user_id = $1
+                    RETURNING user_id, personas, last_active_persona, investor_marketplace_opt_in
+                    """,
+                    user_id,
+                    target,
+                )
+                if row is None:
+                    raise RuntimeError("Failed to switch persona")
+                await self._set_runtime_last_persona(
+                    conn,
+                    user_id,
+                    str(row["last_active_persona"]),
+                )
+                response = self._persona_response(
+                    user_id=str(row["user_id"]),
+                    personas=list(row["personas"] or []),
+                    last_active_persona=str(row["last_active_persona"]),
+                    investor_marketplace_opt_in=bool(row["investor_marketplace_opt_in"]),
+                    iam_schema_ready=True,
+                    mode="full",
+                )
+                self._write_cached_persona_state(user_id, response)
+                return response
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            self._invalidate_cached_persona_state(user_id)
+            await conn.close()
+
+    async def set_marketplace_opt_in(self, user_id: str, enabled: bool) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, user_id)
+                await self._ensure_iam_schema_ready(conn)
+                profile = await conn.fetchrow(
+                    """
+                    INSERT INTO actor_profiles (
+                        user_id,
+                        personas,
+                        last_active_persona,
+                        investor_marketplace_opt_in
+                    )
+                    VALUES ($1, ARRAY['investor']::text[], 'investor', $2)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      investor_marketplace_opt_in = $2,
+                      updated_at = NOW()
+                    RETURNING user_id, investor_marketplace_opt_in
+                    """,
+                    user_id,
+                    enabled,
+                )
+                if profile is None:
+                    raise RuntimeError("Failed to update marketplace opt-in")
+
+                await conn.execute(
+                    """
+                    INSERT INTO marketplace_public_profiles (
+                        user_id,
+                        profile_type,
+                        display_name,
+                        is_discoverable,
+                        updated_at
+                    )
+                    VALUES ($1, 'investor', $3, $2, NOW())
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      profile_type = 'investor',
+                      is_discoverable = $2,
+                      updated_at = NOW()
+                    """,
+                    user_id,
+                    enabled,
+                    f"Investor {user_id[:8]}",
+                )
+                return {
+                    "user_id": profile["user_id"],
+                    "investor_marketplace_opt_in": bool(profile["investor_marketplace_opt_in"]),
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            self._invalidate_cached_persona_state(user_id)
+            await conn.close()
+
+    async def _load_scope_template(
+        self,
+        conn: asyncpg.Connection,
+        template_id: str,
+    ) -> ScopeTemplate:
+        if template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID:
+            return self._kai_specialized_template()
+        row = await conn.fetchrow(
+            """
+            SELECT
+              template_id,
+              requester_actor_type,
+              subject_actor_type,
+              template_name,
+              allowed_scopes,
+              default_duration_hours,
+              max_duration_hours
+            FROM consent_scope_templates
+            WHERE template_id = $1 AND active = TRUE
+            """,
+            template_id,
+        )
+        if row is None:
+            raise RIAIAMPolicyError("Unknown scope template", status_code=404)
+        return ScopeTemplate(
+            template_id=str(row["template_id"]),
+            requester_actor_type=self._normalize_actor(str(row["requester_actor_type"])),
+            subject_actor_type=self._normalize_actor(str(row["subject_actor_type"])),
+            template_name=str(row["template_name"]),
+            allowed_scopes=self._canonicalize_scope_aliases(list(row["allowed_scopes"] or [])),
+            default_duration_hours=int(row["default_duration_hours"]),
+            max_duration_hours=int(row["max_duration_hours"]),
+        )
+
+    @staticmethod
+    def _canonicalize_scope_alias(scope: str | None) -> str:
+        normalized = str(scope or "").strip()
+        if normalized == "world_model.read":
+            return "pkm.read"
+        if normalized == "world_model.write":
+            return "pkm.write"
+        return normalized
+
+    @classmethod
+    def _canonicalize_scope_aliases(cls, scopes: list[str] | tuple[str, ...] | None) -> list[str]:
+        return [
+            canonical
+            for canonical in (cls._canonicalize_scope_alias(scope) for scope in list(scopes or []))
+            if canonical
+        ]
+
+    @staticmethod
+    def _parse_metadata(value: Any) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                return {}
+        return {}
+
+    @staticmethod
+    def _merge_metadata(base: Any, patch: dict[str, Any]) -> dict[str, Any]:
+        metadata = RIAIAMService._parse_metadata(base)
+        metadata.update(patch)
+        return metadata
+
+    @staticmethod
+    def _parse_string_list(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except Exception:
+                pass
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return []
+
+    @staticmethod
+    def _next_action_for_relationship_status(status: str) -> str:
+        normalized = (status or "").strip().lower()
+        if normalized == "approved":
+            return "open_workspace"
+        if normalized == "request_pending":
+            return "await_consent"
+        if normalized in {"revoked", "expired"}:
+            return "re_request"
+        if normalized == "blocked":
+            return "resolve_block"
+        return "request_access"
+
+    @staticmethod
+    def _relationship_share_descriptor(grant_key: str) -> dict[str, str]:
+        normalized = str(grant_key or "").strip()
+        if normalized == _RELATIONSHIP_SHARE_ACTIVE_PICKS:
+            return {
+                "grant_key": normalized,
+                "label": "Advisor picks feed",
+                "description": (
+                    "Included with the advisor relationship so Kai can surface the advisor's "
+                    "active picks list to the investor."
+                ),
+            }
+        return {
+            "grant_key": normalized,
+            "label": normalized.replace("_", " ") or "Relationship share",
+            "description": "Relationship-scoped shared content.",
+        }
+
+    @classmethod
+    def _relationship_share_summary(cls, grant_key: str) -> str:
+        descriptor = cls._relationship_share_descriptor(grant_key)
+        return descriptor["description"]
+
+    @staticmethod
+    def _relationship_share_origin(metadata: Any) -> str:
+        parsed = RIAIAMService._parse_metadata(metadata)
+        origin = str(
+            parsed.get("share_origin") or _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT
+        ).strip()
+        return origin or _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT
+
+    @staticmethod
+    def _serialize_datetime_value(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat()
+        normalized = str(value).strip()
+        return normalized or None
+
+    @classmethod
+    def _serialize_relationship_share(
+        cls,
+        row: Any,
+        *,
+        has_active_pick_upload: bool = False,
+    ) -> dict[str, Any]:
+        if not row:
+            return {}
+        if isinstance(row, dict):
+            payload = row
+        else:
+            payload = dict(row)
+        grant_key = str(payload.get("grant_key") or "").strip()
+        descriptor = cls._relationship_share_descriptor(grant_key)
+        return {
+            **descriptor,
+            "status": str(payload.get("status") or "").strip() or "unavailable",
+            "share_origin": cls._relationship_share_origin(payload.get("metadata")),
+            "granted_at": cls._serialize_datetime_value(payload.get("granted_at")),
+            "revoked_at": cls._serialize_datetime_value(payload.get("revoked_at")),
+            "has_active_pick_upload": bool(has_active_pick_upload),
+        }
+
+    @classmethod
+    def _picks_feed_status(
+        cls,
+        *,
+        relationship_status: str,
+        share_status: str | None,
+        has_active_pick_upload: bool,
+    ) -> str:
+        normalized_relationship = str(relationship_status or "").strip().lower()
+        normalized_share = str(share_status or "").strip().lower()
+        if normalized_relationship in {"request_pending", "discovered", "invited"}:
+            return "included_on_approval"
+        if normalized_relationship != "approved":
+            return "unavailable"
+        if normalized_share != "active":
+            return "unavailable"
+        return "ready" if has_active_pick_upload else "pending"
+
+    @classmethod
+    def _implicit_picks_relationship_share_metadata(
+        cls,
+        *,
+        source: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        merged = dict(metadata or {})
+        merged.setdefault("share_origin", _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT)
+        merged["source"] = source
+        return merged
+
+    async def _get_relationship_share(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        relationship_id: str,
+        grant_key: str,
+    ) -> asyncpg.Record | None:
+        return await conn.fetchrow(
+            """
+            SELECT
+              id,
+              relationship_id,
+              grant_key,
+              provider_user_id,
+              receiver_user_id,
+              status,
+              granted_at,
+              revoked_at,
+              metadata,
+              created_at,
+              updated_at
+            FROM relationship_share_grants
+            WHERE relationship_id = $1::uuid
+              AND grant_key = $2
+            LIMIT 1
+            """,
+            relationship_id,
+            grant_key,
+        )
+
+    async def _insert_relationship_share_event(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        share_grant_id: str,
+        relationship_id: str,
+        grant_key: str,
+        event_type: str,
+        provider_user_id: str,
+        receiver_user_id: str,
+        metadata: dict[str, Any] | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        await conn.execute(
+            """
+            INSERT INTO relationship_share_events (
+              share_grant_id,
+              relationship_id,
+              grant_key,
+              event_type,
+              provider_user_id,
+              receiver_user_id,
+              metadata,
+              created_at
+            )
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, COALESCE($8, NOW()))
+            """,
+            share_grant_id,
+            relationship_id,
+            grant_key,
+            event_type,
+            provider_user_id,
+            receiver_user_id,
+            json.dumps(metadata or {}),
+            created_at,
+        )
+
+    async def _materialize_relationship_share_grant(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        relationship_id: str,
+        provider_user_id: str,
+        receiver_user_id: str,
+        grant_key: str,
+        metadata: dict[str, Any] | None = None,
+        activate_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        existing = await self._get_relationship_share(
+            conn,
+            relationship_id=relationship_id,
+            grant_key=grant_key,
+        )
+        merged_metadata = self._implicit_picks_relationship_share_metadata(
+            source=str((metadata or {}).get("source") or "relationship_sync"),
+            metadata=metadata,
+        )
+        if existing is None:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO relationship_share_grants (
+                  relationship_id,
+                  grant_key,
+                  provider_user_id,
+                  receiver_user_id,
+                  status,
+                  granted_at,
+                  revoked_at,
+                  metadata,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  $1::uuid,
+                  $2,
+                  $3,
+                  $4,
+                  'active',
+                  COALESCE($5, NOW()),
+                  NULL,
+                  $6::jsonb,
+                  NOW(),
+                  NOW()
+                )
+                RETURNING *
+                """,
+                relationship_id,
+                grant_key,
+                provider_user_id,
+                receiver_user_id,
+                activate_at,
+                json.dumps(merged_metadata),
+            )
+            await self._insert_relationship_share_event(
+                conn,
+                share_grant_id=str(row["id"]),
+                relationship_id=str(row["relationship_id"]),
+                grant_key=grant_key,
+                event_type="GRANTED",
+                provider_user_id=provider_user_id,
+                receiver_user_id=receiver_user_id,
+                metadata=merged_metadata,
+                created_at=row["granted_at"],
+            )
+            if grant_key == _RELATIONSHIP_SHARE_ACTIVE_PICKS:
+                await self._bootstrap_pick_share_artifact(
+                    conn,
+                    relationship_id=str(row["relationship_id"]),
+                    provider_user_id=provider_user_id,
+                    receiver_user_id=receiver_user_id,
+                )
+            return dict(row)
+
+        existing_status = str(existing["status"] or "").strip().lower()
+        row = await conn.fetchrow(
+            """
+            UPDATE relationship_share_grants
+            SET
+              provider_user_id = $2,
+              receiver_user_id = $3,
+              status = 'active',
+              granted_at = COALESCE(granted_at, $4, NOW()),
+              revoked_at = NULL,
+              metadata = $5::jsonb,
+              updated_at = NOW()
+            WHERE id = $1::uuid
+            RETURNING *
+            """,
+            str(existing["id"]),
+            provider_user_id,
+            receiver_user_id,
+            activate_at,
+            json.dumps(merged_metadata),
+        )
+        if existing_status != "active":
+            await self._insert_relationship_share_event(
+                conn,
+                share_grant_id=str(row["id"]),
+                relationship_id=str(row["relationship_id"]),
+                grant_key=grant_key,
+                event_type="GRANTED",
+                provider_user_id=provider_user_id,
+                receiver_user_id=receiver_user_id,
+                metadata=merged_metadata,
+                created_at=activate_at or row["updated_at"],
+            )
+        if grant_key == _RELATIONSHIP_SHARE_ACTIVE_PICKS:
+            await self._bootstrap_pick_share_artifact(
+                conn,
+                relationship_id=str(row["relationship_id"]),
+                provider_user_id=provider_user_id,
+                receiver_user_id=receiver_user_id,
+            )
+        return dict(row)
+
+    async def _revoke_relationship_share_grant(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        relationship_id: str,
+        grant_key: str,
+        status: Literal["revoked", "expired"],
+        reason: str,
+    ) -> None:
+        existing = await self._get_relationship_share(
+            conn,
+            relationship_id=relationship_id,
+            grant_key=grant_key,
+        )
+        if existing is None:
+            return
+
+        current_status = str(existing["status"] or "").strip().lower()
+        if current_status == status:
+            return
+        if current_status not in {"active", "revoked", "expired"}:
+            return
+
+        next_metadata = self._merge_metadata(
+            existing["metadata"],
+            {"last_transition_reason": reason},
+        )
+        row = await conn.fetchrow(
+            """
+            UPDATE relationship_share_grants
+            SET
+              status = $2,
+              revoked_at = NOW(),
+              metadata = $3::jsonb,
+              updated_at = NOW()
+            WHERE id = $1::uuid
+            RETURNING *
+            """,
+            str(existing["id"]),
+            status,
+            json.dumps(next_metadata),
+        )
+        if grant_key == _RELATIONSHIP_SHARE_ACTIVE_PICKS:
+            await conn.execute(
+                """
+                UPDATE ria_pick_share_artifacts
+                SET
+                  status = $2,
+                  updated_at = NOW()
+                WHERE relationship_id = $1::uuid
+                  AND grant_key = $3
+                """,
+                relationship_id,
+                status,
+                grant_key,
+            )
+        event_type = "EXPIRED" if status == "expired" else "REVOKED"
+        await self._insert_relationship_share_event(
+            conn,
+            share_grant_id=str(row["id"]),
+            relationship_id=str(row["relationship_id"]),
+            grant_key=grant_key,
+            event_type=event_type,
+            provider_user_id=str(row["provider_user_id"]),
+            receiver_user_id=str(row["receiver_user_id"]),
+            metadata={"reason": reason},
+            created_at=row["revoked_at"],
+        )
+
+    @staticmethod
+    def _resolve_duration_hours(
+        template: ScopeTemplate,
+        *,
+        duration_mode: str,
+        duration_hours: int | None,
+    ) -> tuple[str, int]:
+        mode = (duration_mode or "preset").strip().lower()
+        resolved_duration_hours: int
+        if mode == "preset":
+            resolved_duration_hours = int(duration_hours or template.default_duration_hours)
+            if resolved_duration_hours not in _DURATION_PRESETS_HOURS:
+                raise RIAIAMPolicyError("Invalid preset duration", status_code=400)
+        elif mode == "custom":
+            if duration_hours is None:
+                raise RIAIAMPolicyError(
+                    "duration_hours is required for custom mode", status_code=400
+                )
+            resolved_duration_hours = int(duration_hours)
+            if resolved_duration_hours <= 0:
+                raise RIAIAMPolicyError("duration_hours must be positive", status_code=400)
+            cap = min(template.max_duration_hours, _MAX_DURATION_HOURS)
+            if resolved_duration_hours > cap:
+                raise RIAIAMPolicyError("duration exceeds allowed cap", status_code=400)
+        else:
+            raise RIAIAMPolicyError("Invalid duration_mode", status_code=400)
+        return mode, resolved_duration_hours
+
+    @staticmethod
+    def _scope_metadata(scope: str) -> dict[str, Any]:
+        normalized_scope = str(scope or "").strip()
+        is_kai_specialized = normalized_scope in _RIA_KAI_SPECIALIZED_SCOPE_SET
+        return {
+            "scope": normalized_scope,
+            "label": get_scope_description(normalized_scope),
+            "description": get_scope_description(normalized_scope),
+            "kind": "pkm"
+            if normalized_scope == "pkm.read"
+            else "kai_specialized"
+            if is_kai_specialized
+            else "portfolio_domain"
+            if normalized_scope.startswith("attr.financial.")
+            else "profile_domain",
+            "summary_only": normalized_scope not in {"pkm.read", *_RIA_KAI_SPECIALIZED_SCOPES},
+        }
+
+    @classmethod
+    def _build_available_scope_metadata(
+        cls,
+        *,
+        available_domains: list[str],
+        total_attributes: int,
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        normalized_domains = sorted(
+            {
+                str(domain or "").strip()
+                for domain in list(available_domains or [])
+                if str(domain or "").strip()
+            }
+        )
+
+        if total_attributes > 0 or normalized_domains:
+            items.append(
+                {
+                    **cls._scope_metadata("pkm.read"),
+                    "available": True,
+                    "domain_key": None,
+                }
+            )
+
+        for domain_key in normalized_domains:
+            scope = f"attr.{domain_key}.*"
+            items.append(
+                {
+                    **cls._scope_metadata(scope),
+                    "available": True,
+                    "domain_key": domain_key,
+                }
+            )
+            if domain_key == "financial":
+                for specialized_scope in _RIA_KAI_SPECIALIZED_SCOPES:
+                    items.append(
+                        {
+                            **cls._scope_metadata(specialized_scope),
+                            "available": True,
+                            "domain_key": domain_key,
+                            "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                            "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                            "requires_account_selection": True,
+                        }
+                    )
+
+        return items
+
+    @staticmethod
+    def _normalize_account_ids(values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            cleaned = str(value or "").strip()
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            out.append(cleaned)
+        return out
+
+    @classmethod
+    def _kai_specialized_template(cls) -> ScopeTemplate:
+        return ScopeTemplate(
+            template_id=_RIA_KAI_SPECIALIZED_TEMPLATE_ID,
+            requester_actor_type="ria",
+            subject_actor_type="investor",
+            template_name=_RIA_KAI_SPECIALIZED_LABEL,
+            allowed_scopes=list(_RIA_KAI_SPECIALIZED_SCOPES),
+            default_duration_hours=24 * 7,
+            max_duration_hours=24 * 365,
+        )
+
+    @staticmethod
+    def _parse_list_of_dicts(value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except Exception:
+                return []
+            if isinstance(parsed, list):
+                return [item for item in parsed if isinstance(item, dict)]
+        return []
+
+    async def _list_linked_account_branches(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        investor_user_id: str,
+    ) -> list[dict[str, Any]]:
+        try:
+            rows = await conn.fetch(
+                """
+                SELECT item_id, institution_name, latest_accounts_json
+                FROM kai_plaid_items
+                WHERE user_id = $1
+                  AND COALESCE(status, '') <> 'permission_revoked'
+                ORDER BY updated_at DESC
+                """,
+                investor_user_id,
+            )
+        except asyncpg.exceptions.UndefinedTableError:
+            return []
+
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            item_id = str(row["item_id"] or "").strip() or None
+            institution_name = str(row["institution_name"] or "").strip() or None
+            accounts = self._parse_list_of_dicts(row["latest_accounts_json"])
+            for account in accounts:
+                account_id = str(account.get("account_id") or "").strip()
+                persistent_account_id = (
+                    str(account.get("persistent_account_id") or "").strip() or None
+                )
+                branch_id = persistent_account_id or account_id
+                if not branch_id or branch_id in seen:
+                    continue
+                seen.add(branch_id)
+                out.append(
+                    {
+                        "branch_id": branch_id,
+                        "account_id": account_id or branch_id,
+                        "persistent_account_id": persistent_account_id,
+                        "item_id": item_id,
+                        "institution_name": institution_name
+                        or str(account.get("institution_name") or "").strip()
+                        or None,
+                        "name": str(
+                            account.get("name") or account.get("official_name") or branch_id
+                        ).strip(),
+                        "official_name": str(account.get("official_name") or "").strip() or None,
+                        "mask": str(account.get("mask") or "").strip() or None,
+                        "type": str(account.get("type") or "").strip() or None,
+                        "subtype": str(account.get("subtype") or "").strip() or None,
+                    }
+                )
+
+        out.sort(
+            key=lambda item: (
+                str(item.get("institution_name") or "").lower(),
+                str(item.get("name") or "").lower(),
+                str(item.get("mask") or "").lower(),
+            )
+        )
+        return out
+
+    @staticmethod
+    def _bundle_scope_state(
+        scope: str,
+        *,
+        granted_scope_keys: set[str],
+        pending_scope_keys: set[str],
+    ) -> str:
+        if (
+            scope in granted_scope_keys
+            or "pkm.read" in granted_scope_keys
+            or "attr.financial.*" in granted_scope_keys
+        ):
+            return "active"
+        if (
+            scope in pending_scope_keys
+            or "pkm.read" in pending_scope_keys
+            or "attr.financial.*" in pending_scope_keys
+        ):
+            return "pending"
+        return "available"
+
+    @classmethod
+    def _build_kai_specialized_bundle_state(
+        cls,
+        *,
+        account_branches: list[dict[str, Any]],
+        granted_payloads: list[dict[str, Any]],
+        pending_payloads: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        granted_scope_keys = {
+            str(payload.get("scope") or "").strip() for payload in granted_payloads
+        }
+        pending_scope_keys = {
+            str(payload.get("scope") or "").strip() for payload in pending_payloads
+        }
+
+        approved_account_ids: list[str] = []
+        pending_account_ids: list[str] = []
+        legacy_full_access = False
+
+        for payload in granted_payloads:
+            scope = str(payload.get("scope") or "").strip()
+            metadata = cls._parse_metadata(payload.get("metadata"))
+            if scope not in _RIA_KAI_SPECIALIZED_SCOPE_SET and scope not in {
+                "attr.financial.*",
+                "pkm.read",
+            }:
+                continue
+            selected = cls._normalize_account_ids(metadata.get("selected_account_ids"))
+            if selected:
+                approved_account_ids.extend(selected)
+            elif scope in {"attr.financial.*", "pkm.read"}:
+                legacy_full_access = True
+
+        for payload in pending_payloads:
+            scope = str(payload.get("scope") or "").strip()
+            metadata = cls._parse_metadata(payload.get("metadata"))
+            template_id = str(metadata.get("scope_template_id") or "").strip()
+            if (
+                template_id != _RIA_KAI_SPECIALIZED_TEMPLATE_ID
+                and scope not in _RIA_KAI_SPECIALIZED_SCOPE_SET
+            ):
+                continue
+            pending_account_ids.extend(
+                cls._normalize_account_ids(metadata.get("selected_account_ids"))
+            )
+
+        approved_account_ids = list(dict.fromkeys(approved_account_ids))
+        pending_account_ids = list(dict.fromkeys(pending_account_ids))
+        if legacy_full_access:
+            approved_account_ids = [
+                str(item.get("branch_id") or item.get("account_id") or "").strip()
+                for item in account_branches
+                if str(item.get("branch_id") or item.get("account_id") or "").strip()
+            ]
+
+        scoped_account_branches: list[dict[str, Any]] = []
+        approved_set = set(approved_account_ids)
+        pending_set = set(pending_account_ids)
+        for branch in account_branches:
+            branch_id = str(branch.get("branch_id") or branch.get("account_id") or "").strip()
+            status = (
+                "approved"
+                if branch_id in approved_set
+                else "pending"
+                if branch_id in pending_set
+                else "approval_required"
+            )
+            scoped_account_branches.append(
+                {
+                    **branch,
+                    "status": status,
+                    "granted_by_bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY
+                    if status == "approved"
+                    else None,
+                }
+            )
+
+        scope_states = [
+            {
+                **cls._scope_metadata(scope),
+                "status": cls._bundle_scope_state(
+                    scope,
+                    granted_scope_keys=granted_scope_keys,
+                    pending_scope_keys=pending_scope_keys,
+                ),
+            }
+            for scope in _RIA_KAI_SPECIALIZED_SCOPES
+        ]
+
+        if any(item["status"] == "active" for item in scope_states):
+            bundle_status = (
+                "partial"
+                if scoped_account_branches
+                and any(item["status"] != "approved" for item in scoped_account_branches)
+                else "active"
+            )
+        elif any(item["status"] == "pending" for item in scope_states):
+            bundle_status = "pending"
+        else:
+            bundle_status = "available"
+
+        return (
+            {
+                "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                "template_id": _RIA_KAI_SPECIALIZED_TEMPLATE_ID,
+                "label": _RIA_KAI_SPECIALIZED_LABEL,
+                "description": _RIA_KAI_SPECIALIZED_DESCRIPTION,
+                "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                "requires_account_selection": True,
+                "status": bundle_status,
+                "approved_account_ids": approved_account_ids,
+                "pending_account_ids": pending_account_ids,
+                "selected_account_ids": approved_account_ids or pending_account_ids,
+                "legacy_grant_compatible": legacy_full_access,
+                "scopes": scope_states,
+            },
+            scoped_account_branches,
+        )
+
+    async def list_requestable_scope_templates(self, user_id: str) -> list[dict[str, Any]]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            ria = await self._get_ria_profile_by_user(conn, user_id)
+            if not self._is_verified_ria_status(ria["verification_status"]):
+                raise RIAIAMPolicyError(
+                    "RIA verification incomplete; cannot request investor scopes",
+                    status_code=403,
+                )
+            rows = await conn.fetch(
+                """
+                SELECT
+                  template_id,
+                  template_name,
+                  description,
+                  allowed_scopes,
+                  default_duration_hours,
+                  max_duration_hours
+                FROM consent_scope_templates
+                WHERE requester_actor_type = 'ria'
+                  AND subject_actor_type = 'investor'
+                  AND active = TRUE
+                ORDER BY template_name ASC
+                """
+            )
+            items: list[dict[str, Any]] = []
+            for row in rows:
+                allowed_scopes = self._canonicalize_scope_aliases(list(row["allowed_scopes"] or []))
+                items.append(
+                    {
+                        "template_id": str(row["template_id"]),
+                        "template_name": str(row["template_name"]),
+                        "description": row["description"],
+                        "default_duration_hours": int(row["default_duration_hours"]),
+                        "max_duration_hours": int(row["max_duration_hours"]),
+                        "scopes": [self._scope_metadata(scope) for scope in allowed_scopes],
+                    }
+                )
+            if not any(
+                str(item.get("template_id") or "").strip() == _RIA_KAI_SPECIALIZED_TEMPLATE_ID
+                for item in items
+            ):
+                template = self._kai_specialized_template()
+                items.append(
+                    {
+                        "template_id": template.template_id,
+                        "template_name": template.template_name,
+                        "description": _RIA_KAI_SPECIALIZED_DESCRIPTION,
+                        "default_duration_hours": template.default_duration_hours,
+                        "max_duration_hours": template.max_duration_hours,
+                        "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                        "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                        "requires_account_selection": True,
+                        "scopes": [
+                            {
+                                **self._scope_metadata(scope),
+                                "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                                "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                                "requires_account_selection": True,
+                            }
+                            for scope in template.allowed_scopes
+                        ],
+                    }
+                )
+            items.sort(key=lambda item: str(item.get("template_name") or "").lower())
+            return items
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def _create_ria_consent_request_record(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        ria: asyncpg.Record,
+        subject_user_id: str,
+        template: ScopeTemplate,
+        chosen_scope: str,
+        firm_id: str | None,
+        reason: str | None,
+        invite_id: str | None,
+        invite_token: str | None,
+        request_origin: str | None,
+        bundle_id: str | None,
+        bundle_label: str | None,
+        bundle_scope_count: int | None,
+        selected_account_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        request_id = uuid.uuid4().hex
+        now_ms = self._now_ms()
+        expires_at_ms = now_ms + (template.default_duration_hours * 60 * 60 * 1000)
+        ria_map = dict(ria)
+        agent_id = f"ria:{ria_map['id']}"
+        request_url = build_consent_request_url(
+            request_id=request_id,
+            bundle_id=str(bundle_id or "").strip() or None,
+        )
+        requester_label = (
+            str(ria_map.get("display_name") or ria_map.get("legal_name") or "").strip()
+            or f"RIA {str(ria_map['id'])[:8]}"
+        )
+        requester_website_url = str(ria_map.get("disclosures_url") or "").strip() or None
+        normalized_account_ids = self._normalize_account_ids(selected_account_ids)
+        account_summary = (
+            f"{len(normalized_account_ids)} linked account"
+            f"{'' if len(normalized_account_ids) == 1 else 's'} pending investor approval"
+            if normalized_account_ids
+            else None
+        )
+
+        metadata = {
+            "requester_actor_type": "ria",
+            "subject_actor_type": "investor",
+            "requester_entity_id": str(ria_map["id"]),
+            "requester_label": requester_label,
+            "requester_image_url": None,
+            "requester_website_url": requester_website_url,
+            "firm_id": firm_id,
+            "scope_template_id": template.template_id,
+            "duration_mode": "investor_decides",
+            "duration_hours": None,
+            "request_timeout_hours": template.default_duration_hours,
+            "approval_timeout_minutes": template.default_duration_hours * 60,
+            "approval_timeout_at": expires_at_ms,
+            "reason": (reason or "").strip() or None,
+            "request_origin": (request_origin or "").strip() or "direct_ria_request",
+            "invite_id": invite_id,
+            "invite_token": invite_token,
+            "bundle_id": bundle_id,
+            "bundle_label": bundle_label,
+            "bundle_scope_count": bundle_scope_count or 1,
+            "request_url": request_url,
+            "selected_account_ids": normalized_account_ids,
+            "account_branch_mode": "explicit_snapshot" if normalized_account_ids else "unspecified",
+            "additional_access_summary": account_summary
+            or self._relationship_share_summary(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
+            "included_relationship_shares": [
+                {
+                    **self._relationship_share_descriptor(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
+                    "share_origin": _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT,
+                    "status": "included_on_approval",
+                }
+            ],
+        }
+
+        await conn.execute(
+            """
+            INSERT INTO consent_audit (
+              token_id,
+              user_id,
+              agent_id,
+              scope,
+              action,
+              issued_at,
+              expires_at,
+              poll_timeout_at,
+              request_id,
+              scope_description,
+              metadata
+            )
+            VALUES (
+              $1,
+              $2,
+              $3,
+              $4,
+              'REQUESTED',
+              $5,
+              $6,
+              $7,
+              $8,
+              $9,
+              $10::jsonb
+            )
+            """,
+            f"req_{request_id}",
+            subject_user_id,
+            agent_id,
+            chosen_scope,
+            now_ms,
+            expires_at_ms,
+            expires_at_ms,
+            request_id,
+            template.template_name,
+            json.dumps(metadata),
+        )
+
+        relationship = await conn.fetchrow(
+            """
+            SELECT id
+            FROM advisor_investor_relationships
+            WHERE investor_user_id = $1
+              AND ria_profile_id = $2
+              AND (
+                (firm_id IS NULL AND $3::uuid IS NULL)
+                OR firm_id = $3::uuid
+              )
+            LIMIT 1
+            """,
+            subject_user_id,
+            ria["id"],
+            firm_id,
+        )
+
+        relationship_id: str | None = None
+        if relationship is None:
+            relationship_row = await conn.fetchrow(
+                """
+                INSERT INTO advisor_investor_relationships (
+                  investor_user_id,
+                  ria_profile_id,
+                  firm_id,
+                  status,
+                  last_request_id,
+                  granted_scope,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  $1,
+                  $2,
+                  $3::uuid,
+                  'request_pending',
+                  $4,
+                  $5,
+                  NOW(),
+                  NOW()
+                )
+                RETURNING id
+                """,
+                subject_user_id,
+                ria["id"],
+                firm_id,
+                request_id,
+                chosen_scope,
+            )
+            relationship_id = (
+                str(relationship_row["id"])
+                if relationship_row and relationship_row["id"] is not None
+                else None
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE advisor_investor_relationships
+                SET
+                  status = 'request_pending',
+                  last_request_id = $2,
+                  granted_scope = COALESCE(granted_scope, $3),
+                  updated_at = NOW()
+                WHERE id = $1
+                """,
+                relationship["id"],
+                request_id,
+                chosen_scope,
+            )
+            relationship_id = str(relationship["id"])
+
+        return {
+            "request_id": request_id,
+            "subject_user_id": subject_user_id,
+            "scope": chosen_scope,
+            "duration_hours": template.default_duration_hours,
+            "duration_mode": "investor_decides",
+            "expires_at": expires_at_ms,
+            "scope_template_id": template.template_id,
+            "requester_entity_id": str(ria["id"]),
+            "relationship_id": relationship_id,
+            "status": "REQUESTED",
+            "metadata": metadata,
+        }
+
+    async def create_ria_consent_bundle(
+        self,
+        user_id: str,
+        *,
+        subject_user_id: str,
+        scope_template_id: str,
+        selected_scopes: list[str],
+        selected_account_ids: list[str] | None = None,
+        firm_id: str | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, user_id)
+                await self._ensure_vault_user_row(conn, subject_user_id)
+                await self._ensure_iam_schema_ready(conn)
+                await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+                await self._ensure_actor_profile_row(conn, subject_user_id)
+
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                if not self._is_verified_ria_status(ria["verification_status"]):
+                    raise RIAIAMPolicyError(
+                        "RIA verification incomplete; cannot create consent requests",
+                        status_code=403,
+                    )
+
+                template = await self._load_scope_template(conn, scope_template_id)
+                normalized_scopes = self._canonicalize_scope_aliases(selected_scopes)
+                deduped_scopes = list(dict.fromkeys(normalized_scopes))
+                if not deduped_scopes:
+                    deduped_scopes = list(template.allowed_scopes[:1])
+                invalid_scopes = [
+                    scope for scope in deduped_scopes if scope not in template.allowed_scopes
+                ]
+                if invalid_scopes:
+                    raise RIAIAMPolicyError(
+                        "Selected scope is not allowed for this template", status_code=400
+                    )
+
+                normalized_account_ids = self._normalize_account_ids(selected_account_ids)
+                if template.template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID:
+                    account_branches = await self._list_linked_account_branches(
+                        conn,
+                        investor_user_id=subject_user_id,
+                    )
+                    available_account_ids = {
+                        str(item.get("branch_id") or item.get("account_id") or "").strip()
+                        for item in account_branches
+                        if str(item.get("branch_id") or item.get("account_id") or "").strip()
+                    }
+                    if not normalized_account_ids and available_account_ids:
+                        normalized_account_ids = sorted(available_account_ids)
+                    invalid_account_ids = [
+                        account_id
+                        for account_id in normalized_account_ids
+                        if account_id not in available_account_ids
+                    ]
+                    if invalid_account_ids:
+                        raise RIAIAMPolicyError(
+                            "Selected account is not available for this investor workspace",
+                            status_code=400,
+                        )
+
+                if firm_id:
+                    membership = await conn.fetchrow(
+                        """
+                        SELECT 1
+                        FROM ria_firm_memberships
+                        WHERE ria_profile_id = $1
+                          AND firm_id = $2::uuid
+                          AND membership_status = 'active'
+                        """,
+                        ria["id"],
+                        firm_id,
+                    )
+                    if membership is None:
+                        raise RIAIAMPolicyError("Firm membership is not active", status_code=403)
+
+                bundle_id = uuid.uuid4().hex
+                bundle_label = template.template_name
+                created_requests: list[dict[str, Any]] = []
+                for scope in deduped_scopes:
+                    created_requests.append(
+                        await self._create_ria_consent_request_record(
+                            conn,
+                            ria=ria,
+                            subject_user_id=subject_user_id,
+                            template=template,
+                            chosen_scope=scope,
+                            firm_id=firm_id,
+                            reason=reason,
+                            invite_id=None,
+                            invite_token=None,
+                            request_origin="direct_ria_request_bundle",
+                            bundle_id=bundle_id,
+                            bundle_label=bundle_label,
+                            bundle_scope_count=len(deduped_scopes),
+                            selected_account_ids=normalized_account_ids,
+                        )
+                    )
+
+                expires_at = (
+                    max(int(item["expires_at"]) for item in created_requests)
+                    if created_requests
+                    else None
+                )
+                return {
+                    "bundle_id": bundle_id,
+                    "bundle_label": bundle_label,
+                    "subject_user_id": subject_user_id,
+                    "status": "REQUESTED",
+                    "request_count": len(created_requests),
+                    "requests": created_requests,
+                    "request_ids": [item["request_id"] for item in created_requests],
+                    "selected_scopes": [item["scope"] for item in created_requests],
+                    "selected_account_ids": normalized_account_ids,
+                    "expires_at": expires_at,
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def submit_ria_onboarding(
+        self,
+        user_id: str,
+        *,
+        display_name: str,
+        requested_capabilities: list[str] | tuple[str, ...] | None = None,
+        individual_legal_name: str | None = None,
+        individual_crd: str | None = None,
+        advisory_firm_legal_name: str | None = None,
+        advisory_firm_iapd_number: str | None = None,
+        broker_firm_legal_name: str | None = None,
+        broker_firm_crd: str | None = None,
+        legal_name: str | None = None,
+        finra_crd: str | None = None,
+        sec_iard: str | None = None,
+        bio: str | None = None,
+        strategy: str | None = None,
+        disclosures_url: str | None = None,
+        primary_firm_name: str | None = None,
+        primary_firm_role: str | None = None,
+        force_live_verification: bool = False,
+        license_number: str | None = None,
+        regulator: str | None = None,
+        onboarding_type: str = "individual",
+        services_offered: list[str] | None = None,
+        fee_structure: list[str] | None = None,
+        min_engagement_amount: float | None = None,
+        min_engagement_currency: str = "USD",
+        certifications: list[str] | None = None,
+        contact_email: str | None = None,
+        contact_phone: str | None = None,
+        business_city: str | None = None,
+        business_area: str | None = None,
+        business_address: str | None = None,
+        business_pin_zip: str | None = None,
+        business_latitude: float | None = None,
+        business_longitude: float | None = None,
+    ) -> dict[str, Any]:
+        prepared = self._prepare_professional_onboarding_inputs(
+            display_name=display_name,
+            requested_capabilities=requested_capabilities or ["advisory"],
+            individual_legal_name=individual_legal_name or legal_name,
+            individual_crd=individual_crd or finra_crd,
+            advisory_firm_legal_name=advisory_firm_legal_name or primary_firm_name,
+            advisory_firm_iapd_number=advisory_firm_iapd_number or sec_iard,
+            broker_firm_legal_name=broker_firm_legal_name,
+            broker_firm_crd=broker_firm_crd,
+            bio=bio,
+            strategy=strategy,
+            disclosures_url=disclosures_url,
+            require_regulatory_identity=False,
+            require_advisory_firm_identifiers=False,
+        )
+        normalized_display_name = str(prepared["display_name"])
+        normalized_requested_capabilities = list(prepared["requested_capabilities"])
+        submitted_individual_crd = self._normalize_optional_text(prepared.get("individual_crd"))
+        name_lookup: NameVerificationResult | None = None
+        if not force_live_verification:
+            name_lookup = await self._lookup_recent_license_verification_result(
+                user_id=user_id,
+                license_number=license_number,
+                submitted_individual_crd=submitted_individual_crd,
+            )
+        if name_lookup is None:
+            name_lookup = await self._verify_ria_name_result(
+                normalized_display_name,
+                crd_number=submitted_individual_crd,
+                use_cache=not force_live_verification,
+            )
+        if name_lookup.status == "provider_unavailable":
+            raise RIAIAMPolicyError(
+                name_lookup.reason or "RIA name verification provider unavailable.",
+                status_code=503,
+            )
+        if name_lookup.status != "verified" or not self._normalize_optional_text(
+            name_lookup.crd_number
+        ):
+            raise RIAIAMPolicyError(
+                name_lookup.reason
+                or "Advisor name could not be verified against a CRD-backed registration.",
+                status_code=400,
+            )
+        if submitted_individual_crd and (
+            self._normalize_crd_text(name_lookup.crd_number)
+            != self._normalize_crd_text(submitted_individual_crd)
+        ):
+            raise RIAIAMPolicyError(
+                "The verified CRD did not match the CRD you entered. Check the CRD or remove it and verify by name.",
+                status_code=400,
+            )
+
+        effective_legal_name = (
+            self._normalize_optional_text(name_lookup.matched_name) or normalized_display_name
+        )
+        effective_finra_crd = self._normalize_optional_text(name_lookup.crd_number)
+        effective_sec_iard = self._normalize_optional_text(
+            name_lookup.sec_number
+        ) or self._normalize_optional_text(prepared.get("advisory_firm_iapd_number"))
+        effective_primary_firm_name = (
+            self._normalize_optional_text(name_lookup.current_firm)
+            or self._normalize_optional_text(prepared.get("advisory_firm_legal_name"))
+            or self._normalize_optional_text(primary_firm_name)
+        )
+        effective_broker_firm_name = self._normalize_optional_text(
+            prepared.get("broker_firm_legal_name")
+        )
+        effective_broker_firm_crd = self._normalize_optional_text(prepared.get("broker_firm_crd"))
+        verification_result = VerificationResult(
+            verified=True,
+            rejected=False,
+            outcome="verified",
+            message="RIA verification succeeded from the Stage 1 name lookup.",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            metadata={
+                "provider": name_lookup.provider,
+                "matched_name": name_lookup.matched_name,
+                "crd_number": name_lookup.crd_number,
+                "current_firm": name_lookup.current_firm,
+                "sec_number": name_lookup.sec_number,
+                "reason_code": name_lookup.reason_code,
+                "suggested_names": list(name_lookup.suggested_names or []),
+                **dict(name_lookup.metadata or {}),
+            },
+        )
+        verification_provider = self._verification_provider_label(verification_result)
+        next_status = "verified"
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, user_id)
+                await self._ensure_iam_schema_ready(conn)
+                await conn.execute(
+                    """
+                    INSERT INTO actor_profiles (
+                        user_id,
+                        personas,
+                        last_active_persona,
+                        investor_marketplace_opt_in
+                    )
+                    VALUES ($1, ARRAY['investor','ria']::text[], 'ria', FALSE)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      personas = CASE
+                        WHEN 'ria' = ANY(actor_profiles.personas) THEN actor_profiles.personas
+                        ELSE array_append(actor_profiles.personas, 'ria')
+                      END,
+                      last_active_persona = 'ria',
+                      updated_at = NOW()
+                    """,
+                    user_id,
+                )
+                await self._set_runtime_last_persona(conn, user_id, "ria")
+
+                ria = await conn.fetchrow(
+                    """
+                    INSERT INTO ria_profiles (
+                      user_id,
+                      display_name,
+                      legal_name,
+                      finra_crd,
+                      sec_iard,
+                      verification_status,
+                      verification_provider,
+                      bio,
+                      strategy,
+                      disclosures_url
+                    )
+                    VALUES (
+                      $1,
+                      $2,
+                      NULLIF($3, ''),
+                      NULLIF($4, ''),
+                      NULLIF($5, ''),
+                      'submitted',
+                      'finra',
+                      NULLIF($6, ''),
+                      NULLIF($7, ''),
+                      NULLIF($8, '')
+                    )
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      display_name = EXCLUDED.display_name,
+                      legal_name = EXCLUDED.legal_name,
+                      finra_crd = EXCLUDED.finra_crd,
+                      sec_iard = EXCLUDED.sec_iard,
+                      verification_status = 'submitted',
+                      verification_provider = 'finra',
+                      bio = EXCLUDED.bio,
+                      strategy = EXCLUDED.strategy,
+                      disclosures_url = EXCLUDED.disclosures_url,
+                      updated_at = NOW()
+                    RETURNING id, user_id, display_name, legal_name, finra_crd, sec_iard, verification_status
+                    """,
+                    user_id,
+                    normalized_display_name,
+                    effective_legal_name,
+                    effective_finra_crd,
+                    effective_sec_iard or "",
+                    str(prepared.get("bio") or ""),
+                    str(prepared.get("strategy") or ""),
+                    str(prepared.get("disclosures_url") or ""),
+                )
+                if ria is None:
+                    raise RuntimeError("Failed to create RIA profile")
+
+                firm_id: str | None = None
+                if effective_primary_firm_name and effective_primary_firm_name.strip():
+                    firm_row = await conn.fetchrow(
+                        """
+                        INSERT INTO ria_firms (legal_name)
+                        VALUES ($1)
+                        ON CONFLICT (legal_name) DO UPDATE
+                        SET updated_at = NOW()
+                        RETURNING id
+                        """,
+                        effective_primary_firm_name.strip(),
+                    )
+                    if firm_row:
+                        firm_id = str(firm_row["id"])
+                        await conn.execute(
+                            """
+                            INSERT INTO ria_firm_memberships (
+                              ria_profile_id,
+                              firm_id,
+                              role_title,
+                              membership_status,
+                              is_primary
+                            )
+                            VALUES ($1, $2, NULLIF($3, ''), 'active', TRUE)
+                            ON CONFLICT (ria_profile_id, firm_id) DO UPDATE
+                            SET
+                              role_title = EXCLUDED.role_title,
+                              membership_status = 'active',
+                              is_primary = TRUE,
+                              updated_at = NOW()
+                            """,
+                            ria["id"],
+                            firm_row["id"],
+                            (primary_firm_role or "").strip(),
+                        )
+
+                _ = force_live_verification
+
+                await conn.execute(
+                    """
+                    UPDATE ria_profiles
+                    SET
+                      verification_status = $2,
+                      verification_provider = $3,
+                      verification_expires_at = $4,
+                      updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    ria["id"],
+                    next_status,
+                    verification_provider,
+                    verification_result.expires_at,
+                )
+                try:
+                    await conn.execute(
+                        """
+                        UPDATE ria_profiles
+                        SET
+                          requested_capabilities = $2::text[],
+                          individual_legal_name = NULLIF($3, ''),
+                          individual_crd = NULLIF($4, ''),
+                          advisory_firm_legal_name = NULLIF($5, ''),
+                          advisory_firm_iapd_number = NULLIF($6, ''),
+                          broker_firm_legal_name = NULLIF($7, ''),
+                          broker_firm_crd = NULLIF($8, ''),
+                          advisory_status = $9,
+                          brokerage_status = $10,
+                          advisory_provider = $11,
+                          brokerage_provider = $12,
+                          advisory_verification_expires_at = $13,
+                          brokerage_verification_expires_at = $14,
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        ria["id"],
+                        normalized_requested_capabilities,
+                        effective_legal_name or "",
+                        effective_finra_crd or "",
+                        effective_primary_firm_name or "",
+                        effective_sec_iard or "",
+                        effective_broker_firm_name or "",
+                        effective_broker_firm_crd or "",
+                        "verified",
+                        "draft",
+                        verification_provider,
+                        None,
+                        verification_result.expires_at,
+                        None,
+                    )
+                except asyncpg.exceptions.UndefinedColumnError:
+                    logger.warning(
+                        "ria_profiles capability columns unavailable during onboarding write; using legacy verification fields only"
+                    )
+
+                await conn.execute(
+                    """
+                    UPDATE marketplace_public_profiles
+                    SET
+                      verification_badge = CASE
+                        WHEN $2 IN ('finra_verified', 'active', 'verified') THEN 'verified'
+                        ELSE 'pending'
+                      END,
+                      updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                    next_status,
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO ria_verification_events (
+                      ria_profile_id,
+                      provider,
+                      outcome,
+                      checked_at,
+                      expires_at,
+                      reference_metadata
+                    )
+                    VALUES ($1, $2, $3, NOW(), $4, $5::jsonb)
+                    """,
+                    ria["id"],
+                    verification_provider,
+                    verification_result.outcome,
+                    verification_result.expires_at,
+                    json.dumps(verification_result.metadata),
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO marketplace_public_profiles (
+                      user_id,
+                      profile_type,
+                      display_name,
+                      headline,
+                      strategy_summary,
+                      verification_badge,
+                      is_discoverable,
+                      updated_at
+                    )
+                    VALUES (
+                      $1,
+                      'ria',
+                      $2,
+                      COALESCE(NULLIF($3, ''), NULLIF($4, ''), 'Registered Investment Advisor'),
+                      NULLIF($4, ''),
+                      CASE WHEN $5 IN ('finra_verified', 'active', 'verified') THEN 'verified' ELSE 'pending' END,
+                      TRUE,
+                      NOW()
+                    )
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      profile_type = 'ria',
+                      display_name = EXCLUDED.display_name,
+                      headline = EXCLUDED.headline,
+                      strategy_summary = EXCLUDED.strategy_summary,
+                      verification_badge = EXCLUDED.verification_badge,
+                      is_discoverable = TRUE,
+                    updated_at = NOW()
+                    """,
+                    user_id,
+                    normalized_display_name,
+                    str(prepared.get("bio") or ""),
+                    str(prepared.get("strategy") or ""),
+                    next_status,
+                )
+
+                # Onboarding v2: persist license-first fields
+                try:
+                    await conn.execute(
+                        """
+                        UPDATE ria_profiles
+                        SET
+                          license_number = COALESCE(NULLIF($2, ''), license_number),
+                          regulator = COALESCE(NULLIF($3, ''), regulator),
+                          onboarding_type = COALESCE(NULLIF($4, ''), onboarding_type),
+                          services_offered = CASE WHEN $5::text[] = '{}' THEN services_offered ELSE $5::text[] END,
+                          fee_structure = CASE WHEN $6::text[] = '{}' THEN fee_structure ELSE $6::text[] END,
+                          min_engagement_amount = COALESCE($7, min_engagement_amount),
+                          min_engagement_currency = COALESCE(NULLIF($8, ''), min_engagement_currency),
+                          certifications = CASE WHEN $9::text[] = '{}' THEN certifications ELSE $9::text[] END,
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        ria["id"],
+                        license_number or "",
+                        regulator or "",
+                        onboarding_type or "",
+                        services_offered or [],
+                        fee_structure or [],
+                        min_engagement_amount,
+                        min_engagement_currency or "",
+                        certifications or [],
+                    )
+                except asyncpg.exceptions.UndefinedColumnError:
+                    logger.warning(
+                        "ria_profiles v2 columns unavailable; skipping license-first fields"
+                    )
+
+                # Onboarding v2: persist business contact
+                if contact_email or contact_phone or business_city or business_address:
+                    try:
+                        await conn.execute(
+                            """
+                            INSERT INTO ria_business_contacts (
+                              user_id, email, phone, city, area_locality,
+                              full_street_address, pin_zip, latitude, longitude
+                            )
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                            ON CONFLICT (user_id) DO UPDATE
+                            SET
+                              email = COALESCE(NULLIF(EXCLUDED.email, ''), ria_business_contacts.email),
+                              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), ria_business_contacts.phone),
+                              city = COALESCE(NULLIF(EXCLUDED.city, ''), ria_business_contacts.city),
+                              area_locality = COALESCE(NULLIF(EXCLUDED.area_locality, ''), ria_business_contacts.area_locality),
+                              full_street_address = COALESCE(NULLIF(EXCLUDED.full_street_address, ''), ria_business_contacts.full_street_address),
+                              pin_zip = COALESCE(NULLIF(EXCLUDED.pin_zip, ''), ria_business_contacts.pin_zip),
+                              latitude = COALESCE(EXCLUDED.latitude, ria_business_contacts.latitude),
+                              longitude = COALESCE(EXCLUDED.longitude, ria_business_contacts.longitude),
+                              updated_at = NOW()
+                            """,
+                            user_id,
+                            contact_email or "",
+                            contact_phone or "",
+                            business_city or "",
+                            business_area or "",
+                            business_address or "",
+                            business_pin_zip or "",
+                            business_latitude,
+                            business_longitude,
+                        )
+                    except asyncpg.exceptions.UndefinedTableError:
+                        logger.warning(
+                            "ria_business_contacts table unavailable; skipping contact fields"
+                        )
+
+                advisory_status = "verified"
+                brokerage_status = "draft"
+                professional_access_granted = True
+                brokerage_outcome = (
+                    "not_requested"
+                    if "brokerage" not in normalized_requested_capabilities
+                    else "unsupported"
+                )
+                brokerage_message = (
+                    "Brokerage capability was not requested."
+                    if "brokerage" not in normalized_requested_capabilities
+                    else "Brokerage verification is not yet enabled in this onboarding path."
+                )
+
+                return {
+                    "ria_profile_id": str(ria["id"]),
+                    "user_id": str(ria["user_id"]),
+                    "display_name": str(ria["display_name"]),
+                    "verification_status": next_status,
+                    "verification_provider": verification_provider,
+                    "advisory_status": advisory_status,
+                    "brokerage_status": brokerage_status,
+                    "requested_capabilities": normalized_requested_capabilities,
+                    "verification_outcome": verification_result.outcome,
+                    "verification_message": verification_result.message,
+                    "brokerage_outcome": brokerage_outcome,
+                    "brokerage_message": brokerage_message,
+                    "professional_access_granted": professional_access_granted,
+                    "individual_legal_name": effective_legal_name,
+                    "individual_crd": effective_finra_crd,
+                    "advisory_firm_legal_name": effective_primary_firm_name,
+                    "advisory_firm_iapd_number": effective_sec_iard,
+                    "broker_firm_legal_name": effective_broker_firm_name,
+                    "broker_firm_crd": effective_broker_firm_crd,
+                    "firm_id": firm_id,
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def _removed_activate_ria_dev_onboarding(self) -> None:
+        """Dev bypass onboarding has been permanently removed.
+
+        Every RIA must complete Stage 1 CRD-backed verification.
+        Use submit_ria_onboarding() instead.
+        """
+        raise RIAIAMPolicyError(
+            "Dev bypass onboarding is no longer available. All RIAs must complete CRD-backed verification.",
+            status_code=410,
+        )
+
+    async def get_ria_onboarding_status(self, user_id: str) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            await self._ensure_vault_user_row(conn, user_id)
+            await self._ensure_actor_profile_row(conn, user_id)
+            used_legacy_capabilities_fallback = False
+            try:
+                ria = await conn.fetchrow(
+                    """
+                    SELECT
+                      id,
+                      user_id,
+                      display_name,
+                      requested_capabilities,
+                      individual_legal_name,
+                      individual_crd,
+                      advisory_firm_legal_name,
+                      advisory_firm_iapd_number,
+                      broker_firm_legal_name,
+                      broker_firm_crd,
+                      advisory_status,
+                      brokerage_status,
+                      advisory_provider,
+                      brokerage_provider,
+                      advisory_verification_expires_at,
+                      brokerage_verification_expires_at,
+                      legal_name,
+                      finra_crd,
+                      sec_iard,
+                      verification_status,
+                      verification_provider,
+                      verification_expires_at,
+                      created_at,
+                      updated_at
+                    FROM ria_profiles
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+            except asyncpg.exceptions.UndefinedColumnError as exc:
+                if "requested_capabilities" not in str(exc):
+                    raise
+                used_legacy_capabilities_fallback = True
+                logger.warning(
+                    "ria_profiles.requested_capabilities is missing; using legacy fallback defaults"
+                )
+                ria = await conn.fetchrow(
+                    """
+                    SELECT
+                      id,
+                      user_id,
+                      display_name,
+                      legal_name,
+                      finra_crd,
+                      sec_iard,
+                      verification_status,
+                      verification_provider,
+                      verification_expires_at,
+                      created_at,
+                      updated_at
+                    FROM ria_profiles
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+            if ria is None:
+                return {
+                    "exists": False,
+                    "verification_status": "draft",
+                }
+
+            latest_event = await conn.fetchrow(
+                """
+                SELECT outcome, checked_at, expires_at, reference_metadata
+                FROM ria_verification_events
+                WHERE ria_profile_id = $1
+                ORDER BY checked_at DESC
+                LIMIT 1
+                """,
+                ria["id"],
+            )
+            event = dict(latest_event) if latest_event else None
+            if event and "reference_metadata" in event:
+                event["reference_metadata"] = self._parse_metadata(event["reference_metadata"])
+
+            v2_profile: dict[str, Any] = {}
+            try:
+                v2_row = await conn.fetchrow(
+                    """
+                    SELECT
+                      license_number,
+                      regulator,
+                      regulator_status,
+                      license_expiry_date,
+                      certifications,
+                      onboarding_type,
+                      services_offered,
+                      fee_structure,
+                      min_engagement_amount,
+                      min_engagement_currency
+                    FROM ria_profiles
+                    WHERE id = $1
+                    """,
+                    ria["id"],
+                )
+                v2_profile = dict(v2_row) if v2_row else {}
+            except asyncpg.exceptions.UndefinedColumnError:
+                logger.warning("ria_profiles v2 columns unavailable during onboarding status")
+
+            business_contact: dict[str, Any] = {}
+            try:
+                contact_row = await conn.fetchrow(
+                    """
+                    SELECT
+                      city,
+                      area_locality,
+                      full_street_address,
+                      pin_zip,
+                      latitude,
+                      longitude
+                    FROM ria_business_contacts
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+                business_contact = dict(contact_row) if contact_row else {}
+            except (
+                asyncpg.exceptions.UndefinedTableError,
+                asyncpg.exceptions.UndefinedColumnError,
+            ):
+                logger.warning("ria_business_contacts unavailable during onboarding status")
+
+            if used_legacy_capabilities_fallback:
+                requested_capabilities = ["advisory"]
+                individual_legal_name = ria["legal_name"]
+                individual_crd = ria["finra_crd"]
+                advisory_firm_legal_name = None
+                advisory_firm_iapd_number = None
+                broker_firm_legal_name = None
+                broker_firm_crd = None
+                advisory_status = self._advisory_status_from_row(ria)
+                brokerage_status = self._brokerage_status_from_row(ria)
+                advisory_provider = ria["verification_provider"]
+                brokerage_provider = None
+                advisory_verification_expires_at = ria["verification_expires_at"]
+                brokerage_verification_expires_at = None
+            else:
+                requested_capabilities = list(ria["requested_capabilities"] or [])
+                individual_legal_name = ria["individual_legal_name"]
+                individual_crd = ria["individual_crd"]
+                advisory_firm_legal_name = ria["advisory_firm_legal_name"]
+                advisory_firm_iapd_number = ria["advisory_firm_iapd_number"]
+                broker_firm_legal_name = ria["broker_firm_legal_name"]
+                broker_firm_crd = ria["broker_firm_crd"]
+                advisory_status = ria["advisory_status"]
+                brokerage_status = ria["brokerage_status"]
+                advisory_provider = ria["advisory_provider"]
+                brokerage_provider = ria["brokerage_provider"]
+                advisory_verification_expires_at = ria["advisory_verification_expires_at"]
+                brokerage_verification_expires_at = ria["brokerage_verification_expires_at"]
+
+            return {
+                "exists": True,
+                "ria_profile_id": str(ria["id"]),
+                "display_name": ria["display_name"],
+                "requested_capabilities": requested_capabilities,
+                "individual_legal_name": individual_legal_name,
+                "individual_crd": individual_crd,
+                "advisory_firm_legal_name": advisory_firm_legal_name,
+                "advisory_firm_iapd_number": advisory_firm_iapd_number,
+                "broker_firm_legal_name": broker_firm_legal_name,
+                "broker_firm_crd": broker_firm_crd,
+                "advisory_status": advisory_status,
+                "brokerage_status": brokerage_status,
+                "advisory_provider": advisory_provider,
+                "brokerage_provider": brokerage_provider,
+                "advisory_verification_expires_at": advisory_verification_expires_at,
+                "brokerage_verification_expires_at": brokerage_verification_expires_at,
+                "legal_name": ria["legal_name"],
+                "finra_crd": ria["finra_crd"],
+                "sec_iard": ria["sec_iard"],
+                "verification_status": ria["verification_status"],
+                "verification_provider": ria["verification_provider"],
+                "verification_expires_at": ria["verification_expires_at"],
+                "license_number": v2_profile.get("license_number"),
+                "regulator": v2_profile.get("regulator"),
+                "regulator_status": v2_profile.get("regulator_status"),
+                "license_expiry_date": v2_profile.get("license_expiry_date"),
+                "certifications": list(v2_profile.get("certifications") or []),
+                "onboarding_type": v2_profile.get("onboarding_type"),
+                "services_offered": list(v2_profile.get("services_offered") or []),
+                "fee_structure": list(v2_profile.get("fee_structure") or []),
+                "min_engagement_amount": v2_profile.get("min_engagement_amount"),
+                "min_engagement_currency": v2_profile.get("min_engagement_currency"),
+                "business_city": business_contact.get("city"),
+                "business_area": business_contact.get("area_locality"),
+                "business_address": business_contact.get("full_street_address"),
+                "business_pin_zip": business_contact.get("pin_zip"),
+                "business_latitude": business_contact.get("latitude"),
+                "business_longitude": business_contact.get("longitude"),
+                "latest_verification_event": event,
+            }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def list_ria_firms(self, user_id: str) -> list[dict[str, Any]]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  f.id,
+                  f.legal_name,
+                  f.finra_firm_crd,
+                  f.sec_iard,
+                  f.website_url,
+                  m.role_title,
+                  m.membership_status,
+                  m.is_primary
+                FROM ria_profiles rp
+                JOIN ria_firm_memberships m ON m.ria_profile_id = rp.id
+                JOIN ria_firms f ON f.id = m.firm_id
+                WHERE rp.user_id = $1
+                ORDER BY m.is_primary DESC, f.legal_name ASC
+                """,
+                user_id,
+            )
+            return [dict(row) for row in rows]
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def get_ria_home(self, user_id: str) -> dict[str, Any]:
+        onboarding = await self.get_ria_onboarding_status(user_id)
+        clients_payload = await self.list_ria_clients(user_id, page=1, limit=100)
+        clients = list(clients_payload.get("items") or [])
+        pick_bootstrap = await self.get_ria_pick_bootstrap(user_id)
+        pick_metadata = pick_bootstrap.get("metadata") if isinstance(pick_bootstrap, dict) else {}
+        active_rows = int(
+            (pick_metadata.get("top_pick_count") if isinstance(pick_metadata, dict) else 0) or 0
+        )
+
+        verification_status = str(
+            onboarding.get("advisory_status") or onboarding.get("verification_status") or "draft"
+        )
+
+        if verification_status in {"active", "verified"}:
+            primary_action = {
+                "label": "Open clients",
+                "href": "/ria/clients",
+                "description": "Relationships and requests are ready to manage.",
+            }
+        elif verification_status == "submitted":
+            primary_action = {
+                "label": "Review verification",
+                "href": "/ria/onboarding",
+                "description": "Verification is still in review before advisor actions fully unlock.",
+            }
+        else:
+            primary_action = {
+                "label": "Finish setup",
+                "href": "/ria/onboarding",
+                "description": "Complete the trust profile before requesting investor data.",
+            }
+
+        needs_attention = []
+        for item in clients:
+            status = str(item.get("status") or "")
+            if status not in {"request_pending", "invited", "revoked", "expired", "disconnected"}:
+                continue
+            client_id = str(item.get("investor_user_id") or "").strip()
+            needs_attention.append(
+                {
+                    "id": str(item.get("id") or client_id or ""),
+                    "title": item.get("investor_display_name") or "Investor",
+                    "subtitle": item.get("investor_secondary_label")
+                    or item.get("investor_email")
+                    or item.get("investor_headline")
+                    or item.get("next_action")
+                    or "",
+                    "status": status,
+                    "next_action": item.get("next_action"),
+                    "href": f"/ria/workspace?clientId={client_id}" if client_id else "/ria/clients",
+                }
+            )
+
+        return {
+            "onboarding": onboarding,
+            "verification_status": verification_status,
+            "primary_action": primary_action,
+            "counts": {
+                "active_clients": len(
+                    [item for item in clients if str(item.get("status") or "") == "approved"]
+                ),
+                "needs_attention": len(needs_attention),
+                "invites": len(
+                    [item for item in clients if str(item.get("status") or "") == "invited"]
+                ),
+            },
+            "needs_attention": needs_attention[:5],
+            "active_picks": {
+                "status": "ready" if active_rows else "empty",
+                "active_rows": active_rows,
+            },
+        }
+
+    async def list_ria_clients(
+        self,
+        user_id: str,
+        *,
+        query: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            identity_select_sql, identity_join_sql = await self._investor_identity_projection(
+                conn,
+                user_id_sql="rel.investor_user_id",
+            )
+            relationship_query = "\n".join(
+                [
+                    "SELECT",
+                    "  rel.id,",
+                    "  rel.investor_user_id,",
+                    "  rel.status,",
+                    "  rel.granted_scope,",
+                    "  rel.last_request_id,",
+                    "  rel.consent_granted_at,",
+                    "  rel.revoked_at,",
+                    f"  {identity_select_sql},",
+                    "  invite.id AS invite_id,",
+                    "  invite.invite_token,",
+                    "  invite.source AS acquisition_source,",
+                    "  invite.status AS invite_status,",
+                    "  invite.delivery_channel,",
+                    "  consent.expires_at AS consent_expires_at,",
+                    "  picks_share.id AS picks_share_id,",
+                    "  picks_share.status AS picks_share_status,",
+                    "  picks_share.granted_at AS picks_share_granted_at,",
+                    "  picks_share.revoked_at AS picks_share_revoked_at,",
+                    "  picks_share.metadata AS picks_share_metadata,",
+                    "  (active_upload.id IS NOT NULL) AS has_active_pick_upload",
+                    "FROM ria_profiles rp",
+                    "JOIN advisor_investor_relationships rel ON rel.ria_profile_id = rp.id",
+                    identity_join_sql,
+                    "LEFT JOIN marketplace_public_profiles mp",
+                    "  ON mp.user_id = rel.investor_user_id AND mp.profile_type = 'investor'",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT",
+                    "    i.id,",
+                    "    i.invite_token,",
+                    "    i.source,",
+                    "    i.status,",
+                    "    i.delivery_channel",
+                    "  FROM ria_client_invites i",
+                    "  WHERE i.ria_profile_id = rp.id",
+                    "    AND (",
+                    "      i.accepted_by_user_id = rel.investor_user_id",
+                    "      OR (",
+                    "        i.target_investor_user_id IS NOT NULL",
+                    "        AND i.target_investor_user_id = rel.investor_user_id",
+                    "      )",
+                    "    )",
+                    "  ORDER BY i.accepted_at DESC NULLS LAST, i.created_at DESC",
+                    "  LIMIT 1",
+                    ") invite ON TRUE",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT expires_at",
+                    "  FROM consent_audit",
+                    "  WHERE user_id = rel.investor_user_id",
+                    "    AND agent_id = ('ria:' || rp.id::text)",
+                    "    AND scope = rel.granted_scope",
+                    "    AND action = 'CONSENT_GRANTED'",
+                    "  ORDER BY issued_at DESC",
+                    "  LIMIT 1",
+                    ") consent ON TRUE",
+                    "LEFT JOIN relationship_share_grants picks_share",
+                    "  ON picks_share.relationship_id = rel.id",
+                    "  AND picks_share.grant_key = $2",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT id",
+                    "  FROM ria_pick_share_artifacts",
+                    "  WHERE relationship_id = rel.id",
+                    "    AND grant_key = $2",
+                    "    AND status = 'active'",
+                    "  ORDER BY updated_at DESC",
+                    "  LIMIT 1",
+                    ") active_upload ON TRUE",
+                    "WHERE rp.user_id = $1",
+                    "ORDER BY rel.updated_at DESC",
+                ]
+            )
+            relationship_rows = await conn.fetch(
+                relationship_query,
+                user_id,
+                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+            )
+            invite_rows = await conn.fetch(
+                """
+                SELECT
+                  i.id,
+                  i.invite_token,
+                  i.target_investor_user_id,
+                  i.target_display_name,
+                  i.target_email,
+                  i.target_phone,
+                  i.source,
+                  i.status,
+                  i.delivery_channel,
+                  i.scope_template_id,
+                  i.expires_at,
+                  i.created_at,
+                  (active_upload.id IS NOT NULL) AS has_active_pick_upload
+                FROM ria_profiles rp
+                JOIN ria_client_invites i ON i.ria_profile_id = rp.id
+                LEFT JOIN advisor_investor_relationships rel
+                  ON rel.ria_profile_id = rp.id
+                  AND rel.investor_user_id = COALESCE(i.accepted_by_user_id, i.target_investor_user_id)
+                LEFT JOIN LATERAL (
+                  SELECT 1 AS id
+                  FROM pkm_blobs
+                  WHERE user_id = rp.user_id
+                    AND domain = $2
+                    AND segment_id = 'root'
+                  LIMIT 1
+                ) active_upload ON TRUE
+                WHERE rp.user_id = $1
+                  AND i.status = 'sent'
+                  AND i.expires_at > NOW()
+                  AND rel.id IS NULL
+                ORDER BY i.created_at DESC
+                """,
+                user_id,
+                _RIA_PICKS_PKM_DOMAIN,
+            )
+
+            items: list[dict[str, Any]] = []
+            for row in relationship_rows:
+                payload = dict(row)
+                has_active_pick_upload = bool(payload.get("has_active_pick_upload"))
+                relationship_shares: list[dict[str, Any]] = []
+                if payload.get("picks_share_id"):
+                    relationship_shares.append(
+                        self._serialize_relationship_share(
+                            {
+                                "grant_key": _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                                "status": payload.get("picks_share_status"),
+                                "granted_at": payload.get("picks_share_granted_at"),
+                                "revoked_at": payload.get("picks_share_revoked_at"),
+                                "metadata": payload.get("picks_share_metadata"),
+                            },
+                            has_active_pick_upload=has_active_pick_upload,
+                        )
+                    )
+                payload["acquisition_source"] = payload.get("acquisition_source") or (
+                    "marketplace" if payload.get("investor_display_name") else "manual"
+                )
+                payload["relationship_status"] = payload.get("status")
+                payload["next_action"] = self._next_action_for_relationship_status(
+                    str(payload.get("status") or "")
+                )
+                payload["relationship_shares"] = relationship_shares
+                payload["picks_feed_status"] = self._picks_feed_status(
+                    relationship_status=str(payload.get("status") or ""),
+                    share_status=str(payload.get("picks_share_status") or ""),
+                    has_active_pick_upload=has_active_pick_upload,
+                )
+                payload["picks_feed_granted_at"] = payload.get("picks_share_granted_at")
+                payload["has_active_pick_upload"] = has_active_pick_upload
+                payload["is_invite_only"] = False
+                payload["disconnect_allowed"] = bool(payload.get("investor_user_id"))
+                payload["is_self_relationship"] = (
+                    str(payload.get("investor_user_id") or "") == user_id
+                )
+                items.append(payload)
+
+            for row in invite_rows:
+                payload = dict(row)
+                headline = (
+                    payload.get("target_email") or payload.get("target_phone") or "Invite pending"
+                )
+                items.append(
+                    {
+                        "id": f"invite:{payload['id']}",
+                        "invite_id": str(payload["id"]),
+                        "invite_token": payload["invite_token"],
+                        "investor_user_id": payload.get("target_investor_user_id"),
+                        "status": "invited",
+                        "granted_scope": None,
+                        "last_request_id": None,
+                        "consent_granted_at": None,
+                        "revoked_at": None,
+                        "investor_display_name": payload.get("target_display_name")
+                        or payload.get("target_email")
+                        or payload.get("target_phone")
+                        or "Invited investor",
+                        "investor_headline": headline,
+                        "acquisition_source": payload.get("source") or "manual",
+                        "invite_status": payload.get("status"),
+                        "delivery_channel": payload.get("delivery_channel"),
+                        "consent_expires_at": None,
+                        "invite_expires_at": payload.get("expires_at"),
+                        "next_action": "await_acceptance",
+                        "scope_template_id": payload.get("scope_template_id"),
+                        "is_invite_only": True,
+                        "relationship_status": "invited",
+                        "investor_email": payload.get("target_email"),
+                        "investor_secondary_label": payload.get("target_email")
+                        or payload.get("target_phone")
+                        or "Invite pending",
+                        "relationship_shares": [],
+                        "picks_feed_status": self._picks_feed_status(
+                            relationship_status="invited",
+                            share_status=None,
+                            has_active_pick_upload=bool(payload.get("has_active_pick_upload")),
+                        ),
+                        "picks_feed_granted_at": None,
+                        "has_active_pick_upload": bool(payload.get("has_active_pick_upload")),
+                        "disconnect_allowed": False,
+                        "is_self_relationship": str(payload.get("target_investor_user_id") or "")
+                        == user_id,
+                    }
+                )
+            normalized_status = self._normalize_client_status_filter(status)
+            filtered = [
+                item
+                for item in items
+                if self._matches_search(item, query)
+                and (
+                    normalized_status is None
+                    or str(item.get("status") or "").strip().lower() == normalized_status
+                )
+            ]
+            filtered.sort(
+                key=lambda item: str(
+                    item.get("consent_granted_at")
+                    or item.get("invite_expires_at")
+                    or item.get("id")
+                    or ""
+                ),
+                reverse=True,
+            )
+            safe_limit = max(1, min(int(limit or 50), 100))
+            safe_page = max(1, int(page or 1))
+            start = (safe_page - 1) * safe_limit
+            end = start + safe_limit
+
+            return {
+                "items": filtered[start:end],
+                "total": len(filtered),
+                "page": safe_page,
+                "limit": safe_limit,
+                "has_more": end < len(filtered),
+            }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def get_ria_client_detail(
+        self,
+        user_id: str,
+        investor_user_id: str,
+    ) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            ria = await self._get_ria_profile_by_user(conn, user_id)
+            identity_select_sql, identity_join_sql = await self._investor_identity_projection(
+                conn,
+                user_id_sql="rel.investor_user_id",
+            )
+            relationship_query = "\n".join(
+                [
+                    "SELECT",
+                    "  rel.id,",
+                    "  rel.investor_user_id,",
+                    "  rel.status,",
+                    "  rel.granted_scope,",
+                    "  rel.last_request_id,",
+                    "  rel.consent_granted_at,",
+                    "  rel.revoked_at,",
+                    "  rel.created_at,",
+                    "  rel.updated_at,",
+                    f"  {identity_select_sql},",
+                    "  picks_share.id AS picks_share_id,",
+                    "  picks_share.status AS picks_share_status,",
+                    "  picks_share.granted_at AS picks_share_granted_at,",
+                    "  picks_share.revoked_at AS picks_share_revoked_at,",
+                    "  picks_share.metadata AS picks_share_metadata,",
+                    "  (active_upload.id IS NOT NULL) AS has_active_pick_upload",
+                    "FROM advisor_investor_relationships rel",
+                    identity_join_sql,
+                    "LEFT JOIN marketplace_public_profiles mp",
+                    "  ON mp.user_id = rel.investor_user_id",
+                    "  AND mp.profile_type = 'investor'",
+                    "LEFT JOIN relationship_share_grants picks_share",
+                    "  ON picks_share.relationship_id = rel.id",
+                    "  AND picks_share.grant_key = $3",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT id",
+                    "  FROM ria_pick_share_artifacts",
+                    "  WHERE relationship_id = rel.id",
+                    "    AND grant_key = $3",
+                    "    AND status = 'active'",
+                    "  ORDER BY updated_at DESC",
+                    "  LIMIT 1",
+                    ") active_upload ON TRUE",
+                    "WHERE rel.investor_user_id = $1",
+                    "  AND rel.ria_profile_id = $2",
+                    "ORDER BY rel.updated_at DESC",
+                    "LIMIT 1",
+                ]
+            )
+            relationship = await conn.fetchrow(
+                relationship_query,
+                investor_user_id,
+                ria["id"],
+                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+            )
+            if relationship is None:
+                raise RIAIAMPolicyError("Relationship not found", status_code=404)
+            relationship_payload = dict(relationship)
+
+            agent_id = f"ria:{ria['id']}"
+            consent_rows = await conn.fetch(
+                """
+                SELECT request_id, scope, action, expires_at, issued_at, metadata
+                FROM consent_audit
+                WHERE user_id = $1
+                  AND agent_id = $2
+                  AND action IN ('REQUESTED', 'CONSENT_GRANTED', 'CONSENT_DENIED', 'CANCELLED', 'REVOKED', 'TIMEOUT')
+                ORDER BY issued_at DESC
+                """,
+                investor_user_id,
+                agent_id,
+            )
+            latest_by_scope: dict[str, dict[str, Any]] = {}
+            latest_by_request: dict[str, dict[str, Any]] = {}
+            for row in consent_rows:
+                payload = dict(row)
+                payload["metadata"] = self._parse_metadata(payload.get("metadata"))
+                scope_key = str(payload.get("scope") or "").strip()
+                request_key = str(payload.get("request_id") or "").strip()
+                if scope_key and scope_key not in latest_by_scope:
+                    latest_by_scope[scope_key] = payload
+                if request_key and request_key not in latest_by_request:
+                    latest_by_request[request_key] = payload
+
+            now_ms = self._now_ms()
+            granted_scopes = [
+                {
+                    "scope": scope,
+                    "label": get_scope_description(scope),
+                    "expires_at": payload.get("expires_at"),
+                    "issued_at": payload.get("issued_at"),
+                }
+                for scope, payload in latest_by_scope.items()
+                if payload.get("action") == "CONSENT_GRANTED"
+                and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+            ]
+
+            request_history = sorted(
+                [
+                    {
+                        "request_id": payload.get("request_id"),
+                        "scope": payload.get("scope"),
+                        "action": payload.get("action"),
+                        "issued_at": payload.get("issued_at"),
+                        "expires_at": payload.get("expires_at"),
+                        "bundle_id": payload.get("metadata", {}).get("bundle_id"),
+                        "bundle_label": payload.get("metadata", {}).get("bundle_label"),
+                        "scope_metadata": self._scope_metadata(str(payload.get("scope") or "")),
+                    }
+                    for payload in latest_by_request.values()
+                ],
+                key=lambda item: int(item.get("issued_at") or 0),
+                reverse=True,
+            )
+
+            invite_rows = await conn.fetch(
+                """
+                SELECT
+                  id,
+                  invite_token,
+                  status,
+                  delivery_channel,
+                  scope_template_id,
+                  target_display_name,
+                  target_email,
+                  expires_at,
+                  created_at,
+                  accepted_at
+                FROM ria_client_invites
+                WHERE ria_profile_id = $1
+                  AND (
+                    accepted_by_user_id = $2
+                    OR (
+                      target_investor_user_id IS NOT NULL
+                      AND target_investor_user_id = $2
+                    )
+                  )
+                ORDER BY created_at DESC
+                LIMIT 5
+                """,
+                ria["id"],
+                investor_user_id,
+            )
+
+            metadata_row = await conn.fetchrow(
+                """
+                SELECT
+                  available_domains,
+                  domain_summaries,
+                  total_attributes,
+                  updated_at
+                FROM pkm_index
+                WHERE user_id = $1
+                """,
+                investor_user_id,
+            )
+
+            available_domains = (
+                self._parse_string_list(metadata_row["available_domains"]) if metadata_row else []
+            )
+            raw_domain_summaries = (
+                self._parse_metadata(metadata_row["domain_summaries"]) if metadata_row else {}
+            )
+            total_attributes = int(metadata_row["total_attributes"] or 0) if metadata_row else 0
+            updated_at = metadata_row["updated_at"] if metadata_row else None
+            available_scope_metadata = self._build_available_scope_metadata(
+                available_domains=available_domains,
+                total_attributes=total_attributes,
+            )
+            granted_payloads = [
+                payload
+                for payload in latest_by_scope.values()
+                if payload.get("action") == "CONSENT_GRANTED"
+                and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+            ]
+            pending_payloads = [
+                payload
+                for payload in latest_by_request.values()
+                if payload.get("action") == "REQUESTED"
+            ]
+            account_branches = await self._list_linked_account_branches(
+                conn,
+                investor_user_id=investor_user_id,
+            )
+            kai_specialized_bundle, scoped_account_branches = (
+                self._build_kai_specialized_bundle_state(
+                    account_branches=account_branches,
+                    granted_payloads=granted_payloads,
+                    pending_payloads=pending_payloads,
+                )
+            )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        try:
+            requestable_scope_templates = await self.list_requestable_scope_templates(user_id)
+        except RIAIAMPolicyError:
+            requestable_scope_templates = []
+
+        consent_expires_at = max(
+            (item["expires_at"] for item in granted_scopes if item.get("expires_at")),
+            default=None,
+        )
+        relationship_status = str(relationship_payload["status"] or "")
+        reveal_workspace_metadata = bool(granted_scopes) and relationship_status == "approved"
+        has_active_pick_upload = bool(relationship_payload.get("has_active_pick_upload"))
+        relationship_shares: list[dict[str, Any]] = []
+        if relationship_payload.get("picks_share_id"):
+            relationship_shares.append(
+                self._serialize_relationship_share(
+                    {
+                        "grant_key": _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                        "status": relationship_payload.get("picks_share_status"),
+                        "granted_at": relationship_payload.get("picks_share_granted_at"),
+                        "revoked_at": relationship_payload.get("picks_share_revoked_at"),
+                        "metadata": relationship_payload.get("picks_share_metadata"),
+                    },
+                    has_active_pick_upload=has_active_pick_upload,
+                )
+            )
+
+        return {
+            "investor_user_id": investor_user_id,
+            "investor_display_name": relationship_payload["investor_display_name"],
+            "investor_email": relationship_payload.get("investor_email"),
+            "investor_secondary_label": relationship_payload.get("investor_secondary_label"),
+            "investor_headline": relationship_payload["investor_headline"],
+            "relationship_status": relationship_status,
+            "granted_scope": relationship_payload["granted_scope"],
+            "last_request_id": relationship_payload["last_request_id"],
+            "consent_granted_at": self._serialize_datetime_value(
+                relationship_payload["consent_granted_at"]
+            ),
+            "consent_expires_at": consent_expires_at,
+            "revoked_at": self._serialize_datetime_value(relationship_payload["revoked_at"]),
+            "created_at": self._serialize_datetime_value(relationship_payload["created_at"]),
+            "updated_at": self._serialize_datetime_value(relationship_payload["updated_at"]),
+            "disconnect_allowed": True,
+            "is_self_relationship": investor_user_id == user_id,
+            "next_action": self._next_action_for_relationship_status(
+                str(relationship_payload["status"] or "")
+            ),
+            "relationship_shares": relationship_shares,
+            "picks_feed_status": self._picks_feed_status(
+                relationship_status=relationship_status,
+                share_status=str(relationship_payload.get("picks_share_status") or ""),
+                has_active_pick_upload=has_active_pick_upload,
+            ),
+            "picks_feed_granted_at": self._serialize_datetime_value(
+                relationship_payload.get("picks_share_granted_at")
+            ),
+            "has_active_pick_upload": has_active_pick_upload,
+            "granted_scopes": granted_scopes,
+            "request_history": request_history[:8],
+            "invite_history": [
+                {
+                    "invite_id": str(item["id"]),
+                    "invite_token": item["invite_token"],
+                    "status": item["status"],
+                    "delivery_channel": item["delivery_channel"],
+                    "scope_template_id": item["scope_template_id"],
+                    "target_display_name": item["target_display_name"],
+                    "target_email": item["target_email"],
+                    "expires_at": item["expires_at"],
+                    "created_at": item["created_at"],
+                    "accepted_at": item["accepted_at"],
+                }
+                for item in invite_rows
+            ],
+            "requestable_scope_templates": requestable_scope_templates,
+            "available_scope_metadata": available_scope_metadata,
+            "kai_specialized_bundle": kai_specialized_bundle,
+            "account_branches": scoped_account_branches,
+            "available_domains": available_domains,
+            # Relationship detail only exposes metadata-level availability before consent.
+            "domain_summaries": raw_domain_summaries if reveal_workspace_metadata else {},
+            "total_attributes": total_attributes,
+            "workspace_ready": bool(granted_scopes) and total_attributes > 0,
+            "pkm_updated_at": self._serialize_datetime_value(updated_at),
+        }
+
+    async def disconnect_relationship(
+        self,
+        auth_user_id: str,
+        *,
+        investor_user_id: str | None = None,
+        ria_profile_id: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_investor_user_id = str(investor_user_id or "").strip() or None
+        resolved_ria_profile_id = str(ria_profile_id or "").strip() or None
+        initiated_by = "investor"
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+
+                if resolved_investor_user_id:
+                    ria = await self._get_ria_profile_by_user(conn, auth_user_id)
+                    resolved_ria_profile_id = str(ria["id"])
+                    initiated_by = "ria"
+                elif resolved_ria_profile_id:
+                    resolved_investor_user_id = auth_user_id
+                    initiated_by = "investor"
+                else:
+                    raise RIAIAMPolicyError(
+                        "Relationship disconnect requires an investor or RIA identifier",
+                        status_code=400,
+                    )
+
+                relationship = await conn.fetchrow(
+                    """
+                    SELECT id, investor_user_id, ria_profile_id, status, last_request_id
+                    FROM advisor_investor_relationships
+                    WHERE investor_user_id = $1
+                      AND ria_profile_id = $2::uuid
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    resolved_investor_user_id,
+                    resolved_ria_profile_id,
+                )
+                if relationship is None:
+                    raise RIAIAMPolicyError("Relationship not found", status_code=404)
+
+                agent_id = f"ria:{resolved_ria_profile_id}"
+                consent_rows = await conn.fetch(
+                    """
+                    SELECT scope, action, expires_at, issued_at
+                    FROM consent_audit
+                    WHERE user_id = $1
+                      AND agent_id = $2
+                      AND action IN ('CONSENT_GRANTED', 'REVOKED')
+                    ORDER BY issued_at DESC
+                    """,
+                    resolved_investor_user_id,
+                    agent_id,
+                )
+                latest_by_scope: dict[str, asyncpg.Record] = {}
+                for row in consent_rows:
+                    scope_key = str(row["scope"] or "").strip()
+                    if not scope_key or scope_key in latest_by_scope:
+                        continue
+                    latest_by_scope[scope_key] = row
+
+                active_scopes = [
+                    scope
+                    for scope, row in latest_by_scope.items()
+                    if row["action"] == "CONSENT_GRANTED"
+                    and (row["expires_at"] is None or int(row["expires_at"]) > self._now_ms())
+                ]
+
+                issued_at = self._now_ms()
+                for scope in active_scopes:
+                    await conn.execute(
+                        """
+                        INSERT INTO consent_audit (
+                          token_id,
+                          user_id,
+                          agent_id,
+                          scope,
+                          action,
+                          request_id,
+                          scope_description,
+                          issued_at,
+                          metadata
+                        )
+                        VALUES ($1, $2, $3, $4, 'REVOKED', $5, $6, $7, $8::jsonb)
+                        """,
+                        f"evt_disconnect_{issued_at}_{scope}",
+                        resolved_investor_user_id,
+                        agent_id,
+                        scope,
+                        relationship["last_request_id"],
+                        get_scope_description(scope),
+                        issued_at,
+                        json.dumps(
+                            {
+                                "disconnect_origin": initiated_by,
+                                "relationship_disconnect": True,
+                            }
+                        ),
+                    )
+
+                await conn.execute(
+                    """
+                    UPDATE advisor_investor_relationships
+                    SET
+                      status = 'disconnected',
+                      revoked_at = NOW(),
+                      updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    relationship["id"],
+                )
+                await self._revoke_relationship_share_grant(
+                    conn,
+                    relationship_id=str(relationship["id"]),
+                    grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                    status="revoked",
+                    reason=f"relationship_disconnect:{initiated_by}",
+                )
+
+                return {
+                    "investor_user_id": resolved_investor_user_id,
+                    "ria_profile_id": resolved_ria_profile_id,
+                    "relationship_status": "disconnected",
+                    "revoked_scopes": active_scopes,
+                    "initiated_by": initiated_by,
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def list_ria_requests(self, user_id: str) -> list[dict[str, Any]]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            ria = await conn.fetchrow(
+                "SELECT id FROM ria_profiles WHERE user_id = $1",
+                user_id,
+            )
+            if ria is None:
+                return []
+
+            agent_id = f"ria:{ria['id']}"
+            rows = await conn.fetch(
+                """
+                SELECT
+                  audit.request_id,
+                  audit.user_id,
+                  audit.scope,
+                  audit.action,
+                  audit.issued_at,
+                  audit.expires_at,
+                  audit.metadata,
+                  mp.display_name AS subject_display_name,
+                  mp.headline AS subject_headline
+                FROM consent_audit audit
+                LEFT JOIN marketplace_public_profiles mp
+                  ON mp.user_id = audit.user_id
+                  AND mp.profile_type = 'investor'
+                WHERE audit.agent_id = $1
+                  AND audit.request_id IS NOT NULL
+                  AND audit.action IN (
+                    'REQUESTED',
+                    'CONSENT_GRANTED',
+                    'CONSENT_DENIED',
+                    'CANCELLED',
+                    'REVOKED',
+                    'TIMEOUT'
+                  )
+                ORDER BY audit.issued_at DESC
+                """,
+                agent_id,
+            )
+
+            latest_by_request: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                request_id = row["request_id"]
+                if not request_id:
+                    continue
+                if request_id in latest_by_request:
+                    continue
+                payload = dict(row)
+                payload["metadata"] = self._parse_metadata(payload.get("metadata"))
+                latest_by_request[str(request_id)] = payload
+
+            return list(latest_by_request.values())
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def list_ria_request_bundles(self, user_id: str) -> list[dict[str, Any]]:
+        requests = await self.list_ria_requests(user_id)
+        bundles: dict[str, dict[str, Any]] = {}
+        for item in requests:
+            metadata = self._parse_metadata(item.get("metadata"))
+            bundle_id = str(metadata.get("bundle_id") or item.get("request_id") or uuid.uuid4().hex)
+            bundle = bundles.setdefault(
+                bundle_id,
+                {
+                    "bundle_id": bundle_id,
+                    "bundle_label": metadata.get("bundle_label") or "Portfolio access request",
+                    "subject_user_id": item.get("user_id"),
+                    "subject_display_name": item.get("subject_display_name"),
+                    "subject_headline": item.get("subject_headline"),
+                    "status": item.get("action"),
+                    "issued_at": item.get("issued_at"),
+                    "expires_at": item.get("expires_at"),
+                    "request_count": 0,
+                    "requests": [],
+                },
+            )
+            bundle["request_count"] += 1
+            bundle["requests"].append(
+                {
+                    "request_id": item.get("request_id"),
+                    "scope": item.get("scope"),
+                    "action": item.get("action"),
+                    "issued_at": item.get("issued_at"),
+                    "expires_at": item.get("expires_at"),
+                    "scope_metadata": self._scope_metadata(str(item.get("scope") or "")),
+                }
+            )
+            if str(item.get("action") or "").upper() == "REQUESTED":
+                bundle["status"] = "REQUESTED"
+            if not bundle.get("subject_display_name") and item.get("subject_display_name"):
+                bundle["subject_display_name"] = item.get("subject_display_name")
+            if not bundle.get("subject_headline") and item.get("subject_headline"):
+                bundle["subject_headline"] = item.get("subject_headline")
+
+        bundle_list = list(bundles.values())
+        bundle_list.sort(key=lambda item: int(item.get("issued_at") or 0), reverse=True)
+        return bundle_list
+
+    async def list_ria_invites(self, user_id: str) -> list[dict[str, Any]]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  i.id,
+                  i.invite_token,
+                  i.target_display_name,
+                  i.target_email,
+                  i.target_phone,
+                  i.target_investor_user_id,
+                  i.source,
+                  i.delivery_channel,
+                  i.status,
+                  i.scope_template_id,
+                  i.duration_mode,
+                  i.duration_hours,
+                  i.reason,
+                  i.metadata,
+                  i.accepted_by_user_id,
+                  i.accepted_request_id,
+                  i.expires_at,
+                  i.accepted_at,
+                  i.created_at
+                FROM ria_profiles rp
+                JOIN ria_client_invites i ON i.ria_profile_id = rp.id
+                WHERE rp.user_id = $1
+                ORDER BY i.created_at DESC
+                """,
+                user_id,
+            )
+            items: list[dict[str, Any]] = []
+            for row in rows:
+                payload = dict(row)
+                metadata = self._parse_metadata(payload.get("metadata"))
+                delivery = self._parse_metadata(metadata.get("invite_email_delivery"))
+                payload.pop("metadata", None)
+                if delivery:
+                    payload["delivery_status"] = delivery.get("status")
+                    payload["delivery_message"] = (
+                        delivery.get("message")
+                        or delivery.get("error")
+                        or delivery.get("recipient")
+                    )
+                    payload["delivery_message_id"] = delivery.get("message_id")
+                items.append(payload)
+            return items
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    @staticmethod
+    def _parse_pick_csv(content: str) -> list[dict[str, Any]]:
+        reader = csv.DictReader(io.StringIO(content))
+        if not reader.fieldnames:
+            raise RIAIAMPolicyError("Uploaded CSV is missing a header row", status_code=400)
+
+        normalized_headers = {str(name or "").strip().lower() for name in reader.fieldnames}
+        required_headers = {"ticker", "company_name", "sector", "tier", "investment_thesis"}
+        missing_headers = sorted(required_headers - normalized_headers)
+        if missing_headers:
+            raise RIAIAMPolicyError(
+                f"Uploaded CSV is missing required columns: {', '.join(missing_headers)}",
+                status_code=400,
+            )
+
+        symbol_master = get_symbol_master_service()
+        rows: list[dict[str, Any]] = []
+        row_errors: list[str] = []
+        seen_tickers: set[str] = set()
+        for csv_row_number, row in enumerate(reader, start=2):
+            normalized_row = {key: str(value or "").strip() for key, value in row.items()}
+            if not any(normalized_row.values()):
+                continue
+
+            ticker = symbol_master.normalize(normalized_row.get("ticker"))
+            if not ticker:
+                row_errors.append(f"Row {csv_row_number}: ticker is required")
+                continue
+
+            if ticker in seen_tickers:
+                row_errors.append(f"Row {csv_row_number}: duplicate ticker {ticker}")
+                continue
+
+            metadata = symbol_master.get_ticker_metadata(ticker)
+            if not metadata:
+                row_errors.append(
+                    f"Row {csv_row_number}: ticker {ticker} is not in the SEC-backed ticker list"
+                )
+                continue
+
+            if metadata.get("tradable") is False:
+                row_errors.append(
+                    f"Row {csv_row_number}: ticker {ticker} is not an active tradable symbol"
+                )
+                continue
+
+            company_name = (
+                normalized_row.get("company_name")
+                or str(metadata.get("title") or "").strip()
+                or None
+            )
+            sector = (
+                normalized_row.get("sector")
+                or str(metadata.get("sector_primary") or metadata.get("sector") or "").strip()
+                or None
+            )
+            tier = (normalized_row.get("tier") or "").upper() or None
+            investment_thesis = normalized_row.get("investment_thesis") or None
+
+            missing_values = [
+                field
+                for field, value in (
+                    ("company_name", company_name),
+                    ("sector", sector),
+                    ("tier", tier),
+                    ("investment_thesis", investment_thesis),
+                )
+                if not value
+            ]
+            if missing_values:
+                row_errors.append(
+                    f"Row {csv_row_number}: missing required values for {', '.join(missing_values)}"
+                )
+                continue
+
+            rows.append(
+                {
+                    "sort_order": len(rows) + 1,
+                    "ticker": ticker,
+                    "company_name": company_name,
+                    "sector": sector,
+                    "tier": tier,
+                    "tier_rank": int(normalized_row["tier_rank"])
+                    if normalized_row.get("tier_rank", "").isdigit()
+                    else None,
+                    "conviction_weight": float(normalized_row["conviction_weight"])
+                    if normalized_row.get("conviction_weight")
+                    else None,
+                    "recommendation_bias": normalized_row.get("recommendation_bias") or None,
+                    "investment_thesis": investment_thesis,
+                    "fcf_billions": float(normalized_row["fcf_billions"])
+                    if normalized_row.get("fcf_billions")
+                    else None,
+                }
+            )
+            seen_tickers.add(ticker)
+
+        if row_errors:
+            raise RIAIAMPolicyError("; ".join(row_errors[:8]), status_code=400)
+        if not rows:
+            raise RIAIAMPolicyError("Uploaded CSV did not contain any valid rows", status_code=400)
+        return rows
+
+    @staticmethod
+    def _coerce_package_rows(rows: Any) -> list[dict[str, Any]]:
+        if not isinstance(rows, list):
+            return []
+        return [dict(row) for row in rows if isinstance(row, dict)]
+
+    def _normalize_top_pick_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        symbol_master = get_symbol_master_service()
+        normalized_rows: list[dict[str, Any]] = []
+        row_errors: list[str] = []
+        seen_tickers: set[str] = set()
+        for index, row in enumerate(rows, start=1):
+            ticker = symbol_master.normalize(row.get("ticker"))
+            if not ticker:
+                row_errors.append(f"Top picks row {index}: ticker is required")
+                continue
+            if ticker in seen_tickers:
+                row_errors.append(f"Top picks row {index}: duplicate ticker {ticker}")
+                continue
+            metadata = symbol_master.get_ticker_metadata(ticker)
+            if not metadata or metadata.get("tradable") is False:
+                row_errors.append(
+                    f"Top picks row {index}: ticker {ticker} must be an SEC-backed tradable symbol"
+                )
+                continue
+            tier = str(row.get("tier") or "").strip().upper()
+            thesis = str(row.get("investment_thesis") or "").strip()
+            if not tier:
+                row_errors.append(f"Top picks row {index}: tier is required")
+                continue
+            if not thesis:
+                row_errors.append(f"Top picks row {index}: investment_thesis is required")
+                continue
+            normalized_rows.append(
+                {
+                    "sort_order": len(normalized_rows) + 1,
+                    "ticker": ticker,
+                    "company_name": str(metadata.get("title") or "").strip() or None,
+                    "sector": str(
+                        metadata.get("sector_primary") or metadata.get("sector") or ""
+                    ).strip()
+                    or None,
+                    "tier": tier,
+                    "tier_rank": row.get("tier_rank"),
+                    "conviction_weight": row.get("conviction_weight"),
+                    "recommendation_bias": row.get("recommendation_bias"),
+                    "investment_thesis": thesis,
+                    "fcf_billions": row.get("fcf_billions"),
+                }
+            )
+            seen_tickers.add(ticker)
+        if row_errors:
+            raise RIAIAMPolicyError("; ".join(row_errors[:8]), status_code=400)
+        return normalized_rows
+
+    def _normalize_avoid_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        top_pick_tickers: set[str],
+    ) -> list[dict[str, Any]]:
+        symbol_master = get_symbol_master_service()
+        normalized_rows: list[dict[str, Any]] = []
+        row_errors: list[str] = []
+        seen_tickers: set[str] = set()
+        for index, row in enumerate(rows, start=1):
+            ticker = symbol_master.normalize(row.get("ticker"))
+            if not ticker:
+                row_errors.append(f"Avoid row {index}: ticker is required")
+                continue
+            if ticker in seen_tickers:
+                row_errors.append(f"Avoid row {index}: duplicate ticker {ticker}")
+                continue
+            if ticker in top_pick_tickers:
+                row_errors.append(
+                    f"Avoid row {index}: ticker {ticker} cannot appear in both Top picks and Avoid"
+                )
+                continue
+            metadata = symbol_master.get_ticker_metadata(ticker)
+            if not metadata or metadata.get("tradable") is False:
+                row_errors.append(
+                    f"Avoid row {index}: ticker {ticker} must be an SEC-backed tradable symbol"
+                )
+                continue
+            reason = str(
+                row.get("why_avoid") or row.get("reason") or row.get("detail") or ""
+            ).strip()
+            if not reason:
+                row_errors.append(f"Avoid row {index}: reason is required")
+                continue
+            normalized_rows.append(
+                {
+                    "sort_order": len(normalized_rows) + 1,
+                    "ticker": ticker,
+                    "company_name": str(metadata.get("title") or "").strip() or None,
+                    "sector": str(
+                        metadata.get("sector_primary") or metadata.get("sector") or ""
+                    ).strip()
+                    or None,
+                    "category": str(row.get("category") or "").strip() or None,
+                    "why_avoid": reason,
+                    "note": str(row.get("note") or "").strip() or None,
+                }
+            )
+            seen_tickers.add(ticker)
+        if row_errors:
+            raise RIAIAMPolicyError("; ".join(row_errors[:8]), status_code=400)
+        return normalized_rows
+
+    def _normalize_screening_sections(self, sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        raw_by_key = {
+            str(section.get("section") or section.get("key") or "").strip(): section
+            for section in sections
+            if isinstance(section, dict)
+        }
+        normalized_sections: list[dict[str, Any]] = []
+        row_errors: list[str] = []
+        for section_key in _RIA_SCREENING_SECTION_ORDER:
+            raw_section = raw_by_key.get(section_key) or {}
+            raw_rows = raw_section.get("rows")
+            if not isinstance(raw_rows, list):
+                raw_rows = []
+            seen_math_signatures: set[str] = set()
+            normalized_rows: list[dict[str, Any]] = []
+            for index, row in enumerate(raw_rows, start=1):
+                if not isinstance(row, dict):
+                    continue
+                title = str(row.get("title") or "").strip()
+                detail = str(row.get("detail") or "").strip()
+                value_text = str(row.get("value_text") or "").strip() or None
+                if not title or not detail:
+                    row_errors.append(
+                        f"Screening row {section_key}:{index}: title and detail are required"
+                    )
+                    continue
+                signature = f"{section_key}|{title.lower()}|{detail.lower()}|{str(value_text or '').lower()}"
+                if section_key == "the_math":
+                    if signature in seen_math_signatures:
+                        continue
+                    seen_math_signatures.add(signature)
+                normalized_rows.append(
+                    {
+                        "rule_index": len(normalized_rows) + 1,
+                        "title": title,
+                        "detail": detail,
+                        "value_text": value_text,
+                    }
+                )
+            normalized_sections.append({"section": section_key, "rows": normalized_rows})
+        if row_errors:
+            raise RIAIAMPolicyError("; ".join(row_errors[:8]), status_code=400)
+        return normalized_sections
+
+    def _build_pick_package_metadata(
+        self,
+        *,
+        avoid_rows: list[dict[str, Any]],
+        screening_sections: list[dict[str, Any]],
+        package_note: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "package_version": 1,
+            "package_note": str(package_note or "").strip() or None,
+            "avoid_rows": avoid_rows,
+            "screening_sections": screening_sections,
+        }
+
+    @staticmethod
+    def _empty_pick_package_response() -> dict[str, Any]:
+        return {
+            "top_picks": [],
+            "avoid_rows": [],
+            "screening_sections": [
+                {"section": section_key, "rows": []} for section_key in _RIA_SCREENING_SECTION_ORDER
+            ],
+            "package_note": None,
+        }
+
+    def _normalize_pick_package(
+        self,
+        *,
+        top_picks: list[dict[str, Any]],
+        avoid_rows: list[dict[str, Any]],
+        screening_sections: list[dict[str, Any]],
+        package_note: str | None,
+    ) -> dict[str, Any]:
+        normalized_top_picks = self._normalize_top_pick_rows(top_picks)
+        normalized_avoid_rows = self._normalize_avoid_rows(
+            avoid_rows,
+            top_pick_tickers={row["ticker"] for row in normalized_top_picks},
+        )
+        normalized_screening_sections = self._normalize_screening_sections(screening_sections)
+        return {
+            "top_picks": normalized_top_picks,
+            "avoid_rows": normalized_avoid_rows,
+            "screening_sections": normalized_screening_sections,
+            "package_metadata": self._build_pick_package_metadata(
+                avoid_rows=normalized_avoid_rows,
+                screening_sections=normalized_screening_sections,
+                package_note=package_note,
+            ),
+        }
+
+    @staticmethod
+    def _normalize_pick_package_response(
+        top_picks: list[dict[str, Any]],
+        package_metadata: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        metadata = package_metadata if isinstance(package_metadata, dict) else {}
+        raw_avoid_rows = metadata.get("avoid_rows")
+        raw_screening_sections = metadata.get("screening_sections")
+        avoid_rows = raw_avoid_rows if isinstance(raw_avoid_rows, list) else []
+        screening_sections = (
+            raw_screening_sections if isinstance(raw_screening_sections, list) else []
+        )
+        package_note = str(metadata.get("package_note") or "").strip() or None
+        normalized_sections = [
+            {
+                "section": str(section.get("section") or section.get("key") or "").strip(),
+                "rows": [
+                    dict(row)
+                    for row in (section.get("rows") if isinstance(section, dict) else [])
+                    if isinstance(row, dict)
+                ],
+            }
+            for section in screening_sections
+            if isinstance(section, dict)
+        ]
+        if not normalized_sections:
+            normalized_sections = [
+                {"section": section_key, "rows": []} for section_key in _RIA_SCREENING_SECTION_ORDER
+            ]
+        return {
+            "top_picks": top_picks,
+            "avoid_rows": [dict(row) for row in avoid_rows if isinstance(row, dict)],
+            "screening_sections": normalized_sections,
+            "package_note": package_note,
+        }
+
+    @staticmethod
+    def _count_screening_rows(screening_sections: list[dict[str, Any]] | None) -> int:
+        if not isinstance(screening_sections, list):
+            return 0
+        total = 0
+        for section in screening_sections:
+            if not isinstance(section, dict):
+                continue
+            rows = section.get("rows")
+            if isinstance(rows, list):
+                total += len(rows)
+        return total
+
+    def _pick_package_has_material_content(self, package: dict[str, Any] | None) -> bool:
+        if not isinstance(package, dict):
+            return False
+        top_picks = package.get("top_picks")
+        avoid_rows = package.get("avoid_rows")
+        screening_sections = package.get("screening_sections")
+        package_note = str(package.get("package_note") or "").strip()
+        return bool(
+            (isinstance(top_picks, list) and len(top_picks) > 0)
+            or (isinstance(avoid_rows, list) and len(avoid_rows) > 0)
+            or self._count_screening_rows(screening_sections) > 0
+            or package_note
+        )
+
+    def _build_pick_package_projection(self, package: dict[str, Any]) -> dict[str, Any]:
+        normalized = self._normalize_pick_package(
+            top_picks=self._coerce_package_rows(package.get("top_picks")),
+            avoid_rows=self._coerce_package_rows(package.get("avoid_rows")),
+            screening_sections=self._coerce_package_rows(package.get("screening_sections")),
+            package_note=str(package.get("package_note") or "").strip() or None,
+        )
+        return self._normalize_pick_package_response(
+            normalized["top_picks"],
+            normalized["package_metadata"],
+        )
+
+    def _build_pick_package_summary(
+        self,
+        *,
+        package: dict[str, Any],
+        storage_source: str,
+        revision: int | None,
+        updated_at: str | None,
+        active_share_count: int = 0,
+        has_package: bool = True,
+    ) -> dict[str, Any]:
+        top_picks = package.get("top_picks") if isinstance(package, dict) else []
+        avoid_rows = package.get("avoid_rows") if isinstance(package, dict) else []
+        screening_sections = package.get("screening_sections") if isinstance(package, dict) else []
+        return {
+            "has_package": bool(has_package),
+            "storage_source": storage_source,
+            "package_revision": int(revision or 0),
+            "top_pick_count": len(top_picks) if isinstance(top_picks, list) else 0,
+            "avoid_count": len(avoid_rows) if isinstance(avoid_rows, list) else 0,
+            "screening_row_count": self._count_screening_rows(screening_sections),
+            "last_updated": updated_at,
+            "active_share_count": max(0, int(active_share_count or 0)),
+            "path": _RIA_PICKS_PKM_PATH,
+        }
+
+    async def _count_active_pick_shares(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        ria_profile_id: str,
+    ) -> int:
+        count = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM advisor_investor_relationships rel
+            JOIN relationship_share_grants share
+              ON share.relationship_id = rel.id
+             AND share.grant_key = $2
+             AND share.status = 'active'
+            WHERE rel.ria_profile_id = $1::uuid
+              AND rel.status = 'approved'
+            """,
+            ria_profile_id,
+            _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+        )
+        return int(count or 0)
+
+    async def _get_ria_pick_pkm_state(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        row = await conn.fetchrow(
+            """
+            SELECT
+              blob.content_revision,
+              blob.manifest_revision,
+              blob.updated_at,
+              idx.domain_summaries -> $2 AS domain_summary
+            FROM pkm_blobs blob
+            LEFT JOIN pkm_index idx
+              ON idx.user_id = blob.user_id
+            WHERE blob.user_id = $1
+              AND blob.domain = $2
+              AND blob.segment_id = 'root'
+            ORDER BY blob.updated_at DESC
+            LIMIT 1
+            """,
+            user_id,
+            _RIA_PICKS_PKM_DOMAIN,
+        )
+        if row is None:
+            return None
+        payload = dict(row)
+        payload["updated_at"] = self._serialize_datetime_value(payload.get("updated_at"))
+        return payload
+
+    async def _upsert_pick_share_artifact(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        relationship_id: str,
+        ria_profile_id: str,
+        provider_user_id: str,
+        receiver_user_id: str,
+        package_projection: dict[str, Any],
+        source_data_version: int | None,
+        source_manifest_revision: int | None,
+        label: str | None,
+        package_note: str | None,
+    ) -> dict[str, Any]:
+        artifact_metadata = {
+            "label": str(label or "").strip() or "Active advisor package",
+            "package_note": str(package_note or "").strip() or None,
+            "top_pick_count": len(package_projection.get("top_picks") or []),
+            "avoid_count": len(package_projection.get("avoid_rows") or []),
+            "screening_row_count": self._count_screening_rows(
+                package_projection.get("screening_sections")
+            ),
+            "source_data_version": int(source_data_version or 0) or None,
+            "source_manifest_revision": int(source_manifest_revision or 0) or None,
+            "source_domain": _RIA_PICKS_PKM_DOMAIN,
+            "source_path": _RIA_PICKS_PKM_PATH,
+        }
+        return dict(
+            await conn.fetchrow(
+                """
+                INSERT INTO ria_pick_share_artifacts (
+                  relationship_id,
+                  ria_profile_id,
+                  provider_user_id,
+                  receiver_user_id,
+                  grant_key,
+                  status,
+                  source_domain,
+                  source_path,
+                  source_data_version,
+                  source_manifest_revision,
+                  artifact_projection,
+                  artifact_metadata,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  $1::uuid,
+                  $2::uuid,
+                  $3,
+                  $4,
+                  $5,
+                  'active',
+                  $6,
+                  $7,
+                  $8,
+                  $9,
+                  $10::jsonb,
+                  $11::jsonb,
+                  NOW(),
+                  NOW()
+                )
+                ON CONFLICT (relationship_id, grant_key) DO UPDATE
+                SET
+                  ria_profile_id = EXCLUDED.ria_profile_id,
+                  provider_user_id = EXCLUDED.provider_user_id,
+                  receiver_user_id = EXCLUDED.receiver_user_id,
+                  status = 'active',
+                  source_domain = EXCLUDED.source_domain,
+                  source_path = EXCLUDED.source_path,
+                  source_data_version = EXCLUDED.source_data_version,
+                  source_manifest_revision = EXCLUDED.source_manifest_revision,
+                  artifact_projection = EXCLUDED.artifact_projection,
+                  artifact_metadata = EXCLUDED.artifact_metadata,
+                  updated_at = NOW()
+                RETURNING *
+                """,
+                relationship_id,
+                ria_profile_id,
+                provider_user_id,
+                receiver_user_id,
+                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                _RIA_PICKS_PKM_DOMAIN,
+                _RIA_PICKS_PKM_PATH,
+                source_data_version,
+                source_manifest_revision,
+                json.dumps(package_projection),
+                json.dumps(artifact_metadata),
+            )
+        )
+
+    async def _bootstrap_pick_share_artifact(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        relationship_id: str,
+        provider_user_id: str,
+        receiver_user_id: str,
+    ) -> None:
+        relationship = await conn.fetchrow(
+            """
+            SELECT rel.ria_profile_id
+            FROM advisor_investor_relationships rel
+            WHERE rel.id = $1::uuid
+            LIMIT 1
+            """,
+            relationship_id,
+        )
+        if relationship is None:
+            return
+        ria_profile_id = str(relationship["ria_profile_id"])
+        prior_artifact = await conn.fetchrow(
+            """
+            SELECT artifact_projection, artifact_metadata, source_data_version, source_manifest_revision
+            FROM ria_pick_share_artifacts
+            WHERE ria_profile_id = $1::uuid
+              AND grant_key = $2
+              AND status = 'active'
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            ria_profile_id,
+            _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+        )
+        if prior_artifact:
+            prior_artifact_payload = dict(prior_artifact)
+        else:
+            prior_artifact_payload = None
+        if prior_artifact_payload and isinstance(
+            self._parse_metadata(prior_artifact_payload.get("artifact_projection")), dict
+        ):
+            artifact_projection = self._parse_metadata(
+                prior_artifact_payload.get("artifact_projection")
+            )
+            package_projection = self._build_pick_package_projection(artifact_projection)
+            artifact_metadata = self._parse_metadata(
+                prior_artifact_payload.get("artifact_metadata")
+            )
+            await self._upsert_pick_share_artifact(
+                conn,
+                relationship_id=relationship_id,
+                ria_profile_id=ria_profile_id,
+                provider_user_id=provider_user_id,
+                receiver_user_id=receiver_user_id,
+                package_projection=package_projection,
+                source_data_version=prior_artifact_payload.get("source_data_version"),
+                source_manifest_revision=prior_artifact_payload.get("source_manifest_revision"),
+                label=str(artifact_metadata.get("label") or "").strip() or None,
+                package_note=str(artifact_metadata.get("package_note") or "").strip() or None,
+            )
+            return
+
+        legacy_package = await self._get_pick_package_for_source_legacy(
+            conn,
+            ria_profile_id=ria_profile_id,
+        )
+        if not self._pick_package_has_material_content(legacy_package):
+            return
+        await self._upsert_pick_share_artifact(
+            conn,
+            relationship_id=relationship_id,
+            ria_profile_id=ria_profile_id,
+            provider_user_id=provider_user_id,
+            receiver_user_id=receiver_user_id,
+            package_projection=legacy_package,
+            source_data_version=None,
+            source_manifest_revision=None,
+            label="Active advisor package",
+            package_note=str(legacy_package.get("package_note") or "").strip() or None,
+        )
+
+    async def _retire_legacy_pick_uploads(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        ria_profile_id: str,
+    ) -> None:
+        await conn.execute(
+            """
+            DELETE FROM ria_pick_upload_rows
+            WHERE upload_id IN (
+              SELECT id
+              FROM ria_pick_uploads
+              WHERE ria_profile_id = $1::uuid
+            )
+            """,
+            ria_profile_id,
+        )
+        await conn.execute(
+            """
+            DELETE FROM ria_pick_uploads
+            WHERE ria_profile_id = $1::uuid
+            """,
+            ria_profile_id,
+        )
+
+    async def _get_pick_package_for_source_legacy(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        ria_profile_id: str,
+    ) -> dict[str, Any]:
+        upload = await conn.fetchrow(
+            """
+            SELECT id, package_metadata
+            FROM ria_pick_uploads
+            WHERE ria_profile_id = $1::uuid
+              AND status = 'active'
+            ORDER BY activated_at DESC NULLS LAST, created_at DESC
+            LIMIT 1
+            """,
+            ria_profile_id,
+        )
+        if upload is None:
+            return self._empty_pick_package_response()
+        rows = await conn.fetch(
+            """
+            SELECT
+              r.ticker,
+              r.company_name,
+              r.sector,
+              r.tier,
+              r.tier_rank,
+              r.conviction_weight,
+              r.recommendation_bias,
+              r.investment_thesis,
+              r.fcf_billions
+            FROM ria_pick_upload_rows r
+            WHERE r.upload_id = $1
+            ORDER BY r.sort_order ASC
+            """,
+            upload["id"],
+        )
+        top_picks = [dict(row) for row in rows]
+        return self._normalize_pick_package_response(
+            top_picks,
+            self._parse_metadata(upload.get("package_metadata")),
+        )
+
+    async def get_ria_pick_bootstrap(self, user_id: str) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            ria = await self._get_ria_profile_by_user(conn, user_id)
+            pkm_state = await self._get_ria_pick_pkm_state(conn, user_id=user_id)
+            active_share_count = await self._count_active_pick_shares(
+                conn,
+                ria_profile_id=str(ria["id"]),
+            )
+            if pkm_state is not None:
+                summary = (
+                    pkm_state.get("domain_summary")
+                    if isinstance(pkm_state.get("domain_summary"), dict)
+                    else {}
+                )
+                empty_package = self._empty_pick_package_response()
+                metadata = self._build_pick_package_summary(
+                    package=empty_package,
+                    storage_source="pkm",
+                    revision=int(pkm_state.get("content_revision") or 0),
+                    updated_at=self._serialize_datetime_value(pkm_state.get("updated_at")),
+                    active_share_count=active_share_count,
+                    has_package=True,
+                )
+                if isinstance(summary, dict):
+                    metadata["top_pick_count"] = int(summary.get("top_pick_count") or 0)
+                    metadata["avoid_count"] = int(summary.get("avoid_count") or 0)
+                    metadata["screening_row_count"] = int(summary.get("screening_row_count") or 0)
+                    metadata["last_updated"] = (
+                        str(summary.get("last_updated") or "").strip() or metadata["last_updated"]
+                    )
+                return {"package": empty_package, "metadata": metadata}
+
+            legacy_package = await self._get_pick_package_for_source_legacy(
+                conn,
+                ria_profile_id=str(ria["id"]),
+            )
+            has_legacy_package = self._pick_package_has_material_content(legacy_package)
+            metadata = self._build_pick_package_summary(
+                package=legacy_package,
+                storage_source="legacy" if has_legacy_package else "empty",
+                revision=0,
+                updated_at=None,
+                active_share_count=active_share_count,
+                has_package=has_legacy_package,
+            )
+            return {"package": legacy_package, "metadata": metadata}
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def sync_ria_pick_share_artifacts(
+        self,
+        user_id: str,
+        *,
+        label: str | None,
+        package_note: str | None,
+        top_picks: list[dict[str, Any]] | None,
+        avoid_rows: list[dict[str, Any]] | None,
+        screening_sections: list[dict[str, Any]] | None,
+        source_data_version: int | None = None,
+        source_manifest_revision: int | None = None,
+        retire_legacy: bool = True,
+    ) -> dict[str, Any]:
+        package_projection = self._build_pick_package_projection(
+            {
+                "top_picks": self._coerce_package_rows(top_picks),
+                "avoid_rows": self._coerce_package_rows(avoid_rows),
+                "screening_sections": self._coerce_package_rows(screening_sections),
+                "package_note": package_note,
+            }
+        )
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                relationships = await conn.fetch(
+                    """
+                    SELECT rel.id, rel.investor_user_id
+                    FROM advisor_investor_relationships rel
+                    JOIN relationship_share_grants share
+                      ON share.relationship_id = rel.id
+                     AND share.grant_key = $2
+                     AND share.status = 'active'
+                    WHERE rel.ria_profile_id = $1
+                      AND rel.status = 'approved'
+                    """,
+                    ria["id"],
+                    _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                )
+                updated_relationship_ids: list[str] = []
+                for relationship in relationships:
+                    artifact = await self._upsert_pick_share_artifact(
+                        conn,
+                        relationship_id=str(relationship["id"]),
+                        ria_profile_id=str(ria["id"]),
+                        provider_user_id=user_id,
+                        receiver_user_id=str(relationship["investor_user_id"]),
+                        package_projection=package_projection,
+                        source_data_version=source_data_version,
+                        source_manifest_revision=source_manifest_revision,
+                        label=label,
+                        package_note=package_note,
+                    )
+                    updated_relationship_ids.append(str(artifact["relationship_id"]))
+
+                if retire_legacy:
+                    await self._retire_legacy_pick_uploads(
+                        conn,
+                        ria_profile_id=str(ria["id"]),
+                    )
+
+                metadata = self._build_pick_package_summary(
+                    package=package_projection,
+                    storage_source="pkm",
+                    revision=source_data_version,
+                    updated_at=datetime.now(timezone.utc).isoformat(),
+                    active_share_count=len(updated_relationship_ids),
+                    has_package=True,
+                )
+                return {
+                    "status": "synced",
+                    "share_artifacts_updated": len(updated_relationship_ids),
+                    "retired_legacy": bool(retire_legacy),
+                    "package": package_projection,
+                    "metadata": metadata,
+                    "relationship_ids": updated_relationship_ids,
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def upload_ria_pick_list(
+        self,
+        user_id: str,
+        *,
+        csv_content: str | None,
+        source_filename: str | None,
+        label: str | None,
+        package_note: str | None = None,
+        top_picks: list[dict[str, Any]] | None = None,
+        avoid_rows: list[dict[str, Any]] | None = None,
+        screening_sections: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if csv_content and str(csv_content).strip():
+            package = self._normalize_pick_package(
+                top_picks=self._parse_pick_csv(csv_content),
+                avoid_rows=self._coerce_package_rows(avoid_rows),
+                screening_sections=self._coerce_package_rows(screening_sections),
+                package_note=package_note,
+            )
+        else:
+            package = self._normalize_pick_package(
+                top_picks=self._coerce_package_rows(top_picks),
+                avoid_rows=self._coerce_package_rows(avoid_rows),
+                screening_sections=self._coerce_package_rows(screening_sections),
+                package_note=package_note,
+            )
+        rows = package["top_picks"]
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                existing_upload = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM ria_pick_uploads
+                    WHERE ria_profile_id = $1
+                    ORDER BY
+                      CASE WHEN status = 'active' THEN 0 ELSE 1 END ASC,
+                      COALESCE(activated_at, updated_at, created_at) DESC,
+                      created_at DESC
+                    LIMIT 1
+                    """,
+                    ria["id"],
+                )
+                if existing_upload is None:
+                    upload = await conn.fetchrow(
+                        """
+                        INSERT INTO ria_pick_uploads (
+                          ria_profile_id,
+                          uploaded_by_user_id,
+                          label,
+                          status,
+                          source_filename,
+                          row_count,
+                          template_version,
+                          package_metadata,
+                          activated_at,
+                          updated_at
+                        )
+                        VALUES ($1, $2, $3, 'active', $4, $5, 1, $6::jsonb, NOW(), NOW())
+                        RETURNING id, created_at, activated_at
+                        """,
+                        ria["id"],
+                        user_id,
+                        (label or "").strip() or "Active advisor package",
+                        (source_filename or "").strip() or None,
+                        len(rows),
+                        json.dumps(package["package_metadata"]),
+                    )
+                else:
+                    upload = await conn.fetchrow(
+                        """
+                        UPDATE ria_pick_uploads
+                        SET
+                          uploaded_by_user_id = $2,
+                          label = $3,
+                          status = 'active',
+                          source_filename = $4,
+                          row_count = $5,
+                          template_version = 1,
+                          package_metadata = $6::jsonb,
+                          activated_at = NOW(),
+                          updated_at = NOW()
+                        WHERE id = $1
+                        RETURNING id, created_at, activated_at
+                        """,
+                        existing_upload["id"],
+                        user_id,
+                        (label or "").strip() or "Active advisor package",
+                        (source_filename or "").strip() or None,
+                        len(rows),
+                        json.dumps(package["package_metadata"]),
+                    )
+                    await conn.execute(
+                        """
+                        DELETE FROM ria_pick_upload_rows
+                        WHERE upload_id = $1
+                        """,
+                        existing_upload["id"],
+                    )
+                    await conn.execute(
+                        """
+                        DELETE FROM ria_pick_uploads
+                        WHERE ria_profile_id = $1
+                          AND id <> $2
+                        """,
+                        ria["id"],
+                        existing_upload["id"],
+                    )
+                if upload is None:
+                    raise RIAIAMPolicyError("Failed to create RIA picks upload", status_code=500)
+
+                for row in rows:
+                    await conn.execute(
+                        """
+                        INSERT INTO ria_pick_upload_rows (
+                          upload_id,
+                          sort_order,
+                          ticker,
+                          company_name,
+                          sector,
+                          tier,
+                          tier_rank,
+                          conviction_weight,
+                          recommendation_bias,
+                          investment_thesis,
+                          fcf_billions
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                        """,
+                        upload["id"],
+                        row["sort_order"],
+                        row["ticker"],
+                        row["company_name"],
+                        row["sector"],
+                        row["tier"],
+                        row["tier_rank"],
+                        row["conviction_weight"],
+                        row["recommendation_bias"],
+                        row["investment_thesis"],
+                        row["fcf_billions"],
+                    )
+
+                return {
+                    "upload_id": str(upload["id"]),
+                    "label": (label or "").strip() or "Active advisor package",
+                    "row_count": len(rows),
+                    "status": "active",
+                    "created_at": upload["created_at"],
+                    "activated_at": upload["activated_at"],
+                    "package": self._normalize_pick_package_response(
+                        rows,
+                        package["package_metadata"],
+                    ),
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def parse_ria_pick_csv(
+        self,
+        *,
+        csv_content: str,
+        package_note: str | None = None,
+        avoid_rows: list[dict[str, Any]] | None = None,
+        screening_sections: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        package = self._normalize_pick_package(
+            top_picks=self._parse_pick_csv(csv_content),
+            avoid_rows=self._coerce_package_rows(avoid_rows),
+            screening_sections=self._coerce_package_rows(screening_sections),
+            package_note=package_note,
+        )
+        return self._normalize_pick_package_response(
+            package["top_picks"],
+            package["package_metadata"],
+        )
+
+    async def list_ria_pick_uploads(self, user_id: str) -> list[dict[str, Any]]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            ria = await self._get_ria_profile_by_user(conn, user_id)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  id,
+                  label,
+                  status,
+                  source_filename,
+                  row_count,
+                  package_metadata,
+                  activated_at,
+                  created_at,
+                  updated_at
+                FROM ria_pick_uploads
+                WHERE ria_profile_id = $1
+                  AND status = 'active'
+                ORDER BY COALESCE(activated_at, updated_at, created_at) DESC
+                LIMIT 1
+                """,
+                ria["id"],
+            )
+            return [
+                {
+                    "upload_id": str(row["id"]),
+                    "label": row["label"],
+                    "status": row["status"],
+                    "source_filename": row["source_filename"],
+                    "row_count": int(row["row_count"] or 0),
+                    "package_note": (
+                        row["package_metadata"].get("package_note")
+                        if isinstance(row["package_metadata"], dict)
+                        else None
+                    ),
+                    "activated_at": row["activated_at"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+                for row in rows
+            ]
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def get_active_ria_pick_rows(self, user_id: str) -> list[dict[str, Any]]:
+        bootstrap = await self.get_active_ria_pick_package(user_id)
+        package = bootstrap.get("package") if isinstance(bootstrap, dict) else {}
+        return list(package.get("top_picks") or [])
+
+    async def get_active_ria_pick_package(self, user_id: str) -> dict[str, Any]:
+        return await self.get_ria_pick_bootstrap(user_id)
+
+    async def list_investor_pick_sources(self, investor_user_id: str) -> list[dict[str, Any]]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  rel.ria_profile_id,
+                  rp.user_id AS ria_user_id,
+                  COALESCE(mp.display_name, rp.display_name) AS label,
+                  artifact.id AS artifact_id,
+                  artifact.updated_at AS artifact_updated_at,
+                  artifact.source_data_version AS source_data_version,
+                  picks_share.status AS share_status,
+                  picks_share.granted_at AS share_granted_at,
+                  picks_share.metadata AS share_metadata
+                FROM advisor_investor_relationships rel
+                JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
+                LEFT JOIN marketplace_public_profiles mp
+                  ON mp.user_id = rp.user_id
+                  AND mp.profile_type = 'ria'
+                JOIN relationship_share_grants picks_share
+                  ON picks_share.relationship_id = rel.id
+                  AND picks_share.grant_key = $2
+                  AND picks_share.status = 'active'
+                LEFT JOIN ria_pick_share_artifacts artifact
+                  ON artifact.relationship_id = rel.id
+                 AND artifact.grant_key = $2
+                 AND artifact.status = 'active'
+                WHERE rel.investor_user_id = $1
+                  AND rel.status = 'approved'
+                ORDER BY COALESCE(mp.display_name, rp.display_name) ASC
+                """,
+                investor_user_id,
+                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+            )
+            return [
+                {
+                    "id": f"ria:{row['ria_profile_id']}",
+                    "label": row["label"] or "Linked RIA picks",
+                    "kind": "ria",
+                    "state": "ready" if row.get("artifact_id") else "pending",
+                    "is_default": False,
+                    "ria_user_id": row["ria_user_id"],
+                    "ria_profile_id": str(row["ria_profile_id"]),
+                    "artifact_id": str(row.get("artifact_id")) if row.get("artifact_id") else None,
+                    "artifact_updated_at": self._serialize_datetime_value(
+                        row.get("artifact_updated_at")
+                    ),
+                    "source_data_version": (
+                        int(row["source_data_version"])
+                        if row.get("source_data_version") is not None
+                        else None
+                    ),
+                    "share_status": row["share_status"],
+                    "share_origin": self._relationship_share_origin(row["share_metadata"]),
+                    "share_granted_at": self._serialize_datetime_value(row["share_granted_at"]),
+                }
+                for row in rows
+            ]
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def get_pick_rows_for_source(
+        self,
+        investor_user_id: str,
+        source_id: str,
+    ) -> list[dict[str, Any]]:
+        package = await self.get_pick_package_for_source(investor_user_id, source_id)
+        return list(package.get("top_picks") or [])
+
+    async def get_pick_package_for_source(
+        self,
+        investor_user_id: str,
+        source_id: str,
+    ) -> dict[str, Any]:
+        normalized_source = str(source_id or "").strip()
+        if not normalized_source.startswith("ria:"):
+            return self._empty_pick_package_response()
+        ria_profile_id = normalized_source.split(":", 1)[1]
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            relationship = await conn.fetchrow(
+                """
+                SELECT 1
+                FROM advisor_investor_relationships rel
+                JOIN relationship_share_grants share
+                  ON share.relationship_id = rel.id
+                  AND share.grant_key = $3
+                  AND share.status = 'active'
+                WHERE rel.investor_user_id = $1
+                  AND rel.ria_profile_id = $2::uuid
+                  AND rel.status = 'approved'
+                """,
+                investor_user_id,
+                ria_profile_id,
+                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+            )
+            if relationship is None:
+                return self._empty_pick_package_response()
+            artifact = await conn.fetchrow(
+                """
+                SELECT artifact.artifact_projection
+                FROM advisor_investor_relationships rel
+                JOIN relationship_share_grants share
+                  ON share.relationship_id = rel.id
+                  AND share.grant_key = $3
+                  AND share.status = 'active'
+                JOIN ria_pick_share_artifacts artifact
+                  ON artifact.relationship_id = rel.id
+                  AND artifact.grant_key = $3
+                  AND artifact.status = 'active'
+                WHERE rel.investor_user_id = $1
+                  AND rel.ria_profile_id = $2::uuid
+                  AND rel.status = 'approved'
+                ORDER BY
+                  COALESCE(artifact.updated_at, share.granted_at, rel.updated_at, rel.created_at)
+                  DESC
+                LIMIT 1
+                """,
+                investor_user_id,
+                ria_profile_id,
+                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+            )
+            if artifact is not None:
+                artifact_payload = dict(artifact)
+                artifact_projection = self._parse_metadata(
+                    artifact_payload.get("artifact_projection")
+                )
+                if artifact_projection:
+                    return self._build_pick_package_projection(artifact_projection)
+
+            legacy_package = await self._get_pick_package_for_source_legacy(
+                conn,
+                ria_profile_id=ria_profile_id,
+            )
+            return legacy_package
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def create_ria_invites(
+        self,
+        user_id: str,
+        *,
+        scope_template_id: str,
+        duration_mode: str,
+        duration_hours: int | None,
+        firm_id: str | None,
+        reason: str | None,
+        targets: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if not targets:
+            raise RIAIAMPolicyError("At least one invite target is required", status_code=400)
+
+        conn = await self._conn()
+        created_items: list[dict[str, Any]] = []
+        pending_email_deliveries: list[dict[str, Any]] = []
+        skipped_email_deliveries: list[dict[str, Any]] = []
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, user_id)
+                await self._ensure_iam_schema_ready(conn)
+                await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                if not self._is_verified_ria_status(ria["verification_status"]):
+                    raise RIAIAMPolicyError(
+                        "RIA verification incomplete; cannot send invites",
+                        status_code=403,
+                    )
+
+                template = await self._load_scope_template(conn, scope_template_id)
+                if (
+                    template.requester_actor_type != "ria"
+                    or template.subject_actor_type != "investor"
+                ):
+                    raise RIAIAMPolicyError(
+                        "Scope template actor direction mismatch",
+                        status_code=400,
+                    )
+
+                mode, resolved_duration_hours = self._resolve_duration_hours(
+                    template,
+                    duration_mode=duration_mode,
+                    duration_hours=duration_hours,
+                )
+
+                if firm_id:
+                    membership = await conn.fetchrow(
+                        """
+                        SELECT 1
+                        FROM ria_firm_memberships
+                        WHERE ria_profile_id = $1
+                          AND firm_id = $2::uuid
+                          AND membership_status = 'active'
+                        """,
+                        ria["id"],
+                        firm_id,
+                    )
+                    if membership is None:
+                        raise RIAIAMPolicyError("Firm membership is not active", status_code=403)
+
+                firm_row = await conn.fetchrow(
+                    """
+                    SELECT f.legal_name
+                    FROM ria_firm_memberships m
+                    JOIN ria_firms f ON f.id = m.firm_id
+                    WHERE m.ria_profile_id = $1
+                      AND m.membership_status = 'active'
+                      AND ($2::uuid IS NULL OR m.firm_id = $2::uuid)
+                    ORDER BY
+                      CASE WHEN $2::uuid IS NOT NULL AND m.firm_id = $2::uuid THEN 0 ELSE 1 END,
+                      m.is_primary DESC,
+                      f.legal_name ASC
+                    LIMIT 1
+                    """,
+                    ria["id"],
+                    firm_id,
+                )
+                advisor_name = (
+                    str(ria.get("display_name") or ria.get("legal_name") or "").strip()
+                    or "Your advisor"
+                )
+                firm_name = (
+                    str(firm_row["legal_name"]).strip()
+                    if firm_row and firm_row["legal_name"]
+                    else None
+                )
+                expires_at = datetime.now(tz=timezone.utc) + timedelta(
+                    hours=resolved_duration_hours
+                )
+
+                for raw_target in targets:
+                    display_name = str(raw_target.get("display_name") or "").strip() or None
+                    email = str(raw_target.get("email") or "").strip().lower() or None
+                    phone = str(raw_target.get("phone") or "").strip() or None
+                    investor_user_id = str(raw_target.get("investor_user_id") or "").strip() or None
+                    source = str(raw_target.get("source") or "manual").strip().lower() or "manual"
+                    delivery_channel = (
+                        str(raw_target.get("delivery_channel") or "share_link").strip().lower()
+                        or "share_link"
+                    )
+                    if source not in {"manual", "marketplace", "csv"}:
+                        raise RIAIAMPolicyError("Invalid invite source", status_code=400)
+                    if delivery_channel not in {"share_link", "email", "sms"}:
+                        raise RIAIAMPolicyError("Invalid invite delivery channel", status_code=400)
+                    if not any([display_name, email, phone, investor_user_id]):
+                        raise RIAIAMPolicyError(
+                            "Invite target requires a name, contact, or investor user id",
+                            status_code=400,
+                        )
+
+                    if investor_user_id:
+                        await self._ensure_vault_user_row(conn, investor_user_id)
+                        await self._ensure_actor_profile_row(conn, investor_user_id)
+
+                    invite_token = uuid.uuid4().hex
+                    invite_row = await conn.fetchrow(
+                        """
+                        INSERT INTO ria_client_invites (
+                          invite_token,
+                          ria_profile_id,
+                          firm_id,
+                          target_display_name,
+                          target_email,
+                          target_phone,
+                          target_investor_user_id,
+                          source,
+                          delivery_channel,
+                          status,
+                          scope_template_id,
+                          duration_mode,
+                          duration_hours,
+                          reason,
+                          expires_at,
+                          metadata
+                        )
+                        VALUES (
+                          $1,
+                          $2,
+                          $3::uuid,
+                          NULLIF($4, ''),
+                          NULLIF($5, ''),
+                          NULLIF($6, ''),
+                          $7,
+                          $8,
+                          $9,
+                          'sent',
+                          $10,
+                          $11,
+                          $12,
+                          NULLIF($13, ''),
+                          $14,
+                          $15::jsonb
+                        )
+                        RETURNING id, invite_token, status, expires_at
+                        """,
+                        invite_token,
+                        ria["id"],
+                        firm_id,
+                        display_name or "",
+                        email or "",
+                        phone or "",
+                        investor_user_id,
+                        source,
+                        delivery_channel,
+                        template.template_id,
+                        mode,
+                        resolved_duration_hours,
+                        (reason or "").strip(),
+                        expires_at,
+                        json.dumps(
+                            {
+                                "template_name": template.template_name,
+                                "requester_actor_type": "ria",
+                                "subject_actor_type": "investor",
+                            }
+                        ),
+                    )
+                    if invite_row is None:
+                        raise RuntimeError("Failed to create invite")
+
+                    created_item = {
+                        "invite_id": str(invite_row["id"]),
+                        "invite_token": invite_row["invite_token"],
+                        "invite_path": f"/kai/onboarding?invite={invite_row['invite_token']}",
+                        "status": invite_row["status"],
+                        "expires_at": invite_row["expires_at"],
+                        "scope_template_id": template.template_id,
+                        "duration_mode": mode,
+                        "duration_hours": resolved_duration_hours,
+                        "source": source,
+                        "delivery_channel": delivery_channel,
+                        "target_display_name": display_name,
+                        "target_email": email,
+                        "target_phone": phone,
+                        "target_investor_user_id": investor_user_id,
+                    }
+                    created_items.append(created_item)
+
+                    if delivery_channel == "email":
+                        if email:
+                            pending_email_deliveries.append(
+                                {
+                                    "invite_id": str(invite_row["id"]),
+                                    "invite_token": invite_row["invite_token"],
+                                    "invite_path": created_item["invite_path"],
+                                    "target_email": email,
+                                    "target_display_name": display_name,
+                                    "advisor_name": advisor_name,
+                                    "firm_name": firm_name,
+                                    "expires_at": invite_row["expires_at"],
+                                    "reason": (reason or "").strip() or None,
+                                    "created_item": created_item,
+                                }
+                            )
+                        else:
+                            created_item["delivery_status"] = "skipped"
+                            created_item["delivery_message"] = (
+                                "Email delivery requires a target email address."
+                            )
+                            skipped_email_deliveries.append(
+                                {
+                                    "invite_id": str(invite_row["id"]),
+                                    "created_item": created_item,
+                                    "message": "Email delivery requires a target email address.",
+                                }
+                            )
+
+            if skipped_email_deliveries:
+                for delivery in skipped_email_deliveries:
+                    await self._update_ria_invite_email_delivery_metadata(
+                        str(delivery["invite_id"]),
+                        {
+                            "status": "skipped",
+                            "message": str(delivery["message"]),
+                            "attempted_at": datetime.now(tz=timezone.utc)
+                            .isoformat()
+                            .replace("+00:00", "Z"),
+                        },
+                    )
+
+            if pending_email_deliveries:
+                for delivery in pending_email_deliveries:
+                    try:
+                        await self._queue_ria_invite_email_delivery(
+                            invite_id=str(delivery["invite_id"]),
+                            invite_token=str(delivery["invite_token"]),
+                            invite_path=str(delivery["invite_path"]),
+                            target_email=str(delivery["target_email"]),
+                            target_display_name=delivery.get("target_display_name"),
+                            advisor_name=str(delivery["advisor_name"]),
+                            firm_name=delivery.get("firm_name"),
+                            expires_at=delivery.get("expires_at"),
+                            reason=delivery.get("reason"),
+                            created_item=delivery["created_item"],
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception(
+                            "ria.invite_email.queue_failed invite_id=%s",
+                            delivery["invite_id"],
+                        )
+                        delivery["created_item"]["delivery_status"] = "failed"
+                        delivery["created_item"]["delivery_message"] = str(exc)
+                        await self._update_ria_invite_email_delivery_metadata(
+                            str(delivery["invite_id"]),
+                            {
+                                "status": "failed",
+                                "error": str(exc),
+                                "attempted_at": datetime.now(tz=timezone.utc)
+                                .isoformat()
+                                .replace("+00:00", "Z"),
+                            },
+                        )
+
+            return {"items": created_items}
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def _update_ria_invite_email_delivery_metadata(
+        self, invite_id: str, metadata_patch: dict[str, Any]
+    ) -> None:
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                await conn.execute(
+                    """
+                    UPDATE ria_client_invites
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                    WHERE id = $1::uuid
+                    """,
+                    invite_id,
+                    json.dumps({"invite_email_delivery": metadata_patch}),
+                )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def _queue_ria_invite_email_delivery(
+        self,
+        *,
+        invite_id: str,
+        invite_token: str,
+        invite_path: str,
+        target_email: str,
+        target_display_name: str | None,
+        advisor_name: str,
+        firm_name: str | None,
+        expires_at: datetime | str | None,
+        reason: str | None,
+        created_item: dict[str, Any],
+    ) -> None:
+        invite_email_service = get_kai_invite_email_service()
+        cfg = invite_email_service.config
+        normalized_target_email = target_email.strip().lower()
+        if not cfg.configured:
+            error_message = (
+                "Kai invite email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
+                "or FIREBASE_ADMIN_CREDENTIALS_JSON / FIREBASE_SERVICE_ACCOUNT_JSON, plus "
+                "SUPPORT_EMAIL_* variables."
+            )
+            logger.warning("ria.invite_email.not_configured invite_id=%s", invite_id)
+            created_item["delivery_status"] = "failed"
+            created_item["delivery_message"] = error_message
+            await self._update_ria_invite_email_delivery_metadata(
+                invite_id,
+                {
+                    "status": "failed",
+                    "error": error_message,
+                    "attempted_at": datetime.now(tz=timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                },
+            )
+            return
+
+        queued_at = datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        actual_recipient = invite_email_service._effective_recipient(normalized_target_email)
+        created_item["delivery_status"] = "queued"
+        created_item["delivery_message"] = "Email queued for background delivery."
+        await self._update_ria_invite_email_delivery_metadata(
+            invite_id,
+            {
+                "status": "queued",
+                "message": "Email queued for background delivery.",
+                "queued_at": queued_at,
+                "recipient": actual_recipient,
+                "intended_recipient": normalized_target_email,
+                "delivery_mode": cfg.delivery_mode,
+                "from_email": cfg.from_email,
+            },
+        )
+
+        queue_service = get_email_delivery_queue_service()
+
+        def _result_value(result: Any, key: str, default: Any = None) -> Any:
+            if isinstance(result, dict):
+                return result.get(key, default)
+            return getattr(result, key, default)
+
+        async def _mark_success(result: Any) -> None:
+            recipient = _result_value(result, "recipient", actual_recipient)
+            message_id = _result_value(result, "message_id")
+            intended_recipient = _result_value(
+                result, "intended_recipient", normalized_target_email
+            )
+            delivery_mode = _result_value(result, "delivery_mode", cfg.delivery_mode)
+            from_email = _result_value(result, "from_email", cfg.from_email)
+            created_item["delivery_status"] = "sent"
+            created_item["delivery_message"] = f"Email sent to {recipient}."
+            created_item["delivery_message_id"] = message_id
+            await self._update_ria_invite_email_delivery_metadata(
+                invite_id,
+                {
+                    "status": "sent",
+                    "message": f"Email sent to {recipient}.",
+                    "message_id": message_id,
+                    "recipient": recipient,
+                    "intended_recipient": intended_recipient,
+                    "delivery_mode": delivery_mode,
+                    "from_email": from_email,
+                    "delivered_at": datetime.now(tz=timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                },
+            )
+
+        async def _mark_failure(exc: Exception) -> None:
+            logger.warning("ria.invite_email.failed invite_id=%s reason=%s", invite_id, str(exc))
+            created_item["delivery_status"] = "failed"
+            created_item["delivery_message"] = str(exc)
+            await self._update_ria_invite_email_delivery_metadata(
+                invite_id,
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                    "attempted_at": datetime.now(tz=timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                },
+            )
+
+        await queue_service.enqueue(
+            kind="invite_email",
+            send_callable=lambda: invite_email_service.send_ria_invite(
+                target_email=normalized_target_email,
+                target_display_name=target_display_name,
+                advisor_name=advisor_name,
+                firm_name=firm_name,
+                invite_token=invite_token,
+                invite_path=invite_path,
+                expires_at=expires_at,
+                reason=reason,
+            ),
+            on_success=_mark_success,
+            on_failure=_mark_failure,
+            context={
+                "invite_id": invite_id,
+                "invite_token": invite_token,
+                "target_email": normalized_target_email,
+            },
+        )
+
+    async def set_ria_marketplace_discoverability(
+        self,
+        user_id: str,
+        *,
+        enabled: bool,
+        headline: str | None = None,
+        strategy_summary: str | None = None,
+    ) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                await self._ensure_vault_user_row(conn, user_id)
+                await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+
+                ria = await conn.fetchrow(
+                    """
+                    SELECT id, display_name, verification_status, strategy
+                    FROM ria_profiles
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+                if ria is None:
+                    raise RIAIAMPolicyError("RIA profile not found", status_code=404)
+                verification_status = str(ria["verification_status"] or "")
+                if enabled and not self._is_verified_ria_status(verification_status):
+                    raise RIAIAMPolicyError(
+                        "RIA verification must be complete before the profile can become discoverable.",
+                        status_code=403,
+                    )
+
+                await conn.execute(
+                    """
+                    INSERT INTO marketplace_public_profiles (
+                      user_id,
+                      profile_type,
+                      display_name,
+                      headline,
+                      strategy_summary,
+                      verification_badge,
+                      metadata,
+                      is_discoverable
+                    )
+                    VALUES (
+                      $1,
+                      'ria',
+                      $2,
+                      NULLIF($3, ''),
+                      NULLIF($4, ''),
+                      $5,
+                      '{}'::jsonb,
+                      $6
+                    )
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      display_name = EXCLUDED.display_name,
+                      headline = COALESCE(EXCLUDED.headline, marketplace_public_profiles.headline),
+                      strategy_summary = COALESCE(
+                        EXCLUDED.strategy_summary,
+                        marketplace_public_profiles.strategy_summary
+                      ),
+                      verification_badge = EXCLUDED.verification_badge,
+                      is_discoverable = EXCLUDED.is_discoverable,
+                      updated_at = NOW()
+                    """,
+                    user_id,
+                    ria["display_name"],
+                    (headline or "").strip(),
+                    (strategy_summary or str(ria["strategy"] or "")).strip(),
+                    "verified" if self._is_verified_ria_status(verification_status) else "pending",
+                    bool(enabled),
+                )
+
+                return {
+                    "user_id": user_id,
+                    "is_discoverable": bool(enabled),
+                    "verification_status": verification_status,
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def get_ria_invite(self, invite_token: str) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            row = await conn.fetchrow(
+                """
+                SELECT
+                  i.id,
+                  i.invite_token,
+                  i.status,
+                  i.firm_id,
+                  i.scope_template_id,
+                  i.duration_mode,
+                  i.duration_hours,
+                  i.reason,
+                  i.expires_at,
+                  i.target_display_name,
+                  i.target_email,
+                  i.target_phone,
+                  i.accepted_by_user_id,
+                  i.accepted_request_id,
+                  rp.id AS ria_profile_id,
+                  rp.user_id AS ria_user_id,
+                  rp.display_name AS ria_display_name,
+                  rp.verification_status,
+                  rp.bio,
+                  rp.strategy,
+                  mp.headline,
+                  mp.strategy_summary,
+                  COALESCE(
+                    json_agg(
+                      DISTINCT jsonb_build_object(
+                        'firm_id', f.id,
+                        'legal_name', f.legal_name,
+                        'role_title', m.role_title,
+                        'is_primary', m.is_primary
+                      )
+                    ) FILTER (WHERE f.id IS NOT NULL),
+                    '[]'::json
+                  ) AS firms
+                FROM ria_client_invites i
+                JOIN ria_profiles rp ON rp.id = i.ria_profile_id
+                LEFT JOIN marketplace_public_profiles mp
+                  ON mp.user_id = rp.user_id
+                  AND mp.profile_type = 'ria'
+                LEFT JOIN ria_firm_memberships m
+                  ON m.ria_profile_id = rp.id
+                  AND m.membership_status = 'active'
+                LEFT JOIN ria_firms f ON f.id = m.firm_id
+                WHERE i.invite_token = $1
+                GROUP BY
+                  i.id,
+                  i.invite_token,
+                  i.status,
+                  i.firm_id,
+                  i.scope_template_id,
+                  i.duration_mode,
+                  i.duration_hours,
+                  i.reason,
+                  i.expires_at,
+                  i.target_display_name,
+                  i.target_email,
+                  i.target_phone,
+                  i.accepted_by_user_id,
+                  i.accepted_request_id,
+                  rp.id,
+                  rp.user_id,
+                  rp.display_name,
+                  rp.verification_status,
+                  rp.bio,
+                  rp.strategy,
+                  mp.headline,
+                  mp.strategy_summary
+                """,
+                invite_token,
+            )
+            if row is None:
+                raise RIAIAMPolicyError("Invite not found", status_code=404)
+
+            payload = dict(row)
+            if payload["status"] == "cancelled":
+                raise RIAIAMPolicyError("Invite is no longer available", status_code=410)
+            if payload["status"] == "sent" and payload["expires_at"] <= datetime.now(
+                tz=timezone.utc
+            ):
+                await conn.execute(
+                    """
+                    UPDATE ria_client_invites
+                    SET status = 'expired', updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    payload["id"],
+                )
+                payload["status"] = "expired"
+            if payload["status"] == "expired":
+                raise RIAIAMPolicyError("Invite has expired", status_code=410)
+
+            return {
+                "invite_id": str(payload["id"]),
+                "invite_token": payload["invite_token"],
+                "status": payload["status"],
+                "firm_id": str(payload["firm_id"]) if payload.get("firm_id") else None,
+                "scope_template_id": payload["scope_template_id"],
+                "duration_mode": payload["duration_mode"],
+                "duration_hours": payload["duration_hours"],
+                "reason": payload["reason"],
+                "expires_at": payload["expires_at"],
+                "target_display_name": payload["target_display_name"],
+                "target_email": payload["target_email"],
+                "target_phone": payload["target_phone"],
+                "accepted_by_user_id": payload["accepted_by_user_id"],
+                "accepted_request_id": payload["accepted_request_id"],
+                "ria": {
+                    "id": str(payload["ria_profile_id"]),
+                    "user_id": payload["ria_user_id"],
+                    "display_name": payload["ria_display_name"],
+                    "verification_status": payload["verification_status"],
+                    "headline": payload["headline"],
+                    "strategy_summary": payload["strategy_summary"] or payload["strategy"],
+                    "bio": payload["bio"],
+                    "firms": payload["firms"] or [],
+                },
+            }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def accept_ria_invite(self, invite_token: str, user_id: str) -> dict[str, Any]:
+        invite = await self.get_ria_invite(invite_token)
+        if invite["status"] == "accepted":
+            if invite.get("accepted_by_user_id") == user_id and invite.get("accepted_request_id"):
+                return {
+                    "invite_token": invite_token,
+                    "request_id": invite["accepted_request_id"],
+                    "status": "accepted",
+                    "ria": invite["ria"],
+                }
+            raise RIAIAMPolicyError("Invite has already been accepted", status_code=409)
+        ria_user_id = str(invite["ria"]["user_id"])
+        request = await self.create_ria_consent_request(
+            ria_user_id,
+            subject_user_id=user_id,
+            requester_actor_type="ria",
+            subject_actor_type="investor",
+            scope_template_id=str(invite["scope_template_id"]),
+            selected_scope=None,
+            duration_mode=str(invite["duration_mode"]),
+            duration_hours=int(invite["duration_hours"]) if invite["duration_hours"] else None,
+            firm_id=invite.get("firm_id"),
+            reason=str(invite.get("reason") or "") or None,
+            invite_id=str(invite["invite_id"]),
+            invite_token=invite_token,
+            request_origin="invite_acceptance",
+        )
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                updated = await conn.execute(
+                    """
+                    UPDATE ria_client_invites
+                    SET
+                      status = 'accepted',
+                      accepted_by_user_id = $2,
+                      accepted_request_id = $3,
+                      accepted_at = NOW(),
+                      updated_at = NOW()
+                    WHERE invite_token = $1
+                      AND status = 'sent'
+                    """,
+                    invite_token,
+                    user_id,
+                    request["request_id"],
+                )
+                relationship_id = str(request.get("relationship_id") or "").strip()
+                if relationship_id:
+                    await self._materialize_relationship_share_grant(
+                        conn,
+                        relationship_id=relationship_id,
+                        provider_user_id=ria_user_id,
+                        receiver_user_id=user_id,
+                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                        metadata=self._implicit_picks_relationship_share_metadata(
+                            source="invite_acceptance",
+                            metadata={
+                                "request_id": request["request_id"],
+                                "invite_token": invite_token,
+                            },
+                        ),
+                    )
+            if updated.endswith("0"):
+                logger.warning("RIA invite accept race detected for token=%s", invite_token)
+            return {
+                "invite_token": invite_token,
+                "request_id": request["request_id"],
+                "status": "accepted",
+                "scope": request["scope"],
+                "expires_at": request["expires_at"],
+                "ria": invite["ria"],
+            }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def _get_ria_profile_by_user(
+        self, conn: asyncpg.Connection, user_id: str
+    ) -> asyncpg.Record:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, verification_status, display_name, legal_name, disclosures_url
+            FROM ria_profiles
+            WHERE user_id = $1
+            """,
+            user_id,
+        )
+        if row is None:
+            raise RIAIAMPolicyError("RIA profile not found", status_code=404)
+        return row
+
+    async def create_ria_consent_request(
+        self,
+        user_id: str,
+        *,
+        subject_user_id: str,
+        requester_actor_type: str,
+        subject_actor_type: str,
+        scope_template_id: str,
+        selected_scope: str | None,
+        duration_mode: str,
+        duration_hours: int | None,
+        firm_id: str | None,
+        reason: str | None,
+        invite_id: str | None = None,
+        invite_token: str | None = None,
+        request_origin: str | None = None,
+    ) -> dict[str, Any]:
+        requester = self._normalize_actor(requester_actor_type)
+        subject = self._normalize_actor(subject_actor_type)
+        if (requester, subject) not in {("ria", "investor"), ("investor", "ria")}:
+            raise RIAIAMPolicyError(
+                "Only investor <-> ria connection requests are allowed in this phase"
+            )
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, user_id)
+                await self._ensure_vault_user_row(conn, subject_user_id)
+                await self._ensure_iam_schema_ready(conn)
+                if requester == "ria":
+                    await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+                    await self._ensure_actor_profile_row(conn, subject_user_id)
+                    ria = await self._get_ria_profile_by_user(conn, user_id)
+                    investor_user_id = subject_user_id
+                    request_subject_user_id = subject_user_id
+                    request_agent_id = f"ria:{ria['id']}"
+                    request_origin_value = request_origin or "direct_ria_request"
+                    requester_label = (
+                        str(ria["display_name"] or ria["legal_name"] or "").strip()
+                        or f"RIA {str(ria['id'])[:8]}"
+                    )
+                    additional_access_summary = self._relationship_share_summary(
+                        _RELATIONSHIP_SHARE_ACTIVE_PICKS
+                    )
+                    included_relationship_shares = [
+                        {
+                            **self._relationship_share_descriptor(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
+                            "share_origin": _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT,
+                            "status": "included_on_approval",
+                        }
+                    ]
+                else:
+                    await self._ensure_actor_profile_row(conn, user_id)
+                    await self._ensure_actor_profile_row(
+                        conn, subject_user_id, include_ria_persona=True
+                    )
+                    ria = await self._get_ria_profile_by_user(conn, subject_user_id)
+                    investor_user_id = user_id
+                    request_subject_user_id = subject_user_id
+                    request_agent_id = f"investor:{user_id}"
+                    request_origin_value = request_origin or "marketplace_investor_connect"
+                    requester_label = user_id
+                    additional_access_summary = (
+                        "Connection request to view the advisor's disclosure and strategy surface."
+                    )
+                    included_relationship_shares = []
+
+                if not self._is_verified_ria_status(ria["verification_status"]):
+                    raise RIAIAMPolicyError(
+                        "RIA verification incomplete; cannot create connection requests",
+                        status_code=403,
+                    )
+
+                template = await self._load_scope_template(conn, scope_template_id)
+                if (
+                    template.requester_actor_type != requester
+                    or template.subject_actor_type != subject
+                ):
+                    raise RIAIAMPolicyError(
+                        "Scope template actor direction mismatch", status_code=400
+                    )
+
+                chosen_scope = (selected_scope or "").strip() or (
+                    template.allowed_scopes[0] if template.allowed_scopes else ""
+                )
+                if not chosen_scope:
+                    raise RIAIAMPolicyError("No scope available for template", status_code=400)
+                if chosen_scope not in template.allowed_scopes:
+                    raise RIAIAMPolicyError(
+                        "Selected scope is not allowed for this template", status_code=400
+                    )
+
+                if firm_id:
+                    membership = await conn.fetchrow(
+                        """
+                        SELECT 1
+                        FROM ria_firm_memberships
+                        WHERE ria_profile_id = $1
+                          AND firm_id = $2::uuid
+                          AND membership_status = 'active'
+                        """,
+                        ria["id"],
+                        firm_id,
+                    )
+                    if membership is None:
+                        raise RIAIAMPolicyError("Firm membership is not active", status_code=403)
+
+                request_id = uuid.uuid4().hex
+                now_ms = self._now_ms()
+                expires_at_ms = now_ms + (template.default_duration_hours * 60 * 60 * 1000)
+                connection_selected = str(ria["user_id"] if requester == "ria" else user_id)
+                request_url = build_connection_request_url(
+                    selected=connection_selected,
+                    tab="pending",
+                )
+                requester_website_url = (
+                    str(ria["disclosures_url"] or "").strip() or None
+                    if requester == "ria"
+                    else None
+                )
+                metadata = {
+                    "requester_actor_type": requester,
+                    "subject_actor_type": subject,
+                    "requester_entity_id": str(ria["id"]) if requester == "ria" else user_id,
+                    "subject_entity_id": str(ria["id"]) if subject == "ria" else None,
+                    "requester_label": requester_label,
+                    "requester_image_url": None,
+                    "requester_website_url": requester_website_url,
+                    "firm_id": firm_id,
+                    "scope_template_id": template.template_id,
+                    "duration_mode": "investor_decides",
+                    "duration_hours": None,
+                    "request_timeout_hours": template.default_duration_hours,
+                    "approval_timeout_minutes": template.default_duration_hours * 60,
+                    "approval_timeout_at": expires_at_ms,
+                    "reason": (reason or "").strip() or None,
+                    "request_origin": request_origin_value,
+                    "invite_id": invite_id,
+                    "invite_token": invite_token,
+                    "bundle_id": None,
+                    "bundle_label": None,
+                    "bundle_scope_count": 1,
+                    "request_url": request_url,
+                    "additional_access_summary": additional_access_summary,
+                    "included_relationship_shares": included_relationship_shares,
+                }
+
+                await conn.execute(
+                    """
+                    INSERT INTO consent_audit (
+                      token_id,
+                      user_id,
+                      agent_id,
+                      scope,
+                      action,
+                      issued_at,
+                      expires_at,
+                      poll_timeout_at,
+                      request_id,
+                      scope_description,
+                      metadata
+                    )
+                    VALUES (
+                      $1,
+                      $2,
+                      $3,
+                      $4,
+                      'REQUESTED',
+                      $5,
+                      $6,
+                      $7,
+                      $8,
+                      $9,
+                      $10::jsonb
+                    )
+                    """,
+                    f"req_{request_id}",
+                    request_subject_user_id,
+                    request_agent_id,
+                    chosen_scope,
+                    now_ms,
+                    expires_at_ms,
+                    expires_at_ms,
+                    request_id,
+                    template.template_name,
+                    json.dumps(metadata),
+                )
+
+                relationship = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM advisor_investor_relationships
+                    WHERE investor_user_id = $1
+                      AND ria_profile_id = $2
+                      AND (
+                        (firm_id IS NULL AND $3::uuid IS NULL)
+                        OR firm_id = $3::uuid
+                      )
+                    LIMIT 1
+                    """,
+                    investor_user_id,
+                    ria["id"],
+                    firm_id,
+                )
+                relationship_id: str | None = None
+                if relationship is None:
+                    relationship_row = await conn.fetchrow(
+                        """
+                        INSERT INTO advisor_investor_relationships (
+                          investor_user_id,
+                          ria_profile_id,
+                          firm_id,
+                          status,
+                          last_request_id,
+                          granted_scope,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          $2,
+                          $3::uuid,
+                          'request_pending',
+                          $4,
+                          $5,
+                          NOW(),
+                          NOW()
+                        )
+                        RETURNING id
+                        """,
+                        investor_user_id,
+                        ria["id"],
+                        firm_id,
+                        request_id,
+                        chosen_scope,
+                    )
+                    relationship_id = (
+                        str(relationship_row["id"])
+                        if relationship_row and relationship_row["id"] is not None
+                        else None
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        UPDATE advisor_investor_relationships
+                        SET
+                          status = 'request_pending',
+                          last_request_id = $2,
+                          granted_scope = COALESCE(granted_scope, $3),
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        relationship["id"],
+                        request_id,
+                        chosen_scope,
+                    )
+                    relationship_id = str(relationship["id"])
+
+                created = {
+                    "request_id": request_id,
+                    "subject_user_id": request_subject_user_id,
+                    "scope": chosen_scope,
+                    "duration_hours": template.default_duration_hours,
+                    "duration_mode": "investor_decides",
+                    "expires_at": expires_at_ms,
+                    "scope_template_id": template.template_id,
+                    "requester_entity_id": str(ria["id"]) if requester == "ria" else user_id,
+                    "relationship_id": relationship_id,
+                    "status": "REQUESTED",
+                    "metadata": metadata,
+                }
+                if duration_mode or duration_hours:
+                    created["requested_duration_mode"] = (duration_mode or "").strip() or "preset"
+                    created["requested_duration_hours"] = duration_hours
+                return created
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def get_ria_workspace(self, user_id: str, investor_user_id: str) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            ria = await self._get_ria_profile_by_user(conn, user_id)
+            identity_select_sql, identity_join_sql = await self._investor_identity_projection(
+                conn,
+                user_id_sql="rel.investor_user_id",
+            )
+            relationship_query = "\n".join(
+                [
+                    "SELECT",
+                    "  rel.id,",
+                    "  rel.status,",
+                    "  rel.granted_scope,",
+                    "  rel.last_request_id,",
+                    "  rel.consent_granted_at,",
+                    "  rel.revoked_at,",
+                    f"  {identity_select_sql},",
+                    "  picks_share.id AS picks_share_id,",
+                    "  picks_share.status AS picks_share_status,",
+                    "  picks_share.granted_at AS picks_share_granted_at,",
+                    "  picks_share.revoked_at AS picks_share_revoked_at,",
+                    "  picks_share.metadata AS picks_share_metadata,",
+                    "  (active_upload.id IS NOT NULL) AS has_active_pick_upload",
+                    "FROM advisor_investor_relationships rel",
+                    identity_join_sql,
+                    "LEFT JOIN marketplace_public_profiles mp",
+                    "  ON mp.user_id = rel.investor_user_id",
+                    "  AND mp.profile_type = 'investor'",
+                    "LEFT JOIN relationship_share_grants picks_share",
+                    "  ON picks_share.relationship_id = rel.id",
+                    "  AND picks_share.grant_key = $3",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT id",
+                    "  FROM ria_pick_share_artifacts",
+                    "  WHERE relationship_id = rel.id",
+                    "    AND grant_key = $3",
+                    "    AND status = 'active'",
+                    "  ORDER BY updated_at DESC",
+                    "  LIMIT 1",
+                    ") active_upload ON TRUE",
+                    "WHERE rel.investor_user_id = $1",
+                    "  AND rel.ria_profile_id = $2",
+                    "ORDER BY rel.updated_at DESC",
+                    "LIMIT 1",
+                ]
+            )
+            relationship = await conn.fetchrow(
+                relationship_query,
+                investor_user_id,
+                ria["id"],
+                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+            )
+            if relationship is None:
+                raise RIAIAMPolicyError(
+                    "No approved relationship for investor workspace", status_code=403
+                )
+            relationship_payload = dict(relationship)
+
+            agent_id = f"ria:{ria['id']}"
+            consent_rows = await conn.fetch(
+                """
+                SELECT scope, action, expires_at, issued_at, metadata
+                FROM consent_audit
+                WHERE user_id = $1
+                  AND agent_id = $2
+                  AND action IN ('CONSENT_GRANTED', 'REVOKED', 'CONSENT_DENIED', 'CANCELLED', 'TIMEOUT')
+                ORDER BY issued_at DESC
+                """,
+                investor_user_id,
+                agent_id,
+            )
+            latest_by_scope: dict[str, dict[str, Any]] = {}
+            for row in consent_rows:
+                scope = str(row["scope"] or "").strip()
+                if not scope or scope in latest_by_scope:
+                    continue
+                payload = dict(row)
+                payload["metadata"] = self._parse_metadata(payload.get("metadata"))
+                latest_by_scope[scope] = payload
+
+            now_ms = self._now_ms()
+            granted_scopes = [
+                {
+                    "scope": scope,
+                    "label": get_scope_description(scope),
+                    "expires_at": payload.get("expires_at"),
+                    "issued_at": payload.get("issued_at"),
+                }
+                for scope, payload in latest_by_scope.items()
+                if payload.get("action") == "CONSENT_GRANTED"
+                and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+            ]
+            if not granted_scopes:
+                raise RIAIAMPolicyError("Consent is not active for this workspace", status_code=403)
+
+            has_active_pick_upload = bool(relationship_payload.get("has_active_pick_upload"))
+            relationship_shares: list[dict[str, Any]] = []
+            if relationship_payload.get("picks_share_id"):
+                relationship_shares.append(
+                    self._serialize_relationship_share(
+                        {
+                            "grant_key": _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                            "status": relationship_payload.get("picks_share_status"),
+                            "granted_at": relationship_payload.get("picks_share_granted_at"),
+                            "revoked_at": relationship_payload.get("picks_share_revoked_at"),
+                            "metadata": relationship_payload.get("picks_share_metadata"),
+                        },
+                        has_active_pick_upload=has_active_pick_upload,
+                    )
+                )
+
+            metadata = await conn.fetchrow(
+                """
+                SELECT
+                  user_id,
+                  available_domains,
+                  domain_summaries,
+                  total_attributes,
+                  updated_at
+                FROM pkm_index
+                WHERE user_id = $1
+                """,
+                investor_user_id,
+            )
+            granted_scope_keys = {str(item["scope"]) for item in granted_scopes}
+            if metadata is None:
+                account_branches = await self._list_linked_account_branches(
+                    conn,
+                    investor_user_id=investor_user_id,
+                )
+                granted_payloads = [
+                    payload
+                    for payload in latest_by_scope.values()
+                    if payload.get("action") == "CONSENT_GRANTED"
+                    and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+                ]
+                kai_specialized_bundle, scoped_account_branches = (
+                    self._build_kai_specialized_bundle_state(
+                        account_branches=account_branches,
+                        granted_payloads=granted_payloads,
+                        pending_payloads=[],
+                    )
+                )
+                return {
+                    "investor_user_id": investor_user_id,
+                    "workspace_ready": False,
+                    "available_domains": [],
+                    "domain_summaries": {},
+                    "total_attributes": 0,
+                    "investor_display_name": relationship_payload["investor_display_name"],
+                    "investor_email": relationship_payload.get("investor_email"),
+                    "investor_secondary_label": relationship_payload.get(
+                        "investor_secondary_label"
+                    ),
+                    "investor_headline": relationship_payload["investor_headline"],
+                    "relationship_status": relationship_payload["status"],
+                    "scope": granted_scopes[0]["scope"],
+                    "granted_scopes": granted_scopes,
+                    "relationship_shares": relationship_shares,
+                    "picks_feed_status": self._picks_feed_status(
+                        relationship_status=str(relationship_payload["status"] or ""),
+                        share_status=str(relationship_payload.get("picks_share_status") or ""),
+                        has_active_pick_upload=has_active_pick_upload,
+                    ),
+                    "picks_feed_granted_at": relationship_payload.get("picks_share_granted_at"),
+                    "has_active_pick_upload": has_active_pick_upload,
+                    "consent_expires_at": max(
+                        (item["expires_at"] for item in granted_scopes if item.get("expires_at")),
+                        default=None,
+                    ),
+                    "kai_specialized_bundle": kai_specialized_bundle,
+                    "account_branches": scoped_account_branches,
+                }
+
+            available_domains = self._parse_string_list(metadata["available_domains"])
+            domain_summaries = self._parse_metadata(metadata["domain_summaries"])
+            if "pkm.read" not in granted_scope_keys:
+                financial_only = any(
+                    scope.startswith("attr.financial.") for scope in granted_scope_keys
+                )
+                if financial_only:
+                    available_domains = [
+                        domain for domain in available_domains if domain == "financial"
+                    ]
+                    domain_summaries = (
+                        {"financial": domain_summaries.get("financial", {})}
+                        if "financial" in domain_summaries
+                        else {}
+                    )
+                else:
+                    available_domains = []
+                    domain_summaries = {}
+
+            account_branches = await self._list_linked_account_branches(
+                conn,
+                investor_user_id=investor_user_id,
+            )
+            granted_payloads = [
+                payload
+                for payload in latest_by_scope.values()
+                if payload.get("action") == "CONSENT_GRANTED"
+                and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+            ]
+            kai_specialized_bundle, scoped_account_branches = (
+                self._build_kai_specialized_bundle_state(
+                    account_branches=account_branches,
+                    granted_payloads=granted_payloads,
+                    pending_payloads=[],
+                )
+            )
+
+            return {
+                "investor_user_id": investor_user_id,
+                "investor_display_name": relationship_payload["investor_display_name"],
+                "investor_email": relationship_payload.get("investor_email"),
+                "investor_secondary_label": relationship_payload.get("investor_secondary_label"),
+                "investor_headline": relationship_payload["investor_headline"],
+                "workspace_ready": True,
+                "available_domains": available_domains,
+                "domain_summaries": domain_summaries,
+                "total_attributes": int(metadata["total_attributes"] or 0),
+                "updated_at": metadata["updated_at"],
+                "relationship_status": relationship_payload["status"],
+                "scope": granted_scopes[0]["scope"],
+                "granted_scopes": granted_scopes,
+                "relationship_shares": relationship_shares,
+                "picks_feed_status": self._picks_feed_status(
+                    relationship_status=str(relationship_payload["status"] or ""),
+                    share_status=str(relationship_payload.get("picks_share_status") or ""),
+                    has_active_pick_upload=has_active_pick_upload,
+                ),
+                "picks_feed_granted_at": relationship_payload.get("picks_share_granted_at"),
+                "has_active_pick_upload": has_active_pick_upload,
+                "consent_expires_at": max(
+                    (item["expires_at"] for item in granted_scopes if item.get("expires_at")),
+                    default=None,
+                ),
+                "kai_specialized_bundle": kai_specialized_bundle,
+                "account_branches": scoped_account_branches,
+            }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def set_ria_pick_share_state(
+        self,
+        user_id: str,
+        *,
+        investor_user_id: str,
+        enabled: bool,
+    ) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                relationship = await conn.fetchrow(
+                    """
+                    SELECT id, status
+                    FROM advisor_investor_relationships
+                    WHERE ria_profile_id = $1
+                      AND investor_user_id = $2
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    ria["id"],
+                    investor_user_id,
+                )
+                if relationship is None:
+                    raise RIAIAMPolicyError("Relationship not found", status_code=404)
+                if str(relationship["status"] or "").strip().lower() != "approved":
+                    raise RIAIAMPolicyError(
+                        "Only approved relationships can manage the picks share",
+                        status_code=409,
+                    )
+                if enabled:
+                    row = await self._materialize_relationship_share_grant(
+                        conn,
+                        relationship_id=str(relationship["id"]),
+                        provider_user_id=user_id,
+                        receiver_user_id=investor_user_id,
+                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                        metadata=self._implicit_picks_relationship_share_metadata(
+                            source="ria_pick_share_toggle",
+                            metadata={"enabled": True},
+                        ),
+                    )
+                    return {
+                        "enabled": True,
+                        "status": str(row["status"] or "active"),
+                        "grant_key": _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                    }
+                await self._revoke_relationship_share_grant(
+                    conn,
+                    relationship_id=str(relationship["id"]),
+                    grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                    status="revoked",
+                    reason="ria_pick_share_toggle:disabled",
+                )
+                return {
+                    "enabled": False,
+                    "status": "revoked",
+                    "grant_key": _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def sync_relationship_from_consent_action(
+        self,
+        *,
+        user_id: str,
+        request_id: str | None,
+        action: str,
+        agent_id: str | None = None,
+        scope: str | None = None,
+    ) -> None:
+        if action not in {"CONSENT_GRANTED", "CONSENT_DENIED", "CANCELLED", "REVOKED", "TIMEOUT"}:
+            return
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                if not await self._is_iam_schema_ready(conn):
+                    return
+                row: asyncpg.Record | None = None
+                if request_id:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT request_id, user_id, agent_id, scope, metadata
+                        FROM consent_audit
+                        WHERE request_id = $1
+                          AND action = 'REQUESTED'
+                        ORDER BY issued_at DESC
+                        LIMIT 1
+                        """,
+                        request_id,
+                    )
+                if row is None and action == "REVOKED" and agent_id and scope:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT request_id, user_id, agent_id, scope, metadata
+                        FROM consent_audit
+                        WHERE user_id = $1
+                          AND agent_id = $2
+                          AND scope = $3
+                          AND action = 'REQUESTED'
+                        ORDER BY issued_at DESC
+                        LIMIT 1
+                        """,
+                        user_id,
+                        agent_id,
+                        scope,
+                    )
+
+                if row is None:
+                    return
+
+                metadata = self._parse_metadata(row["metadata"])
+                requester_actor_type = self._normalize_actor(
+                    str(metadata.get("requester_actor_type") or "ria")
+                )
+                subject_actor_type = self._normalize_actor(
+                    str(metadata.get("subject_actor_type") or "investor")
+                )
+                if (requester_actor_type, subject_actor_type) not in {
+                    ("ria", "investor"),
+                    ("investor", "ria"),
+                }:
+                    return
+
+                if requester_actor_type == "ria":
+                    investor_user_id = str(row["user_id"] or "").strip()
+                    requester_entity_id = metadata.get("requester_entity_id")
+                    if not requester_entity_id:
+                        return
+                    ria_profile_id = str(requester_entity_id).strip()
+                else:
+                    investor_user_id = str(metadata.get("requester_entity_id") or "").strip()
+                    ria_profile_id = str(metadata.get("subject_entity_id") or "").strip()
+                    if not investor_user_id or not ria_profile_id:
+                        return
+
+                relationship = await conn.fetchrow(
+                    """
+                    SELECT rel.id, rp.user_id AS ria_user_id
+                    FROM advisor_investor_relationships rel
+                    JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
+                    WHERE rel.investor_user_id = $1
+                      AND rel.ria_profile_id = $2::uuid
+                      AND (
+                        rel.last_request_id = $3
+                        OR ($3 IS NULL AND rel.granted_scope = $4)
+                      )
+                    ORDER BY rel.updated_at DESC
+                    LIMIT 1
+                    """,
+                    investor_user_id,
+                    ria_profile_id,
+                    row["request_id"],
+                    row["scope"],
+                )
+                if relationship is None:
+                    return
+
+                all_rows = await conn.fetch(
+                    """
+                    SELECT scope, action, expires_at, issued_at
+                    FROM consent_audit
+                    WHERE user_id = $1
+                      AND agent_id = $2
+                    ORDER BY issued_at DESC
+                    """,
+                    user_id,
+                    row["agent_id"],
+                )
+                latest_by_scope: dict[str, asyncpg.Record] = {}
+                for audit_row in all_rows:
+                    scope_key = str(audit_row["scope"] or "").strip()
+                    if not scope_key or scope_key in latest_by_scope:
+                        continue
+                    latest_by_scope[scope_key] = audit_row
+
+                active_tokens = await ConsentDBService().get_active_tokens(
+                    str(row["user_id"] or user_id),
+                    agent_id=row["agent_id"],
+                )
+                has_active_grant = bool(active_tokens)
+                has_pending_request = any(
+                    str(audit_row["action"] or "") == "REQUESTED"
+                    for audit_row in latest_by_scope.values()
+                )
+
+                next_status = "discovered"
+                if has_active_grant:
+                    next_status = "approved"
+                elif has_pending_request:
+                    next_status = "request_pending"
+                elif action == "REVOKED":
+                    next_status = "revoked"
+                elif action == "TIMEOUT":
+                    next_status = "expired"
+
+                await conn.execute(
+                    """
+                    UPDATE advisor_investor_relationships
+                    SET
+                      status = $2,
+                      consent_granted_at = CASE
+                        WHEN $2 = 'approved' THEN NOW()
+                        ELSE consent_granted_at
+                      END,
+                      revoked_at = CASE
+                        WHEN $2 = 'approved' THEN NULL
+                        WHEN $2 = 'revoked' THEN NOW()
+                        ELSE revoked_at
+                      END,
+                      updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    relationship["id"],
+                    next_status,
+                )
+
+                relationship_id = str(relationship["id"])
+                provider_user_id = str(relationship["ria_user_id"])
+                if action == "CONSENT_GRANTED" and requester_actor_type == "ria":
+                    await self._materialize_relationship_share_grant(
+                        conn,
+                        relationship_id=relationship_id,
+                        provider_user_id=provider_user_id,
+                        receiver_user_id=investor_user_id,
+                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                        metadata=self._implicit_picks_relationship_share_metadata(
+                            source="relationship_sync",
+                            metadata={
+                                "request_id": row["request_id"],
+                                "action": action,
+                            },
+                        ),
+                    )
+                elif (
+                    action in {"CONSENT_DENIED", "CANCELLED", "REVOKED"}
+                    and requester_actor_type == "ria"
+                ):
+                    await self._revoke_relationship_share_grant(
+                        conn,
+                        relationship_id=relationship_id,
+                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                        status="revoked",
+                        reason=f"consent_action:{action.lower()}",
+                    )
+                elif action == "TIMEOUT" and requester_actor_type == "ria":
+                    await self._revoke_relationship_share_grant(
+                        conn,
+                        relationship_id=relationship_id,
+                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                        status="expired",
+                        reason="consent_action:timeout",
+                    )
+        except asyncpg.exceptions.UndefinedTableError:
+            # Non-blocking path: consent lifecycle should not fail for investor flows.
+            return
+        finally:
+            await conn.close()
+
+    async def search_marketplace_rias(
+        self,
+        *,
+        query: str | None,
+        limit: int,
+        firm: str | None,
+        verification_status: str | None,
+    ) -> list[dict[str, Any]]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            limit_safe = max(1, min(limit, 50))
+            rows = await conn.fetch(
+                """
+                SELECT
+                  rp.id,
+                  rp.user_id,
+                  mp.display_name,
+                  mp.headline,
+                  mp.strategy_summary,
+                  rp.verification_status,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile,
+                  COALESCE(
+                    json_agg(
+                      DISTINCT jsonb_build_object(
+                        'firm_id', f.id,
+                        'legal_name', f.legal_name,
+                        'role_title', m.role_title,
+                        'is_primary', m.is_primary
+                      )
+                    ) FILTER (WHERE f.id IS NOT NULL),
+                    '[]'::json
+                  ) AS firms
+                FROM ria_profiles rp
+                JOIN marketplace_public_profiles mp
+                  ON mp.user_id = rp.user_id
+                  AND mp.profile_type = 'ria'
+                  AND mp.is_discoverable = TRUE
+                LEFT JOIN ria_firm_memberships m
+                  ON m.ria_profile_id = rp.id
+                  AND m.membership_status = 'active'
+                LEFT JOIN ria_firms f
+                  ON f.id = m.firm_id
+                WHERE
+                  ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
+                  AND ($2::text IS NULL OR rp.verification_status = $2)
+                  AND (
+                    CASE
+                      WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                      THEN (mp.metadata ->> 'is_test_profile')::boolean
+                      ELSE FALSE
+                    END
+                  ) = FALSE
+                  AND (
+                    $3::text IS NULL
+                    OR EXISTS (
+                      SELECT 1
+                      FROM ria_firm_memberships m2
+                      JOIN ria_firms f2 ON f2.id = m2.firm_id
+                      WHERE m2.ria_profile_id = rp.id
+                        AND m2.membership_status = 'active'
+                        AND f2.legal_name ILIKE ('%' || $3 || '%')
+                    )
+                  )
+                GROUP BY
+                  rp.id,
+                  rp.user_id,
+                  mp.display_name,
+                  mp.headline,
+                  mp.strategy_summary,
+                  mp.metadata,
+                  rp.verification_status
+                ORDER BY
+                  CASE WHEN rp.verification_status IN ('active', 'finra_verified') THEN 0 ELSE 1 END,
+                  mp.display_name ASC
+                LIMIT $4
+                """,
+                (query or "").strip() or None,
+                (verification_status or "").strip() or None,
+                (firm or "").strip() or None,
+                limit_safe,
+            )
+            return [dict(row) for row in rows]
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def get_marketplace_ria_profile(self, ria_id: str) -> dict[str, Any] | None:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            row = await conn.fetchrow(
+                """
+                SELECT
+                  rp.id,
+                  rp.user_id,
+                  mp.display_name,
+                  mp.headline,
+                  mp.strategy_summary,
+                  rp.verification_status,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile,
+                  rp.bio,
+                  rp.strategy,
+                  rp.disclosures_url,
+                  COALESCE(
+                    json_agg(
+                      DISTINCT jsonb_build_object(
+                        'firm_id', f.id,
+                        'legal_name', f.legal_name,
+                        'role_title', m.role_title,
+                        'is_primary', m.is_primary
+                      )
+                    ) FILTER (WHERE f.id IS NOT NULL),
+                    '[]'::json
+                  ) AS firms
+                FROM ria_profiles rp
+                JOIN marketplace_public_profiles mp
+                  ON mp.user_id = rp.user_id
+                  AND mp.profile_type = 'ria'
+                  AND mp.is_discoverable = TRUE
+                LEFT JOIN ria_firm_memberships m
+                  ON m.ria_profile_id = rp.id
+                  AND m.membership_status = 'active'
+                LEFT JOIN ria_firms f
+                  ON f.id = m.firm_id
+                WHERE rp.id = $1::uuid
+                  AND (
+                    CASE
+                      WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                      THEN (mp.metadata ->> 'is_test_profile')::boolean
+                      ELSE FALSE
+                    END
+                  ) = FALSE
+                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url, is_test_profile
+                """,
+                ria_id,
+            )
+            return dict(row) if row else None
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def search_marketplace_investors(
+        self,
+        *,
+        query: str | None,
+        limit: int,
+        persona: str | None = "ria",
+        deck: str | None = "qualified",
+        location: str | None = None,
+    ) -> list[dict[str, Any]]:
+        conn = await self._conn()
+        try:
+            return await self._search_marketplace_investors_with_conn(
+                conn,
+                query=query,
+                limit=limit,
+                persona=persona,
+                deck=deck,
+                location=location,
+                excluded_target_keys=(),
+            )
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def search_marketplace_investor_deck(
+        self,
+        user_id: str,
+        *,
+        query: str | None,
+        limit: int,
+        persona: str | None = "ria",
+        deck: str | None = "qualified",
+        location: str | None = None,
+    ) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+            ria = await self._get_ria_profile_by_user(conn, user_id)
+            handled_keys = await self._marketplace_handled_investor_target_keys(
+                conn,
+                user_id=user_id,
+                ria_profile_id=ria["id"],
+            )
+            items = await self._search_marketplace_investors_with_conn(
+                conn,
+                query=query,
+                limit=limit,
+                persona=persona,
+                deck=deck,
+                location=location,
+                excluded_target_keys=handled_keys,
+                schema_already_checked=True,
+            )
+            remaining_count = await self._count_marketplace_investor_deck_remaining(
+                conn,
+                query=query,
+                persona=persona,
+                deck=deck,
+                location=location,
+                excluded_target_keys=handled_keys,
+            )
+            return {
+                "items": items,
+                "remaining_count": remaining_count,
+                "handled_count": len(handled_keys),
+                "deck_complete": remaining_count == 0,
+            }
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def _search_marketplace_investors_with_conn(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        query: str | None,
+        limit: int,
+        persona: str | None,
+        deck: str | None,
+        location: str | None,
+        excluded_target_keys: tuple[str, ...] | list[str] | set[str] = (),
+        schema_already_checked: bool = False,
+    ) -> list[dict[str, Any]]:
+        if not schema_already_checked:
+            await self._ensure_iam_schema_ready(conn)
+        limit_safe = max(1, min(limit, 50))
+        normalized_query = (query or "").strip() or None
+        normalized_location = (location or "").strip() or None
+        persona_safe = (persona or "ria").strip().lower() or "ria"
+        deck_safe = (deck or "qualified").strip().lower() or "qualified"
+        excluded_keys = sorted({str(key or "").strip() for key in excluded_target_keys if key})
+        require_qualified_hushh = persona_safe == "ria" and deck_safe != "debug_all"
+        rows = await conn.fetch(
+            """
+            SELECT
+              ap.user_id,
+              mp.display_name,
+              mp.headline,
+              mp.location_hint,
+              mp.strategy_summary,
+              mp.metadata,
+              COALESCE(
+                mp.metadata ->> 'admission_status',
+                mp.metadata ->> 'qualified_investor_status'
+              ) AS admission_status,
+              COALESCE(
+                mp.metadata ->> 'curation_tier',
+                mp.metadata ->> 'marketplace_deck'
+              ) AS curation_tier,
+              CASE
+                WHEN (mp.metadata ->> 'quality_score') ~ '^\\d+$'
+                THEN (mp.metadata ->> 'quality_score')::integer
+                ELSE NULL
+              END AS quality_score,
+              CASE
+                WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                THEN (mp.metadata ->> 'is_test_profile')::boolean
+                ELSE FALSE
+              END AS is_test_profile
+            FROM actor_profiles ap
+            JOIN marketplace_public_profiles mp
+              ON mp.user_id = ap.user_id
+              AND mp.profile_type = 'investor'
+              AND mp.is_discoverable = TRUE
+            WHERE
+              ap.investor_marketplace_opt_in = TRUE
+              AND NOT (('hushh_user:' || ap.user_id) = ANY($5::text[]))
+              AND ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
+              AND ($3::text IS NULL OR COALESCE(mp.location_hint, '') ILIKE ('%' || $3 || '%'))
+              AND (
+                $4::boolean = FALSE
+                OR (
+                  LOWER(COALESCE(
+                    mp.metadata ->> 'admission_status',
+                    mp.metadata ->> 'qualified_investor_status',
+                    ''
+                  )) = 'qualified'
+                  AND LOWER(COALESCE(
+                    mp.metadata ->> 'curation_tier',
+                    mp.metadata ->> 'marketplace_deck',
+                    ''
+                  )) IN ('qualified', 'showcase')
+                )
+              )
+              AND (
+                CASE
+                  WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                  THEN (mp.metadata ->> 'is_test_profile')::boolean
+                  ELSE FALSE
+                END
+              ) = FALSE
+            ORDER BY mp.display_name ASC
+            LIMIT $2::integer
+            """,
+            normalized_query,
+            limit_safe,
+            normalized_location,
+            require_qualified_hushh,
+            excluded_keys,
+        )
+        items = [self._marketplace_hushh_investor_row(row) for row in rows]
+        remaining = max(0, limit_safe - len(items))
+        if remaining <= 0:
+            return items
+
+        public_rows = await self._search_public_sec_investor_profiles(
+            conn,
+            query=normalized_query,
+            limit=remaining,
+            deck=deck_safe,
+            location=normalized_location,
+            excluded_target_keys=excluded_keys,
+        )
+        items.extend(self._marketplace_public_sec_investor_row(row) for row in public_rows)
+        return items
+
+    @staticmethod
+    def _normalize_contact_phone_for_hash(value: Any) -> str | None:
+        raw = str(value or "").strip()
+        digits = re.sub(r"\D", "", raw)
+        if not digits:
+            return None
+        if raw.startswith("+"):
+            return f"+{digits}"
+        if len(digits) == 10:
+            return f"+1{digits}"
+        return f"+{digits}"
+
+    async def match_marketplace_contacts(
+        self,
+        user_id: str,
+        *,
+        phone_lookups: list[dict[str, Any]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        normalized_lookups: dict[str, set[str]] = {}
+        for item in phone_lookups:
+            digest = str(item.get("hash") or "").strip().lower()
+            last4 = re.sub(r"\D", "", str(item.get("last4") or ""))[-4:]
+            if len(digest) != 64 or not last4:
+                continue
+            normalized_lookups.setdefault(last4, set()).add(digest)
+        if not normalized_lookups:
+            return []
+
+        limit_safe = max(1, min(limit, 100))
+        last4_values = sorted(normalized_lookups.keys())
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  aic.user_id,
+                  aic.phone_number,
+                  COALESCE(NULLIF(aic.display_name, ''), mp.display_name) AS identity_display_name,
+                  mp.profile_type,
+                  mp.display_name,
+                  mp.headline,
+                  mp.location_hint,
+                  mp.strategy_summary,
+                  rp.id AS ria_id,
+                  rp.verification_status,
+                  COALESCE(ap.investor_marketplace_opt_in, FALSE) AS investor_marketplace_opt_in
+                FROM actor_identity_cache aic
+                JOIN marketplace_public_profiles mp
+                  ON mp.user_id = aic.user_id
+                  AND mp.is_discoverable = TRUE
+                LEFT JOIN actor_profiles ap
+                  ON ap.user_id = aic.user_id
+                LEFT JOIN ria_profiles rp
+                  ON rp.user_id = aic.user_id
+                WHERE
+                  aic.user_id <> $1
+                  AND aic.phone_verified = TRUE
+                  AND aic.phone_number IS NOT NULL
+                  AND RIGHT(regexp_replace(aic.phone_number, '[^0-9]', '', 'g'), 4) = ANY($2::text[])
+                  AND (
+                    (
+                      mp.profile_type = 'ria'
+                      AND rp.verification_status IN ('active', 'verified', 'finra_verified')
+                    )
+                    OR (
+                      mp.profile_type = 'investor'
+                      AND COALESCE(ap.investor_marketplace_opt_in, FALSE) = TRUE
+                    )
+                  )
+                ORDER BY mp.display_name ASC
+                LIMIT $3::integer
+                """,
+                user_id,
+                last4_values,
+                max(limit_safe * 8, limit_safe),
+            )
+            matches: list[dict[str, Any]] = []
+            seen_users: set[str] = set()
+            for row in rows:
+                normalized_phone = self._normalize_contact_phone_for_hash(row["phone_number"])
+                if not normalized_phone:
+                    continue
+                last4 = re.sub(r"\D", "", normalized_phone)[-4:]
+                digest = hashlib.sha256(normalized_phone.encode("utf-8")).hexdigest()
+                if digest not in normalized_lookups.get(last4, set()):
+                    continue
+
+                target_user_id = str(row["user_id"])
+                if target_user_id in seen_users:
+                    continue
+                seen_users.add(target_user_id)
+                kind = str(row["profile_type"] or "").strip().lower()
+                profile = {
+                    "id": str(row["ria_id"])
+                    if kind == "ria" and row["ria_id"]
+                    else f"hushh_user:{target_user_id}",
+                    "user_id": target_user_id,
+                    "display_name": row["display_name"],
+                    "headline": row["headline"],
+                    "location_hint": row["location_hint"],
+                    "strategy_summary": row["strategy_summary"],
+                }
+                if kind == "ria":
+                    profile["verification_status"] = row["verification_status"]
+                else:
+                    profile["source_type"] = "hushh_user"
+                    profile["connectable"] = True
+
+                matches.append(
+                    {
+                        "user_id": target_user_id,
+                        "kind": "ria" if kind == "ria" else "investor",
+                        "display_name": row["display_name"] or row["identity_display_name"],
+                        "headline": row["headline"],
+                        "phone_last4": last4,
+                        "profile": profile,
+                    }
+                )
+                if len(matches) >= limit_safe:
+                    break
+            return matches
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def record_marketplace_investor_action(
+        self,
+        user_id: str,
+        *,
+        action: str,
+        source_type: str | None = None,
+        public_profile_id: str | int | None = None,
+        target_user_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        normalized_action = str(action or "").strip().lower()
+        if normalized_action not in _MARKETPLACE_INVESTOR_ACTION_STATUS:
+            raise RIAIAMPolicyError("Unsupported marketplace investor action", status_code=400)
+
+        normalized_source = str(source_type or "").strip().lower()
+        if not normalized_source:
+            normalized_source = "public_sec" if public_profile_id is not None else "hushh_user"
+        if normalized_source not in {"public_sec", "hushh_user"}:
+            raise RIAIAMPolicyError("Unsupported marketplace investor source type", status_code=400)
+        if normalized_action == "connect_request" and normalized_source != "hushh_user":
+            raise RIAIAMPolicyError(
+                "Public SEC profiles can be shortlisted, not connected directly",
+                status_code=400,
+            )
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                target = await self._resolve_marketplace_investor_action_target(
+                    conn,
+                    source_type=normalized_source,
+                    public_profile_id=public_profile_id,
+                    target_user_id=target_user_id,
+                )
+                status = _MARKETPLACE_INVESTOR_ACTION_STATUS[normalized_action]
+                safe_metadata = metadata if isinstance(metadata, dict) else {}
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO marketplace_investor_actions (
+                      actor_user_id,
+                      ria_profile_id,
+                      source_type,
+                      target_key,
+                      target_user_id,
+                      public_profile_id,
+                      action,
+                      status,
+                      target_snapshot,
+                      metadata,
+                      created_at,
+                      updated_at
+                    )
+                    VALUES (
+                      $1,
+                      $2,
+                      $3,
+                      $4,
+                      $5,
+                      $6,
+                      $7,
+                      $8,
+                      $9::jsonb,
+                      $10::jsonb,
+                      NOW(),
+                      NOW()
+                    )
+                    ON CONFLICT (actor_user_id, target_key)
+                    DO UPDATE SET
+                      ria_profile_id = EXCLUDED.ria_profile_id,
+                      source_type = EXCLUDED.source_type,
+                      target_user_id = EXCLUDED.target_user_id,
+                      public_profile_id = EXCLUDED.public_profile_id,
+                      action = CASE
+                        WHEN EXCLUDED.action = 'view_more'
+                          AND marketplace_investor_actions.status IN (
+                            'passed', 'shortlisted', 'connect_requested'
+                          )
+                        THEN marketplace_investor_actions.action
+                        ELSE EXCLUDED.action
+                      END,
+                      status = CASE
+                        WHEN EXCLUDED.status = 'viewed'
+                          AND marketplace_investor_actions.status IN (
+                            'passed', 'shortlisted', 'connect_requested'
+                          )
+                        THEN marketplace_investor_actions.status
+                        ELSE EXCLUDED.status
+                      END,
+                      target_snapshot = EXCLUDED.target_snapshot,
+                      metadata = marketplace_investor_actions.metadata || EXCLUDED.metadata,
+                      updated_at = NOW()
+                    RETURNING
+                      id,
+                      actor_user_id,
+                      ria_profile_id,
+                      source_type,
+                      target_key,
+                      target_user_id,
+                      public_profile_id,
+                      action,
+                      status,
+                      target_snapshot,
+                      metadata,
+                      created_at,
+                      updated_at
+                    """,
+                    user_id,
+                    ria["id"],
+                    normalized_source,
+                    target["target_key"],
+                    target.get("target_user_id"),
+                    target.get("public_profile_id"),
+                    normalized_action,
+                    status,
+                    json.dumps(target["profile"]),
+                    json.dumps(safe_metadata),
+                )
+                return self._marketplace_investor_action_row(row)
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def list_marketplace_investor_actions(
+        self,
+        user_id: str,
+        *,
+        status: str | None = None,
+        action: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        normalized_status = str(status or "").strip().lower() or None
+        normalized_action = str(action or "").strip().lower() or None
+        if normalized_status and normalized_status not in set(
+            _MARKETPLACE_INVESTOR_ACTION_STATUS.values()
+        ):
+            raise RIAIAMPolicyError(
+                "Unsupported marketplace investor action status", status_code=400
+            )
+        if normalized_action and normalized_action not in _MARKETPLACE_INVESTOR_ACTION_STATUS:
+            raise RIAIAMPolicyError("Unsupported marketplace investor action", status_code=400)
+
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+            ria = await self._get_ria_profile_by_user(conn, user_id)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  id,
+                  actor_user_id,
+                  ria_profile_id,
+                  source_type,
+                  target_key,
+                  target_user_id,
+                  public_profile_id,
+                  action,
+                  status,
+                  target_snapshot,
+                  metadata,
+                  created_at,
+                  updated_at
+                FROM marketplace_investor_actions
+                WHERE actor_user_id = $1
+                  AND ria_profile_id = $2
+                  AND ($3::text IS NULL OR status = $3)
+                  AND ($4::text IS NULL OR action = $4)
+                ORDER BY updated_at DESC
+                LIMIT $5
+                """,
+                user_id,
+                ria["id"],
+                normalized_status,
+                normalized_action,
+                max(1, min(limit, 100)),
+            )
+            return [self._marketplace_investor_action_row(row) for row in rows]
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def _marketplace_handled_investor_target_keys(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        user_id: str,
+        ria_profile_id: Any,
+    ) -> tuple[str, ...]:
+        rows = await conn.fetch(
+            """
+            SELECT target_key
+            FROM marketplace_investor_actions
+            WHERE actor_user_id = $1
+              AND ria_profile_id = $2
+              AND status = ANY($3::text[])
+            """,
+            user_id,
+            ria_profile_id,
+            ["passed", "shortlisted", "connect_requested"],
+        )
+        return tuple(
+            str(dict(row).get("target_key") or "").strip()
+            for row in rows
+            if str(dict(row).get("target_key") or "").strip()
+        )
+
+    async def _count_marketplace_investor_deck_remaining(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        query: str | None,
+        persona: str | None,
+        deck: str | None,
+        location: str | None,
+        excluded_target_keys: tuple[str, ...] | list[str] | set[str],
+    ) -> int:
+        normalized_query = (query or "").strip() or None
+        normalized_location = (location or "").strip() or None
+        persona_safe = (persona or "ria").strip().lower() or "ria"
+        deck_safe = (deck or "qualified").strip().lower() or "qualified"
+        excluded_keys = sorted({str(key or "").strip() for key in excluded_target_keys if key})
+        require_qualified_hushh = persona_safe == "ria" and deck_safe != "debug_all"
+        eligible_tiers = ("showcase",) if deck_safe == "showcase" else ("showcase", "qualified")
+        hushh_count = await conn.fetchval(
+            """
+            SELECT COUNT(*)::integer
+            FROM actor_profiles ap
+            JOIN marketplace_public_profiles mp
+              ON mp.user_id = ap.user_id
+              AND mp.profile_type = 'investor'
+              AND mp.is_discoverable = TRUE
+            WHERE
+              ap.investor_marketplace_opt_in = TRUE
+              AND NOT (('hushh_user:' || ap.user_id) = ANY($4::text[]))
+              AND ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
+              AND ($2::text IS NULL OR COALESCE(mp.location_hint, '') ILIKE ('%' || $2 || '%'))
+              AND (
+                $3::boolean = FALSE
+                OR (
+                  LOWER(COALESCE(
+                    mp.metadata ->> 'admission_status',
+                    mp.metadata ->> 'qualified_investor_status',
+                    ''
+                  )) = 'qualified'
+                  AND LOWER(COALESCE(
+                    mp.metadata ->> 'curation_tier',
+                    mp.metadata ->> 'marketplace_deck',
+                    ''
+                  )) IN ('qualified', 'showcase')
+                )
+              )
+              AND (
+                CASE
+                  WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                  THEN (mp.metadata ->> 'is_test_profile')::boolean
+                  ELSE FALSE
+                END
+              ) = FALSE
+            """,
+            normalized_query,
+            normalized_location,
+            require_qualified_hushh,
+            excluded_keys,
+        )
+        public_count = await conn.fetchval(
+            """
+            SELECT COUNT(*)::integer
+            FROM investor_profiles
+            WHERE
+              marketplace_eligible = TRUE
+              AND admission_status = 'qualified'
+              AND curation_tier = ANY($2::text[])
+              AND cik IS NOT NULL
+              AND COALESCE(biography, '') <> ''
+              AND array_length(source_urls, 1) IS NOT NULL
+              AND COALESCE(last_13f_date, last_form4_date) IS NOT NULL
+              AND NOT (('public_sec:' || id::text) = ANY($4::text[]))
+              AND ($3::text IS NULL OR (
+                COALESCE(location_hint, '') ILIKE ('%' || $3 || '%')
+                OR business_address::text ILIKE ('%' || $3 || '%')
+              ))
+              AND
+              ($1::text IS NULL OR (
+                name ILIKE ('%' || $1 || '%')
+                OR COALESCE(firm, '') ILIKE ('%' || $1 || '%')
+                OR COALESCE(title, '') ILIKE ('%' || $1 || '%')
+                OR COALESCE(biography, '') ILIKE ('%' || $1 || '%')
+                OR COALESCE(location_hint, '') ILIKE ('%' || $1 || '%')
+                OR business_address::text ILIKE ('%' || $1 || '%')
+              ))
+            """,
+            normalized_query,
+            list(eligible_tiers),
+            normalized_location,
+            excluded_keys,
+        )
+        return int(hushh_count or 0) + int(public_count or 0)
+
+    async def _resolve_marketplace_investor_action_target(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        source_type: str,
+        public_profile_id: str | int | None,
+        target_user_id: str | None,
+    ) -> dict[str, Any]:
+        if source_type == "public_sec":
+            try:
+                profile_id = int(str(public_profile_id or "").strip())
+            except (TypeError, ValueError):
+                raise RIAIAMPolicyError("public_profile_id is required", status_code=400) from None
+            row = await conn.fetchrow(
+                """
+                SELECT
+                  id,
+                  name,
+                  cik,
+                  firm,
+                  title,
+                  investor_type,
+                  location_hint,
+                  business_address,
+                  aum_billions,
+                  investment_style,
+                  risk_tolerance,
+                  time_horizon,
+                  portfolio_turnover,
+                  biography,
+                  is_insider,
+                  insider_company_ticker,
+                  data_sources,
+                  source_urls,
+                  evidence,
+                  last_13f_date,
+                  last_form4_date,
+                  marketplace_eligible,
+                  curation_tier,
+                  admission_status,
+                  quality_score,
+                  curation_reason,
+                  updated_at
+                FROM investor_profiles
+                WHERE id = $1
+                  AND marketplace_eligible = TRUE
+                  AND admission_status = 'qualified'
+                  AND curation_tier IN ('showcase', 'qualified')
+                """,
+                profile_id,
+            )
+            if row is None:
+                raise RIAIAMPolicyError("Public investor profile not found", status_code=404)
+            profile = self._marketplace_public_sec_investor_row(row)
+            return {
+                "source_type": "public_sec",
+                "target_key": f"public_sec:{profile['public_profile_id']}",
+                "public_profile_id": profile_id,
+                "target_user_id": None,
+                "profile": profile,
+            }
+
+        normalized_user_id = str(target_user_id or "").strip()
+        if not normalized_user_id:
+            raise RIAIAMPolicyError("target_user_id is required", status_code=400)
+        row = await conn.fetchrow(
+            """
+            SELECT
+              ap.user_id,
+              mp.display_name,
+              mp.headline,
+              mp.location_hint,
+              mp.strategy_summary,
+              mp.metadata,
+              COALESCE(
+                mp.metadata ->> 'admission_status',
+                mp.metadata ->> 'qualified_investor_status'
+              ) AS admission_status,
+              COALESCE(
+                mp.metadata ->> 'curation_tier',
+                mp.metadata ->> 'marketplace_deck'
+              ) AS curation_tier,
+              CASE
+                WHEN (mp.metadata ->> 'quality_score') ~ '^\\d+$'
+                THEN (mp.metadata ->> 'quality_score')::integer
+                ELSE NULL
+              END AS quality_score,
+              CASE
+                WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                THEN (mp.metadata ->> 'is_test_profile')::boolean
+                ELSE FALSE
+              END AS is_test_profile
+            FROM actor_profiles ap
+            JOIN marketplace_public_profiles mp
+              ON mp.user_id = ap.user_id
+              AND mp.profile_type = 'investor'
+              AND mp.is_discoverable = TRUE
+            WHERE ap.user_id = $1
+              AND ap.investor_marketplace_opt_in = TRUE
+              AND LOWER(COALESCE(
+                mp.metadata ->> 'admission_status',
+                mp.metadata ->> 'qualified_investor_status',
+                ''
+              )) = 'qualified'
+              AND LOWER(COALESCE(
+                mp.metadata ->> 'curation_tier',
+                mp.metadata ->> 'marketplace_deck',
+                ''
+              )) IN ('qualified', 'showcase')
+              AND (
+                CASE
+                  WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                  THEN (mp.metadata ->> 'is_test_profile')::boolean
+                  ELSE FALSE
+                END
+              ) = FALSE
+            """,
+            normalized_user_id,
+        )
+        if row is None:
+            raise RIAIAMPolicyError("Qualified Hushh investor profile not found", status_code=404)
+        profile = self._marketplace_hushh_investor_row(row)
+        return {
+            "source_type": "hushh_user",
+            "target_key": f"hushh_user:{normalized_user_id}",
+            "public_profile_id": None,
+            "target_user_id": normalized_user_id,
+            "profile": profile,
+        }
+
+    async def _search_public_sec_investor_profiles(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        query: str | None,
+        limit: int,
+        deck: str,
+        location: str | None,
+        excluded_target_keys: tuple[str, ...] | list[str] | set[str] = (),
+    ) -> list[Any]:
+        eligible_tiers = ("showcase",) if deck == "showcase" else ("showcase", "qualified")
+        excluded_keys = sorted({str(key or "").strip() for key in excluded_target_keys if key})
+        try:
+            return await conn.fetch(
+                """
+                SELECT
+                  id,
+                  name,
+                  cik,
+                  firm,
+                  title,
+                  investor_type,
+                  location_hint,
+                  business_address,
+                  aum_billions,
+                  investment_style,
+                  risk_tolerance,
+                  time_horizon,
+                  portfolio_turnover,
+                  biography,
+                  is_insider,
+                  insider_company_ticker,
+                  data_sources,
+                  source_urls,
+                  evidence,
+                  last_13f_date,
+                  last_form4_date,
+                  marketplace_eligible,
+                  curation_tier,
+                  admission_status,
+                  quality_score,
+                  curation_reason,
+                  updated_at
+                FROM investor_profiles
+                WHERE
+                  marketplace_eligible = TRUE
+                  AND admission_status = 'qualified'
+                  AND curation_tier = ANY($3::text[])
+                  AND cik IS NOT NULL
+                  AND COALESCE(biography, '') <> ''
+                  AND array_length(source_urls, 1) IS NOT NULL
+                  AND COALESCE(last_13f_date, last_form4_date) IS NOT NULL
+                  AND NOT (('public_sec:' || id::text) = ANY($5::text[]))
+                  AND ($4::text IS NULL OR (
+                    COALESCE(location_hint, '') ILIKE ('%' || $4 || '%')
+                    OR business_address::text ILIKE ('%' || $4 || '%')
+                  ))
+                  AND
+                  ($1::text IS NULL OR (
+                    name ILIKE ('%' || $1 || '%')
+                    OR COALESCE(firm, '') ILIKE ('%' || $1 || '%')
+                    OR COALESCE(title, '') ILIKE ('%' || $1 || '%')
+                    OR COALESCE(biography, '') ILIKE ('%' || $1 || '%')
+                    OR COALESCE(location_hint, '') ILIKE ('%' || $1 || '%')
+                    OR business_address::text ILIKE ('%' || $1 || '%')
+                  ))
+                ORDER BY
+                  CASE WHEN curation_tier = 'showcase' THEN 0 ELSE 1 END,
+                  quality_score DESC,
+                  COALESCE(last_13f_date, last_form4_date, updated_at::date) DESC NULLS LAST,
+                  name ASC
+                LIMIT $2
+                """,
+                query,
+                max(1, min(limit, 50)),
+                list(eligible_tiers),
+                location,
+                excluded_keys,
+            )
+        except (asyncpg.exceptions.UndefinedColumnError, asyncpg.exceptions.UndefinedTableError):
+            logger.info(
+                "marketplace.public_investors.unavailable reason=investor_profiles_schema_missing"
+            )
+            return []
+
+    @classmethod
+    def _marketplace_hushh_investor_row(cls, row: Any) -> dict[str, Any]:
+        payload = dict(row)
+        user_id = str(payload.get("user_id") or "").strip()
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        admission_status = (
+            cls._clean_public_investor_text(metadata.get("admission_status"))
+            or cls._clean_public_investor_text(metadata.get("qualified_investor_status"))
+            or cls._clean_public_investor_text(payload.get("admission_status"))
+            or "qualified"
+        )
+        curation_tier = (
+            cls._clean_public_investor_text(metadata.get("curation_tier"))
+            or cls._clean_public_investor_text(metadata.get("marketplace_deck"))
+            or cls._clean_public_investor_text(payload.get("curation_tier"))
+            or "qualified"
+        )
+        quality_score = cls._coerce_quality_score(
+            metadata.get("quality_score", payload.get("quality_score"))
+        )
+        return {
+            "id": user_id,
+            "source_type": "hushh_user",
+            "user_id": user_id,
+            "public_profile_id": None,
+            "display_name": payload.get("display_name"),
+            "headline": payload.get("headline"),
+            "location_hint": payload.get("location_hint"),
+            "strategy_summary": payload.get("strategy_summary"),
+            "connectable": True,
+            "admission_status": admission_status,
+            "curation_tier": curation_tier,
+            "quality_score": quality_score,
+            "actions": ["connect", "view_more"],
+            "evidence": {
+                "source_type": "hushh_user",
+                "confidence": "qualified_hushh_user",
+                "metadata": metadata,
+            },
+            "is_test_profile": bool(payload.get("is_test_profile")),
+        }
+
+    @classmethod
+    def _marketplace_public_sec_investor_row(cls, row: Any) -> dict[str, Any]:
+        payload = dict(row)
+        public_profile_id = str(payload.get("id") or "").strip()
+        display_name = cls._clean_public_investor_text(payload.get("name")) or (
+            f"Public investor {public_profile_id}" if public_profile_id else "Public investor"
+        )
+        firm = cls._clean_public_investor_text(payload.get("firm"))
+        title = cls._clean_public_investor_text(payload.get("title"))
+        investor_type = cls._clean_public_investor_text(payload.get("investor_type"))
+        headline = cls._public_investor_headline(
+            title=title,
+            firm=firm,
+            investor_type=investor_type,
+        )
+        return {
+            "id": f"public_sec:{public_profile_id}",
+            "source_type": "public_sec",
+            "user_id": None,
+            "public_profile_id": public_profile_id,
+            "display_name": display_name,
+            "headline": headline,
+            "location_hint": cls._clean_public_investor_text(payload.get("location_hint")),
+            "strategy_summary": cls._public_investor_strategy_summary(payload),
+            "connectable": False,
+            "admission_status": cls._clean_public_investor_text(payload.get("admission_status"))
+            or "qualified",
+            "curation_tier": cls._clean_public_investor_text(payload.get("curation_tier"))
+            or "qualified",
+            "quality_score": cls._coerce_quality_score(payload.get("quality_score")),
+            "curation_reason": cls._clean_public_investor_text(payload.get("curation_reason")),
+            "actions": ["shortlist", "view_more"],
+            "evidence": cls._public_investor_evidence(payload),
+            "is_test_profile": False,
+        }
+
+    @classmethod
+    def _marketplace_investor_action_row(cls, row: Any) -> dict[str, Any]:
+        payload = dict(row)
+        snapshot = cls._parse_metadata(payload.get("target_snapshot"))
+        return {
+            "id": str(payload.get("id") or ""),
+            "actor_user_id": str(payload.get("actor_user_id") or ""),
+            "ria_profile_id": str(payload.get("ria_profile_id") or ""),
+            "source_type": cls._clean_public_investor_text(payload.get("source_type")),
+            "target_key": cls._clean_public_investor_text(payload.get("target_key")),
+            "target_user_id": cls._clean_public_investor_text(payload.get("target_user_id")),
+            "public_profile_id": (
+                str(payload.get("public_profile_id"))
+                if payload.get("public_profile_id") is not None
+                else None
+            ),
+            "action": cls._clean_public_investor_text(payload.get("action")),
+            "status": cls._clean_public_investor_text(payload.get("status")),
+            "profile": snapshot,
+            "metadata": cls._parse_metadata(payload.get("metadata")),
+            "created_at": cls._serialize_marketplace_date(payload.get("created_at")),
+            "updated_at": cls._serialize_marketplace_date(payload.get("updated_at")),
+        }
+
+    @staticmethod
+    def _coerce_quality_score(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            score = int(value)
+        except (TypeError, ValueError):
+            return None
+        return max(0, min(score, 100))
+
+    @staticmethod
+    def _clean_public_investor_text(value: Any) -> str | None:
+        normalized = str(value or "").strip()
+        return normalized or None
+
+    @classmethod
+    def _public_investor_headline(
+        cls,
+        *,
+        title: str | None,
+        firm: str | None,
+        investor_type: str | None,
+    ) -> str:
+        if title and firm:
+            return f"{title} at {firm}"
+        if firm:
+            return firm
+        if title:
+            return title
+        if investor_type:
+            return investor_type.replace("_", " ").title()
+        return "Public SEC investor profile"
+
+    @classmethod
+    def _public_investor_strategy_summary(cls, payload: dict[str, Any]) -> str:
+        biography = cls._clean_public_investor_text(payload.get("biography"))
+        if biography:
+            return biography if len(biography) <= 420 else f"{biography[:417].rstrip()}..."
+
+        firm = cls._clean_public_investor_text(payload.get("firm"))
+        investor_type = cls._clean_public_investor_text(payload.get("investor_type"))
+        investment_style = payload.get("investment_style")
+        styles = [
+            str(item).replace("_", " ").strip()
+            for item in (investment_style or [])
+            if str(item or "").strip()
+        ]
+        parts: list[str] = []
+        if firm:
+            parts.append(f"Public filings associate this investor with {firm}.")
+        if investor_type:
+            parts.append(f"Classified as {investor_type.replace('_', ' ')}.")
+        if styles:
+            parts.append(f"Observed public style tags: {', '.join(styles[:4])}.")
+        if payload.get("last_13f_date"):
+            parts.append("Includes SEC 13F public filing context.")
+        if payload.get("last_form4_date"):
+            parts.append("Includes SEC Form 4 public filing context.")
+        return " ".join(parts) or (
+            "Public investor discovery profile assembled from official SEC-style public records."
+        )
+
+    @classmethod
+    def _public_investor_evidence(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        cik = cls._clean_public_investor_text(payload.get("cik"))
+        source_url = f"https://www.sec.gov/edgar/browse/?CIK={cik}" if cik else None
+        data_sources = payload.get("data_sources")
+        if not isinstance(data_sources, list):
+            data_sources = []
+        source_urls = payload.get("source_urls")
+        if not isinstance(source_urls, list):
+            source_urls = []
+        evidence = cls._coerce_public_investor_json_object(payload.get("evidence"))
+        business_address = cls._coerce_public_investor_json_object(payload.get("business_address"))
+        forms: list[dict[str, str]] = []
+        last_13f_date = cls._serialize_marketplace_date(payload.get("last_13f_date"))
+        last_form4_date = cls._serialize_marketplace_date(payload.get("last_form4_date"))
+        if last_13f_date:
+            forms.append({"form": "13F", "last_filed_at": last_13f_date})
+        if last_form4_date:
+            forms.append({"form": "4", "last_filed_at": last_form4_date})
+        return {
+            "source_type": "public_sec",
+            "confidence": "official_public_records",
+            "sources": data_sources or ["SEC EDGAR public filings"],
+            "source_urls": list(
+                dict.fromkeys([*source_urls, *([source_url] if source_url else [])])
+            ),
+            "forms": forms,
+            "cik": cik,
+            "investor_type": cls._clean_public_investor_text(payload.get("investor_type")),
+            "is_insider": bool(payload.get("is_insider")),
+            "insider_company_ticker": cls._clean_public_investor_text(
+                payload.get("insider_company_ticker")
+            ),
+            "business_address": business_address,
+            "metadata": evidence,
+            "updated_at": cls._serialize_marketplace_date(payload.get("updated_at")),
+        }
+
+    @staticmethod
+    def _coerce_public_investor_json_object(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode("utf-8", errors="replace")
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except ValueError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
+
+    @staticmethod
+    def _serialize_marketplace_date(value: Any) -> str | None:
+        if value is None:
+            return None
+        if hasattr(value, "isoformat"):
+            return str(value.isoformat())
+        normalized = str(value).strip()
+        return normalized or None

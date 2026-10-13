@@ -1,0 +1,148 @@
+{
+  "cases": [
+    {
+      "name": "exact_static_match",
+      "grantedScope": "vault.owner",
+      "requestedScope": "vault.owner",
+      "expectedMatches": true
+    },
+    {
+      "name": "exact_dynamic_match",
+      "grantedScope": "attr.financial.holdings",
+      "requestedScope": "attr.financial.holdings",
+      "expectedMatches": true
+    },
+    {
+      "name": "vault_owner_grants_dynamic",
+      "grantedScope": "vault.owner",
+      "requestedScope": "attr.financial.holdings",
+      "expectedMatches": true
+    },
+    {
+      "name": "vault_owner_grants_static",
+      "grantedScope": "vault.owner",
+      "requestedScope": "agent.kai.chat",
+      "expectedMatches": true
+    },
+    {
+      "name": "pkm_read_grants_dynamic",
+      "grantedScope": "pkm.read",
+      "requestedScope": "attr.financial.holdings",
+      "expectedMatches": true
+    },
+    {
+      "name": "pkm_read_grants_dynamic_wildcard",
+      "grantedScope": "pkm.read",
+      "requestedScope": "attr.financial.*",
+      "expectedMatches": true
+    },
+    {
+      "name": "pkm_read_does_not_grant_static",
+      "grantedScope": "pkm.read",
+      "requestedScope": "agent.kai.chat",
+      "expectedMatches": false
+    },
+    {
+      "name": "domain_wildcard_grants_specific",
+      "grantedScope": "attr.financial.*",
+      "requestedScope": "attr.financial.holdings",
+      "expectedMatches": true
+    },
+    {
+      "name": "domain_wildcard_grants_nested_path",
+      "grantedScope": "attr.financial.*",
+      "requestedScope": "attr.financial.profile.risk_score",
+      "expectedMatches": true
+    },
+    {
+      "name": "domain_wildcard_blocks_other_domain",
+      "grantedScope": "attr.financial.*",
+      "requestedScope": "attr.food.groceries",
+      "expectedMatches": false
+    },
+    {
+      "name": "domain_wildcard_matches_itself",
+      "grantedScope": "attr.financial.*",
+      "requestedScope": "attr.financial.*",
+      "expectedMatches": true
+    },
+    {
+      "name": "subintent_wildcard_grants_child",
+      "grantedScope": "attr.financial.profile.*",
+      "requestedScope": "attr.financial.profile.risk_score",
+      "expectedMatches": true
+    },
+    {
+      "name": "subintent_wildcard_grants_itself",
+      "grantedScope": "attr.financial.profile.*",
+      "requestedScope": "attr.financial.profile.*",
+      "expectedMatches": true
+    },
+    {
+      "name": "subintent_wildcard_blocks_sibling",
+      "grantedScope": "attr.financial.profile.*",
+      "requestedScope": "attr.financial.holdings",
+      "expectedMatches": false
+    },
+    {
+      "name": "subintent_wildcard_blocks_parent_domain_wildcard",
+      "grantedScope": "attr.financial.profile.*",
+      "requestedScope": "attr.financial.*",
+      "expectedMatches": false
+    },
+    {
+      "name": "specific_path_does_not_grant_sibling",
+      "grantedScope": "attr.financial.holdings",
+      "requestedScope": "attr.financial.expenses",
+      "expectedMatches": false
+    },
+    {
+      "name": "specific_path_does_not_grant_domain_wildcard",
+      "grantedScope": "attr.financial.holdings",
+      "requestedScope": "attr.financial.*",
+      "expectedMatches": false
+    },
+    {
+      "name": "domain_level_no_wildcard_does_not_grant_child",
+      "grantedScope": "attr.financial",
+      "requestedScope": "attr.financial.holdings",
+      "expectedMatches": false
+    },
+    {
+      "name": "static_to_static_mismatch",
+      "grantedScope": "agent.kai.chat",
+      "requestedScope": "agent.kai.execute",
+      "expectedMatches": false
+    },
+    {
+      "name": "static_dynamic_cross_type_mismatch",
+      "grantedScope": "attr.financial.holdings",
+      "requestedScope": "agent.kai.chat",
+      "expectedMatches": false
+    },
+    {
+      "name": "case_normalization_domain_wildcard",
+      "grantedScope": "attr.Financial.*",
+      "requestedScope": "attr.financial.holdings",
+      "expectedMatches": true
+    },
+    {
+      "name": "case_sensitivity_exact_path_not_normalized",
+      "grantedScope": "attr.Financial.Holdings",
+      "requestedScope": "attr.financial.holdings",
+      "expectedMatches": false
+    },
+    {
+      "name": "unrelated_dynamic_scopes_no_relation",
+      "grantedScope": "attr.food.groceries",
+      "requestedScope": "attr.financial.holdings",
+      "expectedMatches": false
+    },
+    {
+      "name": "reverse_direction_not_symmetric",
+      "grantedScope": "attr.financial.holdings",
+      "requestedScope": "attr.financial.*",
+      "expectedMatches": false
+    }
+  ]
+}

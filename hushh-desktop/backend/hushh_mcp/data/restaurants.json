@@ -1,0 +1,122 @@
+[
+  {
+    "id": "r1",
+    "name": "Trattoria Hushh",
+    "cuisine": "Italian",
+    "avg_price": 45,
+    "tags": ["vegetarian_friendly", "romantic", "wine"],
+    "rating": 4.5
+  },
+  {
+    "id": "r2",
+    "name": "The Green Garden",
+    "cuisine": "Vegan",
+    "avg_price": 25,
+    "tags": ["vegan", "organic", "gluten_free", "smoothies"],
+    "rating": 4.8
+  },
+  {
+    "id": "r3",
+    "name": "Tokyo Sushi Bar",
+    "cuisine": "Japanese",
+    "avg_price": 60,
+    "tags": ["pescatarian", "sushi", "omakase"],
+    "rating": 4.7
+  },
+  {
+    "id": "r4",
+    "name": "Spice Route Indian",
+    "cuisine": "Indian",
+    "avg_price": 30,
+    "tags": ["halal", "spicy", "vegetarian_friendly", "buffet"],
+    "rating": 4.4
+  },
+  {
+    "id": "r5",
+    "name": "Burger & Brew",
+    "cuisine": "American",
+    "avg_price": 20,
+    "tags": ["casual", "beer", "late_night"],
+    "rating": 4.2
+  },
+  {
+    "id": "r6",
+    "name": "El Camino Tacos",
+    "cuisine": "Mexican",
+    "avg_price": 15,
+    "tags": ["tacos", "casual", "gluten_free_options"],
+    "rating": 4.6
+  },
+  {
+    "id": "r7",
+    "name": "Golden Dragon",
+    "cuisine": "Chinese",
+    "avg_price": 35,
+    "tags": ["dim_sum", "family_style", "msg_free"],
+    "rating": 4.3
+  },
+  {
+    "id": "r8",
+    "name": "Mediterranean Olive",
+    "cuisine": "Mediterranean",
+    "avg_price": 40,
+    "tags": ["healthy", "wine", "outdoor_seating", "halal"],
+    "rating": 4.5
+  },
+  {
+    "id": "r9",
+    "name": "Thai Basil",
+    "cuisine": "Thai",
+    "avg_price": 25,
+    "tags": ["spicy", "vegetarian_friendly", "takeout"],
+    "rating": 4.4
+  },
+  {
+    "id": "r10",
+    "name": "Le Petit Bistro",
+    "cuisine": "French",
+    "avg_price": 80,
+    "tags": ["fine_dining", "romantic", "wine"],
+    "rating": 4.9
+  },
+  {
+    "id": "r11",
+    "name": "Seoul BBQ",
+    "cuisine": "Korean",
+    "avg_price": 50,
+    "tags": ["bbq", "interactive", "groups"],
+    "rating": 4.6
+  },
+  {
+    "id": "r12",
+    "name": "Pho 99",
+    "cuisine": "Vietnamese",
+    "avg_price": 15,
+    "tags": ["noodles", "soup", "casual"],
+    "rating": 4.5
+  },
+  {
+    "id": "r13",
+    "name": "Kosher Deli",
+    "cuisine": "American",
+    "avg_price": 25,
+    "tags": ["kosher", "sandwiches", "deli"],
+    "rating": 4.7
+  },
+  {
+    "id": "r14",
+    "name": "Gluten Free Bakery",
+    "cuisine": "Bakery",
+    "avg_price": 12,
+    "tags": ["gluten_free", "celiac_safe", "pastries"],
+    "rating": 4.8
+  },
+  {
+    "id": "r15",
+    "name": "Steakhouse 55",
+    "cuisine": "American",
+    "avg_price": 120,
+    "tags": ["steak", "fine_dining", "wine"],
+    "rating": 4.7
+  }
+]

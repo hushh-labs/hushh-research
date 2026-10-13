@@ -1,0 +1,2 @@
+ALTER TABLE IF EXISTS ria_pick_uploads
+  ADD COLUMN IF NOT EXISTS package_metadata JSONB NOT NULL DEFAULT '{}'::JSONB;

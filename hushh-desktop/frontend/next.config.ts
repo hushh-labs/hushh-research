@@ -1,0 +1,67 @@
+import type { NextConfig } from "next";
+import path from "path";
+
+/**
+ * Next.js Configuration
+ *
+ * Supports two modes:
+ * 1. Web/Cloud Run (Default): Standard server-side build, API routes enabled.
+ * 2. Capacitor (Mobile): Static export, API routes disabled (ignored).
+ *
+ * Usage:
+ * - Web: npm run build
+ * - Mobile: npm run cap:build (sets CAPACITOR_BUILD=true)
+ */
+
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === "true";
+
+const config: NextConfig = {
+  // Keep file tracing and workspace discovery scoped to this monorepo.
+  outputFileTracingRoot: path.join(process.cwd(), ".."),
+
+  // Local QA uses 127.0.0.1 so browser checks and user-opened localhost URLs
+  // can receive Next.js dev resources such as the HMR websocket.
+  allowedDevOrigins: ["127.0.0.1"],
+
+  // Dynamic output mode
+  // 'standalone' is REQUIRED for Docker/Cloud Run builds to reduce image size
+  output: isCapacitorBuild ? "export" : "standalone",
+
+
+  // Trailing slash is important for static export routing
+  trailingSlash: isCapacitorBuild,
+
+  // Page Extensions Strategy for Mobile Build
+  // When building for mobile, we ONLY want to include UI pages (.tsx)
+  // This effectively ignores app/api/ route.ts files, preventing invalid export errors.
+  pageExtensions: isCapacitorBuild
+    ? ["tsx"] // Mobile: Only include .tsx pages (no .ts API routes)
+    : ["tsx", "ts", "jsx", "js"], // Web: Include everything
+
+  images: {
+    // Unoptimized for static export (Mobile)
+    // Optimized for cloud (Web)
+    unoptimized: isCapacitorBuild,
+    formats: ["image/webp", "image/avif"],
+    // Standard device sizes
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    minimumCacheTTL: 60,
+    dangerouslyAllowSVG: true,
+    contentDispositionType: "inline",
+  },
+
+  // Performance optimizations
+  compress: true,
+  poweredByHeader: false,
+  reactStrictMode: false,
+  productionBrowserSourceMaps: false,
+  experimental: {
+    optimizePackageImports: ["@phosphor-icons/react", "lucide-react"],
+    preloadEntriesOnStart: false,
+    serverComponentsHmrCache: true,
+    webpackMemoryOptimizations: true,
+  },
+};
+
+export default config;

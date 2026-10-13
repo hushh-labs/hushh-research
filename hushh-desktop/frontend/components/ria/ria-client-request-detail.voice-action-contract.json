@@ -1,0 +1,134 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_client_request_detail",
+  "surface_title": "RIA Client Request Detail",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_client_request_detail",
+      "label": "Open RIA Client Request Detail",
+      "meaning": "Navigates to the advisor-facing detail route for a selected client access request.",
+      "aliases": [
+        "open request detail",
+        "show access request detail",
+        "open client request route"
+      ],
+      "search_keywords": [
+        "request detail",
+        "access request",
+        "client consent"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]/requests/[requestId]"
+        ],
+        "screens": [
+          "ria_client_request_detail"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Client identifier and request identifier must be known.",
+          "Request must be present in the client workspace history."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_checked",
+        "request_history_visible_to_ria"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Opening a specific request detail requires a dynamic request id selected from workspace history.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_client_request_detail_route",
+        "ria_client_workspace_request_row"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "selected request identifier"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-request-detail.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "speaker_persona": "nav"
+    },
+    {
+      "action_id": "ria.client_request.open_access_fallback",
+      "label": "Return To Client Access",
+      "meaning": "Navigates from an unavailable request detail route back to the client workspace access tab.",
+      "aliases": [
+        "return to client access",
+        "open access from request detail",
+        "go back to sharing"
+      ],
+      "search_keywords": [
+        "fallback",
+        "access",
+        "sharing",
+        "request unavailable"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]/requests/[requestId]"
+        ],
+        "screens": [
+          "ria_client_request_detail",
+          "ria_client_request_unavailable"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_checked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=access",
+        "params": {
+          "requires_client_id": true,
+          "tab": "access"
+        }
+      },
+      "control_ids": [
+        "ria_client_request_open_access_fallback"
+      ],
+      "state_exposure": [
+        "current client identifier"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-request-detail.tsx"
+      ],
+      "speaker_persona": "nav"
+    }
+  ]
+}

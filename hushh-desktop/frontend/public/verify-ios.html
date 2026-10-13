@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hussh iOS Verification</title>
+    <style>
+      body {
+        font-family: -apple-system, system-ui, sans-serif;
+        padding: 20px;
+        background: #0a0a0a;
+        color: #fff;
+      }
+      .card {
+        background: #1a1a1a;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #333;
+      }
+      h2 {
+        margin-top: 0;
+        color: #e0e0e0;
+        font-size: 18px;
+      }
+      .status {
+        float: right;
+        font-weight: bold;
+      }
+      .success {
+        color: #4ade80;
+      }
+      .error {
+        color: #f87171;
+      }
+      pre {
+        background: #000;
+        padding: 10px;
+        border-radius: 5px;
+        overflow-x: auto;
+        font-size: 12px;
+        color: #ccc;
+      }
+      button {
+        background: #fff;
+        color: #000;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        font-weight: bold;
+        font-size: 16px;
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Hussh iOS Verification</h1>
+    <p>Running on device...</p>
+    <button onclick="runTests()">Run All Tests</button>
+    <div id="results"></div>
+
+    <script type="module">
+      import { Capacitor } from "https://unpkg.com/@capacitor/core@latest/dist/capacitor.js";
+
+      // Mock the plugin imports since we're in a raw HTML file
+      // In the real app, these are imported from @/lib/capacitor
+      const HushhConsent = Capacitor.Plugins.HushhConsent;
+      const HushhVault = Capacitor.Plugins.HushhVault;
+      const HushhKeychain = Capacitor.Plugins.HushhKeychain;
+
+      window.runTests = async function () {
+        const results = document.getElementById("results");
+        results.innerHTML = "";
+
+        await runTest("HushhConsent: Issue Token", async () => {
+          const res = await HushhConsent.issueToken({
+            userId: "verifier",
+            agentId: "agent_test",
+            scope: "pkm.read",
+          });
+          if (!res.token.startsWith("HCT:"))
+            throw new Error("Invalid token prefix");
+          return res;
+        });
+
+        await runTest("HushhConsent: Validate Token", async () => {
+          const tokenRes = await HushhConsent.issueToken({
+            userId: "verifier",
+            agentId: "agent_test",
+            scope: "pkm.read",
+          });
+          const validRes = await HushhConsent.validateToken({
+            token: tokenRes.token,
+            expectedScope: "pkm.read",
+          });
+          if (!validRes.valid) throw new Error(validRes.reason);
+          return validRes;
+        });
+
+        await runTest("HushhVault: Encrypt/Decrypt", async () => {
+          const keyhex =
+            "000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f"; // 32 bytes
+          const plaintext = "Hello Hussh iOS";
+
+          const enc = await HushhVault.encryptData({
+            plaintext,
+            keyHex: keyhex,
+          });
+
+          const dec = await HushhVault.decryptData({
+            payload: enc,
+            keyHex: keyhex,
+          });
+
+          if (dec.plaintext !== plaintext)
+            throw new Error("Decryption mismatch");
+          return { original: plaintext, decrypted: dec.plaintext };
+        });
+
+        await runTest("HushhKeychain: Set/Get", async () => {
+          const key = "test_secret";
+          const value = "secret_value_123";
+
+          await HushhKeychain.set({ key, value });
+          const res = await HushhKeychain.get({ key });
+
+          if (res.value !== value)
+            throw new Error(`Value mismatch: ${res.value}`);
+          return res;
+        });
+      };
+
+      async function runTest(name, fn) {
+        const results = document.getElementById("results");
+        const card = document.createElement("div");
+        card.className = "card";
+
+        try {
+          const data = await fn();
+          card.innerHTML = `
+                    <h2>${name} <span class="status success">PASS</span></h2>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+        } catch (e) {
+          card.innerHTML = `
+                    <h2>${name} <span class="status error">FAIL</span></h2>
+                    <pre>${e.message}</pre>
+                `;
+        }
+        results.appendChild(card);
+      }
+    </script>
+  </body>
+</html>
