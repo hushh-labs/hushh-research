@@ -370,13 +370,13 @@ export function ProfileResearchCard({
   };
   const renderSection = (section: ProfileReport["sections"][number]) => (
     <AccordionItem key={section.kind} value={section.kind}>
-      <AccordionTrigger>
+      <AccordionTrigger className="py-2.5 text-[13px]">
         {embedded && section.kind === "business"
           ? "Public sources"
           : PROFILE_SECTION_LABELS[section.kind]}{" "}
         · {section.facts.length}
       </AccordionTrigger>
-      <AccordionContent className="space-y-4">
+      <AccordionContent className="space-y-3">
         {section.facts.map((fact, index) => {
           const id = `${section.kind}:${index}`;
           return (
@@ -396,7 +396,7 @@ export function ProfileResearchCard({
                     });
                   }}
                 />
-                <span className="min-w-0 text-sm leading-6">
+                <span className="min-w-0 text-[13px] leading-5">
                   {edits[id] ?? fact.statement}
                 </span>
               </label>
@@ -443,9 +443,9 @@ export function ProfileResearchCard({
   );
   const content = (
     <>
-      <CardHeader className={embedded ? "p-0 pb-2" : "p-4 pb-2"}>
+      <CardHeader className={embedded ? "p-0 pb-1.5" : "p-3 pb-1.5"}>
         {!embedded && (
-          <CardTitle className="text-base">Magic Intelligence</CardTitle>
+          <CardTitle className="text-sm">Magic Intelligence</CardTitle>
         )}
         {report?.name && <MediumRowLabel as="p">{report.name}</MediumRowLabel>}
         {(phase === "loading" ||
@@ -470,7 +470,7 @@ export function ProfileResearchCard({
         )}
       </CardHeader>
       <CardContent
-        className={embedded ? "space-y-3 p-0" : "space-y-3 p-4 pt-2"}
+        className={embedded ? "space-y-2 p-0" : "space-y-2 p-3 pt-1.5"}
       >
         {report && phase !== "saved" && (
           <Accordion

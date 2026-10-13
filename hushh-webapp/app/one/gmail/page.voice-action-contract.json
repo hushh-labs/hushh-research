@@ -10,6 +10,38 @@
   },
   "actions": [
     {
+      "action_id": "profile.gmail.visit_merchant",
+      "label": "Visit merchant",
+      "meaning": "Opens the selected receipt merchant's reviewed official HTTPS homepage in an external browser, preserving the receipt detail sheet.",
+      "aliases": ["visit merchant", "visit merchant website"],
+      "search_keywords": ["merchant website"],
+      "reachability": {
+        "routes": ["/one/gmail"],
+        "screens": ["gmail"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Receipts tab is selected",
+          "A receipt detail sheet is open",
+          "The selected merchant has a reviewed official homepage"
+        ]
+      },
+      "guard_ids": ["manual_user_execution"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "External browser activation stays in the selected receipt detail button's local handler.",
+        "intended_handler": "ReceiptMerchantVisit"
+      },
+      "control_ids": ["visit_receipt_merchant"],
+      "state_exposure": [],
+      "docs_references": [
+        "components/gmail/gmail-recent-receipts.tsx",
+        "lib/mail/receipt-merchant-registry.ts"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile_receipts",
       "label": "Open Receipts Page",
       "meaning": "Navigates directly to receipts page from any investor surface.",
