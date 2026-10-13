@@ -17,8 +17,7 @@ describe("Agent Chat email draft layout contract", () => {
     );
     expect(source).toContain("openGmailEmailDraftFromDirective");
     expect(source).toContain('event.raw.toolName !== "open_gmail_email_draft"');
-    expect(source).toContain("setEmailDraftAutoDraft(!payload.initialDraft);");
-    expect(source).toContain("initialDraft: body");
+    expect(source).toContain("setEmailDraftAutoDraft(!payload.initialDraft?.body);");
     expect(source).toContain("getGmailInformationRequestReplyPayload");
     expect(source).toContain('event.raw.toolName !== "open_gmail_information_request_reply"');
     expect(source).toContain(

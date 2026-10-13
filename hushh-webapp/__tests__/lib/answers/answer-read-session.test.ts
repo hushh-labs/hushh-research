@@ -132,6 +132,10 @@ async function rawCache(): Promise<unknown[]> {
 }
 
 beforeEach(async () => {
+  // Stable age calculations and timestamps keep synthetic stale ages from
+  // coincidentally matching wall-clock milliseconds in encrypted readback.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-13T12:00:00.000Z"));
   transport.apiFetch.mockReset();
   transport.refreshAccountIdentityShadow.mockReset();
   transport.encrypt.mockImplementation(({ plaintext, keyHex }) => encryptData(plaintext, keyHex));
@@ -409,11 +413,7 @@ describe("actual application Gemini preparation and encrypted staging", () => {
     expect(state.staged[0]!.hasContent).toBe(false);
     const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
     expect(readable).toMatchObject({ answerMode: "projection", answer: null, unavailableScopes: [] });
-    // Compare private content, excluding generated timestamps whose milliseconds
-    // can coincidentally equal the synthetic stale age (999).
-    const privateContent = JSON.stringify(readable, (key, value) => key === "builtAt" ? null
-      : key === "memory" && typeof value === "string" ? value.replace(/^_Built on this device at [^\n]+_$/m, "") : value);
-    for (const forbidden of ["STALE_SEX", "1998-03-14", "999", "STALE_CITIZENSHIP", "STALE_EMPLOYMENT"]) expect(privateContent).not.toContain(forbidden);
+    for (const forbidden of ["STALE_SEX", "1998-03-14", "999", "STALE_CITIZENSHIP", "STALE_EMPLOYMENT"]) expect(JSON.stringify(readable)).not.toContain(forbidden);
     expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
   });
 
