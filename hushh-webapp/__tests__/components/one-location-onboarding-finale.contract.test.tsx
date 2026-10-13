@@ -42,25 +42,12 @@ function renderFinale(
     startAt: "welcome",
     activeScreen: "ready",
     currentUserName: "Ankit",
-    // "prompt", not "granted": granting sends the features screen into its
-    // save-place preparation, which holds Continue busy and never reaches the
-    // finale here. The coordinate this file cares about is injected directly
-    // as `mapPoint`, which is what the page hands the flow in production.
-    locationPermission: {
-      state: "prompt",
-      precise: null,
-      background: "foreground-only",
-      locationServicesEnabled: true,
-    },
-    locationBusy: false,
     nativeTest: {
       routeId: "/one/location",
       marker: "native-route-one-location",
       authState: "authenticated",
       dataState: "loaded",
     },
-    onRequestLocation: vi.fn().mockResolvedValue(true),
-    onLocationReady: vi.fn().mockResolvedValue(true),
     onBack: vi.fn(),
     onComplete: vi.fn(),
     onSkip: vi.fn(),
@@ -111,28 +98,13 @@ describe("One Location onboarding finale — the map is real", () => {
     // which is a claim about a place nothing knew.
     expect(map().querySelector("[data-onboarding-map-pulse]")).toBeNull();
     expect(screen.queryByTestId("onboarding-live-map-embed")).toBeNull();
-    expect(screen.getByText("Map unavailable")).toBeTruthy();
+    expect(screen.getByText("Turn on Location when you're ready.")).toBeTruthy();
 
     // And the headline stops promising a map.
     expect(
       screen.getByRole("heading", { name: "You're all set." }),
     ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /on the map/ })).toBeNull();
-  });
-
-  it("names Location, not Maps, when Location is the thing that is off", () => {
-    renderFinale({
-      mapPoint: null,
-      locationPermission: {
-        state: "denied",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      },
-    });
-
-    expect(screen.getByText("Location is off")).toBeTruthy();
-    expect(screen.queryByText("Map unavailable")).toBeNull();
   });
 
   it("stays fully usable when no map can be drawn at all", async () => {
@@ -177,7 +149,7 @@ describe("One Location onboarding finale — the copy", () => {
     expect(
       screen.getByRole("heading", { name: "You're on the map." }),
     ).toBeTruthy();
-    expect(screen.getByText("Private until you share.")).toBeTruthy();
+    expect(screen.queryByText("Private until you share.")).toBeNull();
     expect(screen.getByText("Meena Family")).toBeTruthy();
     expect(screen.getByText("Expires in 72 hours")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Copy/ })).toBeTruthy();

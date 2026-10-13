@@ -26,6 +26,9 @@ import {
   ArrowUpRight,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
+import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
+import { ownerStyleFromBranch } from "@/lib/agent/owner-style-settings";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import {
@@ -136,11 +139,11 @@ function ProfileCards({ close }: { close: () => void }) {
       <div className={styles.cards}>
         <article
           className={`${styles.fileCard} ${styles.soul}`}
-          aria-label="soul.md preview"
+          aria-label="memory.md preview"
         >
           <div>
             <Heart className="size-5" aria-hidden />
-            <h4 data-app-pane-row-title>soul.md</h4>
+            <h4 data-app-pane-row-title>memory.md</h4>
             <p>Voice, values, and personality.</p>
           </div>
           <div className={styles.cardFooter}>
@@ -181,6 +184,18 @@ export function OneAgentProfileSheet({
   presenceState?: OnePresenceState;
 }) {
   const { user } = useAuth();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const identity = usePkmDomainResource({
+    userId: user?.uid ?? "",
+    domain: "identity",
+    vaultKey,
+    vaultOwnerToken,
+    enabled: open && isVaultUnlocked && Boolean(vaultKey && vaultOwnerToken),
+  });
+  const profileName = isVaultUnlocked && vaultKey && vaultOwnerToken &&
+    identity.data?.key.userId === user?.uid
+    ? ownerStyleFromBranch(identity.data?.data.communication_preferences).preferred_name || "One"
+    : "One";
   const router = useRouter();
   const [tab, setTab] = useState("feed");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -225,7 +240,7 @@ export function OneAgentProfileSheet({
           <div className={styles.avatar}>
             <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
           </div>
-          <SheetTitle className={styles.title}>One</SheetTitle>
+          <SheetTitle className={styles.title}>{profileName}</SheetTitle>
           <SheetDescription className="sr-only">
             One profile and activity.
           </SheetDescription>

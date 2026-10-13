@@ -152,6 +152,19 @@ same. The `username` payload field is optional and server-validated (3–30
 lowercase letters/digits/single internal dots, reserved/blocked labels rejected).
 
 Public QR resolves count aggregate visits only, without identifying scanners.
+Profile and NWS share that QR and its scan counters. Owner-confirmed QR rotation
+invalidates the old token and atomically resets `scanCount` and `lastScannedAt`
+for the replacement, while preserving the profile and pass serial. Delayed
+scans presenting the old token cannot increment the replacement's counter.
+
+Referral has a separate invitation QR. Authenticated `POST
+/api/one/referrals/rotate` accepts `{slug}` for the currently presented link,
+derives the owner from Firebase authentication, and returns the current referral
+summary. Disabling the old code and minting its replacement commit together;
+allocation failure rolls back both. A stale/repeated request cannot disable a
+newer replacement. Link opens and last opened apply to the current code only;
+earned referrals, accepted invitations, relationships and credits are retained.
+The existing One proxy and native API transport carry the same contract.
 Saved payment-card secrets remain in the encrypted `wallet` PKM domain.
 Temporary sharing of manually added cards uses the existing direct-message
 transaction, connection/block checks and durable Feed projection. A successful
@@ -2047,6 +2060,51 @@ Optional intro fields are persisted in encrypted PKM path `financial.profile`.
 Frontend reads/writes these fields through the centralized onboarding/profile flows that call PKM APIs.
 
 #### Account & Sync
+
+Phone metadata refreshes cannot transfer a verified phone to another actor,
+regardless of their descriptive source. Only a server-validated Firebase phone
+session claim carries transfer authority. Fixed-code test verification preserves
+another verified owner: its start response declines the test shortcut. Web uses
+real Firebase OTP; native stops before linking and asks for a different test
+number. Confirmation rechecks under the phone advisory/row
+locks and returns `PHONE_TEST_NUMBER_IN_USE` (409) for a stale/racing test challenge.
+Same-owner retries and claims for unbound test numbers remain supported. An
+unavailable ownership read returns `PHONE_TEST_IDENTITY_UNAVAILABLE` (503).
+
+Phone confirmation requests may supply `expected_user_id`; it must match the
+authenticated Firebase UID before proof verification or persistence. Clients
+fence pending verification by account and attempt generation, so an account
+switch or resend cannot publish an earlier result. Native completion waits for
+a fresh backend identity with the exact current UID and linked verified phone;
+provider linking alone is not reported as a saved app-level phone. Linked
+provider metadata does not authorize cross-owner reconciliation.
+Native finalization uses `/api/account/identity/refresh?require_success=true`:
+this forces current provider/persistence success and returns 503 on failure
+instead of falling back to a prior identity. Background refresh keeps its
+existing cache fallback.
+
+If a native OTP links the provider phone but persistence is unavailable, retry
+reads the native provider directly (without substituting the cached Firebase JS
+user) and reruns only strict identity synchronization for the same owner and
+requested phone. It does not send another OTP or repeat link/unlink. Same-number
+submit and linked-phone Continue wait for this synchronization before completion;
+account/attempt fences still apply. Native test-start failures or malformed
+responses stop before linking. Only a successful explicit nonallowlisted response
+falls through to normal native OTP.
+
+An existing native app-level phone, including a backend-only UAT claim, may
+continue without another challenge only when a forced strict backend refresh
+confirms the same UID, exact published/requested number and verified binding.
+Cached hints alone never authorize completion. This preserves the native
+same-number/linked Continue path without requiring an SDK phone link for an
+already saved backend-only claim.
+
+Web verification's app-level phone need not be linked to the primary social
+Firebase user. Auth state publishes a fresh verified identity-cache phone after
+the backend claim commits, including same-user Firebase republication, and never
+uses stale/unverified cache evidence or a previous user's cache. Historical
+missing phone bindings are not reconstructed from email verification or OTP log
+messages; account owners restore them through the existing phone verification flow.
 
 | Method | Path                                              | Description                                                                                                                                                                                              |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -21713,6 +21713,153 @@
     },
     {
       "aliases": [
+        "Finish Location introduction",
+        "finish location introduction",
+        "complete location introduction"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "setup.finish_location_intro",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Completes the two-screen Location introduction and returns to setup. Device location access and saved places can be enabled later from the Location workspace.",
+      "execution": {
+        "binding_ref": "semantic_action:setup.finish_location_intro",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "setup.finish_location_intro"
+        }
+      },
+      "goal_id": "goal.setup.finish_location_intro",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Finish Location introduction",
+      "navigation": {
+        "fallback": "setup.finish_location_intro",
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "finish",
+        "location",
+        "introduction"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Finish RIA setup",
         "finish ria setup",
         "finish ria"
@@ -36373,7 +36520,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "2c1174613b73df57ca42a993",
+      "brain_revision": "c8210924ba08f328a8fab5be",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -37703,6 +37850,21 @@
           "public_slot_types": [],
           "semantic_boundary": "Requests final verification after the Location onboarding runtime has settled permission, position, place or explicit skip, and personal Circle provisioning.",
           "verified_success_boundary": "none"
+        },
+        {
+          "candidate_id": "setup.finish_location_intro",
+          "capability_id": "setup.finish_location_intro",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Finish Location introduction",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Completes the two-screen Location introduction and returns to setup. Device location access and saved places can be enabled later from the Location workspace.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
           "candidate_id": "setup.open_location",
@@ -39081,6 +39243,21 @@
           "verified_success_boundary": "none"
         },
         {
+          "candidate_id": "setup.finish_location_intro",
+          "capability_id": "setup.finish_location_intro",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Finish Location introduction",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Completes the two-screen Location introduction and returns to setup. Device location access and saved places can be enabled later from the Location workspace.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
           "candidate_id": "setup.open_location",
           "capability_id": "setup.open_location",
           "confirmation_class": "none",
@@ -39184,7 +39361,7 @@
         }
       ],
       "known_unbound_implementation_count": 76,
-      "package_digest": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
+      "package_digest": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
       "package_id": "location.brain",
       "package_version": 2,
       "schema_version": "one.location_brain_catalog.v1",
@@ -39249,7 +39426,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "142dd4f1abb0056f04cc2391c6d9db923371d196156a0c5a17596a27426f3ecd",
+      "projection_digest": "f1c06b556b6b94ed1e13bea960cbe3203d492b8c6a0277a748d52319efc776a9",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39260,15 +39437,15 @@
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
         "capability_graph_evolution": "9132c66a43ca0e87d087192af7b2564a0f9dc543949da0125c1c518518f6b596",
-        "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
+        "capability_runtime_compiler": "fa55b4505f8be1e14a454fa866c0a02b82aa5b328f0c589a6ae06119efe9b662",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
-        "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
+        "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
+        "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
       },
-      "source_revision": "4290bffc350511d9",
+      "source_revision": "2b3e32824cb9d1c4",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -40786,7 +40963,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "4290bffc350511d9",
+    "source_revision": "2b3e32824cb9d1c4",
     "web": {
       "actions": [
         {
@@ -40829,7 +41006,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "9f119ae8c6f39690c3c648ae5e7814345c5a772a5a652680b9560cd58a183fc9",
+      "projection_digest": "41065d564352a96e060d1341f2ceff6651d48df6fb2990b75c4756e8f341bcf8",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -40840,15 +41017,15 @@
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
         "capability_graph_evolution": "9132c66a43ca0e87d087192af7b2564a0f9dc543949da0125c1c518518f6b596",
-        "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
+        "capability_runtime_compiler": "fa55b4505f8be1e14a454fa866c0a02b82aa5b328f0c589a6ae06119efe9b662",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
-        "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
+        "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
+        "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
       },
-      "source_revision": "4290bffc350511d9",
+      "source_revision": "2b3e32824cb9d1c4",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -42405,7 +42582,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "4290bffc350511d9",
+  "revision": "2b3e32824cb9d1c4",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -43903,6 +44080,7 @@
       "action_ids": [
         "location.onboarding.choose_place",
         "setup.finish_location",
+        "setup.finish_location_intro",
         "setup.skip_location"
       ],
       "capability_id": "screen:/one/setup/location",
@@ -44232,7 +44410,7 @@
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "4b63581cd41944f9",
+    "from_revision": "ca45fcf41af6e723",
     "migrated": [],
     "removed": []
   },
@@ -46044,6 +46222,10 @@
           "disposition": "BLOCKED_UNBOUND"
         },
         {
+          "capability_id": "setup.finish_location_intro",
+          "disposition": "NAVIGATE"
+        },
+        {
           "capability_id": "setup.open_location",
           "disposition": "NAVIGATE"
         },
@@ -46060,7 +46242,7 @@
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
         "blocked_endpoint_count": 76,
-        "declared_capability_count": 71
+        "declared_capability_count": 72
       },
       "completion": {
         "claim_policy": "verified_persisted_state_only",
@@ -46170,9 +46352,9 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "2c1174613b73df57ca42a993",
+        "brain_revision": "c8210924ba08f328a8fab5be",
         "catalog_status": "complete_and_compiled",
-        "package_digest": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
+        "package_digest": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2"
@@ -46460,20 +46642,20 @@
   ],
   "source_digests": {
     "capability_graph_evolution": "9132c66a43ca0e87d087192af7b2564a0f9dc543949da0125c1c518518f6b596",
-    "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
+    "capability_runtime_compiler": "fa55b4505f8be1e14a454fa866c0a02b82aa5b328f0c589a6ae06119efe9b662",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "4b26134d23a9f6e0306cfa63f0ac3c73f2132a456e5185754833577c9deeffca",
+    "kai_action_gateway": "116573b7cc761fbb1d0ce6e249e9fe16ec91245268845f5e8dce77f1740a44a2",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
-    "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
+    "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "177f654a5566ee65d98d50fe6f39903a083bd970e094bbf532179de1d1276a40",
-    "route_orchestration_index": "966eced19cd6ec65c93c76c102ba4bdc3deb2db15635d45195081d9af2de6abd",
-    "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
+    "route_orchestration_index": "7c134a64b2fdf761238ffabe8abe841b89c50058e1020d5502d203985502de1f",
+    "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
   },
-  "source_revision": "4290bffc350511d9",
+  "source_revision": "2b3e32824cb9d1c4",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "4290bffc350511d9",
+    "current_graph_revision": "2b3e32824cb9d1c4",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -46499,6 +46681,7 @@
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
           "2c5daa16c578e219",
+          "2d19aa697c321877",
           "32b235f681091788",
           "32eb22648d57ca04",
           "34ab4e29e27a1679",
@@ -46511,6 +46694,7 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "4290bffc350511d9",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
@@ -46590,6 +46774,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -46604,6 +46789,7 @@
           "d96de7a17419d091",
           "d98448584de64472",
           "db9c1ca05979d69a",
+          "dc84474d7b197bb0",
           "df37a235665ef89d",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
@@ -46653,6 +46839,7 @@
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
           "2c5daa16c578e219",
+          "2d19aa697c321877",
           "32b235f681091788",
           "32eb22648d57ca04",
           "34ab4e29e27a1679",
@@ -46665,6 +46852,7 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "4290bffc350511d9",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
@@ -46744,6 +46932,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -46758,6 +46947,7 @@
           "d96de7a17419d091",
           "d98448584de64472",
           "db9c1ca05979d69a",
+          "dc84474d7b197bb0",
           "df37a235665ef89d",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
@@ -46796,6 +46986,7 @@
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
           "2c5daa16c578e219",
+          "2d19aa697c321877",
           "32b235f681091788",
           "34ab4e29e27a1679",
           "3993b73221f2be93",
@@ -46805,6 +46996,7 @@
           "40907773861ad847",
           "40d5079952d7dc69",
           "412347810e5f697b",
+          "4290bffc350511d9",
           "4498aedb2e5e2aca",
           "454780a997b07892",
           "4b63581cd41944f9",
@@ -46846,6 +47038,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "d01f9a7a5198c5c9",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
@@ -46853,6 +47046,7 @@
           "d96de7a17419d091",
           "d98448584de64472",
           "db9c1ca05979d69a",
+          "dc84474d7b197bb0",
           "df37a235665ef89d",
           "e3a606aa87e944e4",
           "e5ef67418f260a1f",
@@ -46962,6 +47156,7 @@
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
           "2c5daa16c578e219",
+          "2d19aa697c321877",
           "32b235f681091788",
           "32eb22648d57ca04",
           "34ab4e29e27a1679",
@@ -46974,6 +47169,7 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "4290bffc350511d9",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
@@ -47053,6 +47249,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -47067,6 +47264,7 @@
           "d96de7a17419d091",
           "d98448584de64472",
           "db9c1ca05979d69a",
+          "dc84474d7b197bb0",
           "df37a235665ef89d",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
@@ -47116,6 +47314,7 @@
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
           "2c5daa16c578e219",
+          "2d19aa697c321877",
           "32b235f681091788",
           "32eb22648d57ca04",
           "34ab4e29e27a1679",
@@ -47128,6 +47327,7 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "4290bffc350511d9",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
@@ -47207,6 +47407,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -47221,6 +47422,7 @@
           "d96de7a17419d091",
           "d98448584de64472",
           "db9c1ca05979d69a",
+          "dc84474d7b197bb0",
           "df37a235665ef89d",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
@@ -47270,6 +47472,7 @@
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
           "2c5daa16c578e219",
+          "2d19aa697c321877",
           "32b235f681091788",
           "32eb22648d57ca04",
           "34ab4e29e27a1679",
@@ -47282,6 +47485,7 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "4290bffc350511d9",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
@@ -47361,6 +47565,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -47375,6 +47580,7 @@
           "d96de7a17419d091",
           "d98448584de64472",
           "db9c1ca05979d69a",
+          "dc84474d7b197bb0",
           "df37a235665ef89d",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
@@ -47397,7 +47603,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "9e24ef41412fd9c4bd4026e746dcd614688e4cb8621672e303bf1cbdba8e11cd",
+        "workflow_digest": "38030e658d7c7ffa958fdbe3ffabc2a9f2963bbe9aac212385ce059e8d35f838",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -47424,6 +47630,7 @@
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
           "2c5daa16c578e219",
+          "2d19aa697c321877",
           "32b235f681091788",
           "32eb22648d57ca04",
           "34ab4e29e27a1679",
@@ -47436,6 +47643,7 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "4290bffc350511d9",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
@@ -47515,6 +47723,7 @@
           "c32bec5a75d64734",
           "c58f84b46c451af7",
           "c846a385fad8df04",
+          "ca45fcf41af6e723",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -47529,6 +47738,7 @@
           "d96de7a17419d091",
           "d98448584de64472",
           "db9c1ca05979d69a",
+          "dc84474d7b197bb0",
           "df37a235665ef89d",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
@@ -50881,6 +51091,7 @@
           "location.verify_sos_delivery",
           "native.request_device_location_permission",
           "setup.finish_location",
+          "setup.finish_location_intro",
           "setup.open_location",
           "setup.skip_location",
           "workflow.setup.location"
@@ -50888,7 +51099,7 @@
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2",
-        "source_digest": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed"
+        "source_digest": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721"
       },
       "knowledge_projection": {
         "allowed_fact_keys": [
@@ -51111,7 +51322,7 @@
           }
         ],
         "initial_step_id": "location.onboarding.preflight",
-        "knowledge_package_digest": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
+        "knowledge_package_digest": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
         "knowledge_package_id": "location.brain",
         "knowledge_package_version": 2,
         "migrations": [

@@ -49,7 +49,7 @@ describe("KYC intake uses only Soul.md personal memory", () => {
   it("prepares imported facts then stages one flat document, without any structured-domain writes", async () => {
     await expect(KycIdentityProfilePkmService.saveProfile({
       ...session, profile: { legalName: "Example Person", aboutMe: "I study engineering at Example University." },
-    })).resolves.toMatchObject({ success: true, message: expect.stringContaining("Soul.md") });
+    })).resolves.toMatchObject({ success: true, message: expect.stringContaining("memory.md") });
     expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({
       currentDomains: ["one_memory"], currentManifests: [], source: "kyc_identity_onboarding",
     }));
