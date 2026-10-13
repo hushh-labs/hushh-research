@@ -133,6 +133,27 @@ def test_image_build_accepts_only_registered_environment_origins(environment, pr
         assert "does not match the deployment environment" in refused.stderr
 
 
+@pytest.mark.parametrize("mutation", [None, "missing_legacy", "cross_environment"])
+def test_runtime_domain_guard_checks_the_catalog_not_removed_shell_branches(tmp_path, mutation):
+    script = (ROOT / "scripts/ci/runtime-contract-check.sh").read_text()
+    guard = script.split("<<'PY_LEGACY_RP'\n", 1)[1].split("\nPY_LEGACY_RP", 1)[0]
+    aliases = json.loads((ROOT / "hushh-webapp/lib/vault/passkey-domain-aliases.json").read_text())
+    if mutation == "missing_legacy":
+        aliases["production"].remove("one.hushh.ai")
+    elif mutation == "cross_environment":
+        aliases["uat"].append("one.hushh.ai")
+    catalog = tmp_path / "aliases.json"
+    catalog.write_text(json.dumps(aliases))
+    result = subprocess.run(  # noqa: S603 - actual repo guard, synthetic catalog
+        [sys.executable, "-c", guard, str(catalog)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    assert (result.returncode == 0) == (mutation is None), result.stderr
+
+
 def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path):
     config = yaml.safe_load(FRONTEND_BUILD.read_text())
     values = {name: str(value) for name, value in config["substitutions"].items()}
