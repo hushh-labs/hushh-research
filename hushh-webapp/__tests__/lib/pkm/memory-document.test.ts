@@ -228,3 +228,78 @@ it("derives current shared age from canonical saved PKM DOB and never renders a 
   expect(build("2026-10-13T00:00:00Z", { markdown: "", _deleted_fact_labels: ["date of birth"] }).markdown).not.toContain("| declared age |");
   expect(build("2026-10-13T00:00:00Z", { markdown: "- Date of birth: 2026-02-31\n" }).markdown).not.toContain("| declared age |");
 });
+
+it("keeps legacy professional age current through canonical DOB and preserves ordinary employment rows", () => {
+  const identity = { identity_profile: { date_of_birth: "1998-10-13", declared_age: 999 }, profile: { age: 888 } };
+  const professional = { profile: { age: 777, employment_status: "independent", employer: { age: "UNRELATED_EMPLOYER_AGE", sex: "UNRELATED_EMPLOYER_SEX" } } };
+  const build = (builtAt: string, one_memory?: unknown) => buildMemoryDocument({ snapshot: snapshotOf([]), audience: "self", builtAt,
+    sources: [{ domain: "identity", contentRevision: 7, manifestRevision: 3 }, { domain: "professional", contentRevision: 4 }, ...(one_memory ? [{ domain: "one_memory", contentRevision: 9 }] : [])],
+    domainData: { identity, professional, ...(one_memory ? { one_memory } : {}) } });
+  expect(build("2026-10-12T23:59:59Z").markdown).toContain("| declared age | 27 |");
+  const birthday = build("2026-10-13T00:00:00Z");
+  expect(birthday.markdown).toContain("| declared age | 28 |");
+  for (const stale of ["| 999 |", "| 888 |", "| 777 |"]) expect(birthday.markdown).not.toContain(stale);
+  expect(birthday.markdown).toContain("independent");
+  expect(birthday.markdown).toContain("UNRELATED_EMPLOYER_AGE");
+  expect(birthday.markdown).toContain("UNRELATED_EMPLOYER_SEX");
+  expect(birthday.sourceLinks).toContainEqual({ domain: "identity", path: "identity_profile.date_of_birth", contentRevision: 7, manifestRevision: 3 });
+  expect(birthday.sourceLinks.some(link => link.domain === "professional" && link.path === "profile.age")).toBe(false);
+  const deleted = build("2026-10-13T00:00:00Z", { markdown: "- Date of birth: 1998-10-13\n", _deleted_fact_labels: ["date of birth"] });
+  expect(deleted.markdown).not.toContain("| declared age |");
+  expect(deleted.markdown).not.toContain("1998-10-13");
+  expect(professional.profile.age).toBe(777);
+});
+
+it.each([undefined, "2026-02-31"])("missing or invalid DOB cannot leave legacy professional age visible (%s)", birth => {
+  const document = buildMemoryDocument({ snapshot: snapshotOf([]), audience: "self", builtAt: "2026-10-13T00:00:00Z",
+    sources: [{ domain: "identity", contentRevision: 7 }, { domain: "professional", contentRevision: 4 }],
+    domainData: { identity: { identity_profile: { date_of_birth: birth } }, professional: { profile: { age: "STALE_LEGACY_AGE", employment_status: "retained employment" } } } });
+  expect(document.markdown).not.toContain("STALE_LEGACY_AGE");
+  expect(document.markdown).not.toContain("| declared age |");
+  expect(document.markdown).toContain("retained employment");
+});
+
+it("canonical explicit sex corrections and tombstones supersede both legacy domains without reviving old labels", () => {
+  const domainData = {
+    identity: { identity_profile: { sex: "OLD_CANONICAL_SEX" }, profile: { sex: "OLD_IDENTITY_SEX" } },
+    professional: { profile: { sex: "OLD_PROFESSIONAL_SEX", employment_status: "retained employment", employer: { sex: "UNRELATED_EMPLOYER_SEX" } } },
+  };
+  const build = (one_memory: unknown) => buildMemoryDocument({ snapshot: snapshotOf([]), audience: "self", builtAt: "2026-10-13T00:00:00Z",
+    sources: [{ domain: "identity", contentRevision: 7 }, { domain: "professional", contentRevision: 4 }, { domain: "one_memory", contentRevision: 9 }], domainData: { ...domainData, one_memory } });
+  const corrected = build({ markdown: "- Sex: current supplied value\n" });
+  expect(corrected.markdown.match(/current supplied value/g)).toHaveLength(1);
+  const deleted = build({ markdown: "- Sex: stale labelled value\n", _deleted_fact_labels: ["sex"] });
+  for (const document of [corrected, deleted]) {
+    for (const stale of ["OLD_CANONICAL_SEX", "OLD_IDENTITY_SEX", "OLD_PROFESSIONAL_SEX", "stale labelled value"]) expect(document.markdown).not.toContain(stale);
+    expect(document.markdown).toContain("retained employment");
+    expect(document.markdown).toContain("UNRELATED_EMPLOYER_SEX");
+    expect(document.sourceLinks.some(link => ["identity_profile.sex", "profile.sex"].includes(link.path))).toBe(false);
+  }
+  expect(corrected.sourceLinks).toContainEqual({ domain: "one_memory", path: "markdown.sex", contentRevision: 9, manifestRevision: null });
+  expect(domainData.professional.profile.sex).toBe("OLD_PROFESSIONAL_SEX");
+});
+
+it("an unavailable canonical source cannot make stale legacy age or sex appear current", () => {
+  const document = buildMemoryDocument({ snapshot: snapshotOf([]), audience: "self", builtAt: "2026-10-13T00:00:00Z",
+    sources: [{ domain: "identity", contentRevision: 7 }, { domain: "professional", contentRevision: 4 }, { domain: "one_memory", contentRevision: null, unavailableReason: "read failed" }],
+    domainData: { identity: { identity_profile: { date_of_birth: "1998-10-13", sex: "OLD_CANONICAL_SEX" }, profile: { age: "OLD_IDENTITY_AGE", sex: "OLD_IDENTITY_SEX" } },
+      professional: { profile: { age: "OLD_PROFESSIONAL_AGE", sex: "OLD_PROFESSIONAL_SEX", employment_status: "retained employment" } } } });
+  expect(document.complete).toBe(false);
+  for (const stale of ["OLD_CANONICAL_SEX", "OLD_IDENTITY_AGE", "OLD_IDENTITY_SEX", "OLD_PROFESSIONAL_AGE", "OLD_PROFESSIONAL_SEX"]) expect(document.markdown).not.toContain(stale);
+  expect(document.markdown).toContain("retained employment");
+  expect(document.markdown).toContain("read failed");
+});
+
+it("does not change ordinary professional employment summaries or snapshot fallback exclusion", () => {
+  const ordinary = buildMemoryDocument({ snapshot: { ...snapshotOf([]), domainInsights: [{ domain: "professional", title: "Work", summary: "Ordinary employment summary", highlights: [] }] },
+    audience: "self", builtAt: "2026-10-13T00:00:00Z", sources: [{ domain: "professional", contentRevision: 4 }, { domain: "one_memory", contentRevision: 9 }],
+    domainData: { professional: { profile: { employment_status: "independent" } }, one_memory: { markdown: "- Sex: supplied value\n" } } });
+  expect(ordinary.markdown).toContain("Ordinary employment summary");
+  expect(ordinary.markdown).toContain("independent");
+  const legacy = buildMemoryDocument({ snapshot: snapshotOf([card("professional", "profile.age", "STALE_SNAPSHOT_AGE"), card("professional", "profile.sex", "STALE_SNAPSHOT_SEX"), card("professional", "profile.employment_status", "snapshot employment")]),
+    audience: "self", builtAt: "2026-10-13T00:00:00Z", sources: [{ domain: "professional", contentRevision: 4 }, { domain: "one_memory", contentRevision: 9 }],
+    domainData: { one_memory: { markdown: "", _deleted_fact_labels: ["sex"] } } });
+  expect(legacy.markdown).not.toContain("STALE_SNAPSHOT_AGE");
+  expect(legacy.markdown).not.toContain("STALE_SNAPSHOT_SEX");
+  expect(legacy.markdown).toContain("snapshot employment");
+});

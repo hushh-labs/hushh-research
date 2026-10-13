@@ -150,6 +150,9 @@ export default defineConfig({
         /wallet-card-scan\.layout\.spec\.ts/,
         /consent-center-row\.layout\.spec\.ts/,
         /shared-with-you-card\.layout\.spec\.ts/,
+        // Paid photos need WebKit's native image loader and browser recipient
+        // crypto; a synthetic Image in JSDOM cannot prove decoding.
+        /answer-profile-photo\.layout\.spec\.ts/,
         // memory-save-card: the explicit-save receipt's pixel-grid contract
         // (insets, tile grid, aligned tabular counts) in the shipped engine.
         /memory-save-card\.layout\.spec\.ts/,

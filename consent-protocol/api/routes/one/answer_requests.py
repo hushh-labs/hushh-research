@@ -155,7 +155,9 @@ def _scope_has_fact(scope: str, value: object) -> bool:
     return substantive(value)
 
 
-def _valid_source_freshness(value: object, approved_scopes: list[str]) -> bool:
+def _valid_source_freshness(
+    value: object, approved_scopes: list[str], approved_values: dict[str, Any]
+) -> bool:
     """Bound revision/date metadata to the same exact scopes as the facts."""
     if not isinstance(value, dict) or not set(value) <= set(approved_scopes):
         return False
@@ -185,8 +187,14 @@ def _valid_source_freshness(value: object, approved_scopes: list[str]) -> bool:
             if not isinstance(sources, list) or not 1 <= len(sources) <= 5:
                 return False
             allowed_domains = {scope.split(".")[1], "one_memory", "account_profile"}
-            if scope == "attr.professional.profile.age":
-                # This exact legacy age selector derives from canonical DOB;
+            approved_value = approved_values.get(scope)
+            if scope == "attr.professional.profile.age" or (
+                scope == "attr.professional.profile.*"
+                and derived is not None
+                and isinstance(approved_value, dict)
+                and _scope_has_fact("attr.professional.profile.age", approved_value)
+            ):
+                # An approved legacy age selector derives from canonical DOB;
                 # only its source revisions travel, never the DOB value/path.
                 allowed_domains.add("identity")
             for source in sources:
@@ -591,7 +599,9 @@ async def compose_answer(
         or len(str(projection)) > 200_000
         or (
             "sourceFreshness" in projection
-            and not _valid_source_freshness(projection["sourceFreshness"], work["approvedScopes"])
+            and not _valid_source_freshness(
+                projection["sourceFreshness"], work["approvedScopes"], values
+            )
         )
     ):
         raise HTTPException(status_code=422, detail="Check the approved information.")

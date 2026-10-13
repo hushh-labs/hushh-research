@@ -47,11 +47,14 @@ function covers(scope: string, domain: string, path: string): boolean {
   return scope === `attr.${domain}.${path}` || scope === `attr.${domain}.${path.split(".").slice(0, -1).join(".")}.*`;
 }
 function agePaths(scope: string): string[] {
-  return scope === "attr.professional.profile.age" ? ["profile.age"] : AGE_PATHS.filter(path => covers(scope, "identity", path));
+  return scope === "attr.professional.profile.age" || scope === "attr.professional.profile.*" ? ["profile.age"] : AGE_PATHS.filter(path => covers(scope, "identity", path));
 }
 function isAgeScope(scope: string): boolean { return agePaths(scope).length > 0; }
+function requiresAgeDerivation(scope: string, sources: Record<string, MemoryScopeSourceRevision>): boolean {
+  return isAgeScope(scope) && (scope !== "attr.professional.profile.*" || sources.professional?.readablePaths?.includes("profile.age") === true);
+}
 function isLegacySexScope(scope: string): boolean {
-  return covers(scope, "identity", "profile.sex") || scope === "attr.professional.profile.sex";
+  return covers(scope, "identity", "profile.sex") || scope === "attr.professional.profile.sex" || scope === "attr.professional.profile.*";
 }
 function usesSoul(scope: string): boolean {
   return approvedScopesBackedBySoul([scope]).length > 0 || isOwnProfileNameScope(scope) || isAgeScope(scope) || isLegacySexScope(scope);
@@ -85,8 +88,9 @@ function accountFingerprint(scope: string, identity: ApprovedMemoryRetrievalPara
   if (isAnswerProfilePhotoScope(scope)) return JSON.stringify([answerProfilePhotoUrl(identity?.photoUrl)]);
   return null;
 }
-function dependencies(scope: string): string[] {
-  return [...new Set([scopeDomain(scope), ...(usesSoul(scope) ? ["one_memory"] : []), ...(isAgeScope(scope) ? ["identity"] : [])])];
+function dependencies(scope: string, sources?: Record<string, MemoryScopeSourceRevision>): string[] {
+  const derivedAge = scope === "attr.professional.profile.*" ? Boolean(sources && requiresAgeDerivation(scope, sources)) : isAgeScope(scope);
+  return [...new Set([scopeDomain(scope), ...(usesSoul(scope) ? ["one_memory"] : []), ...(derivedAge ? ["identity"] : [])])];
 }
 function sameSources(before: readonly MemoryScopeSourceRevision[], after: readonly MemoryScopeSourceRevision[]): boolean {
   return JSON.stringify(before) === JSON.stringify(after);
@@ -100,10 +104,14 @@ function scopeBlocked(scope: string, source: MemoryScopeSourceRevision): boolean
   return (source.blockedPaths ?? []).some(blocked => path === blocked || path.startsWith(`${blocked}.`));
 }
 function freshnessMetadata(slices: ReadonlyMap<string, MemoryScopeSlice>): ApprovedMemoryRetrieval["sourceFreshness"] {
-  return Object.fromEntries([...slices].map(([scope, slice]) => [scope, {
-    sources: slice.sources.map(({ domain, contentRevision, manifestRevision, absent }) => ({ domain, contentRevision, manifestRevision, absent })),
-    derivedOn: slice.freshnessDate, builtAt: slice.builtAt,
-  }]));
+  return Object.fromEntries([...slices].map(([scope, slice]) => {
+    const absentWildcardAge = scope === "attr.professional.profile.*" && !hasValue(getPath(slice.payload, "profile.age"));
+    return [scope, {
+      sources: slice.sources.filter(source => !absentWildcardAge || source.domain !== "identity")
+        .map(({ domain, contentRevision, manifestRevision, absent }) => ({ domain, contentRevision, manifestRevision, absent })),
+      derivedOn: absentWildcardAge ? null : slice.freshnessDate, builtAt: slice.builtAt,
+    }];
+  }));
 }
 
 /**
@@ -133,11 +141,19 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       return [scope, Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")] as const;
     })));
     valid();
-    const domains = [...new Set(scopes.flatMap(dependencies))].sort();
+    const domains = [...new Set(scopes.flatMap(scope => dependencies(scope)))].sort();
     const [stored, sources] = await Promise.all([
       readMemoryDocumentProjection(params), readMemoryScopeSourceRevisions({ ...params, domains }),
     ]);
     valid();
+    // A professional parent is ordinarily an employment group. Derive age
+    // only if its eligible source already contains that legacy age address;
+    // approving employment must not add unrelated personal identity facts.
+    if (scopes.includes("attr.professional.profile.*") && sources.professional?.readablePaths?.includes("profile.age") && !sources.identity) {
+      Object.assign(sources, await readMemoryScopeSourceRevisions({ ...params, domains: ["identity"] }));
+      domains.push("identity");
+      valid();
+    }
     const pending = scopes.some(usesSoul) ? peekMarkdownMemory(params.userId)?.syncStatus : undefined;
     if (pending && pending !== "synced") return unavailable(scopes.filter(usesSoul));
     const slices = new Map<string, MemoryScopeSlice>();
@@ -164,7 +180,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
           checkSession();
           const current = await readMemoryScopeSourceRevisions({ ...params, domains });
           checkSession();
-          if ([...captured].some(([scope, slice]) => !sameSources(slice.sources, dependencies(scope).map(domain => current[domain]!))))
+          if ([...captured].some(([scope, slice]) => !sameSources(slice.sources, dependencies(scope, current).map(domain => current[domain]!))))
             throw new Error("Authoritative memory changed before staging");
           const accountScopes = [...captured].filter(([scope, slice]) => isAnswerProfilePhotoScope(scope) ||
             isOwnProfileNameScope(scope) && slice.contentRevision === null && hasValue(slice.payload));
@@ -189,14 +205,14 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
     const rebuild: string[] = [];
     for (const scope of scopes) {
       const slice = stored?.scopeSlices?.[scope];
-      const current = dependencies(scope).map(domain => sources[domain]!);
+      const current = dependencies(scope, sources).map(domain => sources[domain]!);
       if (!scopeBlocked(scope, sources[scopeDomain(scope)]!) && slice?.scope === scope && record(slice.payload) === slice.payload && sameSources(slice.sources, current) &&
           slice.accountFingerprint === accountFingerprints.get(scope) &&
-          slice.freshnessDate === (isAgeScope(scope) ? date : null)) slices.set(scope, slice);
+          slice.freshnessDate === (requiresAgeDerivation(scope, sources) ? date : null)) slices.set(scope, slice);
       else rebuild.push(scope);
     }
     if (rebuild.length) {
-      const includeDob = rebuild.some(isAgeScope) && sources.identity?.hasCanonicalDob === true;
+      const includeDob = rebuild.some(scope => requiresAgeDerivation(scope, sources)) && sources.identity?.hasCanonicalDob === true;
       const materializedScopes = rebuild.filter(scope => hasStructuredCounterpart(scope, sources[scopeDomain(scope)]!) && !isAnswerProfilePhotoScope(scope));
       const sessionScopes = [...new Set([...materializedScopes, ...(includeDob ? [CANONICAL_DOB] : [])])];
       const readSession = createConsentExportReadSession({ ...params, scopes: sessionScopes });
@@ -226,9 +242,12 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
               (memory.persisted || memory.dataVersion !== undefined) && memory.dataVersion !== sources.one_memory?.contentRevision) throw new Error("Private memory readback pending");
         } catch { for (const scope of soulScopes) failed.add(scope); memory = null; }
       }
-      const labelled = readLabelledSoulFacts(memory?.markdown);
-      const deleted = new Set(memory?.deletedFactLabels ?? []);
-      const facts = projectApprovedSoulFacts({ approvedScopes: rebuild, markdown: memory?.markdown, now });
+      const deleted = new Set((memory?.deletedFactLabels ?? []).map(soulFactKey));
+      // Durable deletion markers dominate retained labels in older documents.
+      // Neither a labelled override nor a derived fact may resurrect them.
+      const labelled = new Map([...readLabelledSoulFacts(memory?.markdown)].filter(([label]) => !deleted.has(label)));
+      const facts = projectApprovedSoulFacts({ approvedScopes: rebuild, markdown: memory?.markdown, now })
+        .filter(fact => !deleted.has(soulFactKey(fact.sourceLabel)));
       let birth: string | null = labelled.get("date of birth")?.value ?? null;
       let ageRevision = memory?.dataVersion ?? null;
       let ageManifestRevision: number | null = null;
@@ -272,15 +291,16 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
           if (isOwnProfileNameScope(scope) && labelled.has("legal name")) {
             setPath(payload, scopePath(scope), labelled.get("legal name")!.value); contentRevision = memory.dataVersion ?? null; manifestRevision = null;
           }
-          if (isLegacySexScope(scope) && (labelled.has("sex") || deleted.has("sex"))) {
+          if (isLegacySexScope(scope) && (labelled.has("sex") || deleted.has("sex")) &&
+              (scope !== "attr.professional.profile.*" || getPath(payload, "profile.sex") !== undefined)) {
             setPath(payload, "profile.sex", deleted.has("sex") ? undefined : labelled.get("sex")!.value); contentRevision = memory.dataVersion ?? null; manifestRevision = null;
           }
-          for (const path of agePaths(scope)) {
+          for (const path of agePaths(scope).filter(path => scope !== "attr.professional.profile.*" || getPath(payload, path) !== undefined)) {
             setPath(payload, path, age === null ? undefined : String(age));
             contentRevision = ageRevision; manifestRevision = ageManifestRevision;
           }
         }
-        if (unreadableDob && isAgeScope(scope)) failed.add(scope);
+        if (unreadableDob && requiresAgeDerivation(scope, sources)) failed.add(scope);
         if (isOwnProfileNameScope(scope) && !hasValue(payload) && !failed.has(scope) && params.ownerIdentity?.displayName?.trim()) {
           setPath(payload, scopePath(scope), params.ownerIdentity.displayName.trim()); contentRevision = null; manifestRevision = null;
         }
@@ -292,8 +312,8 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
           contentRevision = null; manifestRevision = null;
         }
         if (failed.has(scope)) continue;
-        slices.set(scope, { scope, payload, contentRevision, manifestRevision, sources: dependencies(scope).map(dependency => sources[dependency]!),
-          accountFingerprint: accountFingerprints.get(scope) ?? null, freshnessDate: isAgeScope(scope) ? date : null, builtAt });
+        slices.set(scope, { scope, payload, contentRevision, manifestRevision, sources: dependencies(scope, sources).map(dependency => sources[dependency]!),
+          accountFingerprint: accountFingerprints.get(scope) ?? null, freshnessDate: requiresAgeDerivation(scope, sources) ? date : null, builtAt });
       }
       valid();
       const replacements = rebuild.map(scope => slices.get(scope)).filter((slice): slice is MemoryScopeSlice => Boolean(slice));
@@ -304,7 +324,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
         const verificationEpoch = currentPkmInvalidationEpoch(params.userId);
         const verified = await readMemoryScopeSourceRevisions({ ...params, domains });
         if (!isVaultSessionEpochCurrent(epoch) || currentPkmInvalidationEpoch(params.userId) !== verificationEpoch ||
-            [...slices].some(([scope, slice]) => !sameSources(slice.sources, dependencies(scope).map(domain => verified[domain]!)))) return unavailable();
+            [...slices].some(([scope, slice]) => !sameSources(slice.sources, dependencies(scope, verified).map(domain => verified[domain]!)))) return unavailable();
       }
       if (!isVaultSessionEpochCurrent(epoch) || !params.now && scopes.some(isAgeScope) && new Date().toISOString().slice(0, 10) !== date) return unavailable();
       return guardedResult(scopes.every(scope => slices.has(scope)));

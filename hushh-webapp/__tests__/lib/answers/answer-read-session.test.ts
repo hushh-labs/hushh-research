@@ -19,7 +19,7 @@ import { CacheService } from "@/lib/services/cache-service";
 import { encryptData, type EncryptedPayload } from "@/lib/vault/encrypt";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
-import type { AnswerableWork } from "@/lib/services/answer-request-service";
+import { AnswerRequestService, type AnswerableWork } from "@/lib/services/answer-request-service";
 
 const OWNER = "answer-read-owner";
 const KEY = "ab".repeat(32);
@@ -226,7 +226,7 @@ function expectApprovedSourceMetadata(projection: Record<string, unknown>, scope
     for (const source of entry.sources) {
       expect(Object.keys(source).sort()).toEqual(["absent", "contentRevision", "domain", "manifestRevision"]);
       const allowedDomains = scope.endsWith("profile_photo_url") ? ["identity"]
-        : scope === "attr.professional.profile.age" ? ["professional", "identity", "one_memory"]
+        : scope === "attr.professional.profile.age" || scope === "attr.professional.profile.*" && entry.derivedOn !== null ? ["professional", "identity", "one_memory"]
           : [scope.split(".")[1], "one_memory"];
       expect(allowedDomains).toContain(source.domain);
     }
@@ -337,6 +337,93 @@ describe("actual application Gemini preparation and encrypted staging", () => {
     const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[1]!.envelope });
     expect(JSON.stringify(readable)).not.toContain("stale legacy sex");
     expect(JSON.stringify(readable)).not.toContain("explicitly supplied");
+  });
+
+  it("validates existing legacy age and sex inside an approved professional profile parent", async () => {
+    const scope = "attr.professional.profile.*";
+    const saved = await storedDomain({ domain: "professional", data: { profile: { employment_status: "employed", age: 999, sex: "stale legacy sex" } },
+      approved: { "profile.employment_status": "profile", "profile.age": "profile", "profile.sex": "profile" } });
+    const soul = await storedDomain({ domain: "one_memory", data: { root: { markdown: "- Sex: explicitly supplied\n" } }, approved: {}, revision: 12 });
+    const canonical = await storedDomain({ data: { identity_profile: { date_of_birth: "1998-03-14" } }, approved: { "identity_profile.date_of_birth": "identity_profile" } });
+    const work = await applicationWork([scope]);
+    const state = applicationTransport({ work, domains: [saved, soul, canonical] });
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expectApprovedSourceMetadata(state.projections[0]!, [scope]);
+    expect(state.projections[0]!.values).toEqual({ [scope]: { profile: { employment_status: "employed", age: "28", sex: "explicitly supplied" } } });
+    expect(state.projections[0]!.sourceFreshness).toMatchObject({ [scope]: { derivedOn: new Date().toISOString().slice(0, 10), sources: expect.arrayContaining([expect.objectContaining({ domain: "identity" })]) } });
+    const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+    for (const forbidden of ["1998-03-14", "999", "stale legacy sex", "Synthetic Public Name", "canonical-profile.png"]) {
+      expect(JSON.stringify(state.projections[0])).not.toContain(forbidden);
+      expect(JSON.stringify(readable)).not.toContain(forbidden);
+    }
+  });
+
+  it("removes unvalidated age and deleted sex from an approved professional parent without losing employment", async () => {
+    const scope = "attr.professional.profile.*";
+    const saved = await storedDomain({ domain: "professional", data: { profile: { employment_status: "employed", age: 999, sex: "stale legacy sex" } },
+      approved: { "profile.employment_status": "profile", "profile.age": "profile", "profile.sex": "profile" } });
+    const soul = await storedDomain({ domain: "one_memory", data: { root: { markdown: "", _deleted_fact_labels: ["date of birth", "sex"] } }, approved: {}, revision: 12 });
+    const work = await applicationWork([scope]);
+    const state = applicationTransport({ work, domains: [saved, soul] });
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expectApprovedSourceMetadata(state.projections[0]!, [scope]);
+    expect(state.projections[0]!.values).toEqual({ [scope]: { profile: { employment_status: "employed" } } });
+    const freshness = state.projections[0]!.sourceFreshness as Record<string, { derivedOn: string | null; sources: { domain: string }[] }>;
+    expect(freshness[scope]!.derivedOn).toBeNull();
+    expect(freshness[scope]!.sources.map(source => source.domain)).not.toContain("identity");
+    const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+    expect(JSON.stringify(readable)).not.toContain("999");
+    expect(JSON.stringify(readable)).not.toContain("stale legacy sex");
+  });
+
+  it("does not add personal age or sex to an ordinary approved employment parent", async () => {
+    const scope = "attr.professional.profile.*";
+    const saved = await storedDomain({ domain: "professional", data: { profile: { employment_status: "employed" } }, approved: { "profile.employment_status": "profile" } });
+    const soul = await storedDomain({ domain: "one_memory", data: { root: { markdown: "- Date of birth: 1998-03-14\n- Sex: unapproved personal sex\n" } }, approved: {}, revision: 12 });
+    const work = await applicationWork([scope]);
+    const state = applicationTransport({ work, domains: [saved, soul] });
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expect(state.projections[0]!.values).toEqual({ [scope]: { profile: { employment_status: "employed" } } });
+    const freshness = state.projections[0]!.sourceFreshness as Record<string, { derivedOn: string | null; sources: { domain: string }[] }>;
+    expect(freshness[scope]!.derivedOn).toBeNull();
+    expect(freshness[scope]!.sources.map(source => source.domain)).toEqual(["professional", "one_memory"]);
+    for (const forbidden of ["1998-03-14", "unapproved personal sex", '"age"', '"sex"']) expect(JSON.stringify(state.projections[0])).not.toContain(forbidden);
+  });
+
+  it.each([SEX, AGE, "attr.identity.identity_profile.date_of_birth", "attr.identity.identity_profile.citizenship", "attr.professional.profile.employment_status"])("honours a durable tombstone over retained %s labels and legacy fields on cold readback", async scope => {
+    const identity = await storedDomain({ data: { identity_profile: {
+      sex: "STALE_SEX", date_of_birth: "1998-03-14", declared_age: 999, citizenship: "STALE_CITIZENSHIP",
+    } }, approved: { "identity_profile.sex": "identity_profile", "identity_profile.date_of_birth": "identity_profile", "identity_profile.declared_age": "identity_profile", "identity_profile.citizenship": "identity_profile" } });
+    const professional = await storedDomain({ domain: "professional", data: { profile: { employment_status: "STALE_EMPLOYMENT" } }, approved: { "profile.employment_status": "profile" } });
+    const soul = await storedDomain({ domain: "one_memory", data: { root: {
+      markdown: "- Sex: STALE_SEX\n- Date of birth: 1998-03-14\n- Citizenship: STALE_CITIZENSHIP\n- Employment status: STALE_EMPLOYMENT\n",
+      _deleted_fact_labels: ["Sex", "Date of Birth", "Citizenship", "Employment Status"],
+    } }, approved: {}, revision: 12 });
+    const work = await applicationWork([scope]);
+    const state = applicationTransport({ work, domains: [identity, professional, soul] });
+    clearMarkdownMemory(); CacheService.getInstance().clear();
+    await SecureResourceCacheService.invalidateUser(OWNER);
+    expect(await sweep()).toMatchObject({ delivered: 0, empty: 1, retry: 0 });
+    expect(state.projections).toHaveLength(0);
+    expect(state.staged).toHaveLength(1);
+    expect(state.staged[0]!.hasContent).toBe(false);
+    const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+    expect(readable).toMatchObject({ answerMode: "projection", answer: null, unavailableScopes: [] });
+    for (const forbidden of ["STALE_SEX", "1998-03-14", "999", "STALE_CITIZENSHIP", "STALE_EMPLOYMENT"]) expect(JSON.stringify(readable)).not.toContain(forbidden);
+    expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
+  });
+
+  it("uses the existing account name after a legal-name tombstone despite a retained old label", async () => {
+    const identity = await storedDomain({ data: { identity_profile: { full_name: "STALE_LEGAL_NAME" } }, approved: { "identity_profile.full_name": "identity_profile" } });
+    const soul = await storedDomain({ domain: "one_memory", data: { root: { markdown: "- Legal name: STALE_LEGAL_NAME\n", _deleted_fact_labels: ["Legal Name"] } }, approved: {}, revision: 12 });
+    const work = await applicationWork([NAME]);
+    const state = applicationTransport({ work, domains: [identity, soul] });
+    clearMarkdownMemory(); CacheService.getInstance().clear();
+    await SecureResourceCacheService.invalidateUser(OWNER);
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expect(state.projections[0]!.values).toEqual({ [NAME]: { identity_profile: { full_name: "Synthetic Public Name" } } });
+    expect(JSON.stringify(state.projections[0])).not.toContain("STALE_LEGAL_NAME");
+    expect(JSON.stringify(await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope }))).not.toContain("STALE_LEGAL_NAME");
   });
 
   it.each([PHOTO, "attr.preferences.favorite_food"])("does not sell an approved name when the other approved %s is missing", async missing => {
@@ -709,48 +796,92 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
   });
 
   it("measures cold/warm actual answer preparation and still composes each question separately", async () => {
-    const state = { stored: await storedDomain({
+    const stored = await storedDomain({
       data: { profile: { name: "Synthetic Ava", age: 35, sex: "female", photo: "https://example.test/avatar.png", private_note: "unapproved note" }, identity_profile: { date_of_birth: "1991-01-01" } },
       approved: { "profile.name": "profile", "profile.age": "profile", "profile.sex": "profile", "profile.photo": "profile", "profile.private_note": "profile", "identity_profile.date_of_birth": "identity_profile" },
-    }) };
-    installProvider(state);
+    });
     const decrypt = vi.spyOn(PersonalKnowledgeModelService, "decryptDomainSnapshot");
     const approvedScopes = [NAME_SCOPE, AGE_SCOPE, "attr.identity.profile.sex", "attr.identity.profile.photo"];
-    const work: AnswerableWork = {
-      requestId: "11111111-2222-3333-4444-555555555555", question: "What profile details did you approve?",
-      periodStart: null, periodEnd: null, approvedScopes, scopeLabels: {}, answerDeadlineAt: null,
-      requesterUserId: "synthetic-requester", recipientKey: { keyId: "fixture-key-id", publicKeyJwk: {} },
-    };
+    const work = await applicationWork(approvedScopes, null);
+    const state = applicationTransport({ work, domains: [stored] });
+    const blankPhases = () => ({ retrievalMs: 0, compositionServiceMs: 0, freshnessChecksMs: 0, recipientEncryptionMs: 0, stagingServiceMs: 0, endToEndMs: 0 });
+    let phases = blankPhases();
+    const memoryRetrieval = await import("@/lib/pkm/memory-scope-retrieval");
+    const realRetrieve = memoryRetrieval.retrieveApprovedMemoryScopes;
+    vi.spyOn(memoryRetrieval, "retrieveApprovedMemoryScopes").mockImplementation(async params => {
+      const started = performance.now();
+      const retrieved = await realRetrieve(params);
+      phases.retrievalMs += performance.now() - started;
+      const realAssertCurrent = retrieved.assertCurrent;
+      return { ...retrieved, assertCurrent: async () => {
+        const checked = performance.now();
+        try { await realAssertCurrent(); }
+        finally { phases.freshnessChecksMs += performance.now() - checked; }
+      } };
+    });
+    const realCompose = AnswerRequestService.compose;
+    vi.spyOn(AnswerRequestService, "compose").mockImplementation(async (...args) => {
+      const started = performance.now();
+      try { return await realCompose(...args); }
+      finally { phases.compositionServiceMs += performance.now() - started; }
+    });
+    const encryption = await import("@/lib/one-marketplace/encryption");
+    const realEncrypt = encryption.encryptSliceForRecipient;
+    vi.spyOn(encryption, "encryptSliceForRecipient").mockImplementation(async params => {
+      const started = performance.now();
+      try { return await realEncrypt(params); }
+      finally { phases.recipientEncryptionMs += performance.now() - started; }
+    });
+    const realDeliver = AnswerRequestService.deliver;
+    vi.spyOn(AnswerRequestService, "deliver").mockImplementation(async (...args) => {
+      const started = performance.now();
+      try { await realDeliver(...args); }
+      finally { phases.stagingServiceMs += performance.now() - started; }
+    });
+    const sweep = () => runAnswerDeliverySweep({ ...PARAMS, firebaseIdToken: "synthetic-firebase-token" });
+    const counts = () => ({
+      sourceDecryptions: decrypt.mock.calls.filter(([params]) => params.snapshot.domain === "identity").length,
+      sourceSnapshotReads: transport.apiFetch.mock.calls.filter(([url]) => String(url).includes("/domain-snapshot/") && String(url).includes("/identity")).length,
+      projectionSnapshotReads: transport.apiFetch.mock.calls.filter(([url]) => String(url).includes("/domain-snapshot/") && String(url).includes("/one_living_sources")).length,
+      compositions: state.projections.length, stages: state.staged.length, encryptedProjectionWrites: state.writes.length,
+    });
     const coldStart = performance.now();
-    const cold = await buildAnswerPayload(work, PARAMS, "synthetic-firebase-token");
-    const coldMs = performance.now() - coldStart;
-    const sourceDecryptions = () => decrypt.mock.calls.filter(([params]) => params.snapshot.domain === "identity").length;
-    const coldDecryptions = sourceDecryptions();
-    const sourceReads = () => transport.apiFetch.mock.calls.filter(([url]) => String(url).includes("/domain-snapshot/") && String(url).includes("/identity")).length;
-    const coldReads = sourceReads();
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    phases.endToEndMs = performance.now() - coldStart;
+    const coldTimings = { ...phases, counts: counts() };
+    const cold = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope }) as { answer: string; memory: string; approvedInformation: Record<string, unknown> };
+    // Remove all browser caches while retaining the encrypted provider-side
+    // memory.md projection. The second sweep must read that persisted layer.
+    clearMarkdownMemory(); CacheService.getInstance().clear();
+    await SecureResourceCacheService.invalidateUser(OWNER);
+    work.requestId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const beforeWarm = counts();
+    phases = blankPhases();
     const warmStart = performance.now();
-    const warm = await buildAnswerPayload({ ...work, requestId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }, PARAMS, "synthetic-firebase-token");
-    const warmMs = performance.now() - warmStart;
-    expect(cold.hasContent).toBe(true);
-    expect(warm.payload.answer).toBe("A readable prepared answer.");
-    expect(warm.payload.memory).toContain("Synthetic Ava");
-    expect(warm.payload.memory).toContain("female");
-    expect(warm.payload.memory).toContain("35");
-    expect(warm.payload.memory).toContain("https://example.test/avatar.png");
-    expect(warm.payload.memory).not.toContain("unapproved note");
-    expect(warm.payload.approvedInformation).toEqual(cold.payload.approvedInformation);
-    expect(coldDecryptions).toBe(1);
-    expect(sourceDecryptions()).toBe(coldDecryptions);
-    expect(sourceReads()).toBeGreaterThan(coldReads);
-    const compositionBodies = transport.apiFetch.mock.calls.filter(([url]) => String(url).endsWith("/compose"))
-      .map(([, options]) => JSON.parse(options.body));
-    expect(compositionBodies).toHaveLength(2);
-    expect(JSON.stringify(compositionBodies)).not.toContain("unapproved note");
-    expect(JSON.stringify(compositionBodies)).not.toContain("1991-01-01");
-    // Timings are observations, not fragile machine-speed assertions. The
-    // counted source decryptions prove the actual warm optimization.
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    phases.endToEndMs = performance.now() - warmStart;
+    const afterWarm = counts();
+    const warmTimings = { ...phases, counts: Object.fromEntries(Object.entries(afterWarm).map(([key, value]) => [key, value - beforeWarm[key as keyof typeof beforeWarm]])) };
+    const warm = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[1]!.envelope }) as typeof cold;
+    expect(warm.answer).toBe("Gemini returned this exact readable answer.");
+    expect(warm.memory).toContain("Synthetic Ava");
+    expect(warm.memory).toContain("female");
+    expect(warm.memory).toContain("35");
+    expect(warm.memory).toContain("https://example.test/avatar.png");
+    expect(warm.memory).not.toContain("unapproved note");
+    expect(warm.approvedInformation).toEqual(cold.approvedInformation);
+    expect(coldTimings.counts.sourceDecryptions).toBe(1);
+    expect(warmTimings.counts.sourceDecryptions).toBe(0);
+    expect(warmTimings.counts.projectionSnapshotReads).toBeGreaterThan(0);
+    expect(warmTimings.counts.encryptedProjectionWrites).toBe(0);
+    expect(state.projections).toHaveLength(2);
+    expect(state.staged).toHaveLength(2);
+    expect(JSON.stringify(state.projections)).not.toContain("unapproved note");
+    expect(JSON.stringify(state.projections)).not.toContain("1991-01-01");
+    // Provider replies are immediate synthetic transport responses. These
+    // observations measure local application work, not Vertex/Stripe latency.
     if (process.env.HUSHH_MEASURE_ANSWER_PREPARATION === "1") process.stdout.write(
-      `answer preparation ciphertext fixture ${JSON.stringify({ coldMs, warmMs, coldDecryptions, warmSourceDecryptions: sourceDecryptions() - coldDecryptions })}\n`,
+      `answer preparation ciphertext fixture ${JSON.stringify({ transport: "synthetic immediate PKM/composer/staging HTTP replies; actual application methods and WebCrypto", runs: { cold: 1, warm: 1 }, cold: coldTimings, warm: warmTimings })}\n`,
     );
   });
 });

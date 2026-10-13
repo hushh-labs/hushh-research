@@ -501,5 +501,24 @@
     },
     "verificationState": "read_only_availability_observed"
   },
-  "providerConfigurationMutationsPerformed": []
+  "providerConfigurationMutationsPerformed": [],
+  "officialEndpointReview": {
+    "observedAt": "2026-10-13T00:24:49.632458+00:00",
+    "source": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/data-residency?popup=false",
+    "locationsSource": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations",
+    "configuredRegions": [
+      "global",
+      "us",
+      "eu"
+    ],
+    "processingSemantics": {
+      "global": "Requests may be processed in any Google Cloud location; no processing-residency guarantee.",
+      "us": "Jurisdictional processing within the United States.",
+      "eu": "Jurisdictional processing within EU member states."
+    },
+    "limitations": [
+      "Processing-region commitments do not resolve the implicit DURABLE cache storage lifetime/deletion/residency.",
+      "Existing global/us/eu routing preserved; no project-wide cache or endpoint policy changed."
+    ]
+  }
 }

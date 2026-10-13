@@ -326,11 +326,17 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     for (const path of paths) covered.add(path);
     superseded.set(domain, covered);
   };
+  const professionalProfile = (domainData?.professional as { profile?: Record<string, unknown> } | undefined)?.profile;
+  const hasProfessionalRow = (field: "age" | "sex") => Boolean(
+    professionalProfile && Object.hasOwn(professionalProfile, field) ||
+    (cardsByDomain.get("professional") ?? []).some(card => card.path === `professional.profile.${field}` || card.path === `profile.${field}`),
+  );
   if (audience === "self" && soulSource && (soul || soulSource.unavailableReason)) {
     const scopes = [...SCOPE_PATH_TO_LABEL.map(([path]) => `attr.${path.startsWith("profile.") ? "professional" : "identity"}.${path}`), "attr.identity.identity_profile.declared_age"];
-    const facts = projectApprovedSoulFacts({ approvedScopes: scopes, markdown: soul?.markdown, now: new Date(builtAt) });
+    const deleted = new Set(soul?._deleted_fact_labels ?? []);
+    const facts = projectApprovedSoulFacts({ approvedScopes: scopes, markdown: soul?.markdown, now: new Date(builtAt) })
+      .filter(fact => !deleted.has(soulFactKey(fact.sourceLabel)));
     if (!soulSource.unavailableReason) {
-      const deleted = new Set(soul?._deleted_fact_labels ?? []);
       const paths = [...facts.map(fact => [fact.scope.split(".")[1]!, fact.relativePath] as const),
         ...SCOPE_PATH_TO_LABEL.filter(([, label]) => deleted.has(soulFactKey(label)))
           .map(([path]) => [path.startsWith("profile.") ? "professional" : "identity", path] as const)];
@@ -339,8 +345,16 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
         suppress(domain, [path]);
       }
       const labelled = readLabelledSoulFacts(soul?.markdown);
-      if (labelled.has("sex") || deleted.has("sex")) suppress("identity", ["profile.sex"]);
+      if (labelled.has("sex") || deleted.has("sex")) {
+        suppress("identity", ["profile.sex"]);
+        if (hasProfessionalRow("sex")) suppress("professional", ["profile.sex"]);
+      }
       if (labelled.has("legal name") || deleted.has("legal name")) suppress("identity", ["full_name", "legal_name", "name", "profile.full_name", "profile.legal_name", "profile.name"]);
+    } else {
+      // The canonical correction/deletion source could not be checked, so an
+      // older stored sex value must not appear current beside that failure.
+      suppress("identity", ["identity_profile.sex", "profile.sex"]);
+      if (hasProfessionalRow("sex")) suppress("professional", ["profile.sex"]);
     }
     if (facts.length || soulSource.unavailableReason) {
       excludedDomains.delete("one_memory");
@@ -365,6 +379,7 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
   // invalid Soul DOB prevents fallback to an older structured DOB.
   if (audience === "self") {
     suppress("identity", ["identity_profile.declared_age", "profile.age"]);
+    if (hasProfessionalRow("age")) suppress("professional", ["profile.age"]);
     const identitySource = sourceByDomain.get("identity");
     const identity = domainData?.identity as { identity_profile?: { date_of_birth?: unknown } } | undefined;
     const labelledBirth = readLabelledSoulFacts(soul?.markdown).get("date of birth")?.value;

@@ -392,6 +392,7 @@ async def test_composer_refuses_unapproved_or_unbounded_freshness_before_model(
     [
         ("attr.identity.identity_profile.declared_age", {"identity_profile": {"declared_age": 29}}),
         ("attr.professional.profile.age", {"profile": {"age": 29}}),
+        ("attr.professional.profile.*", {"profile": {"age": 29}}),
     ],
 )
 async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receipt(
@@ -460,6 +461,47 @@ async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receip
         owner_user_id="owner",
         terms_digest="b" * 64,
     )
+
+
+@pytest.mark.parametrize("leaf", ["sex", "job_title", "*"])
+async def test_composer_refuses_identity_metadata_for_other_professional_scopes(monkeypatch, leaf):
+    scope = f"attr.professional.profile.{leaf}"
+    service = Mock(
+        assert_answerable=AsyncMock(
+            return_value={"approvedScopes": [scope], "modelProcessingConsented": True}
+        )
+    )
+    writer = Mock()
+    monkeypatch.setattr(routes, "_requests", lambda: service)
+    monkeypatch.setattr(routes, "AnswerComposer", writer)
+    with pytest.raises(HTTPException) as error:
+        await routes.compose_answer(
+            uuid4(),
+            Response(),
+            {
+                "projection": {
+                    "memory": "Only the approved professional fact",
+                    "values": {scope: {"profile": {leaf if leaf != "*" else "job_title": "Saved"}}},
+                    "sourceFreshness": {
+                        scope: {
+                            "sources": [
+                                {
+                                    "domain": "identity",
+                                    "contentRevision": 7,
+                                    "manifestRevision": 9,
+                                    "absent": False,
+                                }
+                            ],
+                            "builtAt": "2026-10-13T01:00:00Z",
+                            "derivedOn": None,
+                        }
+                    },
+                }
+            },
+            "owner",
+        )
+    assert error.value.status_code == 422
+    writer.assert_not_called()
 
 
 def test_answer_payout_setup_uses_answer_credentials_and_no_drive_wake(monkeypatch):
