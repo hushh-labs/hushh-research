@@ -1466,9 +1466,13 @@ async def test_durable_source_locator_is_sealed_owner_account_and_connection_bou
     assert item["amount_decimal"] == "42.1"
     locator = item["durable_source_ref"]
     assert locator.startswith("grs1_") and "private-provider-id" not in locator
-    assert "private-provider-id".encode() not in base64.urlsafe_b64decode(
-        locator[5:] + "=" * (-len(locator[5:]) % 4)
-    )
+    sealed = base64.urlsafe_b64decode(locator[5:] + "=" * (-len(locator[5:]) % 4))
+    assert "private-provider-id".encode() not in sealed
+    # Changing trailing Base64 characters can preserve the decoded bytes.
+    # Flip an authenticated ciphertext byte so this always tests real tampering.
+    tampered = bytearray(sealed)
+    tampered[-1] ^= 1
+    tampered_locator = "grs1_" + base64.urlsafe_b64encode(tampered).decode().rstrip("=")
     detail = await service.detail(
         user_id="owner",
         source_id=locator,
@@ -1483,7 +1487,7 @@ async def test_durable_source_locator_is_sealed_owner_account_and_connection_bou
     for owner, handle, connection in [
         (
             "owner",
-            locator[:-2] + ("aa" if locator[-2:] != "aa" else "bb"),
+            tampered_locator,
             "2026-10-04T00:00:00+00:00",
         ),
         ("owner", locator, "2026-10-13T00:00:00+00:00"),
