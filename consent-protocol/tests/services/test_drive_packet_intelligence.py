@@ -29,6 +29,12 @@ def page_facts():
         "account": None,
         "periods": [],
         "date_evidence": [],
+        "record_status": {
+            "status": "unknown",
+            "evidence_basis": "unknown",
+            "explanation": "No execution status is established.",
+            "citations": [],
+        },
         "topics": [],
         "facts": [],
         "missing_information": [],
@@ -39,6 +45,8 @@ def page_facts():
 def wire_page_facts(ref="p2s0"):
     result = page_facts()
     result["issuer"] = {"value": "Schwab", "citation_refs": [ref]}
+    result["record_status"].pop("citations")
+    result["record_status"]["citation_refs"] = []
     return result
 
 
@@ -151,6 +159,7 @@ async def test_checker_cannot_make_incomplete_evidence_ready():
         "state": "ready",
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
+        "correct_record_status": True,
         "correct_coverage": True,
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
@@ -179,6 +188,7 @@ async def test_correct_abstention_is_not_a_deliverable_ready_packet(proposal):
         "state": "ready",
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
+        "correct_record_status": True,
         "correct_coverage": True,
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
@@ -451,6 +461,7 @@ async def test_checker_cannot_mark_unaccounted_month_ready():
         "state": "ready",
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
+        "correct_record_status": True,
         "correct_coverage": True,
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
@@ -589,6 +600,7 @@ async def test_final_checker_cannot_certify_event_as_document_period():
         state="ready",
         correct_subject_and_account=True,
         correct_issuer_and_type=True,
+        correct_record_status=True,
         correct_coverage=True,
         no_unrelated_inclusions=True,
         no_unexplained_omissions=True,
@@ -611,6 +623,12 @@ async def test_global_checker_preserves_snapshot_role_and_event_qualification():
     evidence = page_facts()
     evidence.pop("pages")
     evidence["date_evidence"] = [dated_evidence("as_of"), dated_evidence("event")]
+    evidence["record_status"] = {
+        "status": "draft",
+        "evidence_basis": "documentary_form",
+        "explanation": "A draft with typed signature placeholders; execution is not established.",
+        "citations": [{"page": 1, "quote": "Draft — Witness: [name]"}],
+    }
     summary = compact_evidence(
         {
             "document_id": "selected",
@@ -620,6 +638,7 @@ async def test_global_checker_preserves_snapshot_role_and_event_qualification():
         }
     )
     assert summary["periods"] == []
+    assert summary["record_status"] == evidence["record_status"]
     assert summary["date_evidence"] == [
         {key: item[key] for key in ("role", "start", "end", "meaning")}
         for item in evidence["date_evidence"]
@@ -630,6 +649,7 @@ async def test_global_checker_preserves_snapshot_role_and_event_qualification():
         state="ready",
         correct_subject_and_account=True,
         correct_issuer_and_type=True,
+        correct_record_status=True,
         correct_coverage=True,
         no_unrelated_inclusions=True,
         no_unexplained_omissions=True,
@@ -647,6 +667,20 @@ async def test_global_checker_preserves_snapshot_role_and_event_qualification():
     assert result.state == "ready"
     payload = json.loads(checker.await_args.kwargs["prompt"])
     assert payload["document_facts"][0]["date_evidence"] == summary["date_evidence"]
+    assert payload["document_facts"][0]["record_status"] == evidence["record_status"]
+
+    # A positive score on every other axis cannot override the current
+    # checker's explicit rejection of the packet's execution/status claim.
+    verdict["correct_record_status"] = False
+    with pytest.raises(EvidenceValidationError):
+        await verify_packet(
+            user_id="owner",
+            packet=proposal,
+            complete=True,
+            documents=[summary],
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
 
 
 async def test_request_checker_accepts_bounded_financial_coverage_with_request_context():
@@ -661,6 +695,7 @@ async def test_request_checker_accepts_bounded_financial_coverage_with_request_c
         state="ready",
         correct_subject_and_account=True,
         correct_issuer_and_type=True,
+        correct_record_status=True,
         correct_coverage=True,
         no_unrelated_inclusions=True,
         no_unexplained_omissions=True,

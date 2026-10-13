@@ -92,6 +92,13 @@ def test_index_adapter_keeps_late_evidence_beyond_legacy_excerpt():
 def test_index_adapter_preserves_date_roles_and_verbatim_multiline_date_evidence():
     facts = document_facts([{"page": 1}])
     quote = "Conference:\nJune 3–5, 2027\nDraft plan has no publication dates."
+    status_quote = "Draft\nWitness: [name]\nPublication is not confirmed."
+    facts["record_status"] = {
+        "status": "draft",
+        "evidence_basis": "documentary_form",
+        "explanation": "The draft's publication has not been established.",
+        "citations": [{"page": 1, "quote": status_quote}],
+    }
     facts["date_evidence"] = [
         {
             "role": "event",
@@ -115,6 +122,8 @@ def test_index_adapter_preserves_date_roles_and_verbatim_multiline_date_evidence
     # JSON serialization alone escapes newlines and cannot support the original
     # verbatim citation used by the request assessor.
     assert quote in source["text"]
+    assert status_quote in source["text"]
+    assert '"evidence_basis": "documentary_form"' in source["text"]
 
 
 async def test_incomplete_or_disabled_index_explicitly_falls_back():

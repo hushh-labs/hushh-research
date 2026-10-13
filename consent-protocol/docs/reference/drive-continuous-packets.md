@@ -98,6 +98,13 @@ action, transaction and as-of dates. Packet checks retain those roles through
 construction, compact final review and indexed request reuse. Drafts and other
 useful undated documents can form a packet with no coverage-period claim; an
 event date does not become a posting schedule or financial reporting interval.
+Record status is also explicit, cited evidence. A document's assertion that it
+was signed is distinct from completion evidence; typed signature placeholders
+and drafting instructions cannot establish execution. The model preserves
+draft, sample, request and pending qualifications through facts, canonical
+context, packet descriptions and pricing. The final checker receives the cited
+status and must explicitly assess it. A truthfully described draft may be Ready;
+readiness does not make its described transaction or legal act completed.
 
 Private packets are built progressively from available current facts; unrelated
 files do not have to finish indexing first. Packet content readiness and purchase
@@ -207,6 +214,14 @@ historical versions also occurred. Those failed attempts are retained. Empty
 heads are now retired and zero-document versions are hidden from the catalog;
 immutable audit and purchase records are preserved. The v5 date-role replay is
 recorded separately and must not replace or relabel the failed v4 baseline.
+
+The actual v5 financial-packet audit then found four supported Ready packet
+claims out of five: one draft was incorrectly described as executed. That
+failed version remains in the private evidence graph. The v6 contract adds
+cited record status and an explicit status check to current model responses,
+while retaining historical manifest readability. Independent original-source
+replays must assess whether the semantic error is corrected; a new field or a
+passing structural test alone does not establish that result.
 
 ### Earlier development results (October 13, 2026)
 

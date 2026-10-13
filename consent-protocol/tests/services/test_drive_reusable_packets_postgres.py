@@ -122,6 +122,7 @@ async def check(**kwargs):
         "state": "ready" if kwargs["complete"] else "incomplete",
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
+        "correct_record_status": True,
         "correct_coverage": kwargs["complete"],
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
@@ -512,15 +513,16 @@ async def test_all_46_members_construct_and_verify_before_ready(reusable):
     assert not packet["listingEnabled"]
 
 
-async def test_independent_checker_failure_prevents_ready_and_listing(reusable):
+@pytest.mark.parametrize("failed_check", ["no_unrelated_inclusions", "correct_record_status"])
+async def test_independent_checker_failure_prevents_ready_and_listing(reusable, failed_check):
     await originals(reusable)
     await reusable.worker.run_facts_one(user_id="owner")
 
     async def negative(**kwargs):
         return (await check(**kwargs)) | {
             "state": "incomplete",
-            "no_unrelated_inclusions": False,
-            "issues": ["Unrelated member"],
+            failed_check: False,
+            "issues": ["Independent evidence check failed"],
         }
 
     reusable.worker.checker = negative
@@ -1031,9 +1033,19 @@ async def test_canonical_key_context_is_current_bounded_and_owner_private(reusab
         "meaning": "Undated proposed action, not a records coverage window",
         "citations": [{"page": 1, "quote": "Synthetic statement evidence"}],
     }
+    record_status = {
+        "status": "draft",
+        "evidence_basis": "documentary_form",
+        "explanation": "Synthetic draft; execution is not established.",
+        "citations": [{"page": 1, "quote": "Synthetic statement evidence"}],
+    }
 
     async def assessed_dates(**kwargs):
-        return {**await assess_pages(**kwargs), "date_evidence": [date_evidence]}
+        return {
+            **await assess_pages(**kwargs),
+            "date_evidence": [date_evidence],
+            "record_status": record_status,
+        }
 
     reusable.worker.page_assessor = assessed_dates
     await ready_packet(reusable)
@@ -1046,6 +1058,9 @@ async def test_canonical_key_context_is_current_bounded_and_owner_private(reusab
     assert item["representative_document"]["date_evidence"] == [
         {key: value for key, value in date_evidence.items() if key != "citations"}
     ]
+    assert item["representative_document"]["record_status"] == {
+        key: value for key, value in record_status.items() if key != "citations"
+    }
     assert "citations" not in json.dumps(item)
     assert (
         await reusable.packets.canonical_key_context(user_id="owner", policy_version="new-policy")

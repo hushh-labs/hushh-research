@@ -14,7 +14,7 @@ from collections import Counter
 
 from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
 from hushh_mcp.services.drive_document_targets import document_targets
-from hushh_mcp.services.drive_packet_contract import PacketVerification
+from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal
 from hushh_mcp.services.drive_packet_intelligence import (
     EvidenceValidationError,
     consolidate_facts,
@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 CHECKS = (
     "correct_subject_and_account",
     "correct_issuer_and_type",
+    "correct_record_status",
     "correct_coverage",
     "no_unrelated_inclusions",
     "no_unexplained_omissions",
@@ -92,6 +93,9 @@ def compact_evidence(document):
             {key: item[key] for key in ("role", "start", "end", "meaning")}
             for item in facts.get("date_evidence", [])
         ],
+        # Keep the qualification and its exact source context in the final
+        # check; a typed signature must not become proof of execution.
+        "record_status": facts.get("record_status"),
         # Preserve substantive differences for cross-batch duplicate review.
         # The caller rejects summaries over its budget instead of truncating.
         "topics": [item["value"] for item in facts["topics"]],
@@ -342,7 +346,7 @@ class DrivePacketWorker:
                 result = await self.packet_store.finalize_packet(
                     job,
                     assessment=build["assessment"],
-                    verification=PacketVerification.model_validate(checked).model_dump(),
+                    verification=PacketVerificationProposal.model_validate(checked).model_dump(),
                 )
                 return result["state"]
         except asyncio.CancelledError:

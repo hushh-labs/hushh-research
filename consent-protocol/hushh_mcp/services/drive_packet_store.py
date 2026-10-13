@@ -21,7 +21,7 @@ from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
     PacketAssessment,
-    PacketVerification,
+    PacketVerificationProposal,
     evidence_digest,
 )
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
@@ -154,6 +154,11 @@ class DrivePacketStore(DriveDocumentFactsStore):
                         {key: item[key] for key in ("role", "start", "end", "meaning")}
                         for item in facts.get("date_evidence", [])
                     ],
+                    record_status={
+                        key: value
+                        for key, value in (facts.get("record_status") or {}).items()
+                        if key != "citations"
+                    },
                     topics=[fact["value"] for fact in facts["topics"]],
                     facts=[fact["value"] for fact in facts["facts"]],
                     missing_information=facts["missing_information"],
@@ -528,7 +533,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
 
     async def finalize_packet(self, job, *, assessment, verification):
         packet = PacketAssessment.model_validate(assessment)
-        checked = PacketVerification.model_validate(verification)
+        checked = PacketVerificationProposal.model_validate(verification)
 
         def operation(connection):
             row = self._packet_current(connection, job)

@@ -751,6 +751,7 @@ class DriveOwnerSearchService:
                                 {key: item[key] for key in ("role", "start", "end", "meaning")}
                                 for item in facts.get("date_evidence", [])
                             ],
+                            "record_status": facts.get("record_status"),
                             "facts": [item["value"] for item in facts["facts"]],
                             "topics": [item["value"] for item in facts["topics"]],
                             "missing_information": facts["missing_information"],
