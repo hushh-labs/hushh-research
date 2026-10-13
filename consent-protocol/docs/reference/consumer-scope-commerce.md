@@ -28,7 +28,7 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Main integration verification — 2026-10-13 UTC
 
-The current continuation integrates main `7b44f586f8e4` on the same
+The current continuation integrates main `03fb1e66eeff` on the same
 infrastructure branch. Main Drive migrations 332–334 remain intact; the seven
 unaccepted task registrations move from 332–338 to 335–341 with identical
 forward and rollback SQL. Schema contracts use head 341. The read-only Dev
@@ -57,8 +57,18 @@ Candidate `19aec8b2ccca` passes the complete core bundle: 18,991 protocol cases,
 newer main commits add Wallet fixes without migration or Stripe changes; their
 merged validation passes 43 frontend and 73 backend cases. A keyboard-only
 focus bar preserves the icon-only Next control's visible focus while ordinary
-navigation remains plain. The final merged core, hosted layout/full CI, Dev
-release and financial/OAuth acceptance remain required.
+navigation remains plain. Candidate `cf015e024143` also passes canonical core:
+19,007 protocol and 1,122 PostgreSQL cases, plus web-core, MCP and integration.
+Hosted full Vitest shards, web-core and Android pass; targeted browser checks
+expose a duplicated synthetic AuthService export and an obsolete Wallet History
+selector, while the Node leg exposes stale generated Feed markup. The focused
+corrections preserve the complete synthetic auth boundary and named History
+panel assertions; Feed markup is regenerated from the real component. Main's
+subsequent recipient-view privacy fix is included, with 27 nearest cases passing.
+The affected browser checks pass 34 cases, followed by all six Wallet cases
+against the final named selector. Back remains 450 passing cases; architecture
+reports zero new or worsened findings without baseline changes. Fresh combined
+core, hosted CI, Dev release and financial/OAuth acceptance remain required.
 
 The preceding continuation integrated main `460a68d4b908` through normal merge
 `49d29b86ac99` on the preserved infrastructure branch. Main migrations 327–331

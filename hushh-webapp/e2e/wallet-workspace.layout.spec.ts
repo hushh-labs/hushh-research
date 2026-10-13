@@ -920,7 +920,7 @@ for (const width of [320, 820, 1440]) {
     await open(page, width, "light", { cards: 3 }, { shell: true });
     await mount(page);
     await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
-    for (const [tab, selector] of [["Cards", '[data-testid="wallet-card-browser"]'], ["Add", '[data-testid="secure-card-add-form"]'], ["Sharing", '[data-testid="wallet-sharing-content"] > section:first-child']] as const) {
+    for (const [tab, selector] of [["Cards", '[data-testid="wallet-card-browser"]'], ["Add", '[data-testid="secure-card-add-form"]'], ["Sharing", '[data-testid="wallet-sharing-content"] > section[aria-label="Card sharing history"]']] as const) {
       await page.getByRole("tab", { name: tab, exact: true }).click();
       const panel = page.locator(selector);
       await expect(panel).toBeVisible();

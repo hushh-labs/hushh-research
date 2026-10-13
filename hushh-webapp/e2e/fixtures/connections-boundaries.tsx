@@ -18,10 +18,6 @@ const user = {
   uid: "fixture-owner",
   getIdToken: async () => "synthetic-firebase",
 };
-// The same synthetic signed-in owner is used by service-level placement checks.
-export const AuthService = {
-  getCurrentUser: () => user,
-};
 export function useAuth() {
   return { user, loading: false };
 }
