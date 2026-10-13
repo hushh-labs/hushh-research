@@ -598,6 +598,92 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                                 "org/repo", "204", pathlib.Path(temporary), require_live=False
                             )
 
+    def test_prior_backend_owner_accepts_only_verified_hygiene_failure(self):
+        hygiene_run, jobs, hygiene = self.uat_hygiene_failure()
+        older_run, _failed_run, older, _partial = self.partial_uat_fixture()
+        older["final"]["backend_revision"] = "consent-protocol-02112-fol"
+        artifacts = {204: hygiene, 200: older}
+
+        def api(_repo, endpoint):
+            if "/jobs?" in endpoint:
+                return jobs
+            if "deploy-uat-one-chat.yml" in endpoint:
+                return {"workflow_runs": []}
+            return {"workflow_runs": [hygiene_run, older_run]}
+
+        with (
+            mock.patch.object(MAINTENANCE, "api", side_effect=api),
+            mock.patch.object(
+                MAINTENANCE,
+                "load_release",
+                side_effect=lambda _repo, run_id, _directory, _environment: artifacts[run_id],
+            ),
+            mock.patch.object(
+                MAINTENANCE.retention,
+                "service_state",
+                side_effect=AssertionError("historical source validation must stay cloud-free"),
+            ),
+        ):
+            run_id, release = MAINTENANCE.prior_healthy_uat_backend_release(
+                "org/repo", {"id": 205}, pathlib.Path("/tmp")
+            )
+            self.assertEqual(run_id, 204)
+            self.assertIs(release, hygiene)
+
+            bad_jobs = copy.deepcopy(jobs)
+            bad_jobs["jobs"][1]["steps"].append(
+                {"name": "Unexpected release failure", "status": "completed", "conclusion": "failure"}
+            )
+            jobs.clear()
+            jobs.update(bad_jobs)
+            run_id, release = MAINTENANCE.prior_healthy_uat_backend_release(
+                "org/repo", {"id": 205}, pathlib.Path("/tmp")
+            )
+            self.assertEqual(run_id, 200)
+            self.assertIs(release, older)
+
+    def test_prior_frontend_owner_accepts_only_verified_hygiene_failure(self):
+        hygiene_run, jobs, hygiene = self.uat_hygiene_failure()
+        older_run, _failed_run, older, _partial = self.partial_uat_fixture()
+        cancelled_run = {**self.trusted_source(205), "conclusion": "cancelled"}
+        artifacts = {204: hygiene, 200: older}
+
+        def api(_repo, endpoint):
+            if "/jobs?" in endpoint:
+                return jobs
+            return {"workflow_runs": [cancelled_run, hygiene_run, older_run]}
+
+        with (
+            mock.patch.object(MAINTENANCE, "api", side_effect=api),
+            mock.patch.object(
+                MAINTENANCE,
+                "load_release",
+                side_effect=lambda _repo, run_id, _directory, _environment: artifacts[run_id],
+            ),
+            mock.patch.object(
+                MAINTENANCE.retention,
+                "service_state",
+                side_effect=AssertionError("historical source validation must stay cloud-free"),
+            ),
+        ):
+            run_id, release = MAINTENANCE.prior_healthy_uat_release(
+                "org/repo", {"id": 206}, pathlib.Path("/tmp"), frontend_owner=True
+            )
+            self.assertEqual(run_id, 204)
+            self.assertIs(release, hygiene)
+
+            bad_jobs = copy.deepcopy(jobs)
+            bad_jobs["jobs"][1]["steps"].append(
+                {"name": "Unexpected release failure", "status": "completed", "conclusion": "failure"}
+            )
+            jobs.clear()
+            jobs.update(bad_jobs)
+            run_id, release = MAINTENANCE.prior_healthy_uat_release(
+                "org/repo", {"id": 206}, pathlib.Path("/tmp"), frontend_owner=True
+            )
+            self.assertEqual(run_id, 200)
+            self.assertIs(release, older)
+
     def test_cleanup_only_failure_requires_complete_release_proof_before_cloud_auth(
         self,
     ):

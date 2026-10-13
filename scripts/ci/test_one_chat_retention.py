@@ -140,6 +140,76 @@ class OneChatRetentionTest(unittest.TestCase):
             )
         self.assertEqual(source[0], 300)
 
+    def test_automatic_uat_source_scan_reaches_live_run_past_first_page(self):
+        standard_path = ".github/workflows/deploy-uat.yml"
+        older_source = {
+            **self.run,
+            "id": 200,
+            "path": standard_path,
+            "conclusion": "success",
+        }
+        newer = [
+            {**self.run, "id": run_id, "path": standard_path, "conclusion": "failure"}
+            for run_id in range(201, 321)
+        ]
+        newer[300 - 201]["conclusion"] = "success"  # stale artifact-backed release
+        newer[310 - 201]["conclusion"] = "success"
+        newer[310 - 201]["actor"] = {"login": "ungoverned"}
+        ordered = list(reversed(newer)) + [older_source]
+        live_release = {
+            "status": "healthy",
+            "final": {
+                "backend_revision": "consent-protocol-02118-yed",
+                "frontend_revision": self.frontend,
+            },
+            "predeploy": {},
+        }
+        stale_release = {
+            **live_release,
+            "final": {
+                **live_release["final"],
+                "backend_revision": "consent-protocol-02119-stale",
+            },
+        }
+
+        def api(_repo, endpoint):
+            if "workflows/deploy-uat-one-chat.yml/runs?" in endpoint:
+                return {"workflow_runs": []}
+            if "workflows/deploy-uat.yml/runs?" in endpoint:
+                page = int(endpoint.rsplit("page=", 1)[1])
+                return {"workflow_runs": ordered[(page - 1) * 100 : page * 100]}
+            raise AssertionError(endpoint)
+
+        loaded: list[int] = []
+
+        def load(_repo, run_id, _directory, _environment):
+            loaded.append(run_id)
+            if run_id == 310:
+                raise AssertionError("ungoverned source must not be loaded")
+            return {200: live_release, 300: stale_release}.get(run_id)
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            mock.patch.object(maintenance, "api", side_effect=api),
+            mock.patch.object(maintenance, "load_release", side_effect=load),
+        ):
+            for live, expected in ((True, 200), (False, None)):
+                with (
+                    self.subTest(live=live),
+                    mock.patch.object(
+                        maintenance,
+                        "live_release_matches",
+                        side_effect=lambda release, live=live, **_kwargs: live and release is live_release,
+                    ),
+                ):
+                    found = maintenance.find_release(
+                        "org/repo", "", pathlib.Path(temporary), require_live=True
+                    )
+                    self.assertEqual(found[0] if found else None, expected)
+        self.assertNotIn(310, loaded)
+        self.assertIn(300, loaded)
+        self.assertIn(200, loaded)
+
     def test_live_proof_requires_the_one_chat_source_and_frontend_owner(self):
         release = self.load(self.report)
 

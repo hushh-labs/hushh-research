@@ -368,16 +368,31 @@ def prior_healthy_uat_release(
     frontend_owner: bool = False,
 ) -> tuple[int, dict]:
     """Find the prior UAT artifact that proves the currently inherited frontend."""
-    runs = successful_uat_runs(repository, LANES["uat"]["workflow"])
+    runs = bounded_uat_runs(repository, LANES["uat"]["workflow"], "completed")
     for run in sorted(runs, key=lambda item: int(item.get("id") or 0), reverse=True):
         if int(run.get("id") or 0) >= failed_run["id"]:
             continue
-        if run.get("conclusion") != "success" or not governed_dispatch(run, repository, "uat"):
+        if run.get("conclusion") not in {"success", "failure"}:
+            continue
+        failed = run.get("conclusion") == "failure"
+        if failed and not governed_dispatch(run, repository, "uat"):
+            continue
+        if not failed and (
+            run.get("conclusion") != "success"
+            or not governed_dispatch(run, repository, "uat")
+        ):
             raise retention.UnsafeState("prior UAT source is not a governed main deployment")
         release = load_release(repository, run["id"], directory, "uat")
         if release is None:
             # Successful NO_OP runs have no release artifact.
             continue
+        if failed:
+            if release.get("status") != "healthy":
+                continue
+            try:
+                verify_post_uat_hygiene_failure(repository, run, release)
+            except retention.UnsafeState:
+                continue
         if frontend_owner and release.get("status") == "healthy" and release.get("scope") == "backend":
             # A backend-only deploy carries the frontend forward but did not
             # create it. Keep looking for the run that did.
@@ -429,7 +444,22 @@ def prior_healthy_uat_backend_release(
             if one_chat or not governed_dispatch(run, repository, "uat", workflow=standard):
                 continue
             release = load_release(repository, run["id"], directory, "uat")
-            if release is None or release.get("status") != "rolled_back":
+            if release is None:
+                continue
+            if release.get("status") == "healthy":
+                try:
+                    verify_post_uat_hygiene_failure(repository, run, release)
+                except retention.UnsafeState:
+                    continue
+                backend_revision = release["final"]["backend_revision"]
+                if not isinstance(backend_revision, str) or not re.fullmatch(
+                    r"consent-protocol-[a-z0-9-]+", backend_revision
+                ):
+                    raise retention.UnsafeState(
+                        "prior UAT hygiene source has invalid backend revision"
+                    )
+                return run["id"], release
+            if release.get("status") != "rolled_back":
                 continue
             try:
                 verify_uat_partial_failure(
@@ -637,17 +667,16 @@ def find_release(
     if requested:
         runs = [api(repository, f"runs/{requested}")]
     else:
-        runs = api(
-            repository,
-            f"workflows/{lane_config['workflow']}/runs?branch=main&status=completed&per_page=50",
-        )["workflow_runs"]
         if environment == "uat":
-            runs += api(
-                repository,
-                f"workflows/{ONE_CHAT_WORKFLOW}/runs?branch=main&status=completed&per_page=50",
-            )["workflow_runs"]
+            runs = bounded_uat_runs(repository, lane_config["workflow"], "completed")
+            runs += bounded_uat_runs(repository, ONE_CHAT_WORKFLOW, "completed")
             runs = list({run["id"]: run for run in runs}.values())
             runs.sort(key=lambda run: int(run["id"]), reverse=True)
+        else:
+            runs = api(
+                repository,
+                f"workflows/{lane_config['workflow']}/runs?branch=main&status=completed&per_page=50",
+            )["workflow_runs"]
     for run in runs:
         one_chat = environment == "uat" and trusted_origin(
             run, repository, ONE_CHAT_WORKFLOW
