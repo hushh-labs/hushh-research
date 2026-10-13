@@ -1029,7 +1029,7 @@ final class AppUITests: XCTestCase {
                 // Profile preserves the originating menu's scroll position.
                 // Reveal the authored row instead of assuming a fresh menu
                 // always starts at its top after another warm journey.
-                let profileMenu = app.scrollViews["native-profile-menu-scroll"].firstMatch
+                let profileMenu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
                 for _ in 0..<5 {
                     if preferences.exists && preferences.isHittable { break }
                     guard profileMenu.exists else { break }
@@ -3513,8 +3513,13 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
             opener.tap()
         }
-        let menu = app.scrollViews["native-profile-menu-scroll"].firstMatch
-        guard menu.waitForExistence(timeout: 10) else { XCTFail("PROFILE_SHARED_MENU_UNAVAILABLE"); return }
+        let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
+        guard menu.waitForExistence(timeout: 10) else {
+            printCoherentPresentationAdmission(app)
+            printNativeControlStatuses(web)
+            print("PROFILE_MENU_ENTRY_PROBE close=\(close.exists && close.isHittable) opener=\(opener.exists && opener.isHittable) back=\(back.exists && back.isHittable) row=\(root("account").exists)")
+            XCTFail("PROFILE_SHARED_MENU_UNAVAILABLE"); return
+        }
         let panel = app.otherElements["native-profile-drawer-body"].firstMatch
         guard panel.waitForExistence(timeout: 5) else { XCTFail("PROFILE_OUTER_FRAME_UNAVAILABLE"); return }
         // Safe areas belong to content, not the full-height mobile panel.
@@ -3540,7 +3545,7 @@ final class AppUITests: XCTestCase {
             let destination = root(id)
             for _ in 0..<5 {
                 if destination.exists && destination.isHittable { break }
-                app.otherElements["native-profile-drawer-body"].firstMatch.swipeUp()
+                menu.swipeUp()
             }
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             destination.tap()
@@ -3584,13 +3589,18 @@ final class AppUITests: XCTestCase {
             let detailTitles = ["account": "Account", "preferences": "Appearance & preferences",
                 "security": "Security & privacy", "devices": "Trusted devices", "connectors": "Connectors",
                 "support": "Help & feedback", "privacy": "Privacy Policy", "terms": "Terms of Use"]
-            let containers = web.descendants(matching: .any).matching(NSPredicate(format:
-                "label IN %@ AND elementType != %d", [detailTitles[id] ?? "Profile", "Profile pane"],
-                XCUIElement.ElementType.staticText.rawValue))
+            let containers = web.descendants(matching: .any).containing(.any, identifier: detailTitles[id] ?? "Profile")
             _ = containers.firstMatch.waitForExistence(timeout: 5)
             let frames = containers.allElementsBoundByIndex.filter {
                 ![XCUIElement.ElementType.application, .window, .webView].contains($0.elementType)
-            }.map(\.frame).filter { $0.width >= 200 && $0.height > 100 }
+            }.map(\.frame).filter {
+                // WebKit can omit the dialog's own AX name. Require its
+                // current title and actual bounds containing the native header;
+                // a title, body-only scroll frame or whole viewport cannot pass.
+                $0.width >= 200 && $0.height > 100 &&
+                    $0.contains(CGPoint(x: detailClose.frame.midX, y: detailClose.frame.midY)) &&
+                    (web.frame.width < 600 || $0.width < web.frame.width - 1)
+            }
             guard let detailFrame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
                 print("PROFILE_DETAIL_FRAME_PROBE candidates=\(containers.count) admitted=\(frames.count)")
                 XCTFail("PROFILE_DETAIL_FRAME_UNAVAILABLE"); return
