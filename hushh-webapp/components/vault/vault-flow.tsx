@@ -1565,12 +1565,12 @@ export function VaultFlow({
     </div>
   ) : null;
   const lostVaultDeleteEscape = onSignOut ? (
-    <div className="mx-auto max-w-[21rem] space-y-1 pt-[var(--app-form-section-gap)] text-center type-footnote">
+    <div className="mx-auto flex max-w-[21rem] flex-col items-center gap-[var(--app-form-related-gap)] pt-[var(--app-form-section-gap)] text-center type-footnote">
       <p className="text-muted-foreground">Lost every way in?</p>
       <button
         type="button"
         data-testid="vault-delete-and-start-fresh"
-        className="min-h-11 font-semibold text-[color:var(--app-destructive)] underline-offset-2 hover:underline focus-visible:rounded-[var(--app-radius-sm)]"
+        className="min-h-11 inline-flex items-start justify-center font-semibold leading-5 text-[color:var(--app-destructive)] underline-offset-2 hover:underline focus-visible:rounded-[var(--app-radius-sm)]"
         onClick={() => setShowLostVaultDeletion(true)}
         disabled={isSigningOut}
       >

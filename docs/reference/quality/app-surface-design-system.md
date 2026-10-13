@@ -285,6 +285,9 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     The top row, contextual tabs, and top mask all follow the same live scroll
     progress variables directly; do not add an independent CSS transition that
     continues after the gesture or makes the edge lag the bottom compositor.
+    On the `/one` Agents dashboard, desktop widths from 768px keep the One
+    brand and Profile control visible while content scrolls. Mobile retains
+    the existing scroll collapse and upward-scroll restoration.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
     safe-area stack and scroll-hide transform, and renders bottom navigation
     and Agent Bar as separate accessible slots without a full-width fade. Keep route

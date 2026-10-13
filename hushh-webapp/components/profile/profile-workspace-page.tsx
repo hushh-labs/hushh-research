@@ -5240,7 +5240,7 @@ function ProfilePageContent({
               <Icon icon={AlertTriangle} size="md" />
               {deleteDialogTitle}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className={accountStyles.accountDialogDescription}>
               {deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -5281,7 +5281,7 @@ function ProfilePageContent({
               <Icon icon={RefreshCw} size="md" />
               {resetDialogTitle}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className={accountStyles.accountDialogDescription}>
               {resetDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>

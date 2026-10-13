@@ -578,7 +578,7 @@ describe("Top app bar responsive contract", () => {
     // longer the element under its own coordinates, and at full collapse the
     // row sits behind `overflow: hidden` at opacity 0. A screen whose only way
     // back is this arrow must therefore not collapse at all.
-    expect(update).toContain("if (hasBackControlRef.current)");
+    expect(update).toContain("hasBackControlRef.current ||");
     expect(update).toContain("topChromeProgress = 0;");
 
     expect(update).toContain(

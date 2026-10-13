@@ -3,7 +3,7 @@
 import { FormEvent, useMemo, useState, type ReactNode } from "react";
 import {
   Unplug as PlugIcon,
-  ClipboardCheck,
+  TodoListIcon,
   CheckIcon as Check,
   Download as DownloadIcon,
   MessageSquareIcon as MessageSquare,
@@ -724,7 +724,9 @@ export function AgentHistorySidebar({
                 aria-label="Open To-do List"
                 title={railMode ? "To-do List" : undefined}
               >
-                <ClipboardCheck className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <span className="inline-flex shrink-0 transition-transform duration-150 ease-out motion-safe:group-hover/shell-action:-translate-y-px motion-safe:group-hover/shell-action:-rotate-3 motion-safe:group-focus-visible/shell-action:-translate-y-px motion-safe:group-focus-visible/shell-action:-rotate-3 motion-reduce:transition-none">
+                  <TodoListIcon className={cn("text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                </span>
                 {railMode ? null : <span data-agent-history-row-title className="truncate">To-do List</span>}
               </ShellActionSurface>
             ) : null}
@@ -742,7 +744,9 @@ export function AgentHistorySidebar({
                 aria-expanded={getAppOpen}
                 title={railMode ? "Get the app" : undefined}
               >
-                <DownloadIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <span className="inline-flex shrink-0 transition-transform duration-150 ease-out motion-safe:group-hover/shell-action:translate-y-0.5 motion-safe:group-focus-visible/shell-action:translate-y-0.5 motion-reduce:transition-none">
+                  <DownloadIcon className={cn("text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                </span>
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Get the app</span>}
               </ShellActionSurface>
             ) : null}
@@ -757,7 +761,9 @@ export function AgentHistorySidebar({
                 aria-label="Open Connectors"
                 title={railMode ? "Connectors" : undefined}
               >
-                <PlugIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <span className="inline-flex shrink-0 transition-transform duration-150 ease-out motion-safe:group-hover/shell-action:-rotate-6 motion-safe:group-focus-visible/shell-action:-rotate-6 motion-reduce:transition-none">
+                  <PlugIcon className={cn("text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                </span>
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Connectors</span>}
               </ShellActionSurface>
             ) : null}

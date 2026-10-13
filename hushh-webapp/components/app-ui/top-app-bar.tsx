@@ -520,6 +520,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     normalizedPathname === ROUTES.ONE_SETUP ||
     normalizedPathname.startsWith(`${ROUTES.ONE_SETUP}/`),
   );
+  const isOneDashboardRef = useRef(false);
+  isOneDashboardRef.current = normalizedPathname === ROUTES.ONE_HOME;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -608,7 +610,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       // way off the screen — Location deliberately draws no in-content back
       // control, so a collapsed bar there leaves nothing to press, which is
       // exactly how "I keep tapping the top and nothing happens" happened.
-      if (hasBackControlRef.current) {
+      // Desktop dashboard navigation stays visible when a shorter viewport
+      // needs to scroll. Mobile retains its existing space-saving collapse.
+      if (
+        hasBackControlRef.current ||
+        (isOneDashboardRef.current && window.matchMedia("(min-width: 768px)").matches)
+      ) {
         topChromeProgress = 0;
       }
       if (!barRow?.isConnected) {
