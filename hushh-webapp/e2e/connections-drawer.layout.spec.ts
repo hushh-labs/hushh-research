@@ -115,10 +115,10 @@ test.beforeEach(async ({ page }) => {
     return route.continue();
   });
   await page.route(`**${HUSHH_MARK_PATH}`, route => route.fulfill({ contentType: "image/png", body: mark }));
-  await page.route("http://localhost/one-presence/profile-hd.png", route =>
+  await page.route("http://localhost/one-presence/*-hd.png", route =>
     route.fulfill({
       contentType: "image/png",
-      body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/profile-hd.png")),
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
@@ -1390,6 +1390,38 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
 
 test.describe("One profile Retina artwork", () => {
   test.use({ deviceScaleFactor: 3 });
+  test("keeps header and profile presence in sync through drafting, answering and idle", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
+    await page.goto("http://localhost/connections-fixture?one-profile=1");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+    const panel = page.getByRole("dialog", { name: "One", exact: true });
+    await expect.poll(() => panel.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+    const header = page.getByTestId("one-presence-header").locator("[data-one-presence-state]");
+    const profile = panel.locator("img[data-one-presence-state]");
+    for (const phase of [
+      { drafting: false, answering: false, state: "connected", file: "profile-hd.png" },
+      { drafting: true, answering: true, state: "working", file: "drafting-hd.png" },
+      { drafting: false, answering: true, state: "thinking", file: "thinking-hd.png" },
+      { drafting: false, answering: false, state: "connected", file: "profile-hd.png" },
+    ]) {
+      await page.evaluate(work => {
+        (window as unknown as { __setOnePresenceWork: (work: { drafting: boolean; answering: boolean }) => void }).__setOnePresenceWork(work);
+      }, { drafting: phase.drafting, answering: phase.answering });
+      await expect(header).toHaveAttribute("data-one-presence-state", phase.state);
+      await expect(profile).toHaveAttribute("data-one-presence-state", phase.state);
+      await expect(profile).toHaveAttribute("src", `/one-presence/${phase.file}`);
+      await expect.poll(() => profile.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
+      if (phase.state === "connected") await expect(header).toHaveAttribute("src", "/one-presence/profile-hd.png");
+      else await expect.poll(() => header.evaluate((canvas: HTMLCanvasElement) => {
+        const pixels = canvas.getContext("2d")!.getImageData(0, 0, 128, 128).data;
+        return pixels.some((value, index) => index % 4 === 3 && value > 0);
+      })).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
+    }
+  });
   for (const viewport of [
     { width: 320, height: 568 },
     { width: 390, height: 844 },
