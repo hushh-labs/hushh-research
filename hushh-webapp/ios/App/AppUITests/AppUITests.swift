@@ -951,11 +951,19 @@ final class AppUITests: XCTestCase {
                         XCTAssertEqual(footer.frame.minY, footerFrame.minY, accuracy: 1,
                             "History scrolling must not move its footer")
                     }
-                    let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "native-history-actions-")).firstMatch
+                    // A scrolling cell may be partly visible and hittable.
+                    // Measure a complete row inside its scroll owner's bounds,
+                    // not a clipped accessibility rectangle at either edge.
+                    let menus = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "native-history-actions-"))
+                    let actions = menus.allElementsBoundByIndex.first { control in
+                        let bounds = control.frame
+                        return control.isHittable && bounds.minY > scroll.frame.minY + 1 && bounds.maxY < scroll.frame.maxY - 1
+                    } ?? menus.firstMatch
                     guard waitForAdmittedControl(actions) else { XCTFail("COHERENT_HISTORY_ACTION_FIXTURE_MISSING"); return }
                     let rowIdentifier = actions.identifier.replacingOccurrences(of: "native-history-actions-", with: "native-history-row-")
                     let row = app.buttons[rowIdentifier].firstMatch
                     guard waitForAdmittedControl(row) else { XCTFail("COHERENT_HISTORY_ROW_GEOMETRY_UNAVAILABLE"); return }
+                    print("COHERENT_HISTORY_ROW_GEOMETRY row_height=\(Int(row.frame.height)) menu_height=\(Int(actions.frame.height)) fully_visible=\(row.frame.minY >= scroll.frame.minY && row.frame.maxY <= scroll.frame.maxY)")
                     // SwiftUI combines this label into the Button's AX node.
                     // Actual text centering and inline age are measured on the
                     // same shared renderer in NativeSupportTests, not inferred
