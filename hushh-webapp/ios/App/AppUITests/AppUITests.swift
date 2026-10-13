@@ -3224,14 +3224,18 @@ final class AppUITests: XCTestCase {
         // A tablet sheet occupies only the right-hand portion of the WebView.
         // Its authored dialog, not the viewport, owns gestures and scrolling.
         let closeCenter = CGPoint(x: close.frame.midX, y: close.frame.midY)
-        // Query the named modal at the app AX boundary, then require its actual
-        // bounds inside the retained WebView and containing its Close control.
-        // WebKit's modal containers need not be descendants of its AX WebView.
-        // Never substitute the viewport or a guessed tablet width.
-        let candidates = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Profile"))
+        // WebKit exposes the Profile heading but can omit the dialog's name.
+        // Locate its actual container by both authored root controls, then
+        // require bounds containing Close. A heading, header-only container,
+        // application/window or entire tablet WebView cannot substitute for it.
+        let candidates = app.descendants(matching: .any).containing(.button, identifier: "Close Profile")
         _ = candidates.firstMatch.waitForExistence(timeout: 10)
-        let frames = candidates.allElementsBoundByIndex.map { $0.frame.intersection(web.frame).intersection(app.frame) }
+        let frames = candidates.allElementsBoundByIndex.filter { element in
+            guard ![XCUIElement.ElementType.application, .window, .webView].contains(element.elementType) else { return false }
+            return element.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Your account")).firstMatch.exists
+        }.map { $0.frame.intersection(web.frame).intersection(app.frame) }
             .filter { !$0.isNull && $0.width >= 200 && $0.height > 100 && $0.contains(closeCenter) }
+            .filter { web.frame.width < 600 || $0.width < web.frame.width - 1 }
         guard let frame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
             print("PROFILE_PANE_PUBLIC_GEOMETRY candidates=\(candidates.count) admitted=\(frames.count) close_x=\(Int(close.frame.minX)) close_y=\(Int(close.frame.minY)) web_width=\(Int(web.frame.width)) web_height=\(Int(web.frame.height))")
             XCTFail("PROFILE_PANE_FRAME_UNAVAILABLE"); throw NSError(domain: "ProfilePaneFixture", code: 1)
@@ -3517,7 +3521,9 @@ final class AppUITests: XCTestCase {
                 }
             }
             back.tap()
-            XCTAssertTrue(waitForAdmittedControl(root("account")), "PROFILE_BATCH_MENU_NOT_RESTORED")
+            // Back must restore the originating row and menu scroll position,
+            // not force Your account into view after a lower Legal destination.
+            XCTAssertTrue(waitForAdmittedControl(destination), "PROFILE_BATCH_MENU_NOT_RESTORED")
             XCTAssertFalse(web.buttons["Unlock"].exists)
             print("PROFILE_NATIVE_DESTINATION family=\(id) warm=true single_host=true")
         }
