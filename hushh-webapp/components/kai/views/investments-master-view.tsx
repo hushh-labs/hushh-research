@@ -1011,7 +1011,7 @@ export function InvestmentsMasterView({
                       Analyze
                     </Button>
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    <ChevronRight aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
                   )}
                 </div>
               }
