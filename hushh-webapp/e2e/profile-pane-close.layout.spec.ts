@@ -11,9 +11,9 @@ const PROFILE_PANE_SOURCE = path.join(
   "components/app-ui/profile-pane.tsx",
 );
 const GLOBAL_CSS_SOURCE = path.join(WEBAPP_ROOT, "app/globals.css");
-const CLOSE_RIGHT = "20px";
+const CLOSE_RIGHT = "max(1rem, env(safe-area-inset-right, 0px))";
 const CLOSE_POSITION_CLASSNAME =
-  "absolute top-5 z-10";
+  "profile-pane-close absolute top-[calc(1rem+env(safe-area-inset-top))] z-10";
 const CLOSE_BUTTON_CLASSNAME =
   "inline-flex h-11 w-11 items-center justify-center rounded-full";
 const HEADER_CLASSNAME =
@@ -267,14 +267,21 @@ test.describe("Profile pane custom close layout", () => {
     }
   });
 
-  test("keeps the liquid-glass card inset and curved across viewport sizes", async ({
-    page,
+  test("keeps mobile Profile edge-to-edge and the desktop card inset", async ({
+    browser,
   }) => {
+    const context = await browser.newContext({ hasTouch: true });
+    const page = await context.newPage();
+    try {
     const css = fs.readFileSync(GLOBAL_CSS_SOURCE, "utf8");
     const start = css.indexOf('/*\n * Profile pane: a bounded liquid-glass card');
     const end = css.indexOf('html:has(.profile-home-screen', start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
+    const mobileStart = css.indexOf("/* Profile is a full mobile surface");
+    const mobileEnd = css.indexOf("/* Opt-in stationary chrome:", mobileStart);
+    expect(mobileStart).toBeGreaterThan(end);
+    const mobileRules = css.slice(mobileStart, mobileEnd);
 
     await page.setContent(`<!doctype html><html><head><style>
       *, *::before, *::after { box-sizing: border-box; }
@@ -282,7 +289,7 @@ test.describe("Profile pane custom close layout", () => {
       .profile-pane-sheet { position: fixed; top: 0; right: 0; bottom: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
       .profile-pane-scroll-root { overflow-y: auto; min-height: 0; flex: 1; }
       ${css.slice(start, end)}
-    </style></head><body>
+    </style><style id="mobile-profile-geometry">${mobileRules}</style></head><body>
       <section class="profile-pane-sheet" data-slot="sheet-content">
         <header class="profile-pane-header">Profile</header>
         <button class="profile-pane-close" style="position:absolute;right:20px">Close</button>
@@ -291,9 +298,9 @@ test.describe("Profile pane custom close layout", () => {
     </body></html>`);
 
     for (const size of [
-      { width: 390, height: 844, gutter: 12, cardHeight: 820 },
+      { width: 390, height: 844, gutter: 0, cardHeight: 844 },
       { width: 1280, height: 900, gutter: 18, cardHeight: 820 },
-      { width: 844, height: 390, gutter: 18, cardHeight: 354 },
+      { width: 844, height: 390, gutter: 0, cardHeight: 390 },
     ]) {
       await page.setViewportSize({ width: size.width, height: size.height });
       const geometry = await page.locator(".profile-pane-sheet").evaluate((panel) => {
@@ -314,12 +321,20 @@ test.describe("Profile pane custom close layout", () => {
       expect(geometry.top).toBeGreaterThanOrEqual(size.gutter - 1);
       expect(geometry.right).toBeCloseTo(size.gutter, 0);
       expect(geometry.bottom).toBeGreaterThanOrEqual(size.gutter - 1);
-      expect(geometry.width).toBeLessThanOrEqual(430);
+      expect(geometry.width).toBeCloseTo(size.gutter === 0 ? size.width : 430, 0);
       expect(geometry.height).toBeCloseTo(size.cardHeight, 0);
-      expect(geometry.radius).toBe("25px");
+      expect(geometry.radius).toBe(size.gutter === 0 ? "0px" : "25px");
       expect(geometry.canScroll).toBe(true);
-      expect(geometry.closeRightGap).toBeCloseTo(21, 0);
+      expect(geometry.closeRightGap).toBeCloseTo(size.gutter === 0 ? 16 : 21, 0);
     }
+    // Negative control: removing the mobile policy reproduces the actual
+    // shortened, inset phone pane; the old recipe must not pass this contract.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator("#mobile-profile-geometry").evaluate(node => node.remove());
+    const broken = await page.locator(".profile-pane-sheet").boundingBox();
+    expect(broken?.height).toBeLessThan(844);
+    expect(broken?.width).toBeLessThan(390);
+    } finally { await context.close(); }
   });
 
   test("keeps inner tabs centered and readable in the inset card", async ({ page }) => {
@@ -424,7 +439,7 @@ test.describe("Profile pane custom close layout", () => {
       expect(result.close.width).toBeGreaterThanOrEqual(44);
       expect(result.close.height).toBeGreaterThanOrEqual(44);
       expect(result.close.x + result.close.width).toBeCloseTo(
-        result.viewportWidth - 20,
+        result.viewportWidth - 16,
         0,
       );
       expect(result.title.x + result.title.width).toBeLessThanOrEqual(

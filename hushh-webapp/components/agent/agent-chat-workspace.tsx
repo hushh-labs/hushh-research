@@ -8830,15 +8830,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               "h-[var(--agent-chat-header-height)]",
             )}
           >
-            {/* One centers its stacked identity between balanced controls;
-                narrow phones reserve a separate control row. Puppy keeps
-                the compact history / clipped identity / actions row. */}
+            {/* Both agents share compact centered identity and action tracks;
+                narrow phones reserve a separate control row. */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
             <NativeHistoryOpener owner={renderedWorkspaceOwnerId}
               pendingAttention={driveReviewsPending}
               context={`${chatChromeContext}:${agentSurface}`}
-              eligible={isVaultUnlocked} open={isHistoryDrawerOpen}
+              eligible={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked} open={isHistoryDrawerOpen}
               showAttentionDot={!isPuppySurface}
               focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
               onActivate={(preferNativeFocus, trigger) => {
@@ -8851,8 +8850,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
             >
-              {/* One stacks this identity above a separate control row;
-                  Puppy keeps its compact inline identity. */}
+              {/* The shared mark/name track remains stable across agents. */}
               <div
                 data-agent-chat-brand-tile
                 className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"
@@ -8870,12 +8868,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                    className="!size-11 focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
                     <HushhMark
                       aria-hidden="true"
-                      className="size-[72px] items-center justify-center overflow-visible"
-                      imageClassName="!size-16"
+                      className="size-8 items-center justify-center overflow-visible"
+                      imageClassName="!size-8"
                     />
                   </ShellActionSurface>
                 )}

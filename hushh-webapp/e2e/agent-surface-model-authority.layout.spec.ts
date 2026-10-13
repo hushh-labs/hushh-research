@@ -210,8 +210,8 @@ function renderScreen(mode: Mode, variant: Variant): string {
   const header = `
     <div data-testid="agent-header" class="${SRC.header.containerClass}">
       <button type="button" aria-label="Open chat history" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full"></button>
-      <div data-testid="agent-identity" class="${SRC.header.identityClass}">
-        <div data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}"></div>
+      <div data-agent-chat-header-region="identity" data-testid="agent-identity" class="${SRC.header.identityClass}">
+        <div data-agent-chat-brand-tile data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}"></div>
         <div class="min-w-0">
           <div data-testid="agent-name" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
           ${plan.subtitle ? `<p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}">${escapeHtml(plan.subtitle)}</p>` : ""}
@@ -346,6 +346,10 @@ async function buildFixture(variant: Variant): Promise<string> {
     }
   }
   const css = await compileTailwind(used);
+  const globals = fs.readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");
+  const geometryStart = globals.indexOf("/* One shared header measure,");
+  if (geometryStart < 0) throw new Error("Missing shared Chat header geometry");
+  const geometry = globals.slice(geometryStart);
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-surface-"));
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
@@ -359,6 +363,9 @@ async function buildFixture(variant: Variant): Promise<string> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="fixture.css">
 <style>${TOKENS}
+:root { --agent-chat-header-height:96px; }
+@media(min-width:768px) { :root { --agent-chat-header-height:60px; } }
+${geometry}
 ${productFontStyle()}
 </style></head><body>
 <div id="screen"></div>
@@ -636,7 +643,9 @@ test.describe("Agent Chat: which agent is answering", () => {
         if (mode === "one") await switchTo(page, "one");
         const identity = await box(page, "agent-identity");
         const cluster = await box(page, "agent-header-cluster");
-        expect(identity.x + identity.width).toBeLessThanOrEqual(cluster.x + 0.5);
+        const disjoint = identity.y + identity.height <= cluster.y + 0.5 || identity.x + identity.width <= cluster.x + 0.5;
+        expect(disjoint, "Identity and actions must occupy separate tracks, never overlap").toBe(true);
+        expect(before.header.height).toBeLessThanOrEqual(width < 768 ? 96 : 60);
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
       }
     });

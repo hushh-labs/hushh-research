@@ -105,13 +105,19 @@ describe("agent chat header layout", () => {
     );
   });
 
-  it("uses the larger One profile avatar with the canonical mark", () => {
+  it("keeps the canonical One mark compact without reducing its hit region", () => {
     const header = headerBlock();
     expect(header).toContain("<HushhMark");
     expect(header).toContain(
-      'className="size-[72px] items-center justify-center overflow-visible"',
+      'className="size-8 items-center justify-center overflow-visible"',
     );
-    expect(header).toContain('imageClassName="!size-16"');
+    expect(header).toContain('imageClassName="!size-8"');
+    expect(header).toContain('className="!size-11');
     expect(header).not.toContain("🤫");
+  });
+
+  it("binds the History renderer to the active Chat owner, not merely an unlocked vault", () => {
+    const history = headerBlock().match(/<NativeHistoryOpener[\s\S]*?\/>/)?.[0];
+    expect(history).toContain("eligible={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}");
   });
 });
