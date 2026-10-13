@@ -256,6 +256,34 @@ describe("PkmDomainResourceService", () => {
     );
   });
 
+  // A domain under continuous write pressure (another failed writer retrying
+  // the same domain, or one that will keep 404ing because it was never
+  // created) used to recurse here with no cap and no backoff: one page load
+  // produced well over a hundred identical network fetches in production.
+  it("gives up after a bounded number of retries instead of recursing forever", async () => {
+    loadDomainDataWithBlobMock.mockImplementation(async () => {
+      // Every response arrives after the domain was invalidated again, so
+      // the revision check never lands -- the storm this regression guards.
+      PkmDomainResourceService.invalidateDomain("storm-owner", "storm-domain", {
+        includeBackingCaches: true,
+      });
+      return {
+        data: { value: "churned" },
+        blob: { dataVersion: 1, updatedAt: "2026-09-20T00:00:00.000Z" },
+      };
+    });
+
+    const result = await PkmDomainResourceService.refresh({
+      userId: "storm-owner",
+      domain: "storm-domain",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+    });
+
+    expect(result).toBeNull();
+    expect(loadDomainDataWithBlobMock).toHaveBeenCalledTimes(4);
+  });
+
   it("rejects a secure snapshot read that finishes after a domain clear", async () => {
     let resolveRead!: (value: unknown) => void;
     secureReadMock.mockImplementationOnce(
