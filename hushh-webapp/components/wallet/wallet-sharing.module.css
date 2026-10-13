@@ -90,7 +90,20 @@
   .content .row p:first-child { font-family: var(--font-app-body) !important; font-size: 13px !important; line-height: 1.4 !important; }
 }
 
-/* Use the same compact sizes as Profile's account rows. */
+/* Layered important rules override the app typography layer, as in Profile. */
 .history { font-family: var(--font-app-body); }
-.history [data-slot="settings-group-heading"], .history [data-slot="settings-row-title"] { font-family: var(--font-app-body) !important; font-size: 13px !important; line-height: 18px !important; }
-.history [data-slot="settings-row-description"], .history button { font-family: var(--font-app-body) !important; font-size: 12px !important; line-height: 17px !important; }
+@layer base {
+  .history [data-slot="settings-group-heading"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 18px !important;
+  }
+  .history [data-slot="settings-row-title"],
+  .history [data-slot="settings-row-description"],
+  .history [data-slot="settings-row-description"] :is(p, time, summary, li),
+  .history button {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 17px !important;
+  }
+}

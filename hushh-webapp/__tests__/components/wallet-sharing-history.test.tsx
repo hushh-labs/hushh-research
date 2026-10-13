@@ -14,7 +14,7 @@ import { WalletSharingHistory } from "@/components/wallet/wallet-sharing-history
 
 const context = { userId: "owner", vaultKey: "memory-only", vaultOwnerToken: "consent", getIdToken: async () => "identity", isCurrent: () => mocks.current };
 const getContext = () => context;
-const item = (id: string) => ({ id, cardId: "card_1", cardType: "payment", displayLabel: "VISA â€¢â€¢â€¢â€¢ 4242", recipientName: id, senderName: "Owner", createdAt: "2026-10-12T10:00:00Z", expiresAt: "2026-10-12T10:15:00Z", durationMinutes: 15, status: "active", trustedCircle: false, verificationMethod: "identity_reauthentication", verifiedAt: null, revokedAt: null, lastAccessedAt: "2026-10-12T10:01:00Z", activity: [{ event: "SHARE_CREATED", at: "2026-10-12T10:00:00Z", actor: "owner", outcome: "recorded" }] });
+const item = (id: string) => ({ id, cardId: "card_1", cardType: "payment", displayLabel: "VISA •••• 4242", recipientName: id, senderName: "Owner", createdAt: "2026-10-12T10:00:00Z", expiresAt: "2026-10-12T10:15:00Z", durationMinutes: 15, status: "active", trustedCircle: false, verificationMethod: "identity_reauthentication", verifiedAt: null, revokedAt: null, lastAccessedAt: "2026-10-12T10:01:00Z", activity: [{ event: "SHARE_CREATED", at: "2026-10-12T10:00:00Z", actor: "owner", outcome: "recorded" }] });
 const page = (ids: string[], cursor: string | null = null) => ({ items: ids.map(item), hasMore: Boolean(cursor), nextCursor: cursor, serverNow: "2026-10-12T10:02:00Z" });
 beforeEach(() => {
   vi.clearAllMocks(); mocks.current = true;
@@ -27,13 +27,13 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     record.activity.push(...Array.from({ length: 4 }, () => ({ event: "SHARE_OPENED", at: "2026-10-12T10:01:00Z", actor: "recipient", outcome: "opened" })));
     mocks.history.mockResolvedValue({ ...page(["First"]), items: [record], recipientCount: 7 });
     render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
-    expect(await screen.findByText("VISA â€¢â€¢â€¢â€¢ 4242 Â· First")).toBeVisible();
-    expect(screen.getByRole("region", { name: "Shared cards · 7" })).toBeVisible();
+    expect(await screen.findByText("VISA •••• 4242 | First")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Shared cards | 7" })).toBeVisible();
     expect(screen.getAllByText(/share opened/)).toHaveLength(1);
     expect(screen.getByText(/15 minutes/)).toBeVisible();
     expect(screen.getByText("Identity verification required")).toBeVisible();
     expect(screen.getByText(/Last viewed/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke VISA â€¢â€¢â€¢â€¢ 4242 shared with First" }));
+    fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
     expect(mocks.revoke).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
     await waitFor(() => expect(mocks.revoke).toHaveBeenCalledWith(context, "First"));
@@ -42,11 +42,11 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
     fireEvent.click(await screen.findByRole("button", { name: "Load more shares" }));
-    await screen.findByText("VISA â€¢â€¢â€¢â€¢ 4242 Â· Second");
+    await screen.findByText("VISA •••• 4242 | Second");
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     await act(async () => { window.dispatchEvent(new Event("focus")); });
     await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(4));
-    expect(screen.getByText("VISA â€¢â€¢â€¢â€¢ 4242 Â· Second")).toBeVisible();
+    expect(screen.getByText("VISA •••• 4242 | Second")).toBeVisible();
     let finish!: (value: ReturnType<typeof page>) => void;
     mocks.history.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     await act(async () => { window.dispatchEvent(new Event("focus")); });
