@@ -121,6 +121,7 @@ POST /api/one/answer-requests/{request_id}/approve
 POST /api/one/answer-requests/{request_id}/cancel
 POST /api/one/answer-requests/{request_id}/decline
 POST /api/one/answer-requests/{request_id}/payment/checkout
+POST /api/one/answer-requests/{request_id}/resolve
 POST /api/one/payouts/connect/sandbox-webhook
 POST /api/one/payouts/hashcoins/redeem
 POST /api/one/wallet/card-access/cards/{card_id}/grants

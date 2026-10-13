@@ -66,6 +66,14 @@ counterpart probe verifies normal authentication, visible vault unlock and
 private Azure placement; its pod model diagnostic returns 503, so provider
 reachability and deployed private Memory execution remain unverified.
 
+The combined core run identified outdated private-stream test owners, an
+unclassified answer-resolution retry and an unused avatar import. The corrected
+fixtures assert both owner-access checks; the retry is classified as the existing
+person-to-person request flow, which processes requester questions and public
+scope labels without granting information access. The nearest ingress and
+inventory/resolver checks pass 63 and 36 cases respectively. Required full core
+and hosted CI must pass on the corrected candidate before deployment.
+
 Normal integration of main `1d691714135e` retains the existing infrastructure
 branch, prepared-answer settlement ownership and timed scope-access authority.
 The combined interface continues to use one Payments and earnings destination;
