@@ -41,8 +41,15 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
-    const page = searchParams.get("page") || "1";
-    const limit = searchParams.get("limit") || "20";
+    const rawPage = Number.parseInt(searchParams.get("page") || "1", 10);
+    const rawLimit = Number.parseInt(searchParams.get("limit") || "20", 10);
+
+    const page = Number.isFinite(rawPage)
+      ? Math.min(Math.max(rawPage, 1), 1000)
+      : 1;
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(Math.max(rawLimit, 1), 100)
+      : 20;
 
     if (!userId) {
       return withRequestIdJson(
