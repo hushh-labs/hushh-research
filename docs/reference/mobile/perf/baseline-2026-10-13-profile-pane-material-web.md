@@ -12,7 +12,8 @@ certification; this report records a scoped browser comparison.
 ## Measurement
 
 This is a browser attribution run, not a physical-device release certification.
-The UI branch uses main `e2f5c9320a2c66452a3c5417fa0e1e7bc8b1a38e` as its base.
+The material experiment used main `e2f5c9320a2c66452a3c5417fa0e1e7bc8b1a38e`
+as its comparison base, before the later main synchronization.
 
 The production Connections fixture and canonical `startFramePacingProbe` measured
 three open/close cycles for Chats and One at 390 × 844. A paired CSS experiment
