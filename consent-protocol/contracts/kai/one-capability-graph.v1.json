@@ -3216,7 +3216,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Navigates directly to receipts page from any investor surface.",
+      "description": "Opens Mail from any investor surface and restores its workspace. Receipt scans start only after an explicit Start sync, Load older receipts or Try again action.",
       "execution": {
         "binding_ref": "route:/one/gmail",
         "executor": {
@@ -3644,7 +3644,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Queues and polls Gmail receipt sync run.",
+      "description": "Starts an explicit, bounded scan of receipts in the connected Gmail account after vault-owner validation.",
       "execution": {
         "binding_ref": "render:profile.gmail.sync_now",
         "executor": {
@@ -39426,7 +39426,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "f1c06b556b6b94ed1e13bea960cbe3203d492b8c6a0277a748d52319efc776a9",
+      "projection_digest": "fdb829f2ec2bb928719c6cafe7f8af7dcb7aceceeb8c51ed1e08b8f4211c3988",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39436,7 +39436,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "9132c66a43ca0e87d087192af7b2564a0f9dc543949da0125c1c518518f6b596",
+        "capability_graph_evolution": "35796571165328969e86afe7f93e7ae20ae606d4672d7bfed2df935c9423e000",
         "capability_runtime_compiler": "fa55b4505f8be1e14a454fa866c0a02b82aa5b328f0c589a6ae06119efe9b662",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
@@ -39445,7 +39445,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
       },
-      "source_revision": "2b3e32824cb9d1c4",
+      "source_revision": "ef88720ce177a379",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -40963,7 +40963,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "2b3e32824cb9d1c4",
+    "source_revision": "ef88720ce177a379",
     "web": {
       "actions": [
         {
@@ -41006,7 +41006,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "41065d564352a96e060d1341f2ceff6651d48df6fb2990b75c4756e8f341bcf8",
+      "projection_digest": "3c1c615313a9791252ea403b0496db8641d677982804210b380a9826348767ce",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -41016,7 +41016,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "9132c66a43ca0e87d087192af7b2564a0f9dc543949da0125c1c518518f6b596",
+        "capability_graph_evolution": "35796571165328969e86afe7f93e7ae20ae606d4672d7bfed2df935c9423e000",
         "capability_runtime_compiler": "fa55b4505f8be1e14a454fa866c0a02b82aa5b328f0c589a6ae06119efe9b662",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
@@ -41025,7 +41025,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
       },
-      "source_revision": "2b3e32824cb9d1c4",
+      "source_revision": "ef88720ce177a379",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -42582,7 +42582,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "2b3e32824cb9d1c4",
+  "revision": "ef88720ce177a379",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -44407,10 +44407,16 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:profile.gmail.sync_now",
+      "actions:route.profile_receipts"
+    ],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": "ca45fcf41af6e723",
+    "deprecated": [
+      "actions:profile.gmail.sync_now",
+      "actions:route.profile_receipts"
+    ],
+    "from_revision": "2b3e32824cb9d1c4",
     "migrated": [],
     "removed": []
   },
@@ -46641,10 +46647,10 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "9132c66a43ca0e87d087192af7b2564a0f9dc543949da0125c1c518518f6b596",
+    "capability_graph_evolution": "35796571165328969e86afe7f93e7ae20ae606d4672d7bfed2df935c9423e000",
     "capability_runtime_compiler": "fa55b4505f8be1e14a454fa866c0a02b82aa5b328f0c589a6ae06119efe9b662",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "116573b7cc761fbb1d0ce6e249e9fe16ec91245268845f5e8dce77f1740a44a2",
+    "kai_action_gateway": "4eefbc87cfb5068901efae47ae861cff5fdd4c1229522916bc64dc60668642d1",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -46653,9 +46659,9 @@
     "route_orchestration_index": "7c134a64b2fdf761238ffabe8abe841b89c50058e1020d5502d203985502de1f",
     "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
   },
-  "source_revision": "2b3e32824cb9d1c4",
+  "source_revision": "ef88720ce177a379",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "2b3e32824cb9d1c4",
+    "current_graph_revision": "ef88720ce177a379",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -46680,6 +46686,7 @@
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
+          "2b3e32824cb9d1c4",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "32b235f681091788",
@@ -46838,6 +46845,7 @@
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
+          "2b3e32824cb9d1c4",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "32b235f681091788",
@@ -46985,6 +46993,7 @@
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
+          "2b3e32824cb9d1c4",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "32b235f681091788",
@@ -47155,6 +47164,7 @@
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
+          "2b3e32824cb9d1c4",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "32b235f681091788",
@@ -47313,6 +47323,7 @@
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
+          "2b3e32824cb9d1c4",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "32b235f681091788",
@@ -47471,6 +47482,7 @@
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
+          "2b3e32824cb9d1c4",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "32b235f681091788",
@@ -47629,6 +47641,7 @@
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
+          "2b3e32824cb9d1c4",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "32b235f681091788",

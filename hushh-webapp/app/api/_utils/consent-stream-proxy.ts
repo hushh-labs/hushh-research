@@ -37,14 +37,21 @@ export async function proxyConsentStream(
       /[\s/\\%?#\u0000-\u001f\u007f-\u009f]/u.test(userId)) {
     return failure(400, "Invalid userId");
   }
-  // Only the Feed stream negotiates frames, and only to a known version; no
-  // other query parameter ever reaches the backend.
+  // Forward only known protocol negotiation and capability discovery flags.
   let query = "";
+  let capabilities = false;
   if (stream === "document-feed") {
     const version = new URL(request.url).searchParams.get("v");
     if (version !== null) {
       if (!FEED_PROTOCOL_VERSIONS.has(version)) return failure(400, "Invalid stream version");
       query = `?v=${version}`;
+    }
+  } else {
+    const discovery = new URL(request.url).searchParams.get("capabilities");
+    if (discovery !== null) {
+      if (discovery !== "1") return failure(400, "Invalid capability discovery");
+      capabilities = true;
+      query = "?capabilities=1";
     }
   }
   const authorization = request.headers.get("authorization");
@@ -87,6 +94,13 @@ export async function proxyConsentStream(
         retryAfter && /^\d{1,4}$/.test(retryAfter) ? { "Retry-After": retryAfter } : {},
         errorCode,
       );
+    }
+    if (capabilities) {
+      const payload: unknown = await upstream.json();
+      const enabled = payload && typeof payload === "object"
+        ? (payload as { enabled?: unknown }).enabled : undefined;
+      if (typeof enabled !== "boolean") return failure(502, "Could not check consent delivery");
+      return Response.json({ enabled }, { headers: PRIVATE_HEADERS });
     }
     if (!upstream.body) return failure(502, "No stream body from backend");
     if (upstream.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "text/event-stream") {
