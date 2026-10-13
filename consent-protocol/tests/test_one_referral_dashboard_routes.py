@@ -36,7 +36,10 @@ def test_referral_rotation_requires_auth_and_uses_only_the_verified_owner(app, m
     assert client.post("/api/one/referrals/rotate", json={"slug": "old-link"}).status_code == 401
     rotate.assert_not_called()
     app.dependency_overrides[routes.require_firebase_auth] = lambda: "verified-owner"
-    result = client.post("/api/one/referrals/rotate?user_id=other-owner", json={"slug": "old-link", "user_id": "other-owner"})
+    result = client.post(
+        "/api/one/referrals/rotate?user_id=other-owner",
+        json={"slug": "old-link", "user_id": "other-owner"},
+    )
     assert result.status_code == 200
     assert result.json()["link_open_count"] == 0
     rotate.assert_called_once_with("verified-owner", expected_slug="old-link")
@@ -45,7 +48,9 @@ def test_referral_rotation_requires_auth_and_uses_only_the_verified_owner(app, m
 
 def test_referral_rotation_failure_does_not_claim_success(app, monkeypatch):
     app.dependency_overrides[routes.require_firebase_auth] = lambda: "verified-owner"
-    monkeypatch.setattr(routes, "rotate_referral_code", Mock(side_effect=RuntimeError("storage failure")))
+    monkeypatch.setattr(
+        routes, "rotate_referral_code", Mock(side_effect=RuntimeError("storage failure"))
+    )
     read = Mock()
     monkeypatch.setattr(routes, "get_referral_summary", read)
     response = TestClient(app).post("/api/one/referrals/rotate", json={"slug": "old-link"})

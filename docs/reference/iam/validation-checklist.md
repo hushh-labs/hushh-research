@@ -50,6 +50,10 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
    Chat card rereads authority before browser-local encrypted readback. Wrong
    bundle, revoked grant, locked vault, and unavailable export must not reveal
    values; notification delivery must not become approval or read authority.
+   A queued pre-event publication must not consume a matching status-change
+   event: reread backend authority even when pending is already queued. A
+   forged approval event with a still-pending backend result cannot approve
+   access or continue Chat; repeated actual approvals continue it once.
    The Connections tab shows active people from the canonical relationship
    page with their first-connected date, not resolved request logs. A failed
    relationship read is retryable and must not appear as an empty graph;
