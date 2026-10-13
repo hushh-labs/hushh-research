@@ -1663,6 +1663,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [],
   );
 
+  const confirmRetainedNativePhone = useCallback(
+    async (
+      phone: string,
+      expectedUid: string,
+      expectedEpoch: number,
+    ): Promise<User | null> => {
+      const currentUser = userRef.current;
+      if (!Capacitor.isNativePlatform() || !currentUser || phoneNumberRef.current !== phone) return null;
+      // An existing app-level claim need not be linked to native Firebase.
+      // Reuse it only after the backend freshly confirms this exact owner/phone.
+      const identity = await AccountIdentityService.refreshCurrentUserIdentity(
+        currentUser,
+        { force: true, requireSuccess: true },
+      );
+      requirePhoneVerificationOwner(expectedUid, expectedEpoch);
+      if (!identity || identity.user_id !== expectedUid) {
+        throw new Error("Saved phone verification could not be confirmed. Please retry.");
+      }
+      if (identity.phone_verified !== true || identity.phone_number !== phone) return null;
+      return currentUser;
+    },
+    [requirePhoneVerificationOwner],
+  );
+
   const finalizeLinkedNativePhone = useCallback(
     async (
       phone: string | null | undefined,
@@ -1707,6 +1731,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ReturnType<typeof AuthService.startPhoneLinkVerification>
         > | null = null;
         try {
+          const retainedUser = await confirmRetainedNativePhone(phone, expectedUid, expectedPhoneEpoch);
+          requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
+          if (retainedUser) {
+            applyAuthUser(retainedUser);
+            phoneVerificationOwnerRef.current = null;
+            return { autoVerified: true, user: retainedUser };
+          }
           // UAT phone-test allowlist path (fixed OTP, no SMS) — attempt on BOTH
           // web AND native so test numbers work in the iOS app. The backend gates
           // it to ENVIRONMENT=uat + the configured allowlist, so prod / non-listed
@@ -1798,7 +1829,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { autoVerified: false };
       })();
     },
-    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone],
+    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone, confirmRetainedNativePhone],
   );
 
   const startPhoneReplacement = useCallback(
@@ -1820,6 +1851,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         ReturnType<typeof AuthService.startPhoneReplacementVerification>
       >;
       try {
+        const retainedUser = await confirmRetainedNativePhone(phone, expectedUid, expectedPhoneEpoch);
+        requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
+        if (retainedUser) {
+          applyAuthUser(retainedUser);
+          phoneVerificationOwnerRef.current = null;
+          return { autoVerified: true, user: retainedUser };
+        }
         const linkedUser = await finalizeLinkedNativePhone(phone, expectedUid, expectedPhoneEpoch);
         if (linkedUser) {
           applyAuthUser(linkedUser);
@@ -1874,7 +1912,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       return { autoVerified: false };
     },
-    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone],
+    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone, confirmRetainedNativePhone],
   );
 
   const confirmPhoneVerification = useCallback(

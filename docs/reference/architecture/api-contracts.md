@@ -2059,6 +2059,13 @@ account/attempt fences still apply. Native test-start failures or malformed
 responses stop before linking. Only a successful explicit nonallowlisted response
 falls through to normal native OTP.
 
+An existing native app-level phone, including a backend-only UAT claim, may
+continue without another challenge only when a forced strict backend refresh
+confirms the same UID, exact published/requested number and verified binding.
+Cached hints alone never authorize completion. This preserves the native
+same-number/linked Continue path without requiring an SDK phone link for an
+already saved backend-only claim.
+
 Web verification's app-level phone need not be linked to the primary social
 Firebase user. Auth state publishes a fresh verified identity-cache phone after
 the backend claim commits, including same-user Firebase republication, and never

@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   phoneTestStart: vi.fn(),
   phoneFinalize: vi.fn(),
   phoneTestConfirm: vi.fn(),
+  identityRefresh: vi.fn(),
+  identityPeek: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -72,8 +74,8 @@ vi.mock("@/lib/services/auth-service", () => ({
 
 vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: {
-    peekCachedIdentity: vi.fn(() => null),
-    refreshCurrentUserIdentity: vi.fn().mockResolvedValue(null),
+    peekCachedIdentity: mocks.identityPeek,
+    refreshCurrentUserIdentity: mocks.identityRefresh,
     startUatTestPhoneVerification: mocks.phoneTestStart,
     finalizeNativePhoneVerification: mocks.phoneFinalize,
     confirmUatTestPhoneVerification: mocks.phoneTestConfirm,
@@ -239,6 +241,8 @@ describe("AuthProvider native privacy generations", () => {
     mocks.phoneTestStart.mockReset().mockResolvedValue({ success: true, eligible: false, reason: "uat_phone_test_not_configured_or_not_allowlisted" });
     mocks.phoneFinalize.mockReset().mockResolvedValue(undefined);
     mocks.phoneTestConfirm.mockReset().mockResolvedValue({ user_id: "native-account-owner", phone_verified: true, phone_number: "+12025550101" });
+    mocks.identityRefresh.mockReset().mockResolvedValue(null);
+    mocks.identityPeek.mockReset().mockReturnValue(null);
     mocks.privacyState = { shielded: false, generation: 0, cause: "inactive", appIsActive: true };
     mocks.privacyListener = null;
     mocks.getPrivacyState.mockImplementation(() => Promise.resolve({ ...mocks.privacyState }));
@@ -360,6 +364,45 @@ describe("AuthProvider native privacy generations", () => {
     expect(mocks.phoneTestConfirm).toHaveBeenCalledWith(expect.objectContaining({ uid: "native-account-owner" }), { phoneNumber: "+12025550101", verificationCode: "123456", verificationId: "uat-test-phone:owned-challenge" });
     expect(mocks.phoneStart).not.toHaveBeenCalled();
     expect(mocks.phoneConfirm).not.toHaveBeenCalled();
+    expect(mocks.phoneFinalize).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("freshly confirms an existing backend-only native phone without another challenge or SDK operation: replacement=%s", async (replacement) => {
+    const user = { ...makeUser(), phoneNumber: null };
+    const identity = { user_id: user.uid, phone_verified: true, phone_number: "+12025550101", source: "uat_phone_test" };
+    mocks.restoreNativeSession.mockResolvedValue(user);
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
+    mocks.identityPeek.mockReturnValue({ data: identity, isStale: false });
+    mocks.identityRefresh.mockImplementation(async (_user, options) => options?.requireSuccess ? identity : null);
+    mocks.phoneTestStart.mockResolvedValue({ success: true, eligible: true, verification_id: "uat-test-phone:owned-challenge" });
+    render(<AuthProvider><SessionProbe /><NativePhoneProbe /></AuthProvider>);
+    await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe(user.uid));
+    mocks.restoreNativeSession.mockResolvedValue(null);
+    fireEvent.click(screen.getByRole("button", { name: replacement ? "Start native replacement" : "Start native phone" }));
+    await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("verified"));
+    expect(mocks.identityRefresh).toHaveBeenCalledWith(user, { force: true, requireSuccess: true });
+    expect(mocks.phoneTestStart).not.toHaveBeenCalled();
+    expect(mocks.phoneStart).not.toHaveBeenCalled();
+    expect(mocks.phoneFinalize).not.toHaveBeenCalled();
+  });
+
+  it.each([null,
+    { user_id: "another-owner", phone_verified: true, phone_number: "+12025550101" },
+    { user_id: "native-account-owner", phone_verified: false, phone_number: "+12025550101" },
+    { user_id: "native-account-owner", phone_verified: true, phone_number: "+12025550102" },
+  ])("does not complete a retained native phone from cached hints when fresh evidence differs: %j", async (identity) => {
+    const user = { ...makeUser(), phoneNumber: null };
+    mocks.restoreNativeSession.mockResolvedValue(user);
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
+    mocks.identityPeek.mockReturnValue({ data: { user_id: user.uid, phone_verified: true, phone_number: "+12025550101", source: "uat_phone_test" }, isStale: false });
+    mocks.identityRefresh.mockImplementation(async (_user, options) => options?.requireSuccess ? identity : null);
+    mocks.phoneTestStart.mockResolvedValue({ success: true, eligible: true, verification_id: "uat-test-phone:owned-challenge" });
+    render(<AuthProvider><SessionProbe /><NativePhoneProbe /></AuthProvider>);
+    await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe(user.uid));
+    fireEvent.click(screen.getByRole("button", { name: "Start native phone" }));
+    await waitFor(() => expect(screen.getByTestId("native-phone-status")).not.toHaveTextContent("idle"));
+    expect(screen.getByTestId("native-phone-status")).not.toHaveTextContent("verified");
+    expect(mocks.phoneStart).not.toHaveBeenCalled();
     expect(mocks.phoneFinalize).not.toHaveBeenCalled();
   });
 
