@@ -34,12 +34,12 @@ system_instruction: |
 
   Reserved branches: reserved_branches lists [reserved branch, agent_memory_sibling] pairs. An app writes the reserved branch through its own screen (professional.profile is the Profile screen's, location.saved_places the Location app's), so never target it. A chat fact that belongs there is still saved: write it as an entity under the pair's agent_memory_sibling (professional.agent_memory, location.agent_memory) with confirm_first, and return reserved_offer {"branch": "<domain>.<reserved branch>", "label": "<2 to 4 word noun the owner would tap, such as Home>"}. Most work facts (stack, infrastructure, vendors, people, metrics) belong to no reserved branch at all: give them their own subtree.
 
-  Finance hierarchy (target_domain financial): Finance screens own these top-level branches:
-  - profile: financial preferences and risk posture, under profile.preferences.
-  - goals: stated financial goals and plans, one named entity per goal.
-  - events: durable financial events about the owner's accounts or institutions, one named entity per event.
-  - linked_accounts: bank-connected accounts grouped by account kind, institution and account; only the bank connection writes them.
-  A chat fact about money goes under agent_memory as one named entity, with reserved_offer naming its Finance branch. Never use financial for nonfinancial statements. Never target or restate source-managed values: linked_accounts, summary, or any branch ending in _v1; bank refresh rebuilds them. Save owner-stated account purposes or plans under agent_memory. Use recognizable keys (emergency_fund, checking_account), never provider identifiers, account numbers, security codes or type codes such as depository. Name the institution and account in the entity summary.
+  Finance hierarchy (target_domain financial) is only for money; these branches belong to the Finance app:
+  - profile: preferences and risk posture under profile.preferences.
+  - goals: one named entity per stated goal or plan.
+  - events: one named entity per durable account or institution event.
+  - linked_accounts: bank connection only, grouped by account kind, institution, then account.
+  A chat money fact goes under agent_memory, one named entity per fact, with reserved_offer naming the Finance branch. Include the person's account purpose or plans there. Never target or restate source-managed linked_accounts, summary or branches ending in _v1; bank refresh rebuilds them. Use recognizable plain-word keys, never provider identifiers/type codes, account numbers or security codes. Name institution and account in the entity summary.
 
   Output contract (contract_version must be 1; reserved_offer only when the fact belongs to a reserved branch):
   {"candidate_payload": {}, "structure_decision": {"action": "match_existing_domain | create_domain | extend_domain", "target_domain": "string", "json_paths": ["string"], "top_level_scope_paths": ["string"], "externalizable_paths": ["string"], "summary_projection": {}, "sensitivity_labels": {}, "confidence": 0.0, "source_agent": "pkm_structure_agent", "contract_version": 1}, "write_mode": "can_save | confirm_first | do_not_save", "primary_json_path": "string", "target_entity_scope": "string", "validation_hints": ["string"], "reserved_offer": {"branch": "domain.branch", "label": "string"}}

@@ -1,6 +1,7 @@
 import { ApiService } from "@/lib/services/api-service";
 import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
 import { verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
+import { parseCommerceHostedSession } from "@/lib/services/scope-commerce-return";
 import { parseCommerceReadiness, commerceActionError, type CommerceReadiness } from "@/lib/services/scope-commerce-readiness";
 export { parseCommerceReadiness, commerceReadinessCopy, CommerceActionError } from "@/lib/services/scope-commerce-readiness";
 export type { CommerceReadiness } from "@/lib/services/scope-commerce-readiness";
@@ -287,13 +288,11 @@ export const ScopeCommerceService = {
   },
   async checkout(token: string, amount: number, key: string) {
     const result = await request(token, "funding/checkout", { amount_cents: amount, idempotency_key: key });
-    if (typeof result.url !== "string") throw new Error("The checkout address could not be verified.");
-    return result.url;
+    return parseCommerceHostedSession(result, key);
   },
   async onboarding(token: string, country: string, key: string) {
     const result = await request(token, "onboarding", { country, idempotency_key: key });
-    if (typeof result.url !== "string") throw new Error("The onboarding address could not be verified.");
-    return result.url;
+    return parseCommerceHostedSession(result, key);
   },
   async withdrawalPreview(token: string) { return parseCommerceTransferPreview(await request(token, "withdrawals/preview")); },
   async withdraw(token: string, key: string, previewToken: string) {

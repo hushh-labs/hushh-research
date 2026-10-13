@@ -18,6 +18,9 @@ from hushh_mcp.services.consent_db import ConsentDBService
 async def test_document_feed_stream_rejects_another_users_token(monkeypatch):
     from fastapi import HTTPException
 
+    assert any(
+        route.path == "/api/consent/document-feed/{user_id}" for route in sse_routes.router.routes
+    )
     monkeypatch.setattr(sse_routes, "verify_firebase_bearer", lambda _authorization: "other")
     with pytest.raises(HTTPException) as exc:
         await sse_routes.document_feed_events(
@@ -87,12 +90,24 @@ async def test_bank_payout_doorbell_resets_owner_feed_without_request_attributio
     request = SimpleNamespace(is_disconnected=lambda: asyncio.sleep(0, result=False))
     stream = document_feed_event_generator("owner", request)
     assert (await anext(stream)) == {"event": "feed_reset", "data": "{}"}
+    # One redemption rings three doorbells (old untyped and new typed shapes).
     queue.put_nowait({"type": "bank_payout_changed", "user_id": "owner"})
-    assert await asyncio.wait_for(anext(stream), timeout=1) == {
-        "event": "feed_reset",
-        "data": "{}",
-    }
-    await stream.aclose()
+    queue.put_nowait({"type": "bank_payout_changed", "user_id": "owner", "kinds": ["wallet"]})
+    queue.put_nowait(
+        {
+            "type": "bank_payout_changed",
+            "user_id": "owner",
+            "kinds": ["earnings", "wallet"],
+            "request_id": "11111111-2222-4333-8444-555555555555",
+        }
+    )
+
+    async def rest():
+        return [frame async for frame in stream]
+
+    # v1 clients get one untyped reset per burst, then the long-poll closes so a
+    # buffering native build receives it and frees its backend slot.
+    assert await asyncio.wait_for(rest(), timeout=3) == [{"event": "feed_reset", "data": "{}"}]
 
 
 def test_sse_payload_includes_enriched_request_fields():

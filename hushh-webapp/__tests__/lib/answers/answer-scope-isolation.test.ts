@@ -1,33 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-const buildConsentExportForScope = vi.fn();
-vi.mock("@/lib/consent/export-builder", () => ({
-  buildConsentExportForScope: (...args: unknown[]) =>
-    buildConsentExportForScope(...args),
-}));
-// Reading a whole PKM domain is the bug this file exists to prevent. If the
-// sweep ever reaches for the domain resource again, this mock records it.
-const getStaleFirst = vi.fn();
-vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
-  PkmDomainResourceService: {
-    getStaleFirst: (...a: unknown[]) => getStaleFirst(...a),
-  },
-}));
-
-const answerable = vi.fn();
-const compose = vi.fn();
-const deliver = vi.fn();
-vi.mock("@/lib/services/answer-request-service", () => ({
-  AnswerRequestService: {
-    answerable: (...a: unknown[]) => answerable(...a),
-    compose: (...a: unknown[]) => compose(...a),
-    deliver: (...a: unknown[]) => deliver(...a),
-  },
-}));
-const encrypt = vi.fn();
-vi.mock("@/lib/one-marketplace/encryption", () => ({
-  encryptSliceForRecipient: (...a: unknown[]) => encrypt(...a),
-}));
+import { buildConsentExportForScope, getStaleFirst, answerable, compose, deliver, encrypt, work, params, resetAnswerFixture } from "./fixtures";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import {
@@ -35,33 +8,7 @@ import {
   runAnswerDeliverySweep,
 } from "@/lib/answers/answer-delivery-sweep";
 import { projectApprovedAnswer } from "@/lib/answers/answer-projection";
-import type { AnswerableWork } from "@/lib/services/answer-request-service";
-
-const work = (overrides: Partial<AnswerableWork> = {}): AnswerableWork => ({
-  requestId: "11111111-2222-3333-4444-555555555555",
-  question: "How much did you spend on travel last year?",
-  periodStart: null,
-  periodEnd: null,
-  approvedScopes: ["attr.travel.trips"],
-  scopeLabels: {},
-  answerDeadlineAt: null,
-  requesterUserId: "requester-B",
-  recipientKey: { keyId: "key-1", publicKeyJwk: {} as JsonWebKey },
-  ...overrides,
-});
-
-const params = { userId: "owner-A", vaultKey: "key", vaultOwnerToken: "token" };
-
-beforeEach(() => {
-  buildConsentExportForScope.mockReset();
-  getStaleFirst.mockReset();
-  answerable.mockReset();
-  compose.mockReset();
-  deliver.mockReset();
-  encrypt.mockReset().mockResolvedValue({ sealed: "ciphertext" });
-  compose.mockResolvedValue({ answerMode: "projection", answer: null });
-  deliver.mockResolvedValue(undefined);
-});
+beforeEach(resetAnswerFixture);
 
 describe("an approved field cannot expose another field in the same domain", () => {
   it("asks for the exact approved scope and never reads the domain", async () => {
@@ -249,6 +196,57 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
     expect(deliver).toHaveBeenCalledTimes(1);
     expect(deliver.mock.calls[0]![2]).toMatchObject({ hasContent: false });
     expect(result).toMatchObject({ empty: 1, retry: 0, delivered: 0 });
+  });
+
+  it("never calls an unreadable scope an absent answer", async () => {
+    // The vault was locked, the manifest was stale, the network blipped --
+    // whatever it was, nothing was read. Delivering empty here would tell the
+    // requester the answer does not exist, refuse their payment for good, and
+    // do it on evidence that was never gathered. It stays queued instead.
+    buildConsentExportForScope.mockRejectedValue(new Error("vault locked"));
+    answerable.mockResolvedValue([work()]);
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+    });
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ retry: 1, delivered: 0, empty: 0 });
+  });
+
+  it("carries the owner's own name and photo into the answer document", async () => {
+    // The requester already sees these on the profile they asked from, and
+    // without them a question like "what is your name" had no name to answer
+    // from even with Identity information approved.
+    buildConsentExportForScope.mockResolvedValue({
+      payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
+      sourceContentRevision: 7,
+    });
+    answerable.mockResolvedValue([work()]);
+    compose.mockResolvedValue({
+      answerMode: "agent",
+      answer: "Tokyo.",
+      covers: [],
+      gaps: [],
+    });
+
+    await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+      ownerIdentity: {
+        displayName: "Smirthika Dharmalingam",
+        email: "smirthika@example.com",
+        photoUrl: "https://example.com/photo.jpg",
+      },
+    });
+
+    const memory = String(compose.mock.calls[0]![2].memory);
+    expect(memory).toContain("Smirthika Dharmalingam");
   });
 
   it("delivers a written answer", async () => {

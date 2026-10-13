@@ -183,7 +183,7 @@ describe("restoring a turn from history", () => {
 });
 
 describe("the chat header during a turn", () => {
-  it("names the running call, newest first, then returns to the idle subtitle", () => {
+  it("names the running call, newest first, then clears One's idle subtitle", () => {
     const gmail = { id: "a", label: "Gmail", activity: "Checking Gmail" };
     const drive = { id: "b", label: "Google Drive", activity: "Searching Drive" };
     const header = (activeToolCalls: typeof gmail[], statusText: string | null = "Thinking") =>
@@ -191,7 +191,7 @@ describe("the chat header during a turn", () => {
     expect(header([gmail])).toBe("Checking Gmail…");
     expect(header([gmail, drive])).toBe("Searching Drive…");
     expect(header([])).toBe("Thinking");
-    expect(header([], null)).toBe("Your private agent");
+    expect(header([], null)).toBe("");
     // Puppy One's header never narrates One's calls.
     expect(chatHeaderSubtitle({ isPuppySurface: true, activeToolCalls: [gmail], statusText: null }))
       .toBe("Separate conversation");

@@ -5,6 +5,8 @@ import FirebaseMessaging
 import FirebaseAuth
 import FirebaseCore
 import UIKit
+import AVFoundation
+import AudioToolbox
 
 /**
  * HushhNotificationsPlugin - Push token registration (Capacitor 8)
@@ -24,6 +26,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "HushhNotificationsPlugin"
     public let jsName = "HushhNotifications"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "playEmergencySmsCue", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopEmergencySmsCue", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deletePushToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "registerPushToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "unregisterPushToken", returnType: CAPPluginReturnPromise),
@@ -38,10 +42,74 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     private let chatLock = NSLock()
     private var activeChatTag = ""
     private var activeChatKey = ""
+    private var emergencyPlayer: AVAudioPlayer?
+    private var emergencyGrantId: String?
+    private var emergencyGeneration = 0
+    private var emergencyObservers: [NSObjectProtocol] = []
 
     override public func load() {
         super.load()
         installChatHandler()
+        for name in [UIApplication.willResignActiveNotification, AVAudioSession.interruptionNotification] {
+            emergencyObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in self?.stopEmergencyCue() })
+        }
+    }
+
+    deinit {
+        emergencyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        emergencyPlayer?.stop()
+    }
+
+    private func stopEmergencyCue(grantId: String? = nil) {
+        if let grantId, grantId != emergencyGrantId { return }
+        emergencyGeneration += 1
+        emergencyPlayer?.stop()
+        emergencyPlayer = nil
+        emergencyGrantId = nil
+    }
+
+    @objc func stopEmergencySmsCue(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            self?.stopEmergencyCue(grantId: call.getString("grantId"))
+            call.resolve()
+        }
+    }
+
+    @objc func playEmergencySmsCue(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            let now = Date().timeIntervalSince1970 * 1000
+            guard let self, UIApplication.shared.applicationState == .active,
+                  FirebaseApp.app() != nil,
+                  let userId = call.getString("userId"), !userId.isEmpty,
+                  Auth.auth().currentUser?.uid == userId,
+                  let grantId = call.getString("grantId"), !grantId.isEmpty,
+                  let deadline = call.getDouble("expiresAt"), deadline.isFinite,
+                  deadline > now, deadline <= now + 2000,
+                  let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+            else { call.resolve(["played": false]); return }
+            self.stopEmergencyCue()
+            do {
+                // AppDelegate prepares this same sound for background APNs alerts.
+                let url = library.appendingPathComponent("Sounds/one_location_sms_alarm.wav")
+                let player = try AVAudioPlayer(contentsOf: url)
+                player.numberOfLoops = 0
+                player.prepareToPlay()
+                guard player.play() else { call.resolve(["played": false]); return }
+                self.emergencyPlayer = player
+                self.emergencyGrantId = grantId
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                let generation = self.emergencyGeneration
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    guard let self, self.emergencyGeneration == generation else { return }
+                    self.stopEmergencyCue()
+                }
+                call.resolve(["played": true])
+            } catch {
+                call.resolve(["played": false])
+            }
+        }
     }
 
     private func installChatHandler() {

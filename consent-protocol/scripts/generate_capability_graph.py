@@ -754,7 +754,7 @@ def _read_workflow_predecessor(ref: str) -> dict[str, Any]:
 
 
 def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str, ...]:
-    """Keep the other parent of an ancestor merge with the current PR base.
+    """Keep merged histories from the base integration and later branch merges.
 
     The base graph supplies one workflow history. A merged feature parent may
     carry another compatible history, including through a second parent. It must
@@ -767,24 +767,29 @@ def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str,
     base_commit = _resolve_base_commit(_resolve_base_ref(base_ref))
     if not base_commit:
         return ()
-    merges = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "rev-list", "--merges", "HEAD"],  # noqa: S607
+    history = subprocess.run(  # noqa: S603 - fixed git executable/arguments
+        ["git", "rev-list", "--ancestry-path", "--parents", f"{base_commit}..HEAD"],  # noqa: S607
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
     ).stdout.splitlines()
-    for merge in merges:
-        lineage = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-            ["git", "rev-list", "--parents", "-n", "1", merge],  # noqa: S607
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.split()
+    # Every listed commit descends from the base. Include ordinary commits so
+    # first-parent membership proves ancestry without a subprocess per merge.
+    lineages = [line.split() for line in history]
+    descendants = {base_commit, *(lineage[0] for lineage in lineages)}
+    predecessors: list[str] = []
+    integrated_base = False
+    for lineage in lineages:
+        if len(lineage) < 3:
+            continue
         if base_commit in lineage[1:]:
-            return tuple(parent for parent in lineage[1:] if parent != base_commit)
-    return ()
+            integrated_base = True
+            predecessors.extend(parent for parent in lineage[1:] if parent != base_commit)
+            continue
+        if lineage[1] in descendants:
+            predecessors.extend(lineage[2:])
+    return tuple(dict.fromkeys(predecessors)) if integrated_base else ()
 
 
 def _merge_workflow_predecessor(

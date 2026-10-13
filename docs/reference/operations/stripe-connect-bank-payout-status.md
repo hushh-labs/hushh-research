@@ -97,9 +97,12 @@ In each Stripe environment, create a **Connected accounts** event destination
 pointing to `POST /api/one/payouts/connect/webhook`. Select `account.updated`,
 `account.external_account.created`, `account.external_account.updated`,
 `account.external_account.deleted`, `payout.created`, `payout.updated`,
-`payout.paid`, `payout.failed`, and `payout.canceled`. Store that
-destination's signing secret as `STRIPE_CONNECT_WEBHOOK_SECRET` in the backend
-Secret Manager project. It must differ from the platform Checkout endpoint's
+`payout.paid`, `payout.failed`, `payout.canceled`,
+`payout.reconciliation_completed`, and `balance.available`. The sandbox
+destination (`/api/one/payouts/connect/sandbox-webhook`) uses the same list.
+The live and Sandbox1 Connect destinations already include the last two.
+Store the `/connect/webhook` destination's signing secret as
+`STRIPE_CONNECT_WEBHOOK_SECRET` in the backend Secret Manager project. It must differ from the platform Checkout endpoint's
 `STRIPE_WEBHOOK_SECRET`. Bind both secrets only to the backend runtime, never
 the webapp. The private worker also needs the Connect webhook secret to
 reconcile an accepted live redemption after a retry. Production Connect destinations may deliver test and live events;
@@ -109,10 +112,33 @@ connected account, and a provider read under the matching Stripe API key.
 The webhook validates Stripe's signature over raw bytes, fetches the latest
 connected-account Payout or Account, and records each event ID once. A stale
 `payout.created` event cannot downgrade `paid`; `payout.failed` can supersede
-`paid` if the bank later rejects the deposit. Provider failures return a retryable
-error. The account owner can read at most 20 recent deposits through
-`GET /api/one/payouts/account/bank-payouts`; the response has no bank account
-details and no document request ID.
+`paid` if the bank later rejects the deposit. Provider reads are ordered by the
+time they were taken. A later read with the same status still updates the
+arrival date, failure code, bank trace and reconciliation status; an older read
+is ignored. The owner's doorbell rings only when the stored deposit changed.
+Provider failures return a retryable error.
+
+`balance.available` marks the owner's balance snapshot for refresh and rings the
+`balance` doorbell. `payout.reconciliation_completed`, and `payout.paid` once
+Stripe reports reconciliation complete, store the deposit and queue its
+itemisation (see below). Both are safe to process more than once, and neither
+is needed to show bank status.
+
+To see why Stripe's delivery failed, search the backend logs for
+`connect_webhook.rejected route=… status=… code=…`. `route` is `live` or
+`sandbox`, `status` is the HTTP status returned to Stripe, and `code` is a
+closed code such as `invalid_signature`, `invalid_event`, `provider_mismatch`,
+`storage_unavailable`, `payload_too_large` or `sandbox_disabled` (`other` for
+anything unexpected). The line never carries the event, account or provider
+text.
+
+The account owner reads deposits newest first, 20 per page with an opaque
+cursor, through `GET /api/one/payouts/account/bank-payouts`. Each deposit
+keeps a write-once masked snapshot of the bank it was sent to (bank name and
+last four), plus Stripe's bank trace reference once Stripe has one. Removing
+or replacing that bank later does not change the snapshot. A deposit first seen after its bank was
+deleted keeps no name or last four, and the receipt says "Bank not recorded".
+The response has no account or routing number and no document request ID.
 
 The private worker also scans bounded pages of connected-account payouts using
 a durable cursor. A missed webhook can therefore update deposit status without
@@ -164,12 +190,47 @@ or **Bank payout failed** (`failed`). A failed external account requires the
 owner to repair their bank details in Stripe-hosted account management.
 `expectedArrivalAt` is an estimate, not a promise.
 
-For exact attribution of an **automatic** deposit later, wait for
-`payout.reconciliation_completed`, list all connected-account balance
-transactions with `payout=po_...` and pagination, and match them to each
-Transfer's `destination_payment`. This is not needed to show aggregate bank
-status. Stripe's payout balance-transaction filter does not support manual
-payouts, so never infer a one-to-one document-to-bank relationship.
+Profile → Payouts → Your money:
+
+- **In Stripe** is money in the owner's live Stripe balance that is not in
+  their bank yet (`GET /api/one/payouts/account/balance`). It is hidden in test
+  mode, with no linked live account, and when it is $0 or less.
+- **Settling · available Oct 14** means some of it is still pending at Stripe.
+  The day is Stripe's UTC day, so it reads the same in every time zone.
+- **Available** money goes to the bank on the owner's Stripe payout schedule.
+- **Redeem** moves one paid request's earning at a time from Hussh Coins to the
+  owner's Stripe balance. The bank deposit then follows the payout schedule.
+
+Deposit contents come only from Stripe's reconciliation, never from timing or
+amounts. Each deposit's bank is its own snapshot, not the owner's current bank.
+
+An **automatic** deposit is itemised after Stripe reports its reconciliation
+complete. The webhook queues it in `stripe_connect_payout_reconciliations`; a
+worker backstop also queues recently changed deposits the webhook missed. Each
+private worker tick itemises at most one deposit: it lists that deposit's
+connected-account balance transactions (`payout=po_…`), 100 per page and at
+most 3 pages per tick, and saves a durable cursor so the next tick resumes
+where it stopped. A transaction is attributed only through a link Stripe
+reports:
+
+- a payment's `source_transfer`: the owner's cash-out or document transfer on
+  the same account;
+- a refund's refunded payment, then that payment's `source_transfer`;
+- a `payout_failure` or `payout_cancel` row: an earlier returned deposit sent
+  again.
+
+Anything else counts in the deposit's unattributed `otherCents`, so the items
+plus `otherCents` equal the deposit. Manual payouts are `not_applicable`:
+Stripe's payout balance-transaction filter does not support them. Never infer
+a one-to-one document-to-bank relationship. Bank status never waits for
+itemisation.
+
+Each Drive worker tick reports these Connect ledger counts in its drain
+outcomes: `balance_accounts_checked`, `balance_snapshots_changed`,
+`balance_refresh_deferred`, `payout_reconciliations_queued`,
+`payout_reconciliations_checked`, `payout_reconciliations_completed` and
+`payout_reconciliation_deferred`. A tick refreshes at most two due balance
+snapshots.
 
 Test-mode acceptance uses Stripe's test US bank numbers: routing `110000000`,
 account `000123456789` for success and `000111111116` for a `no_account`

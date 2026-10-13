@@ -84,7 +84,7 @@ describe("agent PKM automatic-save policy", () => {
       confirmation: {
         confirmedByUser: true,
         surface: "web",
-        source: "pkm_memory_auto_save_toggle",
+        source: "runtime_secret_save_button",
       },
     });
 

@@ -199,6 +199,7 @@ Owner-only `VAULT_OWNER` endpoints under `/api/one/payouts`:
 
 - `GET /hashcoins`: integer real and sandbox balances, reserved amounts, holds,
   fixed `coinsPerDollar=100`, payout mode and recent redemption status/history.
+  Each hold carries a closed `reason` and `nextStep`; `redeemableCoins` excludes held coins.
 - `POST /hashcoins/redeem`: `{amountCoins, clientRequestId, mode:"test"}`; strict
   integer bounds, owner-isolated idempotency and durable reservations. Returns
   pending, succeeded, failed or unknown. Success confirms a test Stripe transfer,
@@ -242,17 +243,28 @@ The `/api/one/wallet/card-access` endpoints are:
 
 | Method | Suffix | Authority and behavior |
 | --- | --- | --- |
+| GET | `/networks` | Matching Firebase identity and vault-owner consent; supported canonical network identifiers. Independent of temporary-sharing rollout. |
+| POST | `/networks/resolve` | Same owner authority; transient six-digit issuer prefix and strict integer card length, optional selected network. No payment credentials accepted, persisted, logged or sent to a provider. Returns normalized `network`, `source`, and ambiguous `candidates`. |
 | POST | `/registrations` | Matching Firebase identity and vault-owner consent reserve a server card ID. Only a subsequent canonical Wallet PKM mutation activates manual origin. |
-| GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
+| GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status, newest first in pages of 20. Optional `cursor` is the last grant ID; `nextCursor` and `hasMore` describe the next page, and each grant includes ISO `createdAt`. Cursors resolve only within the authenticated owner and card. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
 | GET | `/connections` | Owner-only searchable active connections with explicit Trusted Circle membership. |
+| GET | `/profile` | Matching identity and vault-owner consent; current canonical Profile Card eligibility and server-issued card ID, without profile contents. |
+| GET | `/history` | Participant-only unified ledger. `direction=outgoing\|received`, optional `cardType=payment\|profile`, `limit=1..100` (default 20), and participant/filter-bound `cursor`. Returns `items`, `hasMore`, `nextCursor`, `serverNow`. |
+| GET | `/history/{grant_id}` | Matching identity and vault-owner consent; outgoing or received grant detail only for that participant, with lifecycle activity. |
 | POST | `/cards/{card_id}/grants` | Owner-only, idempotent, per-recipient 5/10/15-minute grants and transactional messages. |
 | DELETE | `/grants/{grant_id}` | Owner-only revocation. |
 | GET | `/grants/{grant_id}` | Authenticated recipient-only view; checks expiry, revocation, origin and relationship. |
 | POST | `/grants/{grant_id}/verify` | Fresh same-user Firebase provider authentication after the server challenge for non-trusted recipients. |
 
 Responses are private and non-cacheable. The encrypted server projection contains
-only network, last four digits, expiry and normalized issuing region; no PAN,
-name, CVV, PIN or vault key enters grants or notification metadata. Removing the
+network, last four digits, expiry and normalized issuing region. New grant requests
+may also provide `encryptedCards`, an exact map of selected person references to
+bounded `hushh-wallet-card:v1:` recipient envelopes (maximum 4096 characters each,
+20 recipients, 96 KiB request limit). Plaintext PAN, CVV, PIN and vault keys remain
+forbidden. Each recipient's envelope is stored only in that grant's encrypted
+contents, never notifications or Feed metadata. Authorized active views return
+`encryptedCard` and the authenticated owner's `senderUserId` for client decryption;
+denied, expired and revoked views return neither. Old grants remain masked. Removing the
 card revokes access. Explicit owner-added Trusted Circle members skip additional
 verification; ordinary connection mirror records do not grant this exemption.
 
@@ -285,7 +297,22 @@ The native viewer stays unavailable until active capture protection is supported
 The browser viewer clears on hide/expiry and offers no copy, export or print,
 but cannot prevent device screenshots or external cameras. Old encrypted-copy
 readers and owner receipts remain compatible; previously sent copies cannot be
-recalled. Profile, Referral and NWS sharing are unchanged.
+recalled. The canonical Wallet Profile Card also supports private recipient grants
+after migrations 322–325. Its current selected public-field projection is intersected
+with the fields permitted at creation; removing a field immediately removes it from
+the next read, and adding a field cannot widen an existing grant. Pause makes reads
+unavailable; revocation, source replacement and deletion terminate existing grants.
+System Agent One Profile, Referral, NWS and received-card resharing gain no permissions.
+Public QR links retain their separate, anonymous aggregate-visit behavior.
+History contains masked card descriptors, public participant references and names,
+creation/expiry/duration, immutable creation trust, verification posture/time,
+revocation/last-view times and bounded lifecycle events. Unknown historical creation
+trust is `null`/`legacy_unspecified`, never inferred from today's membership.
+`SHARE_DELIVERED` means the Messages/Feed transaction accepted delivery, not a push
+provider receipt. Expiry is enforced by the database clock on every access;
+`SHARE_EXPIRED` is recorded lazily once when the grant is read or listed.
+See [universal sharing operations](../one/wallet-sharing.md) for migration,
+compatibility, verification and rollback details.
 See [Wallet](../one/wallet.md) and the
 [Wallet Profile contract](../../superpowers/specs/2026-08-03-wallet-card-contract.md).
 
@@ -767,6 +794,14 @@ when the grant belongs to a person request. Clients use it to fetch current
 bundle status and encrypted exports even after the recent `requestHistory`
 projection is truncated; it is a locator, not decryption authority.
 
+The authenticated viewer profile includes nullable `contactEmail` and
+`contactPhoneNumber` only for a current active social connection. The identity
+read rechecks the canonical viewer/subject edge; pending or removed connections
+receive null contact details. `contactPhoneNumber` is a verified E.164 number
+including its country code. Neither contact field appears in the public profile.
+Clients clear the old projection when the connection graph changes and re-read
+it with `cache: no-store`.
+
 `GET /api/one/people/{person_ref}/scope-catalog?query=&page=&limit=&catalog_revision=`
 is the server-side search behind the request card's Change picker (consent
 lifecycle Contract C4). Same authentication, `404` and `private, no-store` rules
@@ -1186,8 +1221,116 @@ personality turn, including when ordinary chat messages interrupt onboarding.
 Already-onboarded owners use the same discovery path once their loaded
 personality progress is resolved and their vault is unlocked. No onboarding
 reset or new-user marker is required. One authority-bound attempt per mounted
-controller prevents duplicate requests under StrictMode or marker consumption;
-only an explicit retry retries an unsaved report within that controller.
+controller prevents duplicate paid work through server-side coalescing. StrictMode's
+trial effect is cancelled before dispatch; marker consumption does not restart
+research. Effect restarts resume status under current authority rather than
+inheriting a stale attempted latch from cancelled polling.
+
+Personal discovery uses `POST /api/one/profile-research/jobs` to claim or recover
+one owner-bound background run, then authenticated `GET` on the same path.
+Both require VAULT_OWNER and the derived chat key, accept no caller-selected
+identity, and return private/no-store responses. Pending returns HTTP 202 with
+`{status:"pending", pkm_written:false, restart_required:false}`. An absent or
+expired execution lease sets `restart_required:true`; only a fresh POST can
+resume it. Terminal results retain the personal research envelope. Current offered results
+carry a grounded report and Search suggestions, with no separate verification
+metadata, score or numerical threshold. Readers retain legacy scored envelope
+compatibility during policy migration; new policy binding prevents older scored
+drafts from being released.
+A charged discovery failure returns
+`{status:"unavailable",pkm_written:false,retry_exhausted:true,attempts:1}`,
+with no invented report or confidence. This is terminal and cannot restart
+research or reveal a Business fallback. Ordinary pre-research unavailable
+responses retain compatibility without these two fields.
+The legacy synchronous POST remains compatible; the chat no longer uses it.
+Onboarding progress remains an admission prerequisite; transient progress-read
+failures retry with bounded backoff and on foreground/online resume instead of
+silently keeping discovery disabled. A failed read never implies completion.
+Transport cancellation stops polling, not admitted background research. Lost
+start responses recover through GET, not repeated paid POST. Foreground/online
+resume wakes one status read, with no total browser discovery deadline.
+
+The existing `one_adk_sessions` table stores one person-key encrypted draft per
+owner under `one.magic.discovery.v1/profile`, not a profile authority or PKM
+write. Revision plus exact ciphertext CAS fences competing/old workers. Discovery
+uses the canonical encrypted-session checkpoint store; the discovery adapter
+binds only its namespace and issues no direct session SQL. Reads, updates and
+bounded expiry cleanup accept only marked person-key rows. Cleanup is restricted
+to this exact app/session namespace, never ordinary chat or legacy rows.
+Jobs have a 200-second execution budget, a 240-second lease and at most three actual
+research starts per owner/hour; process admission is bounded to eight jobs.
+The research root and its local Search child apply the task's authored LOW
+thinking policy and 4096-token output cap, rather than provider defaults.
+Search exposes its remaining read budget. After its two allowed reads, the
+parent's available action is only `finish_task`; a third Search call is still
+rejected. The raw compatibility task supplies its grounded report within five
+model calls. Default discovery performs one grounded research task, with all
+available full owner identifiers together, and up to three logical model calls.
+There is no independent confidence assessment, numerical release threshold,
+alternate query or research retry. The researcher owns the report's
+matched/uncertain/no-match result; ordinary categorical fact uncertainty remains
+visible during review and uncertain facts remain unchecked by default.
+The Search child request must equal the unchanged JSON-quoted owner identifier
+string. Native Google grounding may reformulate internal queries, as authorized;
+literal query receipt matching is not required. Actual grounded source evidence,
+known source refs, owner authority and schema integrity remain required.
+Identity comes only from fresh owner ingress, never a request body; no
+private-account tools are added.
+The sole research slot is charged before dispatch in the same encrypted checkpoint
+under revision/ciphertext CAS. Expired-lease recovery preserves this charge and
+the original 24-hour window for the same identity/policy. Older seven-mask
+metadata is validated during policy migration, not replayed. A changed policy
+invalidates old scored drafts without resetting the rolling paid-start budget.
+Deployment and broader disclosure acceptance remain separate from localhost proof.
+The raw compatibility task searches broad public identity and background first, then uses
+one remaining read to fill missing education, projects, competitions, leadership
+or achievement evidence. A failed initial match instead targets original public
+profile, project, university and event pages with the supplied name, without
+invented context or unhelpful domain restrictions. Namesake candidates stay
+separate; occurrence lists and answer-site assertions alone are insufficient.
+Same-person evidence, role/date precision, deduplication and exact source
+receipts remain required; there is no minimum fact count or exhaustive-coverage
+claim. Supported first-pass facts can form a partial draft if enrichment fails.
+The model's internal citation contract uses short `ref` handles exposed by its
+Search child instead of copying opaque redirect URLs. The host resolves only
+selected, exposed handles from that invocation to exact received URLs, preserves
+model-authored facts/titles/confidence/order, then validates the unchanged public
+`sources:{title,url}` shape. Unknown refs, parent-only metadata, raw-URL fallbacks
+and unsafe resolved URLs fail closed. Search source refs never enter the public
+API or PKM. Current discovery has no separate verification metadata.
+Cached drafts bind the effective identity and active research policy (task and
+Search instructions, resolved model, output schema and execution limits) under
+the person's key. A changed policy requires a fresh authenticated start, not
+reuse of an older draft; it preserves the rolling paid-start budget.
+The single-shot discovery is bounded to one 160-second deadline with no
+assessment pass. Raw compatibility research retains 90-second inactivity limits
+inside the 200-second job budget. Nested Search does not stream intermediate
+events to the browser; none of these limits is a browser request deadline.
+The original request's derived key is retained only for checkpoint commit under
+the existing absolute 300-second ceiling. No token/key is persisted. A restart
+does not autonomously resume unfinished work; fresh owner authority must claim
+its expired lease. Completed drafts expire after 24 hours and namespace-scoped
+hourly cleanup physically prunes at most 500 expired rows per pass. Every draft
+release rechecks strict first-party authority, rollout, setup, fresh admitted
+identity (including canonical name/verified-phone fallback) and saved status.
+Pre-research unavailable results retain their 60-second dependency cooldown;
+charged search or assessment failures are terminal and never become no-match
+evidence. Client status recovery stops rather than automatically dispatching
+another POST, and mounted cards do not schedule research retries.
+Initial pending personal discovery cannot reveal the outer Magic card,
+even if the optional directory lookup is already ready. Review and explicit
+receipt-confirmed PKM completion are unchanged. Hosted multi-instance acceptance
+and physical-device suspension are separate verification, not localhost proof.
+
+Personal review pins one complete, owner-scoped decrypted inventory before asynchronous memory
+preparation. Duplicate checks, semantic reconciliation and business-origin binding
+use that same memory-only witness even if a concurrent PKM write invalidates the
+shared context cache. Vault expiry revokes the witness; it is not persisted or
+write authority. Canonical saves still rebuild against fresh PKM on every conflict
+retry. A bound existing business must retain its UID at the same active target;
+deleted, moved, inactive or replaced targets require another review and cannot
+be resurrected by an extension. Personal details remain independent of Business
+cache readiness once preparation has captured its complete inventory.
 
 Personal completion is independent of Business completion. A successful review
 calls `POST /api/one/profile-research/complete` with 1–64 unique domain/plan
@@ -1226,10 +1369,13 @@ collapsing Magic and then reaching route navigation; busy mutations consume Back
 Both discovery services share a server-owned cumulative Magic rollout. Phase 0
 is off; phase 1 admits only `parth.mawai.12@gmail.com`; phase 2 adds the four
 inner-team accounts; phase 3 adds four senior-team accounts; phase 4 adds QA.
+Phase 5 admits any enabled owner with a fresh verified primary email only when
+both `ENVIRONMENT` and revision provenance `HUSHH_DEPLOY_ENV` are `uat`.
+It removes the email roster, not owner, vault, setup, saved-state or rate gates.
 Admission uses fresh Firebase UID, enabled state and verified primary email,
 with only case/outer whitespace normalization. Client input, phone identity,
 shadow records, aliases and token email claims cannot select a rollout account.
-Missing, malformed, duplicated, overlapping or incomplete promoted cohorts
+For phases 1–4, missing, malformed, duplicated, overlapping or incomplete promoted cohorts
 close discovery. Independent profile/Business switches still apply; Business
 never blocks personal research. Both services recheck current identity and their
 worker's policy before returning provider results. Initial pending, denied,
@@ -1244,7 +1390,11 @@ Smirthika; four accounts), `ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT` (Anki
 Akshat, Neelesh, Kushal; four accounts), and `ONE_MAGIC_INTELLIGENCE_QA_EMAILS_UAT`
 (Jhumma; one account). These feed the corresponding lowercase structured
 runtime-config keys and uppercase backend environment names. Unconfirmed
-inner-team addresses remain empty, so phase 2+ stays closed until supplied.
+inner-team addresses remain empty, so phases 2–4 stay closed until supplied.
+For the approved UAT-wide rollout, set that UAT variable to `5`; no per-email
+CSV is needed. The config writer rejects phase 5 outside UAT, and runtime
+admission rejects missing or conflicting environment provenance. Production
+defaults remain off. Accounts without a verified primary email are not admitted.
 For rollback, set phase to 0, or set `ONE_PROFILE_RESEARCH_ENABLED_UAT=false`
 and `ONE_BUSINESS_DIRECTORY_ENABLED_UAT=false`, then deploy a new backend
 revision and retire old traffic. Secret/variable edits alone do not update
@@ -1438,16 +1588,47 @@ The client reads up to 5,000 unique usable numbers per sync, dispatches them in 
 most 1,000, and reports any source/cap overflow as unchecked rather than as zero/unmatched.
 Contact sync reuses the phone verification established at signup. Client phone
 hydration is an optional normalization hint and cannot require a second OTP.
-Both contact-sync mutation and `one_network` compatibility matching refresh an
-incomplete identity shadow from the authenticated owner's Firebase record before
-the existing database verification and lookup-budget gates; complete verified
-claims use the cached path. Provider refresh preserves backend-only verified phone
+Complete verified phone claims keep the existing cached web/iOS/Android path.
+For a phone-less requester, both contact-sync mutation and `one_network`
+compatibility matching read the authenticated owner's current Firebase Admin
+record before lookup charging. A current verified, nonblank Google/Apple email
+can admit an established account: the database must contain the same verified
+email and an active vault or completed setup. The mutation rechecks those facts
+under the existing identity table SHARE lock before writing relationships.
+Client-supplied email evidence, retained display email, setup flags alone,
+unverified email, disabled identities, and unfinished accounts cannot use this
+fallback. It verifies the requester account, never a phone or target contact.
+Provider refresh preserves backend-only verified phone
 claims when the primary Firebase account has no phone. Missing normalization
 identity permits explicit international numbers and Android SIM-region numbers;
 ambiguous national numbers remain uncheckable without locale guessing. A partially
 normalized multi-number contact can still match, but cannot be labelled unmatched
 or inviteable unless every usable number was checked. Database verification remains
 mandatory after recovery.
+
+Signup phone verification is account-scoped: deleting only an RIA persona retains
+the shared identity row and its verified phone, email and avatar. Full account
+deletion still removes it. Passive Firebase hydration cannot transfer a phone
+already verified for another account; ownership is rechecked under the existing
+phone advisory lock and ordered identity row locks. An explicit validated phone
+claim retains the transfer path, and Firebase phone replacement still updates an
+account when the new number is unbound.
+
+If an incomplete identity cannot be refreshed because the provider or persistence
+is unavailable, both contact-sync endpoints return retryable HTTP 503 with
+`CONTACT_SYNC_IDENTITY_UNAVAILABLE`, before lookup charging or matching. That
+failure does not ask for another OTP. A successful refresh with neither a trusted
+phone claim nor the established-account email evidence above still fails with
+HTTP 403. The compatibility error code remains
+`CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED`; the refusal describes account
+verification recovery rather than telling a signed-in user to repeat phone OTP.
+Previously deleted app-only
+claims cannot be reconstructed from a phone-less Firebase record.
+The email fallback leaves both endpoints' shared per-UID minute/day lookup
+allowance, batch limit, target verified-phone matching, opt-outs, and disconnect
+rules unchanged. It admits a narrower established-account class than accepting
+every email-verified signup, but that class no longer requires a current phone
+claim for requester admission.
 
 `actor_identity_cache` stores only canonical E.164 verified phones. Migration 198 clears every
 member of a malformed or duplicate verified binding, marks the shadow stale for an immediate
@@ -1480,7 +1661,7 @@ budget to Redis/Memorystore later without changing the API contract.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| POST | `/api/marketplace/contacts/match` | Firebase Bearer; verified requester phone for `one_network` | Match up to 1000 `{hash, last4}` lookups against the directory. `scope: "one_network"` uses exact current verified-phone matches to visible ONE Connect-directory accounts under `contact_directory_auto_connect_v2` and consumes the same Postgres-backed lookup allowance as canonical contact sync, so switching endpoints cannot bypass the enumeration budget. An untouched preference is eligible by default; explicit contact opt-out, marketplace hide, and invalid preference evidence block new-person discovery. `scope: "marketplace"` (the default) keeps the Connect deck's publicly-discoverable-profiles policy and existing requester contract. Returns `user_id`, `kind`, `display_name`, `headline`, `profile` — and **no phone digits** |
+| POST | `/api/marketplace/contacts/match` | Firebase Bearer; verified requester account for `one_network` | Match up to 1000 `{hash, last4}` lookups against the directory. `scope: "one_network"` uses exact current verified-phone matches to visible ONE Connect-directory accounts under `contact_directory_auto_connect_v2` and consumes the same Postgres-backed lookup allowance as canonical contact sync, so switching endpoints cannot bypass the enumeration budget. An untouched preference is eligible by default; explicit contact opt-out, marketplace hide, and invalid preference evidence block new-person discovery. `scope: "marketplace"` (the default) keeps the Connect deck's publicly-discoverable-profiles policy and existing requester contract. Returns `user_id`, `kind`, `display_name`, `headline`, `profile` — and **no phone digits** |
 | POST | `/api/one/connections/contact-sync` | Firebase Bearer + verified requester phone | Exact-match up to 1000 opaque `{lookup_id, hash, last4}` proofs from `lookups` (`last4` is exactly four digits). A current, unique verified-phone proof may map to an already-active canonical ONE connection even when that target has contact discovery disabled; this recognition creates no new contact provenance or Trusted/Circle projection. New relationships use the visible Connect-directory default, honor explicit contact opt-out and marketplace hide, and reject malformed preference evidence. The mutation revalidates proof, relationship, and policy under transaction locks shared with preference/profile writers. Hidden nonconnections and hidden revoked pairs are omitted; a fresh explicit sync may reconnect an eligible pair only when the requester made the earlier disconnect. The database-clock attempt cutoff and exact revocation episode prevent an in-flight sync from undoing a newer removal. Peer-made, unknown-actor and mismatched-episode disconnects stay suppressed. Migration 205 stores actor/episode annotations; the bounded historical backfill only promotes two agreeing exact-episode events. Returns batch counts, matched `items` only as `{lookupId, userId, displayName, photoUrl, outcome}`, and opaque `indeterminateLookupIds` for initially matched proofs that could not be safely revalidated; clients must neither display those as matches nor treat them as invitation candidates. Emits `auto_connected`, `already_connected`, or `suppressed` (`request_required` remains client-readable only for rolling compatibility). Viewer-relative provenance records `verified_phone_directory_match`, `contact_directory_auto_connect_v2`, and the actual target preference state; it never fabricates historical v1 consent or persists proof material. Hashes and digits are never returned or stored. Contact sync grants no location or private-information access; a later eligible location request from any active connection follows the owner's pre-existing `all_contacts` standing rule. |
 | GET | `/api/one/connections` | Firebase Bearer | With no query parameters, preserves the legacy complete `{items}` array. Supplying any of `page`, `limit` (maximum 100), `query`, or `audience=all\|ria` selects the bounded contract `{items,page,hasMore,totalCount,audience}`. Filtering, including verified-RIA audience filtering, happens before stable normalized-name/user/connection ordering and paging; contact provenance and RIA annotations are computed only for page rows. |
 | GET | `/api/iam/contact-discoverability` | Firebase Bearer | Read effective contact-directory eligibility plus `stored_contact_discoverable`, `directory_visible`, `contact_sync_preference_state` (`default`, `enabled`, `disabled`, or `invalid`), and `contact_sync_match_policy_version`. Untouched accounts follow the visible Connect-directory default; explicit opt-outs and marketplace hides remain disabled. Historical explicit enablement timestamp, rule version, and consent-contract version are reported as stored, never fabricated for default eligibility |
@@ -2062,6 +2243,8 @@ Security invariant:
 | GET    | `/api/consent/events/{user_id}`                                    | Disabled in production unless `CONSENT_SSE_ENABLED=true`                                                                                                                                                            |
 | GET    | `/api/consent/events/{user_id}/poll/{request_id}`                  | Deprecated and disabled (`410`, `CONSENT_POLL_DEPRECATED`)                                                                                                                                                          |
 | GET    | `/api/v1/consent-events?user_id={user_id}&request_id={request_id}` | Developer-authenticated SSE for the outside agent; prefer `Authorization: Bearer <developer-token>`; emits `snapshot`, `consent_update`, and `heartbeat`; scoped to the developer app that owns the consent request |
+| GET    | `/api/consent/document-feed/{user_id}?v=1\|2`                      | Firebase bearer whose uid must equal `user_id` (403 `USER_ID_MISMATCH`). Wake-ups for document requests, the Feed and payouts. `v=2` sends typed frames. Without `v` (or `v=1`) it is the v1 long-poll: it closes about 500 ms after its first change frame and lives at most 110-120 s. The web reaches it through the same-origin Next proxy at the same path, which accepts only `v=1` or `v=2` and ends each stream after 90-110 s, below the web server's request timeout. Native apps call the backend directly |
+| GET    | `/api/one/feed/events?v=2`                                         | The web's direct stream at the backend origin; always v2. Firebase bearer; the owner comes from the token, never the URL. Answers 404 `FEED_STREAM_DISABLED`, before reading the token, when `DOCUMENT_FEED_WEB_STREAM_ENABLED` is off (the default in production). The web falls back to the Next proxy above on 404, 503 or a network failure |
 
 The first-party `/api/consent/events/{user_id}` stream also carries metadata-only
 Circle and Connection state doorbells when enabled. Committed membership changes
@@ -2075,6 +2258,32 @@ perform bounded reconciliation if a push is missed: every 30 seconds on an
 open Circle surface and every 60 seconds on the Connection or People overview.
 Those reads do not delay an event that arrives live. These events carry no
 roster, location, or private-information contents and grant no authority.
+
+Both document-feed streams share one frame set, one admission limit and one
+token check. v2 frames:
+
+- `hello {v, heartbeat_ms, max_lifetime_ms, live}` first.
+- `feed_reset {}` on connect and after a LISTEN resync: reread the snapshot.
+- `feed_changed` with an event `id` and `{request_id}` for one document
+  request, or `{}` for any other Feed write.
+- `payout_changed {kinds, request_ids}`. Kinds are `wallet`, `earnings`,
+  `bank_payouts`, `account` and `balance`; a doorbell with missing or unknown
+  kinds lists them all. `request_ids` holds at most 20 IDs and is empty when the
+  change is not request-specific or names more than 20. Doorbells coalesce per
+  stream (500 ms debounce, 2 s maximum wait).
+- `heartbeat {ts, live}` every 15 s.
+- `reconnect {after_ms}` (0-2000) just before the server closes, after 840 s
+  ± 60 s on a direct stream.
+
+v1 keeps `feed_reset`, `feed_changed` and `heartbeat {live}` (every 30 s), and
+turns a payout burst into one `feed_reset`. Each backend worker admits 6
+document-feed streams, at most 3 per user; a fourth stream for one user ends
+that user's oldest, and a full worker answers 503 `FEED_STREAM_BUSY` with
+`Retry-After: 60`. The Firebase token is re-verified every 30 s; once it no
+longer maps to the owner, the stream ends without another frame. Frames are
+reread hints: they carry no amounts, file names, provider IDs or counterpart
+data. Client behaviour is in the
+[streaming implementation guide](../streaming/streaming-implementation-guide.md).
 
 ### Deprecated (410 Gone)
 
@@ -2808,8 +3017,8 @@ tokens, subjects and endpoints are not returned. Mutations derive owner/generati
 | `POST /requests/{id}/review/refresh` | A's current revision cancels unused review authority and queues preparation again. |
 | `POST /requests/{id}/approve` | A's exact revision, digest, document IDs and strict `confirmed=true`; atomically claims confirmation and records work. HTTP 202 means pending, not shared. |
 | `POST /requests/{id}/allow` | A's revision-bound Allow for a request from outside A's Trusted circle. Body `{revision, amountCents?, confirmed: true}`; `amountCents` is whole US dollars in cents (100–50000, a multiple of 100), required when the request is paid and rejected when it is free (`422 invalid_payment_amount`). Requires A's live Drive, an active A/B connection, both period dates, and a request that is still new: pending, unexpired, not stopped, not Trusted (by its marker or B's current Trusted membership) or already allowed, and with no search started. Re-seals the request with the same automatic marker a Trusted request gets plus A's price, so the Trusted pipeline runs next: background search, first frozen batch, payment order at A's price, then automatic grants. Each step still rechecks the connection, and a disconnect ends the Allow for good: reconnecting never restores it. Keeps the revision, emits no event and makes no provider call. HTTP 202 `{requestId,status,revision,ownerAllowed,amountCents}`. Repeating the same price returns the same result while the Allow stands; a different price or a decided request returns `409 request_already_decided`, and a stale revision `409 review_changed`. |
-| `POST /requests/{id}/decline` | A's revision-bound decision; no provider call. |
-| `POST /requests/{id}/cancel` | B's revision-bound cancellation before approval; no provider call. |
+| `POST /requests/{id}/decline` | A's revision-bound decision; no provider call. A paid or already shared request returns `409 request_paid`. |
+| `POST /requests/{id}/cancel` | B's revision-bound withdrawal of a pending, preparing, review-ready or approved request; no Google call. A paid or already shared request returns `409 request_paid`. Payment effects are in [Document request prices and payouts](#document-request-prices-and-payouts). |
 | `GET /requests/{id}/delivery` | Recorded per-file outcomes. B's current verified Google identity is revalidated; only successfully delivered originals have links. These are not live ACL guarantees. |
 | `POST /requests/{id}/revocation/prepare` | A's fresh review of recorded Hussh-managed direct Viewer grants under the current matching Google account. |
 | `POST /requests/{id}/revocation/confirm` | Exact revocation revision, directive, digest, grant IDs and strict confirmation; queues removal, never adopts pre-existing grants. |
@@ -3242,11 +3451,19 @@ responses are private/no-store. The web connector proxy preserves `PUT` for
 | `GET /api/connectors/google_drive/sharing/pricing` | Owner's `{enabled,amountCents,version}` default. Disabled means ask per request; it never authorizes a fallback charge. |
 | `PUT /api/connectors/google_drive/sharing/pricing` | `{enabled,amountCents,expectedVersion}`; whole USD dollars from $1 to $500. Concurrent edits fail with `price_changed`; existing orders keep their amount. |
 | `POST /api/connectors/google_drive/sharing/requests/{id}/price` | Owner's `{revision,amountCents,confirmed:true}` for a pending Trusted request without a price. Sets this request's quote, without extending sharing consent or replacing current trust checks. Refuses stale, closed, already searched or ordered requests. |
-| `GET /api/one/payouts/account` | Current `stripeMode` and safe Connect readiness booleans/status, verified with Stripe. Optional default USD bank display name/last four/status, `bankStatus`, and `canManageBank`. No provider account ID or banking credentials. |
-| `POST /api/one/payouts/account/onboard` | One US Express account per owner and Stripe mode; a fresh Stripe setup URL returns to Profile → Payouts. Test setup never satisfies live readiness. |
+| `GET /api/one/payouts/account?fresh=true` | Current `stripeMode` and safe Connect readiness booleans/status, verified with Stripe. Optional default USD bank display name/last four/status, `bankStatus`, `canManageBank`, `verification` (state, due date, what Stripe needs, in plain codes) and `payoutSchedule`. A masked status is cached 30 s per owner, mode and account; `fresh=true` (a return from Stripe, Retry) reads Stripe directly. Display only: money paths re-verify. No provider account ID or banking credentials. |
+| `POST /api/one/payouts/account/onboard` | One US Express account per owner and Stripe mode; a fresh Stripe setup URL returns to Profile → Payouts. Optional body `{purpose:"verify"}` opens Stripe's update flow for details Stripe needs. Test setup never satisfies live readiness. |
 | `POST /api/one/payouts/account/manage` | A fresh Stripe Express login link for the authenticated owner's existing US Express account, including restricted accounts needing bank repair. Deleted/non-US/non-Express accounts are rejected. No caller-selected destination account. |
-| `GET /api/one/payouts/account/earnings?cursor=…` | Owner-scoped document transactions, at most 20 per page, newest first; opaque request UUID cursor. Shows gross, refund, 3% commission, actual allocated processing fee, net earnings, reversal and delivery counts. Unknown amounts remain null. |
-| `GET /api/one/payouts/account/bank-payouts` | Up to 20 recorded Stripe bank payout statuses. An account transfer is never reported as a bank deposit. |
+| `GET /api/one/payouts/account/earnings?cursor=…&mode=live\|test` | Owner-scoped document transactions, at most 20 per page, newest first; opaque request UUID cursor; `mode` defaults to the payment mode. Shows gross, refund, 3% commission, actual allocated processing fee, net earnings, reversal and delivery counts. Unknown amounts remain null. |
+| `GET /api/one/payouts/account/bank-payouts?cursor=…` | Up to 20 recorded Stripe bank payout statuses per page with `nextCursor`. Each keeps the masked bank it was sent to (write-once), the payout method, Stripe's bank trace and reconciliation status, and when the status changed; a same-status provider update still applies. An account transfer is never reported as a bank deposit. |
+| `GET /api/one/payouts/account/balance` | The owner's Connect balance for the configured mode: `{stripeMode, currency, accountLinked, inStripeCents, availableCents, pendingCents, nextAvailableOn, nextAvailableCents, asOf, stale}`. An unlinked owner gets zeros with `accountLinked:false`. Snapshot read; refreshes from Stripe inline (single flight, at most 2.5 s) only when stale; 503 `BALANCE_UNAVAILABLE` otherwise. |
+| `GET /api/one/payouts/activity?kind=&mode=&cursor=&limit=&since=` | One owner-scoped, newest-first list of earnings, coin redemptions, bank deposits and adjustments (`kind` all, earning, redemption, deposit, adjustment or coins; `limit` 20, at most 50; opaque cursor). Held money carries `review: {reason, nextStep}` from a closed vocabulary, never provider text. `balanceAfterCoins` is the ledger balance after that row, not the available balance: reservations and holds are not ledger rows. `since=` (never with `cursor`) rereads from 30 s before that time and returns at most 100 changed rows; more than that returns `reset:true` and no rows. Deposit IDs keep their `po_`; no other provider ID is returned. 422 `INVALID_ACTIVITY_QUERY` on unknown filters, 422 `INVALID_CURSOR` for a cursor from another owner, mode, kind or signing key. The web client refuses a page whose `schemaVersion` is not 1, whose `mode` or `kind` differs from the query, or whose `nextCursor` repeats the cursor it sent; drops rows that break amount, ID or mode rules; never displays provider IDs; and merges pages by ID. |
+| `GET /api/one/payouts/activity/{itemId}` | One receipt for the authenticated owner: amounts, fees, status timeline, masked bank and a Hussh reference `HC-XXXXXXXX` for support. No `acct_`, `ch_`, `pi_`, `tr_` or `trr_` IDs. Another owner's item is 404 `ACTIVITY_ITEM_NOT_FOUND`. |
+| `GET /api/connectors/google_drive/sharing/requests?direction=outgoing`, `GET …/requests/{id}`, `GET …/requests/{id}/delivery` | For the requester of a request that requires payment, each also carries `payment`, the requester payment view: `{state, amountCents, currency, checkoutExpiresAt, requestExpiresAt, refund, nextAction, withdrawn}`. `state` is `none`, `awaiting_owner`, `preparing`, `payable`, `link_expired`, `request_expired`, `paid`, `refund_pending`, `refunded`, `partially_refunded` or `closed`; `nextAction` is `pay`, `wait_owner`, `new_request` or `none`. Money states win, so a late payment on a closed request never reads as unpaid or closed. Free requests and the owner's view keep their old shape. No provider IDs, owner earnings or file details. |
+| `GET /api/connectors/google_drive/sharing/requests/{id}/payment` | Requester only. Adds `paymentView`, the same payment view, beside the existing quote and status fields. |
+| `POST /api/connectors/google_drive/sharing/requests/{id}/cancel` | The requester withdraws a pending, preparing, review-ready or approved request that is not paid. A paid or refunded order, or any file share already sent to Google, returns 409 `request_paid` on every attempt; the owner's `/decline` uses the same check. Repeating a completed withdrawal returns the cancelled request. In one transaction, queued shares stop, queued grants are retired, the unpaid order expires (its session kept) and an unpaid owner earning becomes void. The response carries `payment` when the request requires payment. After commit, an open Checkout is expired at Stripe, best effort; it never fails the withdrawal. If Stripe reports the session already paid, `payment.state` is `refund_pending`. A payment that completes after withdrawal settles as `request_closed` and is refunded in full. |
+| `POST /api/connectors/google_drive/sharing/requests/{id}/review-request` | The requester asks the owner to review files that were not shared, at most three times per request; queues the owner's notification. |
+| `GET /api/connectors/google_drive/sharing/recipient-identity` | The Google account a new request's files would be shared with: `{email, provider}`. |
 
 New paid requests carry a sealed owner-settlement requirement. Missing payout
 readiness, missing price or paused enrollment leaves them waiting without

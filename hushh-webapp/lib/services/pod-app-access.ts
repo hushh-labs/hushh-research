@@ -19,7 +19,11 @@ type AccessPorts = {
   transport: () => Promise<OwnerPodTransport>;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
   onChatAdmission?: (hushhId: string) => void;
+  isCurrent?: () => boolean;
 };
+function refuseRetiredOwner(isCurrent?: () => boolean): void {
+  if (isCurrent && !isCurrent()) throw new Error("POD_OWNER_CHANGED");
+}
 const OWNER_POD_ROUTES = new Set([
   "files/list",
   "files/entry",
@@ -85,6 +89,7 @@ export async function ownerPodRequest(
   expectedUserId?: string,
   expectedVaultEpoch?: number,
 ): Promise<Response> {
+  refuseRetiredOwner(ports.isCurrent);
   const vaultEpoch = expectedVaultEpoch ?? snapshotVaultSessionEpoch();
   if (!isVaultSessionEpochCurrent(vaultEpoch))
     throw new Error("POD_VAULT_SESSION_CHANGED");
@@ -226,6 +231,7 @@ export async function ownerPodRequest(
       throw new Error("POD_OWNER_CHANGED");
   }
   refuseCancelled();
+  refuseRetiredOwner(ports.isCurrent);
   const request: RequestInit = {
     ...init,
     credentials: "omit",
@@ -541,12 +547,15 @@ export async function agentChatRequest(
     hosting: () => Promise<{ hostingMode?: string }>;
     fetch: AccessPorts["fetch"];
     direct: AccessPorts["fetch"];
+    isCurrent?: () => boolean;
   },
 ): Promise<Response> {
+  refuseRetiredOwner(ports.isCurrent);
   if (!/^\/api\/one\/agent-chat(?:$|[/?])/.test(path) || path.includes("#")) {
     throw new Error("AGENT_CHAT_ROUTE_REFUSED");
   }
   const usePod = await usesOwnerPod(ports.hosting);
+  refuseRetiredOwner(ports.isCurrent);
   return usePod
     ? ports.direct(path.slice("/api/one/".length), init)
     : ports.fetch(path, init);

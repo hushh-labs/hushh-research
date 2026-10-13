@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ read: vi.fn(), open: vi.fn(), prepare: vi.fn(), share: vi.fn(), state: vi.fn(), directory: vi.fn(), success: vi.fn(), error: vi.fn(), origin: vi.fn() }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), open: vi.fn(), prepare: vi.fn(), encrypt: vi.fn(), share: vi.fn(), state: vi.fn(), directory: vi.fn(), success: vi.fn(), error: vi.fn(), origin: vi.fn() }));
+vi.mock("@/lib/services/wallet-card-share-service", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/services/wallet-card-share-service")>(),
+  prepareTemporaryCardShares: mocks.encrypt,
+}));
 vi.mock("@/lib/wallet/wallet-card-file", () => ({ readEncryptedCardFile: mocks.read, openEncryptedCardFile: mocks.open }));
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ CardAccessUnavailableError: class CardAccessUnavailableError extends Error {}, WalletCardAccessService: { state: mocks.state, recipients: mocks.directory, share: mocks.share } }));
 vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { prepareCardSharing: mocks.prepare, listCardShareReceipts: async () => [] } }));
@@ -20,6 +24,7 @@ const getContext = () => context;
 beforeEach(() => {
   vi.clearAllMocks(); current = true;
   mocks.read.mockResolvedValue({}); mocks.open.mockResolvedValue(card); mocks.prepare.mockResolvedValue(undefined); mocks.share.mockResolvedValue({ grants: [] });
+  mocks.encrypt.mockResolvedValue({ person_bob: "recipient-ciphertext" });
   mocks.state.mockResolvedValue({ eligible: false, grants: [] });
   mocks.directory.mockResolvedValue({ items: [{ personRef: "person_bob", displayName: "Bob", photoUrl: null, trusted: false }], hasMore: false });
   mocks.origin.mockReturnValue("https://example.test");
@@ -58,7 +63,7 @@ describe("temporary card access", () => {
     await waitFor(() => expect(mocks.error).toHaveBeenCalledTimes(1));
     const requestId = mocks.share.mock.calls[0][4];
     expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ cardId: summary.cardId, userId: "alice" }));
-    expect(mocks.share).toHaveBeenCalledWith(expect.any(Object), summary.cardId, ["person_bob"], 15, requestId);
+    expect(mocks.share).toHaveBeenCalledWith(expect.any(Object), summary.cardId, ["person_bob"], 15, requestId, { person_bob: "recipient-ciphertext" });
     expect(mocks.success).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Share with 1", exact: true }));
     await waitFor(() => expect(mocks.success).toHaveBeenCalledWith("Card shared."));

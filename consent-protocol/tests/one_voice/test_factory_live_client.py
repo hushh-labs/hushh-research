@@ -68,6 +68,19 @@ def test_build_live_client_pins_one_regional_vertex_client(fake_genai_client):
     ]
 
 
+def test_voice_project_override_does_not_change_ambient_client(fake_genai_client, monkeypatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    factory.build_managed_live_client(
+        model=LIVE_MODEL, location="us-central1", vertex_project="hussh-511311"
+    )
+    factory.build_managed_live_client(model=LIVE_MODEL, location="us-central1")
+    assert [call["project"] for call in fake_genai_client] == [
+        "hussh-511311",
+        "hushh-vertex-personal54",
+    ]
+
+
 @pytest.mark.parametrize("location", ["global", "us", "eu", ""])
 def test_build_live_client_rejects_multi_region_aliases(fake_genai_client, location):
     with pytest.raises(RuntimeError, match="regional"):

@@ -9,6 +9,7 @@ import {
 import { buildPkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
@@ -88,7 +89,7 @@ export interface RefreshMemoryParams {
   force?: boolean;
 }
 
-/** Reproducible session-only view of authoritative encrypted readback. */
+/** Revision-checked view, persisted through the existing encrypted source writer. */
 export async function refreshMemoryDocument(
   params: RefreshMemoryParams,
 ): Promise<MemoryView> {
@@ -117,6 +118,7 @@ export async function refreshMemoryDocument(
   const sources: {
     domain: string;
     contentRevision: number | null;
+    manifestRevision?: number | null;
     unavailableReason?: string;
   }[] = [];
   const fullBlob: Record<string, unknown> = {};
@@ -158,7 +160,10 @@ export async function refreshMemoryDocument(
         continue;
       }
       fullBlob[domain] = snapshot.data;
-      sources.push({ domain, contentRevision: snapshot.key.contentRevision });
+      // Its inventory has per-record revisions; the derived document's own
+      // write must not become a new source revision and trigger a save loop.
+      sources.push({ domain, contentRevision: domain === "one_living_sources" ? null : snapshot.key.contentRevision,
+        manifestRevision: domain === "one_living_sources" ? null : snapshot.manifestRevision });
     } catch {
       sources.push({
         domain,
@@ -168,15 +173,56 @@ export async function refreshMemoryDocument(
     }
   }
   if (!valid()) return stale();
-  const builtAt = new Date().toISOString();
-  const document = buildMemoryDocument({
+  let builtAt = new Date().toISOString();
+  const livingPrivate = (fullBlob.one_living_sources as { _private?: Record<string, unknown> } | undefined)?._private;
+  const records = (livingPrivate?.inventory as { records?: { kind: string; deletedAt: string | null; value: Record<string, unknown> }[] } | undefined)?.records;
+  const profile = records?.find(record => record.kind === "profile" && !record.deletedAt)?.value;
+  const account = params.account ?? (profile ? {
+    displayName: typeof profile.name === "string" ? profile.name : null,
+    email: typeof profile.email === "string" ? profile.email : null,
+    photoUrl: typeof profile.photo === "string" ? profile.photo : null,
+  } : null);
+  let document = buildMemoryDocument({
     snapshot: buildPkmMemorySnapshot({ metadata: null, fullBlob }),
     domainData: fullBlob,
     sources,
     audience: "self",
     builtAt,
-    account: params.account ?? null,
+    account,
   });
+  if (document.complete && networkVerified && livingPrivate) {
+    const stable = JSON.stringify([document.markdown.replace(builtAt, ""), document.sourceLinks]);
+    const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(stable));
+    const sourceSignature = Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("");
+    if (!valid()) return stale();
+    const prior = livingPrivate.memory_document as { signature?: string; document?: MemoryDocument; builtAt?: string } | undefined;
+    if (prior?.signature === sourceSignature && prior.document?.complete &&
+        prior.document.markdown && Array.isArray(prior.document.sourceLinks) && prior.builtAt) {
+      document = prior.document;
+      builtAt = prior.builtAt;
+    }
+    if (prior?.signature !== sourceSignature) {
+      const stored = await PkmWriteCoordinator.saveMergedDomain({
+        userId: params.userId, domain: "one_living_sources", vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
+        confirmation: { authorizationMode: "owner_source_projection", surface: "web", source: "one_living_memory_source_projection" },
+        idempotencyScope: `memory_document:${sourceSignature}`,
+        beforeEffect: async () => { if (!valid()) throw new Error("Memory sources changed"); },
+        build: (context) => {
+          if (!valid() || (changes.get(params.userId) ?? 0) !== change) throw new Error("Memory sources changed");
+          const current = context.currentDomainData ?? {};
+          const privateData = (current._private ?? {}) as Record<string, unknown>;
+          // A concurrent source-sync changes the inventory. Retry from its
+          // fresh read instead of saving a document over a changed source.
+          if (JSON.stringify(privateData.inventory) !== JSON.stringify(livingPrivate.inventory)) throw new Error("Memory inventory changed");
+          return { domainData: { ...current, _private: { ...privateData, memory_document: {
+            schemaVersion: "source_linked_memory.v1", name: "memory.md", signature: sourceSignature, document, builtAt,
+          } } }, summary: { source_projection_complete: true } };
+        },
+      });
+      if (!stored.success) throw new Error("Encrypted memory document could not be stored");
+    }
+  }
+  if (!valid()) return stale();
   CacheService.getInstance().set(
     CACHE_KEY(params.userId),
     { document, builtAt, change, signature, networkVerified },

@@ -1,3 +1,4 @@
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import type {
   LegalDocumentDetail,
   ProfileDetail,
@@ -248,12 +249,7 @@ export function stripProfilePaneTransientParams(
 
 type ProfilePaneHistoryState = {
   depth?: number;
-  /**
-   * The pane was opened straight onto this location from a screen elsewhere
-   * in the app (Puppy One's "Trusted devices" link, say). Back from that first
-   * entry returns to the screen the person came from, not to the location's
-   * static parent: they never saw the parent, so landing on it is a detour.
-   */
+  /** A first entry opened elsewhere returns there, rather than to its unvisited static parent. */
   returnsToOrigin?: boolean;
 };
 
@@ -377,6 +373,9 @@ export function popProfilePaneLocation(
 ): void {
   if (typeof window === "undefined") return;
   const current = resolveProfilePaneUrlState(searchParams);
+  if (current.open && current.location.panel && !current.location.detail && unwindBackLayer(pathname, toSearchParams(searchParams), {
+    [PROFILE_PANE_QUERY]: "1", [PROFILE_PANE_PANEL_QUERY]: current.location.panel,
+  })) return;
   const paneState = currentPaneHistoryState();
   // Opened straight onto this location from another screen: Back returns
   // there. The previous history entry is that screen, so this closes the pane

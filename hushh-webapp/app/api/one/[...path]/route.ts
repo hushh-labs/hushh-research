@@ -218,7 +218,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       headers.set("Content-Type", contentType || "application/json");
       body = (await (/^circles\/[^/]+\/photo$/.test(path) ? readCircleChatBody(request, 430000) :
         /^circles\/[^/]+\/chat(?:\/|$)/.test(path) ? readCircleChatBody(request) :
-        path === "messages" && request.method === "POST" ? readCircleChatBody(request, DIRECT_MESSAGE_MAX_REQUEST_BYTES) : request.text())) || undefined;
+        path === "messages" && request.method === "POST" ? readCircleChatBody(request, DIRECT_MESSAGE_MAX_REQUEST_BYTES) : path.startsWith("wallet/card-access") ? readCircleChatBody(request, 16384) : request.text())) || undefined;
     }
 
     const response = await fetch(url, {

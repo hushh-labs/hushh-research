@@ -12,3 +12,8 @@ describe("local card scan parsing", () => {
     expect(parseCardScan("4242424242424242\nAlex Sample\n12/30 11/29" )).toEqual({ pan: "4242424242424242" });
   });
 });
+
+it("accepts OCR whitespace and four number groups split across lines", () => {
+  expect(parseCardScan("4242  4242\t4242\u00a04242")).toEqual({ pan: "4242424242424242" });
+  expect(parseCardScan("4242\n4242\n4242\n4242\n12/30")).toEqual({ pan: "4242424242424242", expiry: "12/30" });
+});

@@ -45,11 +45,11 @@ const LIMITED_USE_POLICY_URL =
   "https://developers.google.com/terms/api-services-user-data-policy";
 const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 
-const LAST_UPDATED = "2026-09-27";
-const LAST_UPDATED_LABEL = "September 27, 2026";
-const VERSION = "2.1";
-const PRIVACY_LAST_UPDATED = "2026-10-02";
-const PRIVACY_LAST_UPDATED_LABEL = "October 2, 2026";
+const LAST_UPDATED = "2026-10-12";
+const LAST_UPDATED_LABEL = "October 12, 2026";
+const VERSION = "2.2";
+const PRIVACY_LAST_UPDATED = "2026-10-12";
+const PRIVACY_LAST_UPDATED_LABEL = "October 12, 2026";
 const PRIVACY_VERSION = "2.3";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
@@ -64,7 +64,7 @@ const privacyMail = {
   href: `mailto:${LEGAL_PRIVACY_EMAIL}`,
 };
 const deleteAccountLink = {
-  text: "one.hushh.ai/delete-account",
+  text: "one.hussh.si/delete-account",
   href: "/delete-account",
 };
 
@@ -77,7 +77,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Hussh One is your private agent. It answers you, remembers what you choose to save, works with the services you connect, and shares your information with other people only when you approve. This Privacy Policy explains what information One collects, how it is protected, how it is used, who it is shared with, and the choices you have.",
       ),
       p(
-        "It applies to the Hussh One apps for iPhone and Android and to one.hushh.ai, including Kai, the investing feature inside One. It is provided by HushOne, Inc. (“Hussh”, “we”, “us”). The hushh.ai website has its own privacy policy.",
+        "It applies to the Hussh One apps for iPhone and Android and to one.hussh.si and its existing one.hussh.ai and one.hushh.ai addresses, including Kai, the investing feature inside One. It is provided by HushOne, Inc. (“Hussh”, “we”, “us”). The public website at www.hussh.si and its existing .ai addresses has its own privacy policy.",
       ),
       p(
         "We have tried to describe what One actually does, including its limits. Where information is readable by our systems, we say so. Some features described here are not available to everyone yet; where that is the case, we say “where available”.",
@@ -246,7 +246,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       list(
         "Your Google sign-in tokens, encrypted at rest with keys Hussh holds.",
         "For purchase receipts found in Gmail: the subject, a short preview, the sender, and the merchant, amount, and order number. A receipt’s subject and preview may be given to the AI model to recognize it.",
-        "For Drive files you add to One: the file text, split into passages and indexed so One can search it, encrypted at rest with a key Hussh holds.",
+        "For Drive files you add to One: the file text, split into passages and indexed so One can search it, encrypted at rest with a key Hussh holds. Drive search indexing uses a self-hosted text-embedding model on our servers. This indexing step loads its model files locally and does not send your file contents to the model publisher. When One answers from a file, relevant passages may still be sent to your selected AI service as described in “How One uses AI models”.",
         "Other mail, calendar events, Drive files, and contacts are read when needed and are not stored, except as described above.",
       ),
       h("Disconnecting"),
@@ -473,7 +473,7 @@ const TERMS_SECTIONS: LegalSection[] = [
     title: "Agreement to these terms",
     blocks: [
       p(
-        "These Terms of Use are an agreement between you and HushOne, Inc. (“Hussh”, “we”, “us”). They govern your use of Hussh One, your private agent, in the iPhone and Android apps and at one.hushh.ai, including Kai, the investing feature inside One (together, “One”).",
+        "These Terms of Use are an agreement between you and HushOne, Inc. (“Hussh”, “we”, “us”). They govern your use of Hussh One, your private agent, in the iPhone and Android apps and at one.hussh.si and its existing one.hussh.ai and one.hushh.ai addresses, including Kai, the investing feature inside One (together, “One”).",
       ),
       p(
         "By creating an account or using One, you agree to these terms and to our ",
@@ -620,7 +620,7 @@ const TERMS_SECTIONS: LegalSection[] = [
     blocks: [
       p(
         "You can stop using One at any time, and you can delete your account from Profile or by following the steps at ",
-        { text: "one.hushh.ai/delete-account", href: "/delete-account" },
+        { text: "one.hussh.si/delete-account", href: "/delete-account" },
         ". We may suspend or end your access if you break these terms, if the law requires it, or if we stop offering One. Where we reasonably can, we will tell you in advance and give you a chance to export your information.",
       ),
     ],

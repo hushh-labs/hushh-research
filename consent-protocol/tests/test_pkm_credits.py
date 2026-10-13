@@ -87,6 +87,26 @@ class _DB:
     def table(self, name):
         return _Query(self.tables.setdefault(name, []))
 
+    def execute_raw(self, sql, params):
+        assert (
+            sql
+            == "SELECT scope_commerce_payout_account_claims_v1(:owner,:mode,:account) AS account_ids"
+        )
+        candidates = list(self.tables.get("scope_commerce_seller_accounts", []))
+        if params["account"] is not None:
+            candidates += self.tables.get("scope_commerce_sellers", [])
+        ids = {
+            row["account_id"]
+            for row in candidates
+            if row["livemode"] == params["mode"]
+            and (
+                row["account_id"] == params["account"]
+                if params["account"] is not None
+                else row.get("user_id") == params["owner"]
+            )
+        }
+        return _Result([{"account_ids": list(ids)}])
+
     def _ledger(self, user):
         return [r for r in self.tables.setdefault("pkm_credit_ledger", []) if r["user_id"] == user]
 

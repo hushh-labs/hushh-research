@@ -6,11 +6,20 @@ import {
   aggregateAgentPkmCaptures,
   createAgentPkmCaptureGuard,
   describeAgentPkmCapture,
+  resumedAgentPkmCaptureMessageId,
   shouldPresentAgentPkmCapture,
   shouldPublishAgentPkmCapture,
 } from "../agent-pkm-capture-runtime";
 
 describe("Memory capture session boundary", () => {
+  it("keeps a resumed receipt bound to its actual bubble in the displayed conversation", () => {
+    const displayed = new Set(["current-answer"]);
+    expect(resumedAgentPkmCaptureMessageId("current-answer", undefined, displayed)).toBe("current-answer");
+    expect(resumedAgentPkmCaptureMessageId("old-answer", "current-answer", displayed)).toBeNull();
+    expect(resumedAgentPkmCaptureMessageId("current-answer", "other-answer", displayed)).toBeNull();
+    expect(resumedAgentPkmCaptureMessageId(undefined, "current-answer", displayed)).toBeNull();
+    expect(resumedAgentPkmCaptureMessageId("current-answer", undefined, new Set())).toBeNull();
+  });
   it("does not fulfill an explicit or restricted save with an ambient capture promise", () => {
     const turn = { assistantMessageId: "turn", sourceMessage: "Synthetic note" };
     const ambient = agentPkmCaptureJobKey(turn);

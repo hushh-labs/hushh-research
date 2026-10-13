@@ -2,13 +2,13 @@ import { ApiService } from "@/lib/services/api-service";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { parseQueuedInputStatus, type QueuedInputPorts, type QueuedInputStatus } from "./agent-chat-live-turn-queue";
 
-export function queuedInputPorts(getVaultOwnerToken: () => string | null, readError: (response: Response) => Promise<string>): QueuedInputPorts {
+export function queuedInputPorts(getVaultOwnerToken: () => string | null, readError: (response: Response) => Promise<string>, isCurrent?: () => boolean): QueuedInputPorts {
   const call = async (path: string, init: RequestInit = {}): Promise<Record<string, unknown>> => {
     const token = getVaultOwnerToken();
     if (!token) throw new Error("Vault access expired.");
     // Own-cloud owners reach their agent; only a Shared owner's queue is on the hub.
     const response = await ApiService.agentChatRequest(path, { ...init, cache: "no-store",
-      headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}) } });
+      headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}) } }, false, undefined, isCurrent);
     if (!response.ok) throw new Error(await readError(response));
     return ((await response.json()) ?? {}) as Record<string, unknown>;
   };
@@ -50,4 +50,3 @@ export function queuedInputPorts(getVaultOwnerToken: () => string | null, readEr
     },
   };
 }
-

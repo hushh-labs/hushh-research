@@ -2163,37 +2163,51 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 /*
- * Profile pane: a bounded liquid-glass card that keeps the existing Profile
- * page and route stack intact. The reference surface owns its breathing room
- * outside the card, so the right-side Sheet is inset instead of touching the
- * viewport's top and bottom edges. All rules are scoped to this pane class so
- * route-level Profile pages and shared settings surfaces keep their existing
- * presentation.
+ * Profile pane: a bounded liquid-glass card shared with the Chats drawer.
+ * Each panel keeps its existing content and interaction ownership. The reference surface owns its breathing room
+ * outside the card, so both panels share one safe-area-aware inset, height,
+ * width and radius. Route-level pages and persistent desktop columns keep
+ * their existing presentation.
  */
-.profile-pane-sheet[data-slot="sheet-content"] {
-  --profile-pane-gutter: clamp(12px, 2.5vw, 18px);
-  --profile-pane-top-inset: max(
-    var(--profile-pane-gutter),
+.profile-pane-sheet[data-slot="sheet-content"],
+[data-app-side-pane],
+[data-agent-history-drawer] {
+  /* One bounded-pane recipe for Profile and Chats. */
+  --app-side-pane-header-padding: 20px 68px 15px 20px;
+  --app-side-pane-row-inset: 6px;
+  --app-side-pane-row-gap: 5px;
+  --app-side-pane-row-title-size: 13px;
+  --app-side-pane-row-title-line: 1.2;
+  --app-side-pane-row-title-weight: 500;
+  --app-side-pane-row-description-size: 9px;
+  --app-side-pane-row-description-line: 1.2;
+  --app-side-pane-section-size: 10px;
+  --app-side-pane-section-line: 14px;
+  --app-side-pane-section-weight: 600;
+  --app-side-pane-section-tracking: 0.02em;
+  --app-side-pane-gutter: clamp(12px, 2.5vw, 18px);
+  --app-side-pane-top-inset: max(
+    var(--app-side-pane-gutter),
     var(--app-safe-area-top-effective, 0px)
   );
-  --profile-pane-right-inset: max(
-    var(--profile-pane-gutter),
+  --app-side-pane-right-inset: max(
+    var(--app-side-pane-gutter),
     env(safe-area-inset-right, 0px)
   );
-  --tw-enter-translate-x: calc(100% + var(--profile-pane-right-inset));
-  --tw-exit-translate-x: calc(100% + var(--profile-pane-right-inset));
-  --profile-pane-bottom-inset: max(
-    var(--profile-pane-gutter),
+  --tw-enter-translate-x: calc(100% + var(--app-side-pane-right-inset));
+  --tw-exit-translate-x: calc(100% + var(--app-side-pane-right-inset));
+  --app-side-pane-bottom-inset: max(
+    var(--app-side-pane-gutter),
     env(safe-area-inset-bottom, 0px)
   );
-  --profile-pane-left-inset: max(
-    var(--profile-pane-gutter),
+  --app-side-pane-left-inset: max(
+    var(--app-side-pane-gutter),
     env(safe-area-inset-left, 0px)
   );
-  --profile-pane-available-height: calc(
-    100dvh - var(--profile-pane-top-inset) - var(--profile-pane-bottom-inset)
+  --app-side-pane-available-height: calc(
+    100dvh - var(--app-side-pane-top-inset) - var(--app-side-pane-bottom-inset)
   );
-  --profile-pane-height: min(820px, var(--profile-pane-available-height));
+  --app-side-pane-height: min(820px, var(--app-side-pane-available-height));
   --profile-pane-surface: rgba(255, 255, 255, 0.48);
   --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
@@ -2205,18 +2219,18 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
     0 36px 90px rgba(35, 42, 51, 0.22),
     0 4px 18px rgba(35, 42, 51, 0.1);
   top: calc(
-    var(--profile-pane-top-inset) +
-      (var(--profile-pane-available-height) - var(--profile-pane-height)) * 0.5
+    var(--app-side-pane-top-inset) +
+      (var(--app-side-pane-available-height) - var(--app-side-pane-height)) * 0.5
   ) !important;
-  right: var(--profile-pane-right-inset) !important;
+  right: var(--app-side-pane-right-inset) !important;
   bottom: auto !important;
   left: auto !important;
   width: min(
     430px,
-    calc(100vw - var(--profile-pane-left-inset) - var(--profile-pane-right-inset))
+    calc(100vw - var(--app-side-pane-left-inset) - var(--app-side-pane-right-inset))
   ) !important;
   max-width: 430px !important;
-  height: var(--profile-pane-height) !important;
+  height: var(--app-side-pane-height) !important;
   min-height: 0 !important;
   padding: 0 !important;
   border: 1px solid rgba(255, 255, 255, 0.58) !important;
@@ -2261,7 +2275,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 html.dark .profile-pane-sheet[data-slot="sheet-content"],
-.dark .profile-pane-sheet[data-slot="sheet-content"] {
+.dark .profile-pane-sheet[data-slot="sheet-content"],
+.dark [data-agent-history-drawer],
+.dark [data-app-side-pane] {
   --profile-pane-surface: rgba(22, 24, 29, 0.73);
   --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
@@ -2280,10 +2296,104 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   color-scheme: dark;
 }
 
-.profile-pane-header {
+/* WKWebView cannot reliably blur a transformed pane's own backdrop. */
+@supports (-webkit-backdrop-filter: blur(1px)) {
+  [data-app-side-pane],
+  .dark [data-app-side-pane] {
+    --profile-pane-surface: var(--background);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+[data-app-side-pane] [data-slot="settings-row-icon"],
+[data-app-side-pane] [data-slot="settings-row-icon"] > *,
+[data-app-side-pane] [data-slot="settings-row-icon"] svg {
+  width: 22px !important;
+  height: 22px !important;
+}
+
+/* Chat mirrors Profile at the leading edge. The card owns its material;
+ * the inner sidebar only owns content and scrolling. */
+[data-agent-history-drawer],
+.dark [data-agent-history-drawer] {
+  /* A transformed WKWebView surface cannot reliably blur its backdrop.
+   * Keep the bounded frame and shared scrim, but make chat text independent
+   * of backdrop-filter support during and after the slide. */
+  --profile-pane-surface: var(--background);
+  --agent-history-shadow-clearance: 48px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  right: auto !important;
+  left: var(--app-side-pane-left-inset) !important;
+  overflow: hidden;
+}
+
+[data-agent-history-drawer] [data-agent-history-sidebar="drawer"] {
+  height: 100%;
+  width: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent !important;
+  padding-block: 0;
+  box-shadow: none;
+}
+
+[data-agent-history-drawer] [data-agent-history-title] {
+  font-family: var(--font-app-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 23px;
+}
+
+[data-agent-history-drawer] [data-agent-history-footer] {
+  border-color: var(--profile-pane-hair);
+}
+
+[data-agent-history-drawer] [data-agent-history-sidebar="drawer"] {
+  font-family: var(--font-app-body);
+  color: var(--ios-account-label);
+}
+
+[data-agent-history-drawer] [data-agent-history-close] {
+  right: 20px;
+}
+
+[data-agent-history-drawer] [data-agent-history-controls] {
+  padding-inline: var(--page-inline-gutter-standard);
+}
+
+[data-agent-history-drawer] :is([data-agent-history-row], [data-drive-sharing-row]) {
+  border-radius: 15px;
+}
+
+[data-agent-history-drawer] [data-agent-history-row] > div > button,
+[data-agent-history-drawer] [data-drive-sharing-row],
+[data-agent-history-drawer] [data-agent-history-footer] button,
+[data-agent-history-drawer] [data-chat-new-button] {
+  min-height: 44px;
+  padding: var(--app-side-pane-row-inset);
+  gap: var(--app-side-pane-row-gap);
+}
+
+[data-agent-history-drawer] [data-chat-new-button] > svg,
+[data-agent-history-drawer] [data-drive-sharing-row] > :first-child {
+  height: 22px;
+  width: 22px;
+}
+
+[data-agent-history-drawer] [data-agent-history-section-label] {
+  padding-inline: var(--app-side-pane-row-inset);
+  padding-block: 0;
+  margin-block: 10px 5px;
+}
+
+.profile-pane-header,
+[data-agent-history-drawer] [data-agent-history-header] {
   z-index: 2 !important;
   gap: 4px !important;
-  padding: 20px 68px 15px 20px !important;
+  padding: var(--app-side-pane-header-padding) !important;
   border-color: var(--profile-pane-hair) !important;
   background: linear-gradient(180deg, var(--profile-pane-surface-soft), transparent);
 }
@@ -2297,7 +2407,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   line-height: 1.15 !important;
 }
 
-.profile-pane-header [data-slot="sheet-description"] {
+.profile-pane-header [data-slot="sheet-description"],
+[data-agent-history-drawer] [data-agent-history-description] {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: 12px !important;
@@ -2345,7 +2456,9 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   stroke-width: 1.8;
 }
 
-.profile-pane-close {
+.profile-pane-close,
+.app-side-pane-close,
+[data-agent-history-drawer] [data-agent-history-close] {
   top: 20px !important;
   width: 44px !important;
   height: 44px !important;
@@ -2358,7 +2471,9 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
     transform 280ms cubic-bezier(0.2, 0.9, 0.2, 1) !important;
 }
 
-.profile-pane-close:hover {
+.profile-pane-close:hover,
+.app-side-pane-close:hover,
+[data-agent-history-drawer] [data-agent-history-close]:hover {
   background: var(--profile-pane-surface-strong) !important;
   color: var(--ios-account-label) !important;
   transform: rotate(5deg);
@@ -2443,7 +2558,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 /* Every Profile panel shares the pane's material, including nested details. */
-.profile-pane-scroll-root [data-slot="settings-group-shell"] {
+.profile-pane-scroll-root [data-slot="settings-group-shell"],
+[data-app-side-pane] [data-slot="settings-group-shell"] {
   border: 0 !important;
   border-radius: 15px !important;
   background: transparent !important;
@@ -2492,19 +2608,26 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   }
 }
 
-.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
-  --settings-row-px: 6px !important;
-  --settings-row-py: 6px !important;
-  --settings-row-gap: 5px !important;
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"],
+[data-app-side-pane] [data-row-layout="settings"] {
+  --settings-row-px: var(--app-side-pane-row-inset) !important;
+  --settings-row-py: var(--app-side-pane-row-inset) !important;
+  --settings-row-gap: var(--app-side-pane-row-gap) !important;
   min-height: 43px !important;
   padding: 0 !important;
   transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1), color 200ms ease;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] > button:not([data-slot="settings-row-action"]),
-.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"] {
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"],
+[data-app-side-pane] [data-row-layout="settings"] [data-slot="settings-row-content"] {
   min-height: 43px !important;
   padding: 6px !important;
+}
+
+[data-app-side-pane] [data-row-layout="settings"],
+[data-app-side-pane] [data-row-layout="settings"] [data-slot="settings-row-content"] {
+  min-height: 44px !important;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]::after {
@@ -2691,7 +2814,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .profile-pane-sheet[data-slot="sheet-content"] {
+  .profile-pane-sheet[data-slot="sheet-content"],
+  [data-agent-history-drawer] {
     background: var(--app-card-surface-default-solid) !important;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -2708,6 +2832,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   }
 
   .profile-pane-close,
+  .app-side-pane-close,
+  [data-agent-history-drawer] [data-agent-history-close],
   .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
     transition: none !important;
   }
@@ -3333,6 +3459,13 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   --data-table-cell-py: 9px;
 }
 
+/* Agent workspaces move directly from identity to the first action or
+ * information surface. Keep this opt-in so general page headers retain the
+ * default reading rhythm. */
+.app-page-shell[data-app-header-content-spacing="compact"] {
+  --page-header-section-gap: 0px;
+}
+
 @media (min-width: 640px) {
   .app-page-shell[data-app-density="compact"] {
     --page-header-stack-gap: 10px;
@@ -3360,6 +3493,10 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
     --data-table-controls-gap: 14px;
     --data-table-cell-px: 12px;
     --data-table-cell-py: 10px;
+  }
+
+  .app-page-shell[data-app-header-content-spacing="compact"] {
+    --page-header-section-gap: 6px;
   }
 }
 
@@ -3603,11 +3740,10 @@ html.native-ios {
   --app-screen-footer-pad: calc(56px + var(--app-bottom-inset));
 }
 
-/* Full-screen Location onboarding and Referrals own their top navigation.
+/* Full-screen Location onboarding owns its top navigation.
  * Some iOS WebViews report a zero inset, so share a Dynamic-Island-safe floor
  * while allowing larger measured device insets to win. */
-html.native-ios [data-testid="one-location-onboarding"],
-html.native-ios .referral-dashboard {
+html.native-ios [data-testid="one-location-onboarding"] {
   --app-safe-area-top-effective: max(
     59px,
     var(--app-safe-area-top),
@@ -7742,7 +7878,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
 }
 @keyframes profile-pull-exit {
   from { transform: translate3d(var(--profile-pull-x, 0px), 0, 0); }
-  to { transform: translate3d(calc(100% + var(--profile-pane-right-inset, 0px)), 0, 0); }
+  to { transform: translate3d(calc(100% + var(--app-side-pane-right-inset, 0px)), 0, 0); }
 }
 @keyframes profile-pull-scrim-exit {
   from { opacity: var(--profile-pull-opacity, 1); }
@@ -9003,7 +9139,9 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 /* Base-layer important type rules own app headings and row labels. Keep the
    pane's reference scale in that same layer so it survives those locks. */
 @layer base {
-  .profile-pane-sheet .profile-pane-header [data-slot="sheet-title"] {
+  .profile-pane-sheet .profile-pane-header [data-slot="sheet-title"],
+  [data-agent-history-drawer] [data-agent-history-title],
+  [data-app-side-pane] [data-slot="sheet-title"] {
     font-size: 20px !important;
     line-height: 1.15 !important;
     font-weight: 700 !important;
@@ -9018,27 +9156,47 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   }
 
   .profile-pane-scroll-root .app-page-shell .profile-home-content
-    [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
+    [data-slot="settings-group-heading"][role="heading"][aria-level="2"],
+  [data-agent-history-drawer] [data-agent-history-section-label],
+  [data-app-side-pane] [data-app-pane-section-label] {
+    font-family: var(--font-app-body) !important;
     color: var(--ios-account-secondary-label) !important;
-    font-size: 10px !important;
-    line-height: 14px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.02em !important;
+    font-size: var(--app-side-pane-section-size) !important;
+    line-height: var(--app-side-pane-section-line) !important;
+    font-weight: var(--app-side-pane-section-weight) !important;
+    letter-spacing: var(--app-side-pane-section-tracking) !important;
   }
 
   .profile-pane-scroll-root .app-page-shell .profile-home-content
-    [data-slot="settings-row-title"] {
-    color: var(--ios-account-label) !important;
-    font-size: 13px !important;
-    line-height: 1.2 !important;
-    font-weight: 500 !important;
+    [data-slot="settings-row-title"],
+  [data-agent-history-drawer] [data-agent-history-row-title],
+  [data-app-side-pane] [data-slot="settings-row-title"],
+  [data-app-side-pane] [data-slot="tabs-trigger"],
+  [data-app-side-pane] [data-app-pane-row-title] {
+    font-family: var(--font-app-body) !important;
+    color: var(--app-side-pane-row-color, var(--ios-account-label)) !important;
+    font-size: var(--app-side-pane-row-title-size) !important;
+    line-height: var(--app-side-pane-row-title-line) !important;
+    font-weight: var(--app-side-pane-row-title-weight) !important;
   }
 
   .profile-pane-scroll-root .app-page-shell .profile-home-content
-    [data-slot="settings-row-description"] {
+    [data-slot="settings-row-description"],
+  [data-agent-history-drawer] [data-agent-history-row-description],
+  [data-app-side-pane] [data-slot="settings-row-description"] {
+    font-family: var(--font-app-body) !important;
     color: var(--ios-account-secondary-label) !important;
-    font-size: 9px !important;
-    line-height: 1.2 !important;
+    font-size: var(--app-side-pane-row-description-size) !important;
+    line-height: var(--app-side-pane-row-description-line) !important;
+  }
+
+  [data-app-side-pane] [data-slot="settings-row-title"] span {
+    font-weight: var(--app-side-pane-row-title-weight) !important;
+  }
+
+  [data-app-side-pane] [data-slot="settings-row-description"] :is(time, [data-ui-role]) {
+    font-size: var(--app-side-pane-row-description-size) !important;
+    line-height: var(--app-side-pane-row-description-line) !important;
   }
 
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
@@ -9113,4 +9271,87 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   --app-accent: #007aff;
   --referral-medal-deep: #b8894d;
   --referral-medal-light: #d4a574;
+}
+
+/* Equal outer tracks center One with the controls on wide screens;
+   narrow phones keep a separate control row to prevent overlap. */
+.agent-chat-header[data-one-centered-header="true"] {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: 120px 44px;
+  column-gap: 12px;
+  row-gap: 8px;
+  height: calc(184px + var(--agent-chat-header-safe-top));
+  padding-top: calc(4px + var(--agent-chat-header-safe-top));
+  padding-bottom: 8px;
+}
+.agent-chat-header[data-one-centered-header="true"] > :first-child {
+  grid-column: 1;
+  grid-row: 2;
+}
+.agent-chat-header[data-one-centered-header="true"] > :last-child {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+  width: 72px;
+  height: 72px;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+  max-width: 100%;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+  justify-content: center;
+}
+
+@media (min-width: 768px) {
+  .agent-chat-header[data-one-centered-header="true"] {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: 120px;
+    height: calc(136px + var(--agent-chat-header-safe-top));
+    padding-top: calc(8px + var(--agent-chat-header-safe-top));
+  }
+  .agent-chat-header[data-one-centered-header="true"] > :first-child {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    align-self: start;
+    margin-top: 10px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] > :last-child {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    margin-top: 10px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+    grid-column: 2;
+    align-self: start;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    max-width: 128px;
+  }
+}
+@media (min-width: 1024px) {
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    max-width: 256px;
+  }
+}
+
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child > div {
+  display: table;
+  margin-inline: auto;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--app-card-surface-default);
+  box-shadow: var(--app-card-shadow-standard);
 }

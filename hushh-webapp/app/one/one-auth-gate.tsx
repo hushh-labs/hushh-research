@@ -21,6 +21,7 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
+import { ScopeCommerceHostedReturn } from "@/components/consent/scope-commerce-hosted-return";
 
 /**
  * OneAuthGate - conditionally applies the vault + phone + onboarding guards to
@@ -121,7 +122,9 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
     normalizeStaticExportPathname(pathname ?? "") ===
       ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN ||
     normalizeStaticExportPathname(pathname ?? "") ===
-      ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE
+      ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE ||
+    normalizeStaticExportPathname(pathname ?? "") ===
+      ROUTES.ONE_SETUP_CLOUD_AZURE_RETURN
   ) {
     return <>{children}</>;
   }
@@ -149,7 +152,7 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  return (
+  const guardedContent = (
     <>
       {funnelObserver}
       <VaultLockGuard>
@@ -158,4 +161,7 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
       </VaultLockGuard>
     </>
   );
+  return [ROUTES.PROFILE_ACCOUNT, ROUTES.PROFILE_PAYOUTS].some(route => route === normalizeStaticExportPathname(pathname ?? ""))
+    ? <ScopeCommerceHostedReturn fallback={guardedContent} />
+    : guardedContent;
 }

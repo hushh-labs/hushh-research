@@ -94,6 +94,7 @@ export function SosPanel({
   onStopSos,
   stopBusy,
   onEditContacts,
+  recipientLabel,
   isRecipientShareReady,
 }: SosPanelProps) {
   const [customMessage, setCustomMessage] = useState("");
@@ -126,6 +127,7 @@ export function SosPanel({
     () => recipients.filter(isRecipientShareReady),
     [isRecipientShareReady, recipients],
   );
+  const blockedRecipients = recipients.filter((recipient) => !isRecipientShareReady(recipient));
   const customMessageLength = customMessage.length;
   const customMessageLimitExceeded =
     customMessageLength > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH;
@@ -375,9 +377,7 @@ export function SosPanel({
         {recipientsLoading && !readyRecipients.length ? (
           <PageSubtitle>Checking emergency contacts…</PageSubtitle>
         ) : noReadyRecipients ? (
-          <PageSubtitle>
-            {recipientCount ? `${recipientCountLabel} · Setup needs attention` : "No emergency contacts"}
-          </PageSubtitle>
+          recipientCount ? <PageSubtitle>{recipientCountLabel} · Setup needs attention</PageSubtitle> : null
         ) : (
           <div className="flex items-center gap-3">
             <PageSubtitle className="min-w-0 flex-1 truncate">
@@ -460,10 +460,27 @@ export function SosPanel({
         <>
           <div className="mt-5 sm:mt-6">
             <RowLabel as="p">Choose or type a message</RowLabel>
-            {readyRecipients.length < recipientCount ? (
-              <HelperText as="p" className="mt-1">
-                {readyRecipients.length} of {recipientCount} contacts ready. Review contacts that need attention.
-              </HelperText>
+            {!recipientsLoading && readyRecipients.length < recipientCount ? (
+              <div className="mt-1">
+                <HelperText as="p">
+                  {readyRecipients.length} of {recipientCount} contacts ready.
+                </HelperText>
+                <details className="mt-1 text-sm text-muted-foreground">
+                  <summary className="cursor-pointer py-2">See who needs attention</summary>
+                  <ul className="space-y-2 pb-2">
+                    {blockedRecipients.map((recipient) => (
+                      <li key={recipient.userId}>
+                        {recipientLabel(recipient)}: {recipient.phoneVerified
+                          ? "Open One Location to finish secure sharing setup."
+                          : "Account verification could not be confirmed. Reopen One and try again."}
+                      </li>
+                    ))}
+                    {recipientCount > recipients.length ? (
+                      <li>{recipientCount - recipients.length} {recipientCount - recipients.length === 1 ? "contact" : "contacts"} could not be checked. Reopen Save My Soul to refresh your circle.</li>
+                    ) : null}
+                  </ul>
+                </details>
+              </div>
             ) : null}
           </div>
 

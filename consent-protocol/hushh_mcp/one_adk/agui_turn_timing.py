@@ -425,6 +425,14 @@ class TurnTiming:
         return max(0, session_ms - measured)
 
     def log(self) -> None:
+        completed_at = time.perf_counter()
+        pending_model_calls = self.pending_model_call_starts or []
+        # A missing after-model callback leaves model_call_total_ms at zero.
+        # This is wall time since the before-model callback, including any
+        # bridge unwind; it does not identify the provider as the cause.
+        model_inflight_ms = round(
+            sum(max(0.0, completed_at - started_at) for started_at in pending_model_calls) * 1000
+        )
         logger.info(
             "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s "
             "first_activity_ms=%s first_answer_token_ms=%s first_tool_call_ms=%s elapsed_ms=%s "
@@ -433,7 +441,7 @@ class TurnTiming:
             "session_append_ms=%s session_persistence_ms=%s session_other_ms=%s "
             "session_read_count=%s session_decrypt_count=%s session_append_count=%s "
             "session_persistence_count=%s process_turn=%s path_warmed=%s "
-            "model_calls=%s model_call_total_ms=%s "
+            "model_calls=%s model_call_total_ms=%s model_inflight_calls=%s model_inflight_ms=%s "
             "model_id=%s thinking_level=%s "
             "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
             "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s "
@@ -444,7 +452,7 @@ class TurnTiming:
             _ms_since(self.started_at, self.first_activity_at),
             _ms_since(self.started_at, self.first_answer_token_at),
             _ms_since(self.started_at, self.first_tool_call_at),
-            _ms_since(self.started_at, time.perf_counter()),
+            _ms_since(self.started_at, completed_at),
             self.first_model_call_ms,
             _ms_since(self.started_at, self.agent_started_at),
             self.request_build_ms(),
@@ -463,6 +471,8 @@ class TurnTiming:
             str(self.path_warmed).lower(),
             self.model_calls,
             round(self.model_call_total_ms),
+            len(pending_model_calls),
+            model_inflight_ms,
             self.model_id,
             self.thinking_level,
             self.prompt_chars_peak,

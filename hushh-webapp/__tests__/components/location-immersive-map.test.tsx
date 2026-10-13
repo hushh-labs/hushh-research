@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect, type ReactNode } from "react";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const mapHarness = vi.hoisted(() => {
@@ -102,6 +103,7 @@ const navigationHarness = vi.hoisted(() => ({
 }));
 
 const experienceHarness = vi.hoisted(() => ({
+  startupHeld: false,
   demoMode: true,
   nearbyAvailable: false,
   query: "demo=people",
@@ -254,18 +256,28 @@ vi.mock(
       onStateChange,
       onSearchAreaChange,
       onPlaceFocusChange,
+      presentationReady = true,
+      onStartupReadyChange,
+      rendererAccess,
     }: {
+      presentationReady?: boolean;
+      onStartupReadyChange?: (ready: boolean) => void;
+      rendererAccess?: ReactNode;
       open: boolean;
       onOpenChange: (open: boolean) => void;
       onStateChange: (state: unknown) => void;
       onSearchAreaChange: (point: unknown) => void;
       onPlaceFocusChange: (focus: unknown) => void;
-    }) => (
+    }) => {
+      useEffect(() => { if (open && !experienceHarness.startupHeld) onStartupReadyChange?.(true); }, [open, onStartupReadyChange]);
+      return (
       <div
         data-testid="nearby-check-in-sheet-mock"
         data-one-location-nearby-check-in-sheet=""
-        data-open={open ? "true" : "false"}
+        data-open={open && presentationReady ? "true" : "false"}
       >
+        {open && presentationReady ? rendererAccess : null}
+        <button data-testid="finish-check-in-startup" onClick={() => onStartupReadyChange?.(true)}>Finish startup</button>
         <button
           type="button"
           data-testid="dismiss-nearby-check-in"
@@ -376,7 +388,8 @@ vi.mock(
           Clear place focus
         </button>
       </div>
-    ),
+    );
+    },
   }),
 );
 
@@ -406,12 +419,6 @@ import { toast } from "sonner";
 
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
-import {
-  MAP_CONSENT_PANEL_BOTTOM_PADDING,
-  MAP_CONSENT_PANEL_CLASSNAME,
-  MAP_CONSENT_SUPPORTING_LINE,
-  MAP_CONSENT_TITLE,
-} from "@/components/one-location/map-consent-panel-layout";
 import {
   MAP_NEUTRAL_WORLD_LATITUDE,
   neutralWorldCamera,
@@ -499,6 +506,7 @@ beforeEach(() => {
       dispatchEvent: vi.fn(),
     })),
   });
+  experienceHarness.startupHeld = false;
   experienceHarness.demoMode = true;
   experienceHarness.nearbyAvailable = false;
   experienceHarness.query = "demo=people";
@@ -552,7 +560,7 @@ beforeEach(() => {
   });
   serviceHarness.getMapPreferences.mockResolvedValue({
     presenceMode: "ghost",
-    rendererConsentVersion: null,
+    rendererConsentVersion: "google-maps-renderer-v1",
   });
   serviceHarness.captureCurrentPosition.mockResolvedValue({
     latitude: 37.776,
@@ -589,6 +597,7 @@ beforeEach(() => {
  * + authoritative reads do for a real returning owner.
  */
 function seedConsentedRenderer() {
+  serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion: "google-maps-renderer-v1" });
   serviceHarness.getMapState.mockResolvedValue({
     markers: [],
     preferences: {
@@ -596,6 +605,11 @@ function seedConsentedRenderer() {
       rendererConsentVersion: "google-maps-renderer-v1",
     },
   });
+}
+
+async function awaitMapPreparation() {
+  await waitFor(() => expect(screen.getByTestId("one-location-map")).toHaveAttribute("data-map-ready", "true"));
+  await waitFor(() => expect(screen.queryByTestId("one-location-map-loading")).toBeNull());
 }
 
 function stubCheckInMapGeometry() {
@@ -656,23 +670,41 @@ afterEach(() => {
 });
 
 describe("LocationImmersiveMap demo experience", () => {
-  it("anchors the consent panel to the bottom edge on a phone and centres it as a dialog on desktop", () => {
+  it("opens Your Map directly with existing acceptance without changing preferences", async () => {
     experienceHarness.demoMode = false;
-
     render(<LocationImmersiveMap />);
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    expect(screen.queryByText("Private until you share.")).toBeNull();
+    await awaitMapPreparation();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-map-people-tray")).toBeInTheDocument();
+  });
 
-    // Asserted against the shared class string, so the component and
-    // `e2e/one-location-map-consent-panel.layout.spec.ts` cannot drift apart.
-    // JSDOM proves the classes are rendered; only the browser spec proves what
-    // they do.
-    expect(screen.getByTestId("one-location-map-disclosure")).toHaveClass(
-      ...MAP_CONSENT_PANEL_CLASSNAME.split(" "),
-    );
-    // The panel touches the bottom edge, so the inset that used to be a gap
-    // beneath a floating card is now padding under the primary action.
-    expect(screen.getByTestId("one-location-map-disclosure")).toHaveStyle({
-      paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING,
-    });
+  it.each([null, "outdated-version"])("does not renew %s renderer consent on reopening until explicitly accepted", async (rendererConsentVersion) => {
+    experienceHarness.demoMode = false;
+    serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion });
+    const first = render(<LocationImmersiveMap />);
+    await screen.findByTestId("one-location-map-renderer-access");
+    expect(screen.queryByTestId("one-location-map-loading")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    first.unmount();
+    render(<LocationImmersiveMap />);
+    await screen.findByTestId("one-location-map-renderer-access");
+    expect(screen.queryByTestId("one-location-map-loading")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
+    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledTimes(1);
+    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledWith({ vaultOwnerToken: "in-memory-owner-token", rendererConsentVersion: "google-maps-renderer-v1" });
+    expect(screen.getByTestId("one-location-map-people-tray")).toBeInTheDocument();
   });
 
   it("says the map is unavailable instead of asking for consent to a renderer that cannot start", async () => {
@@ -699,30 +731,81 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-close")).toBeInTheDocument();
   });
 
-  it("says the title and one short line, and nothing about how the renderer is fed", () => {
+  it("keeps explicit renderer access reachable inside ready Check-in with missing consent", async () => {
     experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion: null });
+    render(<LocationImmersiveMap surface="check-in" />);
+    const access = await screen.findByTestId("one-location-map-renderer-access");
+    expect(access.closest('[data-testid="nearby-check-in-sheet-mock"]')).not.toBeNull();
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true");
+    expect(screen.queryByTestId("one-location-map-loading")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
+    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledTimes(1);
+  });
 
+  it.each(["map", "check-in"] as const)("keeps preparation retry reachable on %s when Maps is unavailable", async (surface) => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    mapsKeyHarness.present = false;
+    serviceHarness.getMapPreferences.mockRejectedValueOnce(new Error("offline"));
+
+    render(<LocationImmersiveMap surface={surface} />);
+
+    await screen.findByTestId("one-location-map-preparation-error");
+    expect(screen.queryByText("Maps isn't available")).toBeNull();
+    if (surface === "check-in") {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "false");
+    }
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await screen.findByText("Maps isn't available");
+    if (surface === "check-in") {
+      await waitFor(() => {
+        expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true");
+      });
+    }
+    expect(screen.queryByTestId("one-location-map-preparation-error")).toBeNull();
+    expect(mapHarness.create).not.toHaveBeenCalled();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+  });
+
+  it("recovers from preparation failure without revealing private coordinates", async () => {
+    experienceHarness.demoMode = false;
+    serviceHarness.getMapPreferences.mockRejectedValueOnce(new Error("offline"));
     render(<LocationImmersiveMap />);
-
-    const panel = screen.getByTestId("one-location-map-disclosure");
-    expect(
-      screen.getByRole("heading", { name: MAP_CONSENT_TITLE }),
-    ).toBeInTheDocument();
-    expect(panel).toHaveTextContent(MAP_CONSENT_SUPPORTING_LINE);
-
-    // The three-sentence paragraph this replaced. Two of its claims were
-    // architecture the person cannot act on; the third belongs to Nearby
-    // Check-In and is still stated on Location Settings, which is the surface
-    // that actually turns Check-In on.
-    expect(panel).not.toHaveTextContent(/Google Maps/i);
-    expect(panel).not.toHaveTextContent(/Nearby Check-In/i);
-    expect(panel).not.toHaveTextContent(/on this device/i);
-
-    // Consent itself is unchanged: this is still the gate, and Continue is
-    // still the only thing that writes the renderer consent version.
-    expect(
-      screen.getByRole("button", { name: "Continue" }),
-    ).toBeInTheDocument();
+    await screen.findByTestId("one-location-map-preparation-error");
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-map-close")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await awaitMapPreparation();
+    expect(screen.queryByTestId("one-location-map-preparation-error")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+  });
+  it("requires the server's exact renderer version and settles a superseding failed read", async () => {
+    experienceHarness.demoMode = false;
+    let settle!: (value: { presenceMode: "ghost"; rendererConsentVersion: string | null }) => void;
+    serviceHarness.getMapPreferences.mockReturnValueOnce(new Promise(resolve => { settle = resolve; })).mockRejectedValueOnce(new Error("offline"));
+    render(<LocationImmersiveMap />);
+    dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
+    await screen.findByTestId("one-location-map-preparation-error");
+    await act(async () => settle({ presenceMode: "ghost", rendererConsentVersion: null }));
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion: null });
+    serviceHarness.updateMapPreferences.mockResolvedValueOnce({ presenceMode: "ghost", rendererConsentVersion: "outdated-version" });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByTestId("one-location-map-renderer-access");
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
+    await screen.findByTestId("one-location-map-preparation-error");
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
   });
 
   it("never carries a cached private coordinate or neutral zoom across consent", async () => {
@@ -738,13 +821,15 @@ describe("LocationImmersiveMap demo experience", () => {
       decryptedPoints: {},
     });
 
+    let authorize!: (preferences: { presenceMode: "ghost"; rendererConsentVersion: string }) => void;
+    serviceHarness.getMapPreferences.mockReturnValueOnce(new Promise(resolve => { authorize = resolve; }));
     render(<LocationImmersiveMap />);
 
     await waitFor(() => {
       expect(mapHarness.create).toHaveBeenCalled();
     });
     expect(
-      screen.getByTestId("one-location-map-disclosure"),
+      screen.getByTestId("one-location-map-loading"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Your location" })).toBeNull();
     expect(screen.queryByTestId("one-location-map-self-avatar")).toBeNull();
@@ -763,7 +848,7 @@ describe("LocationImmersiveMap demo experience", () => {
     });
     mapHarness.map.addCircles.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await act(async () => authorize({ presenceMode: "ghost", rendererConsentVersion: "google-maps-renderer-v1" }));
     await waitFor(() => {
       expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -914,7 +999,8 @@ describe("LocationImmersiveMap demo experience", () => {
         "data-map-demo",
       );
     });
-    fireEvent.click(screen.getByTestId("one-location-map-demo-preview"));
+    await awaitMapPreparation();
+    fireEvent.click(screen.getByTestId("one-location-map-demo-toggle"));
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-demo",
@@ -1049,7 +1135,7 @@ describe("LocationImmersiveMap demo experience", () => {
     trayContentHeightStub = 96;
 
     render(<LocationImmersiveMap />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await awaitMapPreparation();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1105,7 +1191,7 @@ describe("LocationImmersiveMap demo experience", () => {
     }));
 
     render(<LocationImmersiveMap />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await awaitMapPreparation();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1145,8 +1231,8 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByText("Aarav Shah")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(
-      screen.getByText(/Within 500 m.*exact spots stay private/i),
-    ).toBeInTheDocument();
+      screen.queryByText(/Within 500 m.*exact spots stay private/i),
+    ).not.toBeInTheDocument();
     expect(JSON.stringify(mapHarness.map.addMarkers.mock.calls)).not.toContain(
       "Neelesh Meena",
     );
@@ -2043,7 +2129,7 @@ describe("LocationImmersiveMap demo experience", () => {
       const continueButton = screen.queryByRole("button", {
         name: "Continue",
       });
-      if (continueButton) fireEvent.click(continueButton);
+      expect(continueButton).toBeNull();
       await waitFor(() => {
         expect(screen.getByTestId("one-location-map")).toHaveAttribute(
           "data-map-ready",
@@ -2086,6 +2172,22 @@ describe("LocationImmersiveMap demo experience", () => {
         "true",
       );
     });
+  });
+  it("keeps Checking you in visible after the map starts until the check-in setup settles", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.startupHeld = true;
+    platformHarness.native = true;
+    stubCheckInMapGeometry();
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => expect(mapHarness.map.setOnMarkerClickListener).toHaveBeenCalled());
+    expect(screen.getByText("Checking you in…")).toBeInTheDocument();
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "false");
+    fireEvent.click(screen.getByTestId("finish-check-in-startup"));
+    await waitFor(() => expect(screen.queryByTestId("one-location-map-loading")).toBeNull());
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true");
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 
   // The reported bug, in both of its lives: dismissing the sheet on check-in's
@@ -2758,9 +2860,8 @@ describe("LocationImmersiveMap reported map defects", () => {
     render(<LocationImmersiveMap {...props} />);
     if (props.surface === "check-in") {
       expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
-    } else {
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     }
+    await awaitMapPreparation();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -3350,7 +3451,7 @@ describe("LocationImmersiveMap reported map defects", () => {
       expect(mapHarness.map.destroy).toHaveBeenCalledTimes(1);
       expect(mapHarness.create).toHaveBeenCalledTimes(2);
       expect(
-        screen.getByTestId("one-location-map-disclosure"),
+        screen.getByTestId("one-location-map-renderer-access"),
       ).toBeInTheDocument();
       expect(screen.queryByTestId("one-location-map-self-avatar")).toBeNull();
     });
@@ -3379,10 +3480,6 @@ describe("LocationImmersiveMap reported map defects", () => {
       resolveRefresh = resolve;
     });
     serviceHarness.getMapState
-      .mockResolvedValueOnce({
-        markers: [],
-        preferences: { presenceMode: "ghost" },
-      })
       .mockReturnValueOnce(pendingRefresh)
       .mockResolvedValueOnce({
         markers: [],
@@ -3391,14 +3488,10 @@ describe("LocationImmersiveMap reported map defects", () => {
       });
 
     render(<LocationImmersiveMap />);
-    await waitFor(() => {
-      expect(mapHarness.create).toHaveBeenCalledTimes(1);
-      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(1);
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => {
-      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(2);
-    });
+    // The SDK is ready while the private-marker refresh remains pending.
+    await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId("one-location-map-loading")).toBeNull());
+    await waitFor(() => expect(serviceHarness.getMapState).toHaveBeenCalledTimes(1));
 
     mapHarness.map.addMarkers.mockClear();
     serviceHarness.getMapPreferences.mockResolvedValue({
@@ -3408,10 +3501,11 @@ describe("LocationImmersiveMap reported map defects", () => {
     dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
     await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(2));
 
-    // Re-consent must not inherit the abandoned refresh's in-flight lock.
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    // Reopening must not inherit the abandoned refresh's in-flight lock.
+    fireEvent.click(await screen.findByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
     await waitFor(() => {
-      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(3);
+      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(2);
       expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     });
 
@@ -3458,8 +3552,8 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
     await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(2));
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
     await reportCamera();
     await waitFor(() => {
       expect(

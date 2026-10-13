@@ -102,9 +102,16 @@ existing 25-metre cross-category duplicate guard remains authoritative.
 
 ## Your Map
 
-`/one/location/map` is an immersive private map. It suppresses the app top
-shell, Agent Bar, bottom navigation, and ambient chrome. A person must accept
-the Google Maps renderer disclosure before it initializes.
+`/one/location/map` opens the immersive map directly and suppresses the app top
+shell, Agent Bar, bottom navigation, and ambient chrome. The renderer can start
+with a neutral world view; private coordinates remain gated by the server's
+current Google Maps acceptance. Returning owners with current acceptance see
+their map directly. Missing, outdated, or revoked acceptance exposes a compact
+inline **Use Google Maps** action with the disclosure that Google Maps displays
+their location. Only that explicit action records acceptance; opening, reopening,
+or retrying a read never renews it. The former blank interstitial, **Continue**,
+and **Private until you share** line are removed. Check-in keeps its own loading
+and place-selection flow without waiting indefinitely for renderer acceptance.
 
 - Ghost Mode is the default. It hides the owner from Your Map without changing
   any direct private share or its background publisher.

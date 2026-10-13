@@ -110,6 +110,102 @@ reviewed spans, source hashes, parent revisions and rationale. Budgets
 500/250/80, scanner and exclusions remain unchanged. Reviewed inherited debt is
 not deployment acceptance; chronology remains in Git history.
 
+The Oct 12 scope-commerce reconciliation reviews exactly 45 finding slots:
+14 unchanged incoming-main spans, 27 compatibility compositions, three private
+`one_memory` guards and the nearest provider-intent regression test extension.
+Independent review found and repaired a lost main session-persistence timing
+wrapper before accepting its revised module/class spans. The real repository
+test fails on frozen `02989d1c2fc4` and passes after repair, including failure
+timing, owner binding and ciphertext assertions. Exact hashes, both parents,
+before/after values and qualifications are retained in the baseline's
+`scope_main_and_hosted_return_20261012` entry. Every other finding slot and all
+future-growth enforcement remain unchanged; full core and hosted CI are still
+release gates.
+
+The subsequent fake-provider recovery test isolates configuration explicitly,
+adding two lines to its existing module span (530 to 532). Independent backend
+review qualifies only that finding; the baseline records its source hash and
+focused verification under `scope_commerce_recovery_test_isolation_20261012`.
+Invalid ambient provider configuration cannot affect this fake-adapter test.
+Production configuration validation, immutable provider requests and all other
+finding slots remain unchanged.
+
+The latest main sync at `9c4e1cb045` adds nine notification size findings:
+eight spans are byte-identical incoming source, and the Capacitor index retains
+root registration/listener contracts while adding three emergency-cue lines.
+Backend and frontend review qualify only those spans, with hashes and provenance
+in `scope_commerce_latest_main_notifications_20261012`. Finite-lived SMS delivery
+does not change scope-commerce authority or strict hosted-return admission.
+This is source qualification; audible cues and physical delivery remain separate
+acceptance work. Every other finding and future-growth enforcement is preserved.
+
+The main `1056ed5652` union qualifies exactly 41 additional size slots through
+independent backend, frontend and operations review. It preserves lazy pod
+imports, recipient/owner admission and extracted deployment packaging. Review
+found a shared specialist still selecting the legacy client; default turns now
+use per-turn ADK project routing while injected owner models and explicit legacy
+callbacks retain their contracts. Actual `handle_turn` tests cover both caller
+orders and the callback negative control. The Information class remains 337;
+its ceiling is unchanged. Exact hashes and parent revisions are retained in
+`scope_commerce_main_project_and_location_20261012`. Budgets, scanner, exclusions
+and every unrelated finding remain unchanged. Source qualification does not
+establish deployed behavior or successful provider-job cleanup.
+
+The continuation at `b12cd078` qualifies one existing capability-graph generator
+module slot, 947 to 960 lines, after independent `ci_registry_review` inspection.
+Bounded committed ancestry now retains both branches' workflow histories when
+they independently integrate the same base, including later and second-parent
+verification merges. The existing 18 graph-gate cases pass; the actual committed
+predecessor function fails the strengthened real-Git regression. Semantic,
+deprecation and revision-policy admission, the eight authored-ref cap and every
+other fitness finding remain unchanged. Exact evidence is recorded in
+`scope_commerce_parallel_history_20261012`; this is source qualification.
+
+The main `ee67770aeb` union qualifies exactly three frontend module slots through
+independent `client_context` review: Consent Center routing, its existing
+cold-link suite and Feed presentation. Recognized answer rows preserve their
+lane even with a missing prefix; answer pricing describes one written answer,
+while Drive retains its Viewer term. The corrected union passes 109 focused UI
+cases. Backend review found raw owner/exception logging; class-only diagnostics
+now retain strict failure admission and resilient fallback. All 30 nearest
+source-completeness cases pass, and actual incoming methods fail the protected
+diagnostic negative control. This correction reduces the backend below existing
+ceilings. `scope_commerce_request_lane_main_20261012` records the three exact
+hashes; no other allowance, budget, scanner or payment authority changes.
+
+The subsequent main `f7b76b5d4f` union qualifies two existing backend slots:
+the wallet access class, 395 to 431 lines, and the encrypted-session test module,
+804 to 808. Independent `backend_context` review verifies owner/exact-card cursor
+binding and current-call-bound presentation completion; the nearest combined
+backend suite passes 68 cases. `client_context` review catches lost inspection
+of historical sent copies: their encrypted receipts remain in a conditional,
+collapsed section, fenced to the current owner, card and vault session. These
+copies never establish revocable access. Independent `merge_security_review`
+finds same-line checksum/signature/error denial missing from the imported
+SwiftPM helper; denial now applies independently of collision recognition.
+The actual predecessor fails all three strengthened denial cases. Exactly two
+reviewed backend values change in `scope_commerce_wallet_history_main_20261012`;
+all other findings, scanner rules and 500/250/80 budgets remain unchanged.
+Actual PostgreSQL pagination and hosted native resolution remain separate
+runtime evidence, not claims established by this source review.
+
+The main `4277558db7` union qualifies 98 size slots over 96 keys through
+independent `ci_registry_review`: 94 matching main spans and four composed
+modules retain exact existing-parent blocks. The payment suite preserves five
+constraint-assertion lines (3350 to 3355); sharing routes retain six placement
+fixture lines (1013 to 1019); wallet tests retain twelve connector-erasure race
+lines (1361 to 1373); Feed retains the existing profile/recipient/private-agent
+cases (1685 to 1826). No added block is novel relative to kept parent
+`79856d1f1b`. Exactly 63 existing slots grow and 35 main-owned size slots are
+added; all 2,424 previous slots/maxima survive, yielding 2,459 retained slots.
+Exact hashes and per-slot evidence live in
+`scope_commerce_main_document_payout_union_20261012`. No dependency-direction,
+initialization or parse finding is accepted, and budgets/scanner rules remain
+unchanged. Backend review separately verifies pinned migration replay and the
+byte-preserved 322–327 registration repair; accepted environment rows and
+financial obligations remain untouched. This is source lineage qualification,
+not deployed payment or payout acceptance.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.

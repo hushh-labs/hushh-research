@@ -67,6 +67,8 @@ GET /api/connectors/google_drive/sharing/requests
 GET /api/connectors/google_drive/sharing/requests/by-client/{client_request_id}
 GET /api/connectors/google_drive/sharing/requests/{request_id}
 GET /api/connectors/google_drive/sharing/requests/{request_id}/context
+GET /api/connectors/google_drive/sharing/recipient-identity
+POST /api/connectors/google_drive/sharing/requests/{request_id}/review-request
 GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery
 GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/files
 GET /api/connectors/google_drive/sharing/requests/{request_id}/payment
@@ -110,6 +112,9 @@ GET /api/one/payouts/hashcoins
 GET /api/one/wallet/card-access/cards/{card_id}
 GET /api/one/wallet/card-access/connections
 GET /api/one/wallet/card-access/grants/{grant_id}
+GET /api/one/wallet/card-access/history
+GET /api/one/wallet/card-access/history/{grant_id}
+GET /api/one/wallet/card-access/profile
 POST /api/one/answer-requests
 POST /api/one/answer-requests/payout-account/{action}
 POST /api/one/answer-requests/{request_id}/approve
@@ -125,6 +130,9 @@ DELETE /api/one/messages/conversations/{conversation_id}/messages/{message_id}/r
 GET /api/one/messages/conversations/{conversation_id}/messages/{message_id}/attachment
 GET /api/one/payouts/account
 GET /api/one/payouts/account/bank-payouts
+GET /api/one/payouts/account/balance
+GET /api/one/payouts/activity
+GET /api/one/payouts/activity/{item_id}
 GET /api/one/payouts/account/earnings
 POST /api/one/payouts/account/manage
 POST /api/one/payouts/account/onboard
@@ -171,6 +179,7 @@ GET /api/one/connections/{counterpart_user_id}/context
 GET /api/one/connections/{counterpart_user_id}/information-scopes
 GET /api/one/connections/{counterpart_user_id}/scope-catalog
 GET /api/one/feed
+GET /api/one/feed/events
 POST /api/one/feed/read
 GET /api/one/feed/unread-count
 POST /api/one/information-requests

@@ -246,10 +246,10 @@
         "one_adk_sessions",
         "one_mcp_pending_calls"
       ],
-      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly",
-      "retention_policy": "Retain while account exists or until the user deletes an Agent chat conversation.",
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, LLM context assembly, and owner-authenticated Magic discovery draft checkpoints (one.magic.discovery.v1/profile).",
+      "retention_policy": "Chat persists while account exists or until user deletion. Magic discovery drafts expire after 24 hours; namespace-scoped hourly cleanup prunes up to 500 expired ciphertext rows without decrypting. Pending execution leases last 240 seconds and unavailable drafts have a 60-second retry cooldown; polling never extends retention.",
       "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events.",
-      "trust_boundary": "Session documents, command checkpoints, titles and messages persist as AES-GCM ciphertext sealed with the owner's chat key (HKDF-SHA256 of the vault key, label hussh-one-chat-v1), marked by the plaintext prefix hussh-chat-v1: and bound to their row. The browser sends only the derived key (X-Hussh-Chat-Key) and the backend holds it for that request alone; without it every read and write refuses. Platform-key rows from before the cutover are invisible to the code and deleted by migration 249. Pending connector reviews (one_mcp_pending_calls) are sealed the same way, bound to owner, conversation and handle, removed once the approved call has run, swept by the scheduled connector retention job when the review lapses, and erased on account reset and deletion. Frontend tool debug events remain live-only and are not stored.",
+      "trust_boundary": "Session documents, command checkpoints, titles and messages persist as AES-GCM ciphertext sealed with the owner's chat key (HKDF-SHA256 of the vault key, label hussh-one-chat-v1), marked by the plaintext prefix hussh-chat-v1: and bound to their row. The browser sends only the derived key (X-Hussh-Chat-Key); the backend holds it in memory for that request and any bounded background run it started, with an absolute 300-second ceiling. Without it every read and write refuses; keys and owner tokens are never persisted. Platform-key rows from before the cutover are invisible to the code and deleted by migration 249. Pending connector reviews (one_mcp_pending_calls) are sealed the same way, bound to owner, conversation and handle, removed once the approved call has run, swept by the scheduled connector retention job when the review lapses, and erased on account reset and deletion. Frontend tool debug events remain live-only and are not stored.",
       "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "high_per_user_chat"
     },
@@ -1201,12 +1201,15 @@
       "lifecycle_status": "customer0",
       "exact_tables": [
         "stripe_connect_bank_payouts",
-        "stripe_connect_bank_payout_events"
+        "stripe_connect_bank_payout_events",
+        "stripe_connect_balance_snapshots",
+        "stripe_connect_balance_transactions",
+        "stripe_connect_payout_reconciliations"
       ],
       "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies current provider state and updates aggregate bank-deposit status. Bank creation, update and deletion events also refresh readiness. Authenticated owners read recent deposits through the current owner-plus-mode connected-account mapping.",
       "retention_policy": "Provider payout and event receipts support settlement, reversal and duplicate-event reconciliation under the merchant retention policy.",
       "deletion_behavior": "Deleting the owner's connected-account mapping removes their app access to these account-keyed financial receipts; any retained provider evidence remains restricted to settlement operators.",
-      "trust_boundary": "Only Stripe Connect account and payout IDs, amount, status, mode, failure code and timestamps are stored. No bank details or document request ID are present; a deposit may combine several earnings.",
+      "trust_boundary": "Stores Stripe Connect account and payout IDs, amounts, status, mode, failure code and timestamps; each deposit's write-once masked bank snapshot (bank name and last four only), payout method, bank trace reference and reconciliation status; Connect balance snapshots; and itemised balance transactions with server-side provider IDs (balance-transaction, transfer, destination-payment, charge, external-account and payout IDs) plus the reconciliation cursor. No account or routing number and no document request ID is stored. Provider IDs never leave the server except payout (po_) IDs; acct_, ch_, pi_, py_, tr_, trr_ and txn_ IDs are never returned to clients. A deposit may combine several earnings.",
       "plaintext_posture": "provider_financial_identifiers_and_aggregate_status_only",
       "expected_row_growth": "one_per_provider_bank_payout_plus_signed_event_receipts"
     },
@@ -1838,14 +1841,16 @@
         "wallet_card_registrations",
         "wallet_card_share_requests",
         "wallet_card_access_grants",
-        "wallet_card_access_audit"
+        "wallet_card_access_audit",
+        "wallet_profile_share_requests",
+        "wallet_profile_access_grants"
       ],
-      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant.",
+      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant. The same policy orchestrates selected Profile fields through a separate source adapter; outgoing and received participant history is paginated independently of live card eligibility.",
       "retention_policy": "Reservations have a 24-hour original Add window; a later confirmed owner Wallet write can register them as saved cards. Removed registrations remain terminal. Grants authorize reads for exactly 5, 10 or 15 minutes. Expiry ends access, not storage. Registration, idempotency and audit history remain until account erasure; no scheduled history purge is claimed.",
       "deletion_behavior": "Card or Wallet-domain removal marks provenance removed and revokes grants. Account erasure removes owner and recipient grants and dependent request/audit records through the account deletion table map and foreign keys. Historical message references contain no card credentials.",
-      "trust_boundary": "Server-only provenance and recipient binding. Approved masked fields are encrypted with owner/card or owner/recipient/grant purpose binding. PAN, cardholder name, CVV, PIN and vault keys never enter these tables. Postgres enforces expiry/revocation; ordinary connections require fresh same-user verification. Explicit owner-added Trusted Circle membership alone exempts additional verification.",
+      "trust_boundary": "Server-only provenance and recipient binding. Approved masked fields are encrypted with owner/card or owner/recipient/grant purpose binding. PAN, cardholder name, CVV, PIN and vault keys never enter these tables. Postgres enforces expiry/revocation; ordinary connections require fresh same-user verification. Explicit owner-added Trusted Circle membership alone exempts additional verification. Profile values use the existing canonical public projection live, intersected with fields permitted when shared; no additional profile values are stored in grants or history. Profile pause gates reads; source revocation and deletion permanently revoke its grants.",
       "plaintext_posture": "encrypted_masked_projection_with_opaque_authorization_and_audit_metadata",
-      "expected_row_growth": "one_registration_per_manual_card_and_one_grant_per_selected_recipient"
+      "expected_row_growth": "one_registration_per_manual_card_and_one_grant_per_selected_recipient_with_bounded_lifecycle_audit"
     },
     {
       "id": "pkm_answer_requests",

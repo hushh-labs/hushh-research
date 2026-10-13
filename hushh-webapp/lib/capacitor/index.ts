@@ -850,6 +850,9 @@ export const HushhSync = registerPlugin<HushhSyncPlugin>("HushhSync", {
 // Push notification token registration (FCM/APNs)
 
 export interface HushhNotificationsPlugin {
+  /** Foreground-only, one-shot fallback when Web Audio cannot start. Deadline is in epoch ms. */
+  playEmergencySmsCue(options: { userId: string; grantId: string; expiresAt: number }): Promise<{ played: boolean }>;
+  stopEmergencySmsCue(options: { grantId?: string }): Promise<void>;
   setActiveChat(options: { tag: string; keyId: string }): Promise<void>;
   deletePushToken(): Promise<void>;
   prepareNotificationKey(options: { userId: string; deviceId: string }): Promise<{ deviceId: string; keyId: string; publicKey: string }>;

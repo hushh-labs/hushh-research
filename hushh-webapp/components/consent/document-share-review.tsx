@@ -41,9 +41,11 @@ import {
   DOCUMENT_REQUEST_PRICE_RULE,
   DocumentRequestPriceSheet,
 } from "@/components/consent/document-request-price-sheet";
+import { DocumentRequestRequesterPanel } from "@/components/consent/document-request-requester-panel";
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
 import { ProfileConnectorsLink } from "@/components/profile/profile-connectors-link";
 import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
+import { presentOwnerReviewRequest } from "@/lib/consent/document-request-requester-view";
 import { documentPayoutStatusCopy } from "@/lib/consent/document-payout-status";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
 import {
@@ -55,9 +57,9 @@ import {
   type SharingReview,
   type OwnerDocumentPayout,
   type SharingDelivery,
+  type SharingRequestContext,
   type SharingRevocationReview,
   type DriveBulkShareFilePage,
-  type SharingDeliveryFilePage,
   type DriveBulkShareCounts,
   type DriveBulkShareIssue,
   type DriveBulkReasonCode,
@@ -72,6 +74,8 @@ type Snapshot = {
   ownerPayout?: OwnerDocumentPayout | null;
   delivery?: SharingDelivery;
   revocation?: SharingRevocationReview;
+  /** The requester's own terms; absent for the owner and for requests without them. */
+  context?: SharingRequestContext | null;
 };
 type SessionGuard = () => void;
 /** What the sheet is doing right now; "idle" means only background polls. */
@@ -192,24 +196,14 @@ const ISSUE_COPY: Record<DriveBulkReasonCode, { reason: string; action: string }
   unavailable: { reason: "Sharing could not be completed.", action: "Check the file in Google Drive." },
 };
 
-function issueText(reason: DriveBulkReasonCode, recipient: boolean): string {
-  if (recipient) {
-    if (reason === "date_range_required") return "This request needs exact dates. Make a new request with a start and end date.";
-    if (reason === "source_not_shareable") return "The owner's Google account lacks sharing permission. Ask them to contact the file owner or shared drive manager.";
-    if (reason === "permission_rejected") return "Google Drive denied sharing. The owner can check the file's sharing permissions.";
-    if (reason === "permission_outcome_unknown" || reason === "permission_catalog_incomplete")
-      return "The result has not been confirmed. The owner can check access in Google Drive.";
-    if (reason === "stopped") return "The owner stopped sharing these files.";
-    if (reason === "provider_unavailable") return "Google Drive could not finish sharing. The owner can retry the unshared files.";
-    return "These files were not shared. The owner can review them in Google Drive.";
-  }
+/** The owner's issue copy; the requester's lives in document-request-requester-panel. */
+function issueText(reason: DriveBulkReasonCode): string {
   return `${ISSUE_COPY[reason].reason} ${ISSUE_COPY[reason].action}`;
 }
 
-function OutcomeSummary({ counts, issues, recipient = false }: {
-  counts: DriveBulkShareCounts; issues?: DriveBulkShareIssue[]; recipient?: boolean;
+function OutcomeSummary({ counts, issues }: {
+  counts: DriveBulkShareCounts; issues?: DriveBulkShareIssue[];
 }) {
-  const unconfirmed = Math.max(0, counts.total - counts.shared - counts.alreadyShared);
   const rows = [
     [counts.shared, "newly shared"], [counts.alreadyShared, "already had access"],
     [counts.skipped, "not shared"], [counts.failed, "failed"], [counts.needsReview, "needs review"],
@@ -221,12 +215,9 @@ function OutcomeSummary({ counts, issues, recipient = false }: {
       {rows.filter(([count]) => count > 0).map(([count, label]) =>
         <HelperText key={label}>{count.toLocaleString()} {label}</HelperText>)}
     </div>
-    {recipient && unconfirmed > 0 ? <HelperText>
-      Only confirmed available files appear here. Ask the owner to review the {unconfirmed.toLocaleString()} {unconfirmed === 1 ? "file" : "files"} not confirmed available.
-    </HelperText> : null}
     {issues?.length ? <ul className="space-y-2" aria-label="Sharing issues">
       {issues.map(issue => <li key={issue.reasonCode}><HelperText>
-        {issue.count.toLocaleString()} {issue.count === 1 ? "file" : "files"}: {issueText(issue.reasonCode, recipient)}
+        {issue.count.toLocaleString()} {issue.count === 1 ? "file" : "files"}: {issueText(issue.reasonCode)}
       </HelperText></li>)}
     </ul> : null}
   </div>;
@@ -248,7 +239,7 @@ function FileOutcomes({ outcomes }: { outcomes: DriveBulkFileOutcome[] }) {
       outcome.status === "skipped" ? "Not shared" : outcome.status === "failed" ? "Sharing failed" :
         outcome.status === "present_unattributed" || outcome.status === "absent" ? "Review needed" :
           OUTCOME_LABELS[outcome.status] ?? "Review needed"}
-    {outcome.reasonCode ? ` · ${issueText(outcome.reasonCode, false)}` : ""}
+    {outcome.reasonCode ? ` · ${issueText(outcome.reasonCode)}` : ""}
   </HelperText>)}</div>;
 }
 
@@ -281,6 +272,8 @@ function errorCopy(cause: unknown): string {
   if (code === "request_unavailable")
     return "This document request is no longer available.";
   if (code === "request_expired") return "This document request expired.";
+  // Cancel or decline after payment or sharing began (the server's paid guard).
+  if (code === "request_paid") return "Payment or sharing already started. Refresh to see it.";
   if (code === "owner_payout_required") return "Link payouts to continue.";
   if (code === "owner_price_required") return "Set your request price to continue.";
   if (code === "payout_unavailable") return "Payments are unavailable. Try again later.";
@@ -435,18 +428,14 @@ function UnlockedDocumentReview({
   const [bulkPageLoading, setBulkPageLoading] = useState(false);
   const [bulkPageError, setBulkPageError] = useState(false);
   const [bulkPageRetry, setBulkPageRetry] = useState(0);
-  const [deliveryCursor, setDeliveryCursor] = useState<string | null>(null);
-  const [deliveryPrevious, setDeliveryPrevious] = useState<(string | null)[]>([]);
-  const [deliveryPage, setDeliveryPage] = useState<SharingDeliveryFilePage | null>(null);
-  const [deliveryPageLoading, setDeliveryPageLoading] = useState(false);
-  const [deliveryPageError, setDeliveryPageError] = useState(false);
-  const [deliveryPageRetry, setDeliveryPageRetry] = useState(0);
   const searchPageSerial = useRef(0);
   const searchPageKey = useRef("");
   const bulkPageSerial = useRef(0);
   const bulkPageKey = useRef("");
-  const deliveryPageSerial = useRef(0);
-  const deliveryPageKey = useRef("");
+  // The requester's terms never change once sent: read them once per sheet. A
+  // definitive "none" (older free requests) is remembered too; a transient
+  // failure is asked again on the next load.
+  const requesterTerms = useRef<{ value: SharingRequestContext | null } | null>(null);
   const serial = useRef(0);
   const alive = useRef(false);
   // A decision is never overlapped; it may supersede a load, a search included.
@@ -499,8 +488,28 @@ function UnlockedDocumentReview({
           ? delivery
           : undefined;
       };
+      // Optional: a request without requester terms (or an older server) still loads.
+      const requesterContext = async (): Promise<SharingRequestContext | null> => {
+        if (requesterTerms.current) return requesterTerms.current.value;
+        try {
+          const value = await DriveSharingService.requesterContext(token, requestId, guard);
+          guard();
+          requesterTerms.current = { value };
+          return value;
+        } catch (cause) {
+          guard();
+          if (cause instanceof DriveSharingError && cause.code === "session_changed") throw cause;
+          if (cause instanceof DriveSharingError && cause.code === "request_unavailable")
+            requesterTerms.current = { value: null };
+          return null;
+        }
+      };
       if (status.direction !== "incoming")
-        return { status, delivery: await optionalOutgoingDelivery() };
+        return {
+          status,
+          delivery: await optionalOutgoingDelivery(),
+          context: await requesterContext(),
+        };
       if (!UNDECIDED.has(status.status)) {
         const delivery = await DriveSharingService.delivery(token, requestId, guard);
         guard();
@@ -613,12 +622,13 @@ function UnlockedDocumentReview({
       }
       // A trust rule can approve during preparation.
       if (status.direction !== "incoming" || !UNDECIDED.has(status.status))
-        return {
-          status,
-          delivery: status.direction === "incoming"
-            ? await DriveSharingService.delivery(token, requestId, guard)
-            : await optionalOutgoingDelivery(),
-        };
+        return status.direction === "incoming"
+          ? { status, delivery: await DriveSharingService.delivery(token, requestId, guard) }
+          : {
+              status,
+              delivery: await optionalOutgoingDelivery(),
+              context: await requesterContext(),
+            };
       return {
         status,
         review: await DriveSharingService.review(token, requestId, guard),
@@ -758,7 +768,6 @@ function UnlockedDocumentReview({
       prepared.current = null;
       searchPageSerial.current += 1;
       bulkPageSerial.current += 1;
-      deliveryPageSerial.current += 1;
     };
   }, [load, run]);
 
@@ -791,13 +800,9 @@ function UnlockedDocumentReview({
   const searchReady = isDriveSearchSelectionReady(search);
   const searchJobId = search && (!bulkShare || progressive) && !legacySearch ? search.jobId : null;
   const bulkPreviewId = bulkShare?.shareId ?? null;
-  const deliveryBulkId = snapshot?.status.direction === "outgoing"
-    ? snapshot.delivery?.bulkShareId ?? null : null;
-  const deliveredCount = snapshot?.delivery?.sharedCount ?? 0;
 
   useEffect(() => { setSearchCursor(null); setSearchPrevious([]); }, [search?.jobId]);
   useEffect(() => { setBulkCursor(null); setBulkPrevious([]); }, [bulkShare?.shareId]);
-  useEffect(() => { setDeliveryCursor(null); setDeliveryPrevious([]); }, [deliveryBulkId]);
 
   useEffect(() => {
     const ticket = ++searchPageSerial.current;
@@ -854,33 +859,6 @@ function UnlockedDocumentReview({
     return () => { bulkPageSerial.current += 1; };
   }, [getToken, bulkPreviewId, bulkCursor, bulkPageRetry, bulkShare?.revision,
     bulkShare?.counts.processed, bulkShare?.counts.unknown, bulkShare?.counts.pending]);
-
-  useEffect(() => {
-    const ticket = ++deliveryPageSerial.current;
-    if (!deliveryBulkId || deliveredCount === 0) {
-      deliveryPageKey.current = "";
-      setDeliveryPage(null); setDeliveryPageError(false); return;
-    }
-    const token = getToken();
-    if (!token) { setDeliveryPage(null); setDeliveryPageError(true); return; }
-    const epoch = snapshotVaultSessionEpoch();
-    const guard = () => {
-      if (!alive.current || ticket !== deliveryPageSerial.current ||
-        !isVaultSessionEpochCurrent(epoch) || getToken() !== token)
-        throw new DriveSharingError("session_changed");
-    };
-    const pageKey = `${deliveryBulkId}:${deliveryCursor ?? "first"}`;
-    if (deliveryPageKey.current !== pageKey) {
-      deliveryPageKey.current = pageKey;
-      setDeliveryPage(null);
-    }
-    setDeliveryPageLoading(true); setDeliveryPageError(false);
-    void DriveSharingService.deliveryFiles(token, requestId, guard, deliveryCursor)
-      .then(page => { guard(); setDeliveryPage(page); })
-      .catch(() => { try { guard(); } catch { return; } setDeliveryPage(null); setDeliveryPageError(true); })
-      .finally(() => { if (ticket === deliveryPageSerial.current) setDeliveryPageLoading(false); });
-    return () => { deliveryPageSerial.current += 1; };
-  }, [getToken, requestId, deliveryBulkId, deliveredCount, deliveryCursor, deliveryPageRetry]);
   // Stays true while a decision or refresh runs, so the layout never jumps.
   const finding = activity === "finding_files" || (isFinding(snapshot) && !searchStartFailed.current);
   const stillWorking =
@@ -1173,10 +1151,20 @@ function UnlockedDocumentReview({
   const ownerPayout = !outgoing && payoutProjection
     ? documentPayoutStatusCopy(payoutProjection)
     : null;
-  const requesterQuote = outgoing && snapshot?.status.paymentRequired === true &&
-    typeof snapshot.status.quotedAmountCents === "number"
-    ? formatDocumentRequestPrice(snapshot.status.quotedAmountCents)
-    : null;
+  // The owner's one retry for files Google Drive could not share. The requester
+  // may ask for it; whether it can run stays with this batch view.
+  const retryUnshared = !outgoing && bulkShare && bulkShare.status !== "review_ready" &&
+    bulkShare.canRetry === true && (bulkShare.retryableCount ?? 0) > 0 ? (
+      <Button size="prominent" disabled={locked}
+        onClick={() => mutate((token, guard) => DriveSharingService.retryBulkShare(token, bulkShare, guard), "retrying_share")}>
+        Retry {bulkShare.retryableCount?.toLocaleString()} {bulkShare.retryableCount === 1 ? "file" : "files"}
+      </Button>
+    ) : null;
+  const reviewAsk = outgoing ? null : delivery?.reviewRequest ?? null;
+  const reloadDetails = () => {
+    onChanged();
+    void run(load, "load", "idle");
+  };
 
   return (
     <section
@@ -1233,10 +1221,14 @@ function UnlockedDocumentReview({
           ) : null}
         </div>
       ) : null}
-      {requesterQuote ? (
-        <div className="rounded-xl border border-border/60 p-3" aria-label="Locked document request quote">
-          <BodyText className="font-medium">Request price: {requesterQuote}</BodyText>
-          <HelperText className="mt-1">This quote was locked when you sent the request. You pay once, only after matching files are ready.</HelperText>
+      {reviewAsk && !removal ? (
+        <div className="space-y-3 rounded-xl border border-border/60 p-3" role="note" aria-label="Review request">
+          <div>
+            <BodyText className="font-medium">Review requested</BodyText>
+            <HelperText className="mt-1">{presentOwnerReviewRequest(reviewAsk, retryUnshared !== null)}</HelperText>
+          </div>
+          {/* The manual batch view shows the same Retry below. */}
+          {automaticSharing ? retryUnshared : null}
         </div>
       ) : null}
       {payoutProjection && ["awaiting_delivery", "awaiting_account"].includes(payoutProjection.status) ? (
@@ -1259,6 +1251,19 @@ function UnlockedDocumentReview({
             ))}
           </div>
         </div>
+      ) : null}
+
+      {outgoing && snapshot && !removal ? (
+        <DocumentRequestRequesterPanel
+          requestId={requestId}
+          status={snapshot.status}
+          delivery={snapshot.delivery}
+          context={snapshot.context ?? null}
+          locked={locked}
+          surface={surface}
+          onCancel={() => decide("cancel")}
+          onChanged={reloadDetails}
+        />
       ) : null}
 
       {review && ownerDecision && !removal ? <>
@@ -1297,7 +1302,7 @@ function UnlockedDocumentReview({
           periodStart={review.purpose.periodStart}
           periodEnd={review.purpose.periodEnd}
           paymentRequired={review.paymentRequired === true}
-          lockedAmountCents={null}
+          estimateCents={review.estimateCents ?? null}
           initialAmountCents={review.priceCents ?? null}
           priceOnly={priceOnly}
           busy={activity === "allowing"}
@@ -1311,6 +1316,9 @@ function UnlockedDocumentReview({
         <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
         <dl className={HAIRLINES}>
           <Fact label="Share with" value={review.recipientEmail} />
+          {review.purpose.periodStart ? (
+            <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} />
+          ) : null}
           <Fact label="Access" value="Viewer, until removed" />
           {review.ownerAllowed === true && typeof review.priceCents === "number" ? (
             <Fact label="Price" value={formatDocumentRequestPrice(review.priceCents)} />
@@ -1544,11 +1552,7 @@ function UnlockedDocumentReview({
             {bulkShare.status === "partial" && bulkShare.counts.shared > 0 ?
               <HelperText>Review the newly shared originals below. Remove any unintended access in Google Drive.</HelperText> : null}
             {["queued", "running"].includes(bulkShare.status) ? <HelperText>Sharing continues after you leave.</HelperText> : null}
-            {bulkShare.canRetry === true && (bulkShare.retryableCount ?? 0) > 0 ?
-              <Button size="prominent" disabled={locked}
-                onClick={() => mutate((token, guard) => DriveSharingService.retryBulkShare(token, bulkShare, guard), "retrying_share")}>
-                Retry {bulkShare.retryableCount?.toLocaleString()} {bulkShare.retryableCount === 1 ? "file" : "files"}
-              </Button> : null}
+            {retryUnshared}
           </> : null}
 
           {bulkShare ? (
@@ -1903,7 +1907,7 @@ function UnlockedDocumentReview({
         </>
       ) : null}
 
-      {delivery && !delivery.bulkShareId && !removal ? (
+      {delivery && !delivery.bulkShareId && !outgoing && !removal ? (
         <>
           {delivery.files.length > 0 ? (
             <SettingsGroup embedded title="Files" {...groupSurface}>
@@ -1936,11 +1940,7 @@ function UnlockedDocumentReview({
                         className="min-h-11"
                       >
                         <a
-                          href={
-                            outgoing && googleEmail
-                              ? `${file.openUrl}?authuser=${encodeURIComponent(googleEmail)}`
-                              : file.openUrl
-                          }
+                          href={file.openUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           referrerPolicy="no-referrer"
@@ -1955,32 +1955,11 @@ function UnlockedDocumentReview({
                 />
               ))}
             </SettingsGroup>
-          ) : outgoingOpen || delivery.canStopAccess || delivery.accessStopStatus ? null : (
+          ) : delivery.canStopAccess || delivery.accessStopStatus ? null : (
             <BodyText>Nothing was shared.</BodyText>
           )}
 
-          {outgoing ? (
-            <>
-              {delivery.files.length > 0 ? (
-                <HelperText>
-                  {googleEmail
-                    ? `Shared with ${googleEmail}. Open while signed in to that Google account.`
-                    : "Open while signed in to your linked Google account."}
-                </HelperText>
-              ) : null}
-              {UNDECIDED.has(snapshot.status.status) ? (
-                <SettingsGroup embedded {...groupSurface}>
-                  <SettingsRow
-                    title="Cancel request"
-                    disabled={locked}
-                    onClick={() => decide("cancel")}
-                  />
-                </SettingsGroup>
-              ) : null}
-            </>
-          ) : (
-            <>
-              <SettingsGroup embedded {...groupSurface}>
+          <SettingsGroup embedded {...groupSurface}>
                 <SettingsRow
                   asChild
                   title="Manage in Google Drive"
@@ -2031,44 +2010,6 @@ function UnlockedDocumentReview({
                 Disconnecting Drive doesn&apos;t remove Google access. Other
                 access may remain after removal.
               </HelperText>
-            </>
-          )}
-        </>
-      ) : null}
-
-      {delivery?.bulkShareId && outgoing && !removal ? (
-        <>
-          {delivery.counts ? <OutcomeSummary counts={delivery.counts} issues={delivery.issues} recipient /> :
-            <BodyText>{(delivery.sharedCount ?? 0).toLocaleString()} of {(delivery.fileCount ?? 0).toLocaleString()} files available</BodyText>}
-          {delivery.bulkStatus && ["queued", "running"].includes(delivery.bulkStatus) ?
-            <HelperText>Sharing continues after you leave.</HelperText> : null}
-          {deliveryPage?.files.length ? (
-            <SettingsGroup embedded title="Available files" description="These links open the originals in Google Drive." {...groupSurface}>
-              {deliveryPage.files.map((file, index) => (
-                <SettingsRow
-                  key={file.grantId ?? index}
-                  title={file.name}
-                  trailing={file.openUrl ? <OriginalLink url={file.openUrl} googleEmail={googleEmail} /> : undefined}
-                />
-              ))}
-            </SettingsGroup>
-          ) : delivery.sharedCount === 0 && snapshot?.status.status === "approved" ? (
-            <HelperText>Files appear as sharing finishes.</HelperText>
-          ) : null}
-          {deliveryPageLoading ? <HelperText>Loading files…</HelperText> : null}
-          {deliveryPageError ? <div><HelperText role="alert">Couldn&apos;t load shared files.</HelperText>
-            <Button size="standard" variant="none" onClick={() => setDeliveryPageRetry(value => value + 1)}>Try again</Button></div> : null}
-          {deliveryPrevious.length || deliveryPage?.nextCursor ? (
-            <div className="flex flex-wrap gap-2">
-              <Button size="standard" variant="none" disabled={deliveryPageLoading || !deliveryPrevious.length}
-                onClick={() => { setDeliveryCursor(deliveryPrevious.at(-1) ?? null); setDeliveryPrevious(items => items.slice(0, -1)); }}>Previous</Button>
-              <Button size="standard" variant="none" disabled={deliveryPageLoading || !deliveryPage?.nextCursor}
-                onClick={() => { setDeliveryPrevious(items => [...items, deliveryCursor]); setDeliveryCursor(deliveryPage?.nextCursor ?? null); }}>Next 25</Button>
-            </div>
-          ) : null}
-          {deliveryPage?.files.length ? <HelperText>{googleEmail
-            ? `Shared with ${googleEmail}. Open while signed in to that Google account.`
-            : "Open while signed in to your linked Google account."}</HelperText> : null}
         </>
       ) : null}
 

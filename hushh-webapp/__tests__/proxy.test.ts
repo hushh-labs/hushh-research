@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { proxy } from "@/proxy";
 
@@ -8,6 +8,13 @@ function request(path: string): NextRequest {
 }
 
 describe("Next proxy root-entry contract", () => {
+  it.each(["/one/profile/account", "/one/profile/payouts"])("preserves strict opaque payment returns at %s", destination => {
+    const path = `${destination}?commerceReturn=1&commerceAttemptId=opaque_attempt_12345`;
+    expect(proxy(request(path)).headers.get("location")).toBeNull();
+    for (const invalid of [destination, path + "&commerceReturn=1", path + "&private=anything", path.replace("opaque_attempt_12345", "short")]) {
+      expect(new URL(proxy(request(invalid)).headers.get("location")!).pathname).toBe("/one");
+    }
+  });
   it("leaves the dual-mode root entry available for client auth and onboarding", () => {
     const response = proxy(request("/?redirect=%2Fone&tab=chat"));
 
@@ -77,4 +84,25 @@ describe("Next proxy root-entry contract", () => {
       expect(target.searchParams.get("profile_detail")).toBe(detail);
     }
   });
+});
+
+
+afterEach(() => vi.unstubAllEnvs());
+
+it("keeps private responses out of the index without redirecting registered callbacks", () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+  for (const path of ["/one", "/kai", "/profile", "/people", "/c/shared", "/oauth/authorize", "/api/account", "/one/profile/connectors/oauth/return"]) {
+    expect(proxy(request(path)).headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  }
+  const callback = proxy(request("/one/profile/connectors/oauth/return?code=synthetic&state=synthetic"));
+  expect(callback.headers.get("location")).toBeNull();
+  const publicPage = proxy(request("/welcome?tab=research&utm_source=test"));
+  expect(publicPage.headers.get("x-robots-tag")).toBeNull();
+  expect(publicPage.headers.get("link")).toBe('<https://one.hussh.si/welcome?tab=research>; rel="canonical"');
+  expect(callback.headers.get("link")).toBeNull();
+  for (const path of ["/privacy", "/terms", "/delete-account"]) {
+    expect(proxy(request(path)).headers.get("x-robots-tag")).toBeNull();
+  }
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+  expect(proxy(request("/welcome?tab=research")).headers.get("x-robots-tag")).toBe("noindex, nofollow");
 });

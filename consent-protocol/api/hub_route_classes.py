@@ -54,6 +54,7 @@ RouteKey = tuple[str, str]
 _INVENTORY = """
 [CONTENT]
 POST /api/one/profile-research
+GET,POST /api/one/profile-research/jobs
 POST /api/one/answer-requests/{request_id}/compose
 POST /api/one/career/resume/parse
 POST /api/one/email/scheduled/drain
@@ -232,6 +233,8 @@ POST /api/one/google/connect/transition/complete
 GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
 [SUPPORT]
+GET /api/one/wallet/card-access/networks
+POST /api/one/wallet/card-access/networks/resolve
 POST /api/kai/decision/store
 DELETE,GET /api/kai/decision/{decision_id}
 GET /api/kai/health

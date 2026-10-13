@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Literal
 
@@ -203,11 +204,13 @@ async def _ok_auth(frame, claims):
 AUTH = {"type": "auth", "vault_owner_token": "HCT:token", "conversation_id": CONV}
 
 
-def _session(transport, fake_live, *, verify=_ok_auth, pending=None, conversations=None):
+def _session(
+    transport, fake_live, *, verify=_ok_auth, pending=None, conversations=None, config=CONFIG
+):
     pending = pending or MemoryPendingStore()
     return VoiceSession(
         transport=transport,
-        config=CONFIG,
+        config=config,
         claims=CLAIMS,
         verify_auth=verify,
         live_factory=live_factory_for(fake_live),
@@ -294,6 +297,57 @@ async def test_ready_then_end_records_close(caplog):
     assert "per_user_input=" not in perf_logs[0]
 
 
+async def test_voice_provider_binding_and_latency_tags_use_explicit_project(caplog):
+    config = replace(CONFIG, vertex_project="hussh-511311")
+    session = _session(
+        FakeTransport([AUTH, {"type": "end"}]),
+        FakeLive([LiveEvent(kind="setup_complete")]),
+        config=config,
+    )
+    with caplog.at_level(logging.INFO, logger="hushh_mcp.one_voice.session"):
+        await _run(session)
+    tags = (
+        "provider=vertex_ai vertex_project=hussh-511311 "
+        "live_model=gemini-live-2.5-flash-native-audio live_location=us-central1"
+    )
+    assert (
+        f"one_voice.provider_binding session={CLAIMS.session_id} status=connected {tags}"
+        in caplog.text
+    )
+    assert "phase=provider_connect ms=" in caplog.text
+    assert all(
+        line.endswith(tags) for line in caplog.text.splitlines() if "one_voice.latency" in line
+    )
+
+
+async def test_voice_connect_failure_is_attributed_without_content(caplog):
+    @asynccontextmanager
+    async def failed_connect(_model, _config):
+        raise ConnectionError("private provider detail")
+        yield  # pragma: no cover
+
+    session = _session(
+        FakeTransport([AUTH]),
+        FakeLive([]),
+        config=replace(CONFIG, vertex_project="hussh-511311"),
+    )
+    session.live_factory = failed_connect
+    with caplog.at_level(logging.INFO, logger="hushh_mcp.one_voice.session"):
+        await _run(session)
+    assert "one_voice.provider_binding session=sess-1 status=connect_failed" in caplog.text
+    assert "one_voice.session.failed class=" in caplog.text
+    assert "vertex_project=hussh-511311" in caplog.text
+    assert "private provider detail" not in caplog.text
+
+
+def test_voice_provider_tags_resolve_default_vertex_project(monkeypatch):
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "fleet-default")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    session = _session(FakeTransport(), FakeLive([]))
+    assert "vertex_project=fleet-default" in session._provider_tags()
+
+
 # --- audio + transcripts ---------------------------------------------------
 
 
@@ -347,6 +401,7 @@ async def test_perf_frame_is_logged_without_extending_idle_or_reaching_provider(
     assert fake.audio_in == [] and fake.events_sent == []
     assert "turn=none metric=endpointing_client ms=840" in caplog.text
     assert "turn=abcdef123456 metric=endpointing_client ms=840" in caplog.text
+    assert "provider=vertex_ai vertex_project=" in caplog.text
 
 
 def test_pinned_sdk_activity_end_markers_translate_without_inferred_fields():

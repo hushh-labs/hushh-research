@@ -462,3 +462,53 @@ async def test_outer_event_racing_progress_is_not_lost_or_prefetched():
         assert visited == list(range(index + 1))
     with pytest.raises(StopAsyncIteration):
         await anext(events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("track_progress", [True, False])
+async def test_real_nested_agent_progress_prevents_false_idle_timeout(monkeypatch, track_progress):
+    if not track_progress:
+
+        def without_progress(source, **kwargs):
+            kwargs["progress_timestamp"] = None
+            return bounded_adk_events(source, **kwargs)
+
+        monkeypatch.setattr("hushh_mcp.hushh_adk.turn.bounded_adk_events", without_progress)
+
+    class SlowModel(ScriptedLlm):
+        async def generate_content_async(self, llm_request, stream=False):
+            await asyncio.sleep(0.25)
+            async for item in super().generate_content_async(llm_request, stream):
+                yield item
+
+    async def read_value():
+        await asyncio.sleep(0.25)
+        return {"value": "fixture"}
+
+    child = LlmAgent(
+        name="child",
+        model=SlowModel([response(call="read_value"), response(text="child answer")]),
+        tools=[read_value],
+    )
+    built = agent(
+        ScriptedLlm([response(call="child")]),
+        tools=[AgentTool(agent=child, skip_summarization=True)],
+    )
+    pending = run(
+        built,
+        # ADK can import and initialize tool schemas before its first event.
+        # Keep startup outside the tight idle-progress regression boundary:
+        # each child operation is 0.25s, but their combined hidden work > 0.4s.
+        first_event_timeout_s=20.0,
+        between_event_timeout_s=0.4,
+        total_timeout_s=30.0,
+    )
+    if not track_progress:
+        with pytest.raises(SpecialistAdkTurnError) as failure:
+            await pending
+        assert isinstance(failure.value.__cause__, AdkEventTimeoutError)
+        return
+    result = await pending
+    assert result.final_text == "child answer"
+    assert result.llm_calls == 3
+    assert [receipt.name for receipt in result.tool_results] == ["read_value", "child"]

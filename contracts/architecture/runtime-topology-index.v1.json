@@ -765,7 +765,7 @@
       "id": "agent_chat_encrypted_memory",
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
-      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly"
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, LLM context assembly, and owner-authenticated Magic discovery draft checkpoints (one.magic.discovery.v1/profile)."
     },
     {
       "data_class": "reference",
@@ -1839,7 +1839,10 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "stripe_connect_bank_payouts",
-        "stripe_connect_bank_payout_events"
+        "stripe_connect_bank_payout_events",
+        "stripe_connect_balance_snapshots",
+        "stripe_connect_balance_transactions",
+        "stripe_connect_payout_reconciliations"
       ],
       "id": "stripe_connect_bank_payout_status",
       "lifecycle_status": "customer0",
@@ -1948,12 +1951,14 @@
         "wallet_card_registrations",
         "wallet_card_share_requests",
         "wallet_card_access_grants",
-        "wallet_card_access_audit"
+        "wallet_card_access_audit",
+        "wallet_profile_share_requests",
+        "wallet_profile_access_grants"
       ],
       "id": "wallet_temporary_card_access",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant."
+      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant. The same policy orchestrates selected Profile fields through a separate source adapter; outgoing and received participant history is paginated independently of live card eligibility."
     },
     {
       "data_class": "personal_metadata",
@@ -5507,7 +5512,7 @@
       "native_surface_id": "native-route-one-referrals",
       "page_file": "app/one/referrals/page.tsx",
       "pathname": "/one/referrals",
-      "route_mode": "hidden",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -6691,15 +6696,15 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "c0fee109f7399c33e455b5ba0f3a14bae28bad517e827de5cd721b26cf4ffe19",
-    "agent_registry": "7bac0e11672fa2aa65e81ac8fef0218eb85df0004ddde87ff53fa156c7e90baa",
-    "cache_manifest": "2f4ccfba59c856698838753971f14d3aa12e0dced3f8834cfe33ad8f98f75656",
-    "data_plane": "dff905610b0c2ab9c5639a87b762358e01bf8eff13ee2cc415a1028edaaf2c08",
+    "action_gateway": "c9012ed22868680285a52b2fb6eb1c20d386ab0255d67793ac59d97ff09e5ac6",
+    "agent_registry": "5656882b221ed3ac8ab6870b5266b7d72151a247fd94162dd873e9c88a042575",
+    "cache_manifest": "c7262af5c5aef35ab22518245c58d001a7637304a61f2416b702877b0b6b3102",
+    "data_plane": "4ccbc6b4e4e8365a1f586e0b7ebf5a51eecb61988ff9638725a4d8ba75484ff8",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "cb76edf8be0ad6bbef975a9a9db27c9564dd768e7edd3da999ec5d3a5877b283",
-    "route_index": "001ecb5145f40b7c7ede77f3452f1499f2ae803a22364020245803da14b2de72",
-    "route_layout": "ed731ccb27642087b36fa77b0a35d33c8f076ebeb07c98a8c4a4aa33c90eb42e",
-    "surface_map": "daa796f55e4b1bc895e09a300004ac68b3452aa41538b9c6171a27bc97dba9e9",
+    "route_index": "53414f7f22a7b7b1e06e9306ca43e2a503d8f315d344af2a73ec38bd78c48680",
+    "route_layout": "357d7cda5e28b5ee98fbde64f5d3566d1b3dbd9521d361e489a375fb460760ee",
+    "surface_map": "9a01a37ea1c06e67e34b577314c79a5adf7cb2cc2c1af06df84da66ce8b1c5da",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

@@ -137,7 +137,7 @@ test.describe("Profile pane custom close layout", () => {
   }) => {
     const css = fs.readFileSync(GLOBAL_CSS_SOURCE, "utf8");
     const start = css.indexOf('/*\n * Profile pane: a bounded liquid-glass card');
-    const end = css.indexOf('html:has(.profile-home-screen)', start);
+    const end = css.indexOf('html:has(.profile-home-screen', start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
 
@@ -190,7 +190,7 @@ test.describe("Profile pane custom close layout", () => {
   test("keeps inner tabs centered and readable in the inset card", async ({ page }) => {
     const css = fs.readFileSync(GLOBAL_CSS_SOURCE, "utf8");
     const paneStart = css.indexOf('/*\n * Profile pane: a bounded liquid-glass card');
-    const paneEnd = css.indexOf('html:has(.profile-home-screen)', paneStart);
+    const paneEnd = css.indexOf('html:has(.profile-home-screen', paneStart);
     const typeStart = css.indexOf('/* Base-layer important type rules');
     expect(paneStart).toBeGreaterThan(-1);
     expect(paneEnd).toBeGreaterThan(paneStart);

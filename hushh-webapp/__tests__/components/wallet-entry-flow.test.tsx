@@ -63,6 +63,11 @@ vi.mock("@/lib/services/wallet-card-service", async () => {
   } };
 });
 
+// Keep the real dropdown and limit its catalog to the regions used by this suite.
+vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [
+  { value: "US", label: "United States" }, { value: "IN", label: "India" },
+] }));
+
 vi.mock("@/lib/services/wallet-service", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/wallet-service")>(
     "@/lib/services/wallet-service",
@@ -72,6 +77,8 @@ vi.mock("@/lib/services/wallet-service", async () => {
     WalletService: {
       ...actual.WalletService,
       isEnabled: () => true,
+      supportedCardNetworks: vi.fn().mockResolvedValue(["visa", "mastercard", "amex", "discover", "jcb", "diners", "unionpay", "maestro", "rupay", "elo", "mir", "other"]),
+      resolveCardNetwork: vi.fn().mockResolvedValue({ network: "visa", source: "prefix", candidates: [] }),
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
       deleteCard: serviceMock.deleteCard,
@@ -199,6 +206,7 @@ describe("Wallet visit introduction", () => {
     fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "04/30" } });
     fireEvent.change(screen.getByLabelText("Issuing region (optional)"), { target: { value: "IN" } });
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true"));
     await screen.findByTestId("wallet-selected-card");

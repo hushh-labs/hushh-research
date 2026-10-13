@@ -311,7 +311,11 @@ async def checkout(body: FundingBody, response: Response, user_id: Payer):
                 operation_id=str(body.idempotency_key),
             )
         )
-        return {"url": result["checkout_url"], "funding_id": result["funding_id"]}
+        return {
+            "url": result["checkout_url"],
+            "funding_id": result["funding_id"],
+            "return_url": result["return_url"],
+        }
     except Exception as error:
         raise _error(error) from None
 
@@ -327,7 +331,7 @@ async def onboarding(body: OnboardingBody, response: Response, user_id: Payer):
                 operation_id=str(body.idempotency_key),
             )
         )
-        return {"url": result["onboarding_url"]}
+        return {"url": result["onboarding_url"], "return_url": result["return_url"]}
     except Exception as error:
         raise _error(error) from None
 

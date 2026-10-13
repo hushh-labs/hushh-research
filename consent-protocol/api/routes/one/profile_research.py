@@ -1,6 +1,7 @@
 """Ephemeral profile draft for One chat, admitted like other background cards."""
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -15,7 +16,10 @@ from hushh_mcp.services.magic_intelligence_completion import (
     complete_magic_intelligence,
 )
 from hushh_mcp.services.owner_placement_guard import hub_content_chat_owner
+from hushh_mcp.services.profile_research_jobs import profile_research_jobs
 from hushh_mcp.services.profile_research_service import offer_profile_research
+
+logger = logging.getLogger(__name__)
 
 
 class PrivateProfileRoute(PrivateNoStoreRoute):
@@ -47,6 +51,44 @@ class MagicReviewCommit(BaseModel):
 class MagicReviewCompletion(BaseModel):
     model_config = ConfigDict(extra="forbid")
     commits: list[MagicReviewCommit] = Field(min_length=1, max_length=64)
+
+
+async def discovery_job_response(token: dict, *, start: bool):
+    owner_id, owner_token = token.get("user_id"), token.get("token")
+    if not owner_id or not owner_token:
+        raise HTTPException(status_code=403, detail="Unlock your vault to continue.")
+    try:
+        operation = profile_research_jobs.start if start else profile_research_jobs.status
+        result = await operation(owner_id, owner_token)
+    except HTTPException:
+        raise
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Unlock your vault to continue.") from None
+    except Exception:
+        return JSONResponse(
+            {"detail": "Discovery is temporarily busy."},
+            status_code=503,
+            headers={"Retry-After": "5"},
+        )
+    logger.info(
+        "one.magic_discovery_response action=%s status=%s retry_exhausted=%s",
+        "start" if start else "status",
+        result["status"],
+        result.get("retry_exhausted", False),
+    )
+    return JSONResponse(result, status_code=202 if result["status"] == "pending" else 200)
+
+
+@router.post("/profile-research/jobs")
+@limiter.limit("20/hour")
+async def profile_research_start(request: Request, token: dict = Depends(hub_content_chat_owner)):
+    return await discovery_job_response(token, start=True)
+
+
+@router.get("/profile-research/jobs")
+@limiter.limit("30/minute")
+async def profile_research_status(request: Request, token: dict = Depends(hub_content_chat_owner)):
+    return await discovery_job_response(token, start=False)
 
 
 @router.post("/profile-research/complete")

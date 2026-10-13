@@ -319,9 +319,64 @@ END $$;"""
     return entry.sql[:start] + repair + entry.sql[end:]
 
 
+_BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS = {
+    ("298", "298_stripe_mode_isolation.sql"): (
+        "edcfe4260fef678bdf3ae759fae46fc725b7dedef5d884f9a2c8627a6d64eb99"
+    ),
+    ("304", "304_connect_bank_payout_reconciliation.sql"): (
+        "e622469054a16a1cfc52171529aa1e3814bedece8712d32d2616fbc704c54de8"
+    ),
+}
+
+
+def _replay_bank_payout_event_sql(entry: MigrationManifestEntryV2, pinned: str) -> str:
+    # 298 and 304 re-add an exact Connect event CHECK on replay, which rejects
+    # rows of event types added later and locks the table on every deploy.
+    # Preserve the immutable file and ledger/baseline hash; adapt only the
+    # published body to widen, retaining installed vocabulary and rows.
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if checksum != pinned or entry.checksum_sha256 != checksum:
+        raise MigrationAuthorityError("Legacy bank payout event replay source checksum changed")
+    start = entry.sql.index("ALTER TABLE stripe_connect_bank_payout_events\n  DROP CONSTRAINT")
+    end = entry.sql.index(
+        "ADD CONSTRAINT stripe_connect_bank_payout_events_event_type_check", start
+    )
+    end = entry.sql.index("));", end) + len("));")
+    repair = """DO $$
+DECLARE
+  installed TEXT[];
+  allowed TEXT;
+  required TEXT[] := ARRAY[
+    'account.external_account.created','account.external_account.deleted',
+    'account.external_account.updated','account.updated','payout.canceled',
+    'payout.created','payout.failed','payout.paid','payout.updated'];
+BEGIN
+  SELECT ARRAY(SELECT DISTINCT hit[1] FROM regexp_matches(
+    pg_get_constraintdef(c.oid), '''([^'']+)''', 'g') AS hit
+    ORDER BY hit[1]) INTO installed
+  FROM pg_constraint c
+  WHERE c.conrelid='stripe_connect_bank_payout_events'::regclass
+    AND c.conname='stripe_connect_bank_payout_events_event_type_check';
+  IF NOT COALESCE(installed @> required, FALSE) THEN
+    SELECT string_agg(DISTINCT quote_literal(value), ',' ORDER BY quote_literal(value)) INTO allowed
+      FROM unnest(COALESCE(installed, ARRAY[]::TEXT[]) || required) AS value;
+    ALTER TABLE stripe_connect_bank_payout_events
+      DROP CONSTRAINT IF EXISTS stripe_connect_bank_payout_events_event_type_check;
+    EXECUTE format(
+      'ALTER TABLE stripe_connect_bank_payout_events ADD CONSTRAINT '
+      'stripe_connect_bank_payout_events_event_type_check CHECK (event_type IN (%s))',
+      allowed);
+  END IF;
+END $$;"""
+    return entry.sql[:start] + repair + entry.sql[end:]
+
+
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
     if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
         return _replay_drive_feed_sql(entry)
+    pinned = _BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS.get((entry.migration_id, entry.filename))
+    if pinned:
+        return _replay_bank_payout_event_sql(entry, pinned)
     # Migration 295 shipped a bare CREATE POLICY. Preserve its immutable source
     # and ledger/baseline hashes, while making its known body replayable inside
     # the original transaction. Never adapt other or drifted migration bodies.

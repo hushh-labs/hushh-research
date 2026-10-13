@@ -107,12 +107,16 @@ def _load_workflow(path: Path) -> dict:
     [
         ("", 0, 0, 1, 0),
         ("collision", 74, 0, 2, 0),
+        ("collision-prefixed", 74, 0, 2, 0),
         ("collision", 74, 74, 2, 74),
         ("collision", 65, 0, 1, 65),
         ("checksum", 74, 0, 1, 74),
         ("foreign-cache", 74, 0, 1, 74),
         ("collision-and-checksum", 74, 0, 1, 74),
         ("collision-and-error", 74, 0, 1, 74),
+        ("collision-same-line-checksum", 74, 0, 1, 74),
+        ("collision-same-line-signature", 74, 0, 1, 74),
+        ("collision-same-line-error", 74, 0, 1, 74),
     ],
 )
 def test_actual_ios_resolve_retries_only_the_bounded_artifact_collision(
@@ -131,10 +135,13 @@ def test_actual_ios_resolve_retries_only_the_bounded_artifact_collision(
         "    cache = root if error != 'foreign-cache' else root / 'other'\n"
         "    prefix = \"failed downloading 'https://example.com/framework.zip' \"\n"
         "    prefix += \"which is required by binary target 'Framework': \"\n"
+        "    if error == 'collision-prefixed': prefix = 'error: ' + prefix\n"
         "    if error != 'checksum':\n"
+        "        suffix = ': ' + error.rsplit('-', 1)[-1] if 'same-line' in error else ''\n"
+        "        if suffix == ': error': suffix += ': authorization refused'\n"
         "        print(prefix + str(cache / 'spm-cache/artifacts/framework_zip') "
-        "+ ' already exists in file system')\n"
-        "    if 'checksum' in error:\n"
+        "+ ' already exists in file system' + suffix)\n"
+        "    if 'checksum' in error and 'same-line' not in error:\n"
         "        print(\"checksum of downloaded artifact of binary target 'Framework' \""
         " + 'does not match checksum specified by the manifest')\n"
         "    if error == 'collision-and-error': print('error: authorization refused')\n"

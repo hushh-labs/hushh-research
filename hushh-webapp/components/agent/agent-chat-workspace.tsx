@@ -17,7 +17,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
-import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, resumedAgentPkmCaptureMessageId, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
   applyOwnerConfirmedSave,
   describeOwnerMemoryReview,
@@ -34,6 +34,7 @@ import {
   type ExplicitPkmSaveJobResult,
 } from "@/lib/pkm/pkm-save-job";
 import { isCommittedPkmSave, type AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
+import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
   AgentConsentContinuationContext,
@@ -474,8 +475,8 @@ import {
   type GmailInformationRequestSourcePreview,
 } from "@/lib/services/gmail-information-requests-service";
 
-// Every memory capture job ends. Automatic capture includes semantic
-// preparation; an explicit owner save writes the selected passage directly.
+// Every memory capture job ends. Automatic and explicit captures both use
+// semantic preparation; an explicit owner save may pause and resume.
 const AGENT_PKM_CAPTURE_DEADLINE_MS = 4 * 60_000;
 const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
 const AGENT_PKM_EXPLICIT_SAVE_PAUSE_MARGIN_MS = 20_000;
@@ -1974,6 +1975,9 @@ export function AgentBubble({
     !isUser && isStreaming,
   );
   const assistantText = isUser ? message.text : animated.displayedText;
+  const backgroundOnly = Boolean(backgroundCard) && Boolean(message.ephemeral) &&
+    !isUser && !isStreaming && !isError && !shouldRenderStreamPanel &&
+    assistantText.trim().length === 0;
   const consentActionsPayload = !isUser
     ? getConsentActionsPayload(message.specialistDirective ?? null)
     : null;
@@ -2002,6 +2006,7 @@ export function AgentBubble({
   const showAssistantBubble =
     !isUser &&
     !shouldRenderStreamPanel &&
+    !backgroundOnly &&
     (assistantText.trim().length > 0 ||
       !(canRenderConsentActions || canRenderPendingConsentRequest));
 
@@ -2117,7 +2122,7 @@ export function AgentBubble({
       <div
         className={cn(
           "min-w-0",
-          shouldRenderStreamPanel && !isUser
+          (shouldRenderStreamPanel || backgroundOnly) && !isUser
             ? "w-full max-w-none"
             : "max-w-[90%] sm:max-w-[min(82%,48rem)]",
           isUser && "sm:max-w-[min(76%,42rem)]",
@@ -2181,7 +2186,7 @@ export function AgentBubble({
               <AgentMarkdown text={assistantText} />
               {showAssistantBubble && !isError ? hoverResponseActionsNode : null}
             </>
-          ) : canRenderConsentActions ||
+          ) : backgroundOnly || canRenderConsentActions ||
             canRenderPendingConsentRequest ? null : (
             <AgentThinkingDots />
           )}
@@ -2194,7 +2199,7 @@ export function AgentBubble({
               {message.errorNotice}
             </p>
           ) : null}
-          {!isUser && backgroundCard ? <div className="mt-3">{backgroundCard}</div> : null}
+          {!isUser && backgroundCard ? <div className={backgroundOnly ? undefined : "mt-3"}>{backgroundCard}</div> : null}
         </OneChatBubble>
         {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}
         {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} onConfirmNeedsOwner={onConfirmMemoryNeedsOwner} onRetry={onRetryMemorySave} pendingCards={pendingMemoryCards} canConfirmNeedsOwner={canConfirmMemoryNeedsOwner} onUnlock={onUnlockVault} /> : null}
@@ -2454,6 +2459,7 @@ export function ChatAgentSubtitle({ text, working, brand, icon }: { text: string
     const timer = window.setTimeout(() => { setDisplay({ text, working, brand, icon }); setVisible(true); }, 90);
     return () => window.clearTimeout(timer);
   }, [display, text, working, brand, icon]);
+  if (!display.text) return null;
   return <p aria-live="polite" className="flex max-w-48 items-center gap-1.5 truncate text-xs text-muted-foreground sm:max-w-64">
     <span className={`flex min-w-0 items-center gap-1.5 transition-opacity duration-100 motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}>
       {display.brand || display.icon ? <AgentActivityMark brand={display.brand} icon={display.icon} /> : display.working ? <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" /> : null}
@@ -2464,7 +2470,7 @@ export function ChatAgentSubtitle({ text, working, brand, icon }: { text: string
 
 export type ActiveToolCall = { id: string; label: string; activity?: string; brand?: ConnectorBrand | null; icon?: AgentActivityIcon };
 
-export const IDLE_AGENT_SUBTITLE = "Your private agent";
+export const IDLE_AGENT_SUBTITLE = "";
 
 /**
  * The line under the agent's name. While a turn runs it names what One is
@@ -2698,6 +2704,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
   ]);
+  const pkmCaptureMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
+  pkmCaptureMessageIdsRef.current = new Set(messages.map((message) => message.id));
   const compiledDriveMarkdownRef = useRef(new Map<string, string>());
   const driveCompilationAbortRef = useRef<AbortController | null>(null);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
@@ -2719,6 +2727,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
+  const [isOneProfileOpen, setIsOneProfileOpen] = useState(false);
+  const oneProfileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
   const handleHistoryDrawerOpenChange = useCallback((open: boolean) => {
     const next = transitionConnectionsDrawer(
@@ -5485,8 +5495,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           await guard.assertCurrent();
           settle({ phase: "preparing", saved: 0 });
           if (explicitRequest) {
-            await AgentPkmContextStore.load({ userId, vaultKey, vaultOwnerToken: token });
+            const structuredContext = await AgentPkmContextStore.load({ userId, vaultKey, vaultOwnerToken: token });
             await guard.assertCurrent();
+            if (!structuredContext) throw new DOMException("Memory inventory changed.", "AbortError");
             const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
             await guard.assertCurrent();
             // A resumable job: a relock, reconnect or the deadline pauses it,
@@ -5494,7 +5505,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             const { receipt, needsOwnerCards } = await startExplicitPkmSaveJob({
               userId,
               message: params.sourceMessage,
-              currentDomains: params.currentDomains,
+              currentDomains: structuredContext.domains,
               currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
               vaultKey,
               vaultOwnerToken: token,
@@ -5662,7 +5673,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       userId, signal: new AbortController().signal,
       isEnabled: () => scopeIsCurrent() && isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
     });
+    await guard.assertCurrent();
+    const structuredContext = await AgentPkmContextStore.load({ userId, vaultKey, vaultOwnerToken: token });
+    await guard.assertCurrent();
+    if (!structuredContext) throw new DOMException("Memory inventory changed.", "AbortError");
     const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
+    await guard.assertCurrent();
     const outcome: ExplicitPkmSaveJobResult | null = await resumeExplicitPkmSaveJob({
       userId, jobId, retry: options.retry, vaultKey, vaultOwnerToken: token,
       currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
@@ -5671,12 +5687,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         AgentPkmContextStore.findReconciliationCandidates({ userId, text: passage }),
       beforeEffect: guard.assertCurrent, isEffectCurrent: guard.isCurrent, mayPublish: guard.isCurrent,
     });
-    const messageId = options.messageId ?? outcome?.assistantMessageId;
-    if (!outcome || !messageId) return;
+    if (!outcome || !scopeIsCurrent() || !guard.isCurrent()) return;
+    const messageId = resumedAgentPkmCaptureMessageId(
+      outcome.assistantMessageId, options.messageId, pkmCaptureMessageIdsRef.current,
+    );
+    if (!messageId) return;
     if (outcome.needsOwnerCards.length) {
       pkmNeedsOwnerCardsRef.current.set(messageId, { cards: outcome.needsOwnerCards, sourceMessage: outcome.sourceMessage });
-    }
-    if (!scopeIsCurrent() || !guard.isCurrent()) return;
+    } else pkmNeedsOwnerCardsRef.current.delete(messageId);
     latestPkmSaveReceiptRef.current = outcome.receipt;
     setMessages((current) => current.map((message) => message.id === messageId
       ? {
@@ -9121,23 +9139,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           )}
         >
           <div
+            data-one-centered-header={!isPuppySurface ? "true" : undefined}
             className={cn(
               "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-4 pt-[var(--agent-chat-header-safe-top)] sm:px-5",
               "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
-            {/*
-              Three flex regions, and only the middle one may give way:
-              [history] [identity: flex-1, clips] [actions: shrink-0].
-              The identity region used to share a group with the history
-              button and carried no clip, so on a 390px phone the actions
-              (then 281px, with a fixed-width picker slot) squeezed it below
-              its own minimum and the brand tile painted under the One | Puppy
-              toggle while the agent's name collapsed to zero width. Clipping
-              the identity horizontally makes that overlap impossible by
-              construction: whatever does not fit is cut at its own edge and
-              truncates, it never slides under a control.
-            */}
+            {/* One centers its stacked identity between balanced controls;
+                narrow phones reserve a separate control row. Puppy keeps
+                the compact history / clipped identity / actions row. */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
             <NativeHistoryOpener owner={renderedWorkspaceOwnerId}
@@ -9156,9 +9166,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
             >
-              {/* Keep the active agent's mark visible at every viewport. The
-                  compact phone tile leaves the identity label room to clip
-                  before it can overlap the trailing controls. */}
+              {/* One stacks this identity above a separate control row;
+                  Puppy keeps its compact inline identity. */}
               <div
                 data-agent-chat-brand-tile
                 className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"
@@ -9169,11 +9178,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     aria-hidden
                   />
                 ) : (
-                  <HushhMark
-                    aria-hidden="true"
-                    className="h-7 w-7 items-center justify-center overflow-visible"
-                    imageClassName="!h-[23px] !w-[23px]"
-                  />
+                  <ShellActionSurface
+                    variant="icon"
+                    aria-label="Open One profile"
+                    aria-haspopup="dialog"
+                    ref={oneProfileTriggerRef}
+                    aria-expanded={isOneProfileOpen}
+                    onClick={() => setIsOneProfileOpen(true)}
+                    className="!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                  >
+                    <HushhMark
+                      aria-hidden="true"
+                      className="size-[72px] items-center justify-center overflow-visible"
+                      imageClassName="!size-16"
+                    />
+                  </ShellActionSurface>
                 )}
               </div>
               {/* The name in the header is the reader's only guarantee about
@@ -9335,6 +9354,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               </ShellActionSurface>
             </div>
           </div>
+
+          <OneAgentProfileSheet open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface
@@ -9859,6 +9880,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   </div>
                 ) : widget.kind === "add" ? (
                   <SecureCardAddForm
+                    getNetworkContext={() => {
+                      const token = getVaultOwnerToken();
+                      return user?.uid && token ? { userId: user.uid, vaultOwnerToken: token } : null;
+                    }}
                     key={widget.id}
                     compact
                     onSubmit={async (card) => {

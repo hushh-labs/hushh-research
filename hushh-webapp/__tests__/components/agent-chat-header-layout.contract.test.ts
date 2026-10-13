@@ -105,13 +105,13 @@ describe("agent chat header layout", () => {
     );
   });
 
-  it("matches the canonical One header mark size", () => {
+  it("uses the larger One profile avatar with the canonical mark", () => {
     const header = headerBlock();
     expect(header).toContain("<HushhMark");
     expect(header).toContain(
-      'className="h-7 w-7 items-center justify-center overflow-visible"',
+      'className="size-[72px] items-center justify-center overflow-visible"',
     );
-    expect(header).toContain('imageClassName="!h-[23px] !w-[23px]"');
+    expect(header).toContain('imageClassName="!size-16"');
     expect(header).not.toContain("🤫");
   });
 });

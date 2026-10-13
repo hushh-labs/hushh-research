@@ -74,6 +74,11 @@ vi.mock("@/lib/services/wallet-card-service", async () => {
   return { ...actual, WalletCardService: class extends actual.WalletCardService { static getCard = profileMock.getCard; } };
 });
 
+// Keep the real dropdown and limit its catalog to the regions used by this suite.
+vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [
+  { value: "US", label: "United States" }, { value: "IN", label: "India" },
+] }));
+
 vi.mock("@/lib/services/wallet-service", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/wallet-service")>(
     "@/lib/services/wallet-service",
@@ -83,6 +88,8 @@ vi.mock("@/lib/services/wallet-service", async () => {
     WalletService: {
       ...actual.WalletService,
       isEnabled: () => true,
+      supportedCardNetworks: vi.fn().mockResolvedValue(["visa", "mastercard", "amex", "discover", "jcb", "diners", "unionpay", "maestro", "rupay", "elo", "mir", "other"]),
+      resolveCardNetwork: vi.fn().mockResolvedValue({ network: "visa", source: "prefix", candidates: [] }),
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
@@ -331,6 +338,7 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fillCard();
     fireEvent.change(screen.getByLabelText("PIN (optional)"), { target: { value: pin } });
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await screen.findByTestId("wallet-selected-card");
     expect(serviceMock.addCard).toHaveBeenCalledWith(expect.objectContaining({ card: expect.objectContaining({ pin: undefined }) }));
@@ -347,6 +355,7 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fillCard();
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     await act(async () => { fireEvent.click(screen.getByTestId("secure-card-save")); });
     await screen.findByTestId("wallet-selected-card");
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("New card");
@@ -388,7 +397,9 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByTestId("one-wallet-add"));
     fillCard();
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
+    await waitFor(() => expect(serviceMock.addCard).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     expect(screen.getByLabelText("Name on card")).toHaveValue("New card");
     let finish!: (value: unknown) => void;
@@ -414,7 +425,9 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fillCard();
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
+    await waitFor(() => expect(finishSave).toBeTypeOf("function"));
     fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));

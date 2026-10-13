@@ -16,13 +16,20 @@ import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings
+from hushh_mcp.services.connect_payout_binding import resolve_document_binding
 from hushh_mcp.services.payout_account_status_cache import (
     StatusReadInvalidated,
     account_status_cache,
     invalidate_payout_account_status,
+)
+from hushh_mcp.services.pkm_consumer_payout_profile import (
+    create_consumer_account,
+    create_hosted_link,
+    hosted_return_urls,
 )
 from hushh_mcp.services.pkm_packet_order_service import (
     TABLE as ORDERS,
@@ -117,6 +124,124 @@ def _bank_projection(remote: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+VERIFICATION_ITEMS = ("identity", "tax_id", "address", "bank_account", "business", "terms", "other")
+# Stripe requirements.disabled_reason -> closed reason. Reasons a verify link
+# can fix map to a verification state instead of "disabled".
+_DISABLED_REASONS = {
+    "requirements.past_due": "requirements_past_due",
+    "requirements.pending_verification": "pending_verification",
+    "under_review": "under_review",
+    "listed": "listed",
+    "platform_paused": "platform_paused",
+    "action_required.requested_capabilities": "action_required",
+}
+_TAX_ID_FIELDS = {"id_number", "id_number_secondary", "ssn_last_4", "tax_id", "vat_id"}
+_IDENTITY_OWNERS = {"individual", "representative"}
+_BUSINESS_OWNERS = {"business_profile", "business_type", "company", "settings"}
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _requirement_fields(requirements: dict[str, Any], key: str) -> list[str]:
+    value = requirements.get(key)
+    if not isinstance(value, list):
+        return []
+    return [field for field in value[:200] if isinstance(field, str)]
+
+
+def _requirement_item(field: str) -> str:
+    """A closed category for one Stripe requirement name, never the name itself."""
+    parts = field.split(".")
+    if parts[0] == "external_account":
+        return "bank_account"
+    if parts[0] == "tos_acceptance":
+        return "terms"
+    if any(part == "address" or part.endswith("_address") for part in parts):
+        return "address"
+    if any(part in _TAX_ID_FIELDS for part in parts):
+        return "tax_id"
+    if parts[0] in _IDENTITY_OWNERS or parts[0].startswith("person_"):
+        return "identity"
+    if parts[0] in _BUSINESS_OWNERS:
+        return "business"
+    return "other"
+
+
+def _timestamp(value: Any) -> str | None:
+    # Unix seconds between 2000 and 2100; anything else is not a deadline.
+    if type(value) is not int or not 946_684_800 <= value <= 4_102_444_800:
+        return None
+    return datetime.fromtimestamp(value, UTC).isoformat()
+
+
+def _account_verification(remote: dict[str, Any]) -> dict[str, Any]:
+    """What Stripe still needs, as closed categories. Never provider text.
+
+    `requirements.errors[].reason` and requirement names stay server-side; the
+    owner sees a state, a deadline and categories.
+    """
+    requirements = _mapping(remote.get("requirements"))
+    future = _mapping(remote.get("future_requirements"))
+    past_due = _requirement_fields(requirements, "past_due")
+    currently_due = _requirement_fields(requirements, "currently_due")
+    future_due = _requirement_fields(future, "currently_due") + _requirement_fields(
+        future, "past_due"
+    )
+    raw_reason = requirements.get("disabled_reason")
+    disabled_reason = (
+        None
+        if not isinstance(raw_reason, str) or not raw_reason
+        else "rejected"
+        if raw_reason.startswith("rejected.")
+        else _DISABLED_REASONS.get(raw_reason, "other")
+    )
+    if disabled_reason in {"rejected", "listed", "platform_paused", "action_required", "other"}:
+        state = "disabled"
+    elif past_due or disabled_reason == "requirements_past_due":
+        state = "past_due"
+    elif currently_due:
+        state = "due"
+    elif _requirement_fields(requirements, "pending_verification") or disabled_reason in {
+        "pending_verification",
+        "under_review",
+    }:
+        state = "in_review"
+    elif future_due:
+        state = "upcoming"
+    else:
+        state = "none"
+    due_now = set(past_due + currently_due + future_due)
+    eventually = set(
+        _requirement_fields(requirements, "eventually_due")
+        + _requirement_fields(future, "eventually_due")
+    )
+    categories = {_requirement_item(field) for field in due_now}
+    # A deadline belongs to the items it is for, never to an empty list.
+    deadline_source = requirements if past_due or currently_due else future if future_due else {}
+    return {
+        "state": state,
+        "deadline": _timestamp(deadline_source.get("current_deadline")),
+        "items": [item for item in VERIFICATION_ITEMS if item in categories],
+        "eventuallyDue": bool(eventually - due_now),
+        "hasErrors": bool(requirements.get("errors") or future.get("errors")),
+        "disabledReason": disabled_reason,
+    }
+
+
+def _payout_schedule(remote: dict[str, Any]) -> dict[str, Any] | None:
+    schedule = _mapping(_mapping(_mapping(remote.get("settings")).get("payouts")).get("schedule"))
+    interval = schedule.get("interval")
+    if interval not in {"daily", "weekly", "monthly", "manual"}:
+        return None
+    delay = schedule.get("delay_days")
+    return {
+        "interval": interval,
+        "delayDays": delay if type(delay) is int and 0 <= delay <= 365 else None,
+    }
+
+
 def _account_readiness(remote: dict[str, Any]) -> dict[str, Any]:
     """A live Stripe Account is the authority for transfer and payout readiness."""
     capabilities = remote.get("capabilities") or {}
@@ -146,6 +271,9 @@ def _account_readiness(remote: dict[str, Any]) -> dict[str, Any]:
         "status": "ready" if ready else "restricted" if disabled else "onboarding_required",
         "canManageBank": can_manage,
         **bank,
+        # Additive: projected from the same Account read, no extra Stripe call.
+        "verification": _account_verification(remote),
+        "payoutSchedule": _payout_schedule(remote),
     }
 
 
@@ -328,35 +456,42 @@ class PkmPayoutService:
         return adopted
 
     # --- owner -------------------------------------------------------------
-
     async def onboarding_link(
         self,
         *,
         user_id: str,
         surface: Literal["marketplace", "documents", "answers"] = "marketplace",
+        purpose: Literal["onboarding", "verify"] = "onboarding",
+        attempt_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create (once) the owner's Express account and a fresh onboarding link."""
+        """Create (once) the owner's Express account and a fresh onboarding link.
+
+        purpose="verify" reuses an existing account only and asks Stripe to
+        collect everything it will need, now and upcoming, in one visit. Either
+        purpose fences the display cache, so verification shows Stripe's state.
+        """
+        if purpose not in {"onboarding", "verify"}:
+            raise ValueError("invalid onboarding purpose")
+        if attempt_id is not None:
+            if surface not in {"documents", "answers"}:
+                raise ValueError("invalid correlated payout surface")
+            attempt_id = str(UUID(attempt_id))
         invalidate_payout_account_status(user_id=user_id, mode=self.account_mode)
         key = self._account_key()
         origin = _app_origin()
         return_path = ONBOARDING_RETURN_PATHS[surface]
-        account = await self._account(user_id)
+        account = await resolve_document_binding(self, user_id)
         remote: dict[str, Any] | None = None
+        if account is None and purpose == "verify":
+            raise PacketOrderError("PAYOUT_ACCOUNT_REQUIRED", "Link a bank first.")
         if account is None:
             try:
-                created = _stripe_dict(
-                    await asyncio.to_thread(
-                        self.stripe_api.Account.create,
-                        api_key=key,
-                        idempotency_key=f"pkm-payout-account:{stripe_environment()}:{self.account_mode}:{user_id}",
-                        type="express",
-                        country="US",
-                        capabilities={"transfers": {"requested": True}},
-                        metadata={
-                            "hussh_user_ref": "pkm_owner",
-                            "hussh_environment": stripe_environment(),
-                        },
-                    )
+                created = await create_consumer_account(
+                    stripe_api=self.stripe_api,
+                    api_key=key,
+                    mode=self.account_mode,
+                    owner=user_id,
+                    database=self.db,
                 )
             except Exception as exc:
                 _log_provider_error("account_create", exc)
@@ -384,16 +519,15 @@ class PkmPayoutService:
                     )
                 )
             except Exception:
-                # A concurrent request may have inserted the same owner's mapping.
-                # Stripe's owner-scoped idempotency key also keeps creation single.
-                account = await self._account(user_id)
+                # Recheck a concurrent winner without changing the creation intent.
+                account = await resolve_document_binding(self, user_id)
                 if account is None:
                     raise PacketOrderError(
                         "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
                     ) from None
                 account_id = account["stripe_account_id"]
             else:
-                # Check the new account from its create response; a re-read only adds latency.
+                # The preparation adapter returns freshly verified current account facts.
                 remote = created
         else:
             account_id = account["stripe_account_id"]
@@ -406,20 +540,22 @@ class PkmPayoutService:
                 "PAYOUT_ACCOUNT_DISABLED",
                 "This payout account needs support before setup can continue.",
             )
-        query_key = {"documents": "documentPayouts", "answers": "answerPayouts"}.get(
-            surface, "payouts"
-        )
+        urls = hosted_return_urls(origin, return_path, surface, attempt_id)
+        return_url, refresh_url = urls["return_url"], urls["refresh_url"]
         try:
-            link = _stripe_dict(
-                await asyncio.to_thread(
-                    self.stripe_api.AccountLink.create,
-                    api_key=key,
-                    account=account_id,
-                    type="account_onboarding",
-                    refresh_url=f"{origin}{return_path}?{query_key}=refresh",
-                    return_url=f"{origin}{return_path}?{query_key}=done",
-                )
+            link = await create_hosted_link(
+                stripe_api=self.stripe_api,
+                api_key=key,
+                account=account_id,
+                refresh_url=refresh_url,
+                return_url=return_url,
+                mode=self.account_mode,
+                owner=user_id,
+                purpose=purpose,
+                attempt_id=attempt_id,
             )
+        except PacketOrderError:
+            raise
         except Exception as exc:
             _log_provider_error("account_link", exc)
             raise PacketOrderError(
@@ -430,7 +566,10 @@ class PkmPayoutService:
                 "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
             )
         invalidate_payout_account_status(user_id=user_id, mode=self.account_mode)
-        return {"url": link["url"]}
+        return {
+            "url": link["url"],
+            **({"return_url": return_url, "attempt_id": attempt_id} if attempt_id else {}),
+        }
 
     async def _retrieve_account(self, account_id: str, *, key: str) -> dict[str, Any]:
         try:
@@ -556,6 +695,8 @@ class PkmPayoutService:
                 # A display lookup may outlive invalidation. Keep it read-only
                 # so an old result cannot overwrite newer authoritative state
                 # or wake document work before its cache generation is checked.
+                # Verification and payout schedule come from this same read and
+                # key; they are display only and never gate money.
                 remote = await self._retrieve_account(account["stripe_account_id"], key=key)
                 return _account_readiness(remote)
 

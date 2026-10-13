@@ -222,7 +222,7 @@ def test_business_directory_rollout_remains_closed_without_opt_in():
     assert config["one_business_directory_enabled"] == "false"
 
 
-@pytest.mark.parametrize("phase", ["0", "1", "2", "3", "4"])
+@pytest.mark.parametrize("phase", ["0", "1", "2", "3", "4", "5"])
 def test_magic_phase_and_research_survive_canonical_config_generation(monkeypatch, phase):
     module = _load_sync_module()
     names = {
@@ -232,7 +232,7 @@ def test_magic_phase_and_research_survive_canonical_config_generation(monkeypatc
         "one_magic_intelligence_senior_team_emails": "e@example.test,f@example.test,g@example.test,h@example.test",
         "one_magic_intelligence_qa_emails": "qa@example.test",
     }
-    config = module._build_backend_runtime_config(_namespace(**names))
+    config = module._build_backend_runtime_config(_namespace(environment="uat", **names))
     for name, value in names.items():
         monkeypatch.delenv(name.upper(), raising=False)
         assert config[name] == value
@@ -241,6 +241,14 @@ def test_magic_phase_and_research_survive_canonical_config_generation(monkeypatc
     assert runtime_settings.one_profile_research_enabled()
     assert runtime_settings.one_magic_intelligence_phase() == int(phase)
     assert [len(row) for row in runtime_settings.one_magic_intelligence_cohorts()] == [4, 4, 1]
+
+
+@pytest.mark.parametrize("environment", ["production", "development", ""])
+def test_general_magic_config_cannot_be_published_outside_uat(environment):
+    with pytest.raises(ValueError, match="only admitted for UAT"):
+        _load_sync_module()._build_backend_runtime_config(
+            _namespace(environment=environment, one_magic_intelligence_phase="5")
+        )
 
 
 @pytest.mark.parametrize("environment", ["uat", "production", "development"])

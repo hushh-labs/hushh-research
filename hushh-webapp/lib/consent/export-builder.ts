@@ -8,6 +8,9 @@ import {
 } from "@/lib/consent/pkm-scope-policy";
 import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
 import type { PkmScopeRegistryEntry } from "@/lib/personal-knowledge-model/manifest";
+import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 
 const PKM_READ = "pkm.read";
 const ATTR_SCOPE_REGEX = /^attr\.([a-zA-Z0-9_]+)(?:\.(.+))?$/;
@@ -168,12 +171,98 @@ export type BuiltConsentExport = {
   sourceManifestRevision?: number;
 };
 
+export interface ConsentExportReadSession {
+  build(scope: string): Promise<BuiltConsentExport>;
+}
+
+/** One coherent domain read per answer, with exact scope projection after decryption.
+ * Encrypted cached projections are reusable only after current server revisions
+ * and exposure posture have been checked. Drive's ordinary export path stays separate.
+ */
+export function createConsentExportReadSession(params: {
+  userId: string; scopes: readonly string[]; vaultKey: string; vaultOwnerToken: string;
+}): ConsentExportReadSession {
+  const epoch = snapshotVaultSessionEpoch();
+  const sourceEpoch = currentPkmInvalidationEpoch(params.userId);
+  const valid = () => {
+    if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
+    if (currentPkmInvalidationEpoch(params.userId) !== sourceEpoch)
+      throw new Error("Memory sources changed during preparation; retry required");
+  };
+  const scopes = [...new Set(params.scopes)].sort();
+  const reads = new Map<string, Promise<Record<string, BuiltConsentExport>>>();
+  const readDomain = async (domain: string): Promise<Record<string, BuiltConsentExport>> => {
+    valid();
+    const selected = scopes.filter(scope => parseAttrScope(scope)?.domain === domain);
+    if (selected.some(isPrivatePkmExportScope)) throw new Error("Private source cannot be exported");
+    const full = selected.some(scope => !parseAttrScope(scope)?.path);
+    const snapshot = await PersonalKnowledgeModelService.getDomainSnapshot({
+      userId: params.userId, domain, vaultOwnerToken: params.vaultOwnerToken,
+      // Discover the current manifest and ciphertext together. A filtered 404
+      // only proves that a guessed segment is absent, not that the domain is.
+      // Decryption below is restricted to the approved paths' actual segments.
+      force: true,
+    });
+    valid();
+    // HTTP 404 is confirmed absence; failed/locked reads throw and remain retryable.
+    if (!snapshot) return Object.fromEntries(selected.map(scope => [scope, { payload: {} }]));
+    if (snapshot.userId !== params.userId || snapshot.domain !== domain || !snapshot.manifest)
+      throw new Error("Scope manifest could not be verified");
+    const paths = selected.map(scope => resolveApprovedPaths(scope, snapshot.manifest).filter(path => !isRedactedExportPath(path)));
+    if (paths.some(entries => !entries.length)) throw new Error("Approved scope changed; review required");
+    const legacy = snapshot.encryptedBlob.storageMode === "legacy_full_blob";
+    const segments = legacy ? ["root"] : full ? [] : [...new Set(paths.flatMap(entries => entries.flatMap(path => {
+      const declared = PersonalKnowledgeModelService.resolveSegmentIdsForPaths({ manifest: snapshot.manifest, paths: [path] });
+      // Historical manifests may declare root for a physically partitioned
+      // top-level value. Recover that exact path only, never arbitrary siblings.
+      const present = mergeSegmentIds(declared, topLevelSegmentsForPaths([path]))
+        .filter(segment => snapshot.segmentIds.includes(segment));
+      if (!present.length) throw new Error("Approved scope segments could not be read");
+      return present;
+    })))];
+    if (segments.some(segment => !snapshot.segmentIds.includes(segment)))
+      throw new Error("Approved scope segments could not be read");
+    const signature = JSON.stringify([domain, selected, paths, snapshot.contentRevision, snapshot.manifestRevision, snapshot.etag]);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(signature));
+    const resourceKey = "answer_scope_projection:v1:" + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+    const cached = await SecureResourceCacheService.read<{ signature: string; exports: Record<string, BuiltConsentExport> }>({
+      userId: params.userId, vaultKey: params.vaultKey, resourceKey,
+    });
+    valid();
+    if (cached?.signature === signature && selected.every(scope => cached.exports?.[scope])) return cached.exports;
+    const data = await PersonalKnowledgeModelService.decryptDomainSnapshot({ snapshot, vaultKey: params.vaultKey, segmentIds: segments });
+    valid();
+    const exports = Object.fromEntries(selected.map((scope, index) => [scope, {
+      payload: {
+        ...projectDomainDataForScope({ domain, scope, domainData: data, approvedPaths: paths[index]! }),
+        __export_metadata: { scope, source_domain: domain, approved_paths: paths[index]!, manifest_version: snapshot!.manifestRevision },
+      },
+      sourceContentRevision: snapshot!.contentRevision,
+      sourceManifestRevision: snapshot!.manifestRevision,
+    }]));
+    await SecureResourceCacheService.write({ userId: params.userId, vaultKey: params.vaultKey, resourceKey,
+      value: { signature, exports }, ttlMs: 24 * 60 * 60 * 1000 });
+    valid();
+    return exports;
+  };
+  return { async build(scope) {
+    valid();
+    const parsed = parseAttrScope(scope);
+    if (!parsed || !scopes.includes(scope)) throw new Error("Scope not approved");
+    let pending = reads.get(parsed.domain);
+    if (!pending) { pending = readDomain(parsed.domain); reads.set(parsed.domain, pending); }
+    return (await pending)[scope]!;
+  } };
+}
+
 export async function buildConsentExportForScope(params: {
   userId: string;
   scope: string;
   vaultKey: string;
   vaultOwnerToken: string;
+  readSession?: ConsentExportReadSession;
 }): Promise<BuiltConsentExport> {
+  if (params.readSession) return params.readSession.build(params.scope);
   if (isPrivatePkmExportScope(params.scope)) {
     throw new ConsentExportNoDataError(
       "Private analysis source material cannot be exported.",

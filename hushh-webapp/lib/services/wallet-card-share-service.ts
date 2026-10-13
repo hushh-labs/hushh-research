@@ -8,6 +8,41 @@ import { WalletService, type WalletCardShareReceipt } from "./wallet-service";
 
 export type CardShareContext = { userId: string; vaultKey: string; vaultOwnerToken: string; getIdToken: () => Promise<string>; isCurrent: () => boolean };
 function requireCurrent(context: CardShareContext) { if (!context.isCurrent()) throw new Error("Wallet changed. Try again."); }
+export class CardRecipientKeyUnavailableError extends Error {
+  constructor() { super("Ask each recipient to unlock Hushh once before sharing card details."); }
+}
+
+/** Prepare recipient-encrypted contents for temporary grants; never send a PAN to the server. */
+export async function prepareTemporaryCardShares(context: CardShareContext, cardId: string, personRefs: string[]): Promise<Record<string, string>> {
+  requireCurrent(context);
+  const wanted = new Set(personRefs);
+  if (!wanted.size || wanted.size > 20) throw new Error("Choose up to 20 recipients.");
+  const recipients: OneLocationRecipient[] = [];
+  for (let page = 1; ; page += 1) {
+    const result = await OneLocationService.listRecipientsPage({ vaultOwnerToken: context.vaultOwnerToken, page, limit: 50 });
+    requireCurrent(context);
+    recipients.push(...result.items.filter(item => item.publicPersonRef && wanted.has(item.publicPersonRef)));
+    if (recipients.length >= wanted.size || !result.hasMore) break;
+    if (result.page !== page || !result.items.length) throw new Error("Recipients unavailable.");
+  }
+  if (wanted.size !== recipients.length || recipients.some(item => !item.keyId || !item.publicKeyJwk || item.userId === context.userId)) {
+    throw new CardRecipientKeyUnavailableError();
+  }
+  const sender = await bootstrapCurrentUserLocationRecipientKey({ ...context, strictRecovery: true });
+  requireCurrent(context);
+  if (sender.userId !== context.userId || !sender.keyId || !sender.publicKeyJwk) throw new Error("Secure sharing unavailable.");
+  const saved = await WalletService.getCard({ ...context, cardId });
+  requireCurrent(context);
+  if (!saved) throw new Error("Card no longer available.");
+  const entries = await Promise.all(recipients.map(async recipient => [recipient.publicPersonRef!, await sealWalletCardShare({
+    cardId, card: { pan: saved.secrets.pan, cardholderName: saved.secrets.cardholderName,
+      brand: saved.summary.brand, expiryMonth: saved.summary.expiryMonth, expiryYear: saved.summary.expiryYear, issuingRegion: saved.summary.issuingRegion },
+    sender: { userId: sender.userId, keyId: sender.keyId!, publicKeyJwk: sender.publicKeyJwk! },
+    recipient: { userId: recipient.userId, keyId: recipient.keyId!, publicKeyJwk: recipient.publicKeyJwk! },
+  })] as const));
+  requireCurrent(context);
+  return Object.fromEntries(entries);
+}
 
 export async function prepareSavedCardFile(context: CardShareContext, cardId: string, password: string, openAt?: string): Promise<File> {
   requireCurrent(context);

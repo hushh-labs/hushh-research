@@ -749,15 +749,15 @@ async def test_stream_maps_a_stringified_key_error_to_the_recovery_message(monke
 
 
 def test_only_the_chat_stores_touch_chat_ciphertext_columns() -> None:
-    """The history cutover deletes unmarked legacy chat rows when activated.
+    """Only sealed chat stores may write ciphertext retained by history cutover.
 
-    A new writer that bypassed ChatCipher would therefore be wiped silently on the
-    cutover. Keep these columns in the chat stores and their sealed-record adapter.
+    Bypassing ChatCipher can silently lose unmarked rows when cutover runs.
     """
     import re as _re
 
     allowed = {
         "hushh_mcp/one_adk/adk_session_repository.py",
+        "hushh_mcp/one_adk/encrypted_session_service.py",
         "hushh_mcp/services/agent_chat_service.py",
         "hushh_mcp/services/command_checkpoints.py",
     }

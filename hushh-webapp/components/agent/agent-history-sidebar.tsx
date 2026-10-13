@@ -307,6 +307,7 @@ export function AgentHistorySidebar({
     return (
       <div
         key={conversation.id}
+        data-agent-history-row
         role="listitem"
         className={cn(
           "group relative rounded-[12px] transition-colors motion-reduce:transition-none duration-150",
@@ -371,12 +372,14 @@ export function AgentHistorySidebar({
               aria-current={active ? "page" : undefined}
               title={title}
             >
-              <span className={cn("min-w-0 flex-1 whitespace-normal break-words leading-tight", isMobileMode ? "text-[15px]" : "text-[14px]")}>
+              <span data-agent-history-row-title
+                className={cn("min-w-0 flex-1 whitespace-normal break-words leading-tight", isMobileMode ? "text-[13px]" : "text-[14px]")}>
                 {title}
               </span>
 
               {timeLabel ? (
                 <span
+                  data-agent-history-row-description
                   className={cn(
                     "shrink-0 text-[12.5px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
                     // Reserve the timestamp width even when visually hidden.
@@ -491,6 +494,7 @@ export function AgentHistorySidebar({
   const footerButtonClassName = cn(
     "h-11 min-h-11 w-full rounded-[12px] border-transparent bg-transparent text-[14px] font-medium text-foreground shadow-none hover:bg-[color:var(--one-chat-row-hover)] sm:text-[14px]",
     railMode ? "justify-center px-0 sm:px-0" : "justify-start gap-3 px-3 sm:gap-3 sm:px-3",
+    isMobileMode && "text-[13px] sm:text-[13px]",
   );
 
   return (
@@ -499,18 +503,10 @@ export function AgentHistorySidebar({
         data-one-chat-surface
         className={cn(
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground",
-          // Opaque in the drawer: the panel slides with a transform, and WebKit
-          // (iOS WKWebView) takes that transformed panel as the backdrop root, so
-          // a translucent glass surface blurred nothing and showed the chat
-          // through the drawer on iOS while Chromium's blur hid it on web.
-          // The drawer runs the full viewport height, flush to the leading edge
-          // (founder direction, 2026-09-28), so only the trailing corners round
-          // and the surface pads the safe areas itself: under the status bar and
-          // home indicator it is panel, never a gap.
+          // The modal drawer's outer frame owns its inset and material.
+          // The persistent desktop column keeps the workspace surface.
           isMobileMode
-            ? "rounded-r-[24px] border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)] pt-[var(--app-safe-area-top-effective,0px)] pb-[var(--app-safe-area-bottom-effective,0px)] shadow-[0_24px_56px_-16px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_24px_56px_-16px_rgba(0,0,0,0.7)]"
-            // Persistent desktop column (Muse-style two-column layout): one
-            // surface with the chat, separated by a hairline, never a scrim.
+            ? "bg-[color:var(--one-chat-sidebar)]"
             : "border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)]",
           railMode ? "w-16" : "w-60",
           className
@@ -520,10 +516,10 @@ export function AgentHistorySidebar({
         data-agent-history-sidebar={isMobileMode ? "drawer" : "persistent"}
       >
         {isMobileMode ? (
-          <div data-stationary-panel-chrome className="px-4 pb-1 pt-4">
-            <div className="flex items-center justify-between gap-3">
+          <div data-agent-history-header data-stationary-panel-chrome className="relative flex shrink-0 flex-col border-b text-left">
+            <div className="flex min-w-0 items-center gap-2">
               <div className="flex min-w-0 items-center gap-2">
-                <h2 className="truncate text-[22px] font-bold leading-7 tracking-[-0.022em] text-foreground">
+                <h2 data-agent-history-title className="truncate text-[20px] font-bold leading-[23px] tracking-[-0.025em] text-foreground">
                   {listTitle}
                 </h2>
                 {conversations.length > 0 ? (
@@ -537,8 +533,9 @@ export function AgentHistorySidebar({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  // 32px glyph well, 44px hit area (the ::after extends it 6px each side).
-                  className="relative h-8 w-8 rounded-lg text-muted-foreground after:absolute after:-inset-1.5 hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground"
+                  // Match Profile's 44px close target and 16px glyph.
+                  data-agent-history-close
+                  className="absolute h-11 w-11 shrink-0 rounded-full border border-transparent bg-[color:var(--profile-pane-surface-soft)] text-muted-foreground hover:bg-[color:var(--profile-pane-surface-strong)] hover:text-foreground"
                   onClick={onClose}
                   aria-label="Close chat history"
                   title="Close chats"
@@ -547,25 +544,25 @@ export function AgentHistorySidebar({
                 </Button>
               ) : null}
             </div>
+            {puppyFootnote ?? <p data-agent-history-description>Your conversations and connected apps.</p>}
           </div>
         ) : null}
         <SidePanelMotionBody>
         {isMobileMode ? (
-          <div className="px-4 pb-1">
-            {puppyFootnote}
+          <div data-agent-history-controls className="pt-[15px] pb-1">
             <Button
               type="button"
               variant="outline"
               size="sm"
               data-chat-new-button
-              className="mt-3 flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-transparent bg-[color:var(--one-chat-field)] px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-field-strong)] dark:border-transparent dark:bg-[color:var(--one-chat-field)] dark:hover:bg-[color:var(--one-chat-field-strong)]"
+              className="flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-transparent bg-[color:var(--one-chat-field)] px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-field-strong)] dark:border-transparent dark:bg-[color:var(--one-chat-field)] dark:hover:bg-[color:var(--one-chat-field-strong)]"
               onClick={onCreateNew}
               disabled={disabled}
               aria-label="Create new chat"
               title="Create new chat"
             >
               <Plus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <span>New chat</span>
+              <span data-agent-history-row-title>New chat</span>
             </Button>
           </div>
         ) : railMode ? (
@@ -614,10 +611,10 @@ export function AgentHistorySidebar({
           </div>
         )}
 
-        {isMobileMode ? <div className="px-4 pb-1 pt-2">{searchField}</div> : null}
+        {isMobileMode ? <div data-agent-history-controls className="pb-1 pt-2">{searchField}</div> : null}
         {!isMobileMode && !railMode && puppyFootnote ? <div className="px-4">{puppyFootnote}</div> : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 pb-3 pt-0.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent">
+        <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3 pt-0.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent", isMobileMode ? "px-[var(--page-inline-gutter-standard)]" : "px-2.5")}>
           {railMode ? <div className="h-2" aria-hidden="true" /> : null}
 
           {!railMode && surface === "one" ? driveActivity : null}
@@ -692,9 +689,10 @@ export function AgentHistorySidebar({
               {groupedConversations.map((group) => (
                 <div key={group.key}>
                   <div
+                    data-agent-history-section-label
                     className={cn(
                       "px-3 pb-1 pt-1.5 font-normal text-[color:var(--one-chat-meta)]",
-                      isMobileMode ? "text-[14px]" : "text-[13.5px]",
+                      isMobileMode ? "text-[12px]" : "text-[13.5px]",
                     )}
                   >
                     {group.label}
@@ -717,7 +715,7 @@ export function AgentHistorySidebar({
           // Pinned below the list: it scrolls, these never do.
           <div
             data-agent-history-footer
-            className="shrink-0 space-y-0.5 border-t border-[color:var(--one-chat-divider)] px-2.5 py-2"
+            className={cn("shrink-0 space-y-0.5 border-t border-[color:var(--one-chat-divider)] py-2", isMobileMode ? "px-[var(--page-inline-gutter-standard)]" : "px-2.5")}
           >
             {onOpenTodoList ? (
               <ShellActionSurface
@@ -725,12 +723,13 @@ export function AgentHistorySidebar({
                 type="button"
                 wrapperClassName="w-full"
                 className={footerButtonClassName}
+                contentClassName={isMobileMode ? "gap-[var(--app-side-pane-row-gap)] sm:gap-[var(--app-side-pane-row-gap)]" : undefined}
                 onClick={onOpenTodoList}
                 aria-label="Open To-do List"
                 title={railMode ? "To-do List" : undefined}
               >
-                <ClipboardCheck className="size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
-                {railMode ? null : <span className="truncate">To-do List</span>}
+                <ClipboardCheck className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                {railMode ? null : <span data-agent-history-row-title className="truncate">To-do List</span>}
               </ShellActionSurface>
             ) : null}
             {onGetApp ? (
@@ -740,14 +739,15 @@ export function AgentHistorySidebar({
                 wrapperClassName="w-full"
                 data-testid="agent-history-get-app"
                 className={footerButtonClassName}
+                contentClassName={isMobileMode ? "gap-[var(--app-side-pane-row-gap)] sm:gap-[var(--app-side-pane-row-gap)]" : undefined}
                 onClick={(event) => onGetApp(event.currentTarget)}
                 aria-label="Get the app"
                 aria-haspopup="dialog"
                 aria-expanded={getAppOpen}
                 title={railMode ? "Get the app" : undefined}
               >
-                <DownloadIcon className="size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
-                {railMode ? null : <span className="truncate">Get the app</span>}
+                <DownloadIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                {railMode ? null : <span data-agent-history-row-title className="truncate">Get the app</span>}
               </ShellActionSurface>
             ) : null}
             {onOpenConnectors ? (
@@ -756,12 +756,13 @@ export function AgentHistorySidebar({
                 type="button"
                 wrapperClassName="w-full"
                 className={footerButtonClassName}
+                contentClassName={isMobileMode ? "gap-[var(--app-side-pane-row-gap)] sm:gap-[var(--app-side-pane-row-gap)]" : undefined}
                 onClick={(event) => onOpenConnectors(event.currentTarget)}
                 aria-label="Open Connectors"
                 title={railMode ? "Connectors" : undefined}
               >
-                <PlugIcon className="size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
-                {railMode ? null : <span className="truncate">Connectors</span>}
+                <PlugIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                {railMode ? null : <span data-agent-history-row-title className="truncate">Connectors</span>}
               </ShellActionSurface>
             ) : null}
           </div>

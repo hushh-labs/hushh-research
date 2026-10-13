@@ -41,7 +41,15 @@ export interface DocumentRequestPriceSheetProps {
   detailsPending?: boolean;
   /** False for a free request: no price controls, and Allow submits null. */
   paymentRequired: boolean;
-  /** New requests hold the quote shown to the requester; legacy requests remain editable. */
+  /**
+   * The estimate the requester saw when sending. The owner may still choose
+   * another price: nothing is final until an order exists.
+   */
+  estimateCents?: number | null;
+  /**
+   * @deprecated Ignored. A request price is never fixed before an order exists;
+   * the sheet always lets the owner choose. Kept so older callers still compile.
+   */
   lockedAmountCents?: number | null;
   /** Editable draft price, supplied after the request terms load. */
   initialAmountCents?: number | null;
@@ -49,6 +57,15 @@ export interface DocumentRequestPriceSheetProps {
   priceOnly?: boolean;
   /** A caller with a different settlement lane supplies its existing account control. */
   settlement?: ReactNode;
+  /**
+   * What the price buys, for a lane that does not deliver files. Request scope
+   * prices an answer written from the owner's memory, and the Drive sentence
+   * below told that owner their files were about to be found and shared.
+   * Omitted, the Drive wording is unchanged.
+   */
+  description?: string;
+  /** A non-file lane describes its delivery instead of granting Viewer access. */
+  deliveryDescription?: string;
   busy: boolean;
   error: string | null;
   onSubmit: (amountCents: number | null) => void;
@@ -128,12 +145,14 @@ function PriceSheet({
   open,
   requesterLabel,
   purpose,
+  description,
+  deliveryDescription,
   recipientEmail,
   periodStart,
   periodEnd,
   detailsPending = false,
   paymentRequired,
-  lockedAmountCents = null,
+  estimateCents = null,
   initialAmountCents = null,
   priceOnly = false,
   busy,
@@ -160,14 +179,11 @@ function PriceSheet({
   const customCents = parseWholeDollarPrice(customText);
   const customInvalid =
     choice === "custom" && customText.trim() !== "" && customCents === null;
-  const lockedQuote = paymentRequired && lockedAmountCents !== null;
   const amountCents = !paymentRequired
     ? null
-    : lockedQuote
-      ? lockedAmountCents
-      : choice === "custom"
-        ? customCents
-        : choice;
+    : choice === "custom"
+      ? customCents
+      : choice;
   const ready = !detailsPending && (!paymentRequired || amountCents !== null);
   const purposeText = purpose?.trim() || null;
   const recipientText = recipientEmail?.trim() || null;
@@ -188,9 +204,10 @@ function PriceSheet({
       }}
       title={priceOnly ? "Set price" : "Allow request"}
       description={
-        paymentRequired
+        description ??
+        (paymentRequired
           ? `${payerLabel(requesterLabel)} pays this once matching files are found. Nothing is shared before payment.`
-          : "Your private agent finds the matching files and shares them."
+          : "Your private agent finds the matching files and shares them.")
       }
       headerTextOverflow="wrap"
       mobilePresentation="sheet"
@@ -246,103 +263,92 @@ function PriceSheet({
               {periodText ? (
                 <RequestTerm label="Period" value={periodText} />
               ) : null}
-              <RequestTerm label="Access" value="Viewer, until removed" />
+              <RequestTerm
+                label={deliveryDescription ? "Delivery" : "Access"}
+                value={deliveryDescription ?? "Viewer, until removed"}
+              />
             </dl>
           </>
         )}
         {paymentRequired ? (
           <>
-            {lockedQuote ? (
-              <div
-                className="space-y-1"
-                aria-label="Locked document request quote"
-              >
-                <FormLabel as="p">Request price</FormLabel>
-                <BodyText>
-                  {formatDocumentRequestPrice(lockedAmountCents)}
-                </BodyText>
-                <HelperText>
-                  The requester saw this price before sending. It stays fixed
-                  for this request.
-                </HelperText>
-              </div>
-            ) : (
-              <>
-                <FormLabel as="p" id={priceLabelId}>
-                  Price
-                </FormLabel>
-                <div
-                  role="group"
-                  aria-labelledby={priceLabelId}
-                  className={CHIP_ROW_CLASS}
+            <FormLabel as="p" id={priceLabelId}>
+              Price
+            </FormLabel>
+            {isValidDocumentRequestPriceCents(estimateCents) ? (
+              <HelperText>
+                Requester saw an estimate of{" "}
+                {formatDocumentRequestPrice(estimateCents)}
+              </HelperText>
+            ) : null}
+            <div
+              role="group"
+              aria-labelledby={priceLabelId}
+              className={CHIP_ROW_CLASS}
+            >
+              {DOCUMENT_REQUEST_PRICE_PRESETS_CENTS.map((cents) => (
+                <button
+                  key={cents}
+                  type="button"
+                  aria-pressed={choice === cents}
+                  disabled={busy}
+                  onClick={() => setChoice(cents)}
+                  className={cn(
+                    CHIP_CLASS,
+                    choice === cents ? CHIP_ON_CLASS : CHIP_OFF_CLASS,
+                  )}
                 >
-                  {DOCUMENT_REQUEST_PRICE_PRESETS_CENTS.map((cents) => (
-                    <button
-                      key={cents}
-                      type="button"
-                      aria-pressed={choice === cents}
-                      disabled={busy}
-                      onClick={() => setChoice(cents)}
-                      className={cn(
-                        CHIP_CLASS,
-                        choice === cents ? CHIP_ON_CLASS : CHIP_OFF_CLASS,
-                      )}
-                    >
-                      {formatDocumentRequestPrice(cents)}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    aria-pressed={choice === "custom"}
-                    aria-expanded={choice === "custom"}
+                  {formatDocumentRequestPrice(cents)}
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-pressed={choice === "custom"}
+                aria-expanded={choice === "custom"}
+                disabled={busy}
+                onClick={() => setChoice("custom")}
+                className={cn(
+                  CHIP_CLASS,
+                  choice === "custom" ? CHIP_ON_CLASS : CHIP_OFF_CLASS,
+                )}
+              >
+                Custom
+              </button>
+            </div>
+            {choice === "custom" ? (
+              <div className="space-y-1.5">
+                <FormLabel htmlFor={customInputId}>Custom price</FormLabel>
+                <InputGroup className="h-11 border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)]">
+                  <InputGroupAddon className="ui-text-input-value text-[color:var(--app-secondary-label)]">
+                    $
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    id={customInputId}
+                    // Opening Custom is asking to type the amount.
+                    autoFocus
+                    inputMode="numeric"
+                    autoComplete="off"
+                    enterKeyHint="done"
+                    placeholder="Whole dollars"
+                    value={customText}
                     disabled={busy}
-                    onClick={() => setChoice("custom")}
-                    className={cn(
-                      CHIP_CLASS,
-                      choice === "custom" ? CHIP_ON_CLASS : CHIP_OFF_CLASS,
-                    )}
-                  >
-                    Custom
-                  </button>
-                </div>
-                {choice === "custom" ? (
-                  <div className="space-y-1.5">
-                    <FormLabel htmlFor={customInputId}>Custom price</FormLabel>
-                    <InputGroup className="h-11 border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)]">
-                      <InputGroupAddon className="ui-text-input-value text-[color:var(--app-secondary-label)]">
-                        $
-                      </InputGroupAddon>
-                      <InputGroupInput
-                        id={customInputId}
-                        // Opening Custom is asking to type the amount.
-                        autoFocus
-                        inputMode="numeric"
-                        autoComplete="off"
-                        enterKeyHint="done"
-                        placeholder="Whole dollars"
-                        value={customText}
-                        disabled={busy}
-                        aria-invalid={customInvalid}
-                        aria-describedby={
-                          customInvalid ? customRuleId : undefined
-                        }
-                        onChange={(event) => setCustomText(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter") return;
-                          event.preventDefault();
-                          submit();
-                        }}
-                      />
-                    </InputGroup>
-                    {customInvalid ? (
-                      <HelperText id={customRuleId} role="alert">
-                        {DOCUMENT_REQUEST_PRICE_RULE}
-                      </HelperText>
-                    ) : null}
-                  </div>
+                    aria-invalid={customInvalid}
+                    aria-describedby={customInvalid ? customRuleId : undefined}
+                    onChange={(event) => setCustomText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      event.preventDefault();
+                      submit();
+                    }}
+                  />
+                </InputGroup>
+                {customInvalid ? (
+                  <HelperText id={customRuleId} role="alert">
+                    {DOCUMENT_REQUEST_PRICE_RULE}
+                  </HelperText>
                 ) : null}
-              </>
-            )}
+              </div>
+            ) : null}
             {settlement ?? (
               <>
                 <HelperText>

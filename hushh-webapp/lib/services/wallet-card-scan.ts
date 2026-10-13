@@ -1,13 +1,50 @@
+import { Capacitor } from "@capacitor/core";
+import { nativeCardScanner as nativeScanner } from "@/lib/capacitor/card-scanner";
 import type { ScannedCardFields } from "@/lib/wallet/card-scan-fields";
 import { parseCardScan } from "@/lib/wallet/card-scan-fields";
+
+export class CardScanError extends Error {}
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 /** The owned supervisor bounds initialization, recognition and nested worker lifetime. */
 export async function scanWalletCard(file: Blob, signal: AbortSignal): Promise<ScannedCardFields> {
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > MAX_IMAGE_BYTES) {
-    throw new Error("Choose a JPG, PNG or WebP photo smaller than 15 MB.");
+    throw new CardScanError("Choose a JPG, PNG or WebP photo smaller than 15 MB.");
   }
   signal.throwIfAborted();
+  if (Capacitor.getPlatform() === "ios") {
+    if (!Capacitor.isPluginAvailable("HushhCardScanner")) {
+      throw new CardScanError("Update the app to use card scanning, or enter the details below.");
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    signal.throwIfAborted();
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+    }
+    const requestId = crypto.randomUUID();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let abort = () => {};
+    let result: { text: string };
+    try {
+      result = await Promise.race([
+        nativeScanner.recognize({ image: btoa(binary), requestId }),
+        new Promise<never>((_, reject) => {
+          abort = () => reject(new DOMException("Scan cancelled", "AbortError"));
+          signal.addEventListener("abort", abort, { once: true });
+          timer = setTimeout(() => reject(new CardScanError("Scanning took too long. Try a clearer photo.")), 30_000);
+        }),
+      ]);
+    } finally {
+      void nativeScanner.cancel({ requestId }).catch(() => {});
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+    }
+    signal.throwIfAborted();
+    const fields = parseCardScan(result.text);
+    if (!fields) throw new CardScanError("No readable card number found. Capture the full number in good light, without glare.");
+    return fields;
+  }
   const worker = new Worker(new URL("/wallet/card-scan-worker.js", window.location.href));
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let abort: () => void = () => {};
@@ -22,7 +59,7 @@ export async function scanWalletCard(file: Blob, signal: AbortSignal): Promise<S
         const value = event.data;
         if (!value || typeof value !== "object" || !("text" in value) || typeof value.text !== "string") { fail(); return; }
         const fields = parseCardScan(value.text);
-        if (fields) resolve(fields); else fail();
+        if (fields) resolve(fields); else reject(new CardScanError("No readable card number found. Capture the full number in good light, without glare."));
       };
       timeout = setTimeout(fail, 60_000);
       worker.postMessage(file);

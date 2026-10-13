@@ -91,6 +91,7 @@ describe.sequential("native passkey domain association routes", () => {
           appIDs: ["ABCDEFGHIJ.com.hushh.app"],
           components: expect.arrayContaining([
             expect.objectContaining({ "/": "/one/profile/google/oauth/return" }),
+            expect.objectContaining({ "/": "/one/profile/account", "?": { commerceReturn: "1", commerceAttemptId: "????????????????*" } }),
           ]),
         }],
       },

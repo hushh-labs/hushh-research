@@ -86,10 +86,14 @@ export async function GET() {
             // domain into the app, including public consent links, share pages
             // and marketing, which is a worse bug than the one this fixes. Only
             // provider returns and invitation entry points are claimed.
-            components: paths.map((path) => ({
+            components: [...paths.map((path) => ({
               "/": path,
               comment: `Open the matching One screen (${path})`,
-            })),
+            })), ...["/one/profile/account", "/one/profile/payouts"].map(path => ({
+              "/": path,
+              "?": { commerceReturn: "1", commerceAttemptId: "????????????????*" },
+              comment: "Return from Stripe to Payments and earnings; server status remains authoritative.",
+            }))],
           },
         ],
       },

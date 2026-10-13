@@ -28,136 +28,161 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
-- At `08:54:12Z`, the counterpart's $10 Sandbox funding completed through the
-  same normal headless Checkout flow. Signed settlement and read-only provider
-  receipts agree on the payer, recorded attempt, pinned test account, amount and
-  currency. It credited exactly once: cumulative funding is $10.50/1,050 coins,
-  with balanced journals. Actual processing cost is 59 cents; the $9.41 net
-  backing was pending at verification. No purchase or withdrawal is implied.
-  The prior $0.50 payment and $5 capital Topup were not replayed. Separate cold
-  authentication/unlock passed again; warm hosted-return continuity is unverified.
-- A second enabled Azure subscription is now discoverable. Read-only ARM
-  inspection verifies zero Container Apps environments there. The primary's
-  existing failed setup still targets the old subscription; new capacity does
-  not replace owner-bound Azure OAuth or create a private pod.
-- Local core passed at `560897573dd0` in 1,299 seconds. The subsequent normal
-  main merge preserves scoped Saved information alongside private Soul memory,
-  with Saved/Add navigation, exact-scope pricing and owner review. Stripe read
-  verification forces catalog refresh before and after authenticated reads;
-  cached discovery cannot preserve proof after a schema change. The incoming
-  `412347810e5f697b` Wallet action receives an exact-revision retirement because
-  its authored description changed to include scanning and widget review;
-  active old invocations fail closed and unrelated history stays intact. Combined-source
-  core, hosted CI and Dev promotion remain pending.
-- Payout onboarding reached the normal hosted provider screen through Account,
-  but headless completion encountered a human-verification challenge. Eligibility,
-  both-role purchases, owner Stripe OAuth and payout acceptance remain unverified.
+The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
+owner; PR #7555 and issue #7587 remain active. The remote pod-release and Android
+corrections are preserved. Main `337c4759e1b2` was merged normally at `9e5e58982b1c`;
+the continuation incorporates main through `073333ee70` and the concurrent branch's
+`49074b1f72` through normal merges. Shared
+history, unrelated workspace edits and the frozen migration preservation receipt
+remain intact. Main's 315–325 registrations retain their existing numbers. This lane's six
+registrations move to 326–331 with byte-identical forward and rollback SQL;
+the original preservation receipt remains unchanged and a separate relocation
+receipt records the new mapping. No environment receipt may be
+fabricated: private-lane 900–958 records do not prove release-schema absence.
 
-- At `06:21:29Z`, the counterpart's explicitly confirmed $0.50 funding completed
-  through normal headless hosted Checkout. The signed event, expected payer and
-  operation, test-mode account pin, exact amount/currency, Checkout, charge and
-  balance-transaction receipts agree. Available balance is 50 cents/50 Hussh
-  coins, with one funding journal entry and no unbalanced journals. Stripe's
-  observed processing fee is 31 cents and its 19-cent net backing remains
-  pending. Gross funding principal remains refundable; purchase and withdrawal
-  counts are zero. Neither the redirect nor caller-supplied evidence proved
-  settlement. The existing $5 capital Topup was not repeated.
-- Checkout returned to the exact Dev origin with matching opaque attempt
-  parameters, but the operator-issued reviewer bootstrap entered `auth_error`
-  after the document return. Separate canonical cold authentication/unlock and
-  normal Memory-to-Account navigation passed without a new funding attempt.
-  This proves cold recovery; warm hosted-return continuity remains unverified.
-  The later $10 funding settlement is recorded above.
-- The merged source `a0c76dccb3f9` passed the complete local core in 2,493 seconds.
-  [Hosted CI 38211634206](https://github.com/hushh-labs/hushh-research/actions/runs/38211634206)
-  passed protocol, integration, web core, targeted browser/node contracts,
-  Android and security/governance. Its iOS dependency-cache collision passed on
-  a targeted rerun; full-suite shards 1/3 and 3/3 remain failed. Source review
-  identified stale setup fixtures/expectations and a hidden compatibility
-  action missing navigation-prerequisite metadata. The nearest 40 regression
-  cases pass after correction, with all 438 Back cases passing during normal
-  contract generation. The corrected combined candidate still requires core,
-  exact-source hosted CI and governed Dev deployment. Current traffic is
-  preserved until those gates pass.
-- Full application CI passed all 23 jobs at `1aeb1b4e83b6` in
-  [38198263668](https://github.com/hushh-labs/hushh-research/actions/runs/38198263668).
-  Earlier Dev application
-  release [38191971231](https://github.com/hushh-labs/hushh-research/actions/runs/38191971231)
-  and backend configuration release
-  [38194634611](https://github.com/hushh-labs/hushh-research/actions/runs/38194634611)
-  completed successfully. Frontend release
-  [38199862501](https://github.com/hushh-labs/hushh-research/actions/runs/38199862501)
-  subsequently passed candidate verification, provenance, environment parity,
-  semantic checks and reviewer BYOK verification. It promotes exact source
-  `1aeb1b4e83b6` as `hushh-webapp-00140-kc6` at 100% traffic on
-  `https://dev.one.hussh.ai`. The backend remains `consent-protocol-00164-r2w`
-  at source `22e9146432a5`; this frontend release changes no backend or pod image.
-- New paid activity is enabled for the two approved Sandbox reviewers. The
-  account remains pinned to `acct_1UNyyyLsJU9ZDBZX`, test mode, with the approved
-  synthetic cost model and cumulative funding/capital caps. Live approval
-  prerequisites remain absent. Configuration readiness is not provider settlement.
-- The human-confirmed $5 capital Topup settled once through its signed event,
-  source transaction and balanced journal. At `02:20:35Z`, all 17 aggregate
-  Monitoring observations were fresh, settled backing was $5, and liabilities,
-  reconciliation backlog, unbalanced journals and receipt failures were zero.
-  The dedicated Google OIDC reconciliation schedule was healthy.
-- At `03:59:19Z`, reviewer funding, purchases and withdrawals remained zero. A
-  normal authenticated counterpart US onboarding request returned HTTP 200 and
-  reached Stripe's hosted Sandbox form; one seller account and two completed
-  provider operations were recorded. This does not prove seller eligibility or
-  a bank payout. The primary's authorized test-phone transfer is verified and
-  its completed phone fixture is disabled. Fresh owner Microsoft authorization
-  returned successfully through both normal legs. Azure provisioning then
-  failed at `creating_environment` with `AZURE_ENVIRONMENT_LIMIT`. Admin readback
-  confirms Azure subscription 1 is a free trial with environment usage 1/1 and
-  its spending limit enabled. The founder must select an eligible capacity or
-  subscription path for the primary's separate private deployment. The
-  counterpart's existing Azure placement and working environment are preserved.
-- Headless inspection reached Memory's Saved/Add tabs, earnings and Saved sharing,
-  then Account's Payments and earnings and three history filters. The earlier journey
-  failed the unchanged read-only gate on an unsolicited private-agent wake.
-  The bounded source correction uses the existing reviewer background-write
-  guard before wake/cooldown state changes. All 14 focused cases and 438 Back
-  cases pass; removing the guard fails all three reviewer-policy controls.
-  Generated UI parity passes. After deployment, the counterpart's complete
-  read-only journey and separate cold re-unlock passed with no blocked mutation
-  or critical first-party API failure. Its authenticated commerce readiness is
-  platform ready, seller not onboarded: funding and onboarding are available,
-  while paid tariffs remain unavailable. No exact-scope price editor was opened;
-  visible control count was zero with an unverified sharing-settings observation.
-  This is presentation and authority proof, not purchase acceptance.
-- The authored One and Memory manifests now distinguish consent from payment,
-  fixed scheduled activation from current access, gross amounts from costs/net
-  earnings, and pending earnings from transfers and bank payouts. Detailed price
-  and fee policy belongs to the existing Memory specialist; One retains direct
-  consent decisions and the human action boundary. Source `e3454d4e1643` passes
-  all 85 nearest manifest/registry tests, the unchanged composed prompt budget,
-  generated registry/capability/topology parity and the architecture growth ratchet.
-  The full core at `e8e447990359` passed web-core and 18,058 backend cases, then
-  failed one existing agent-tree assertion about mandatory discovery wording.
-  That wording is restored without changing the test or prompt budget; all 86
-  nearest manifest, registry and discovery cases and generated/architecture
-  parity pass on the corrected source. Repeat the complete core and exact-source
-  hosted CI before release. An installed private
-  pod does not acquire these changed instructions through a shared-service release.
-- The installed counterpart image contains the canonical nested Memory proposal
-  route and Stripe verification route. Static source parity does not prove an
-  authenticated private-runtime session. Do not rebuild or relax device authority
-  based on the earlier incorrect flat-path probe.
+| Surface | Current source contract | Acceptance boundary |
+| --- | --- | --- |
+| Memory | Saved/Add; exact-section sharing and price in Saved; Payments and earnings link | Deployed consumer journey still required |
+| Account | One navigation entry to `/one/profile/payouts` | Exact-candidate Dev promotion pending |
+| Payments and earnings | Separate Purchase balance, Information-access earnings and Document/answer earnings; concise disclosures and full receipts | Existing balances remain owned by their original ledgers |
+| Hosted returns | Exact Account/Payouts compatibility; source/attempt-bound opaque hints; warm initiating document retained; cold auth/unlock retained | Browser/native Sandbox return acceptance remains pending |
+| Connect | Scope uses individual consumer defaults; document/answer creation preserves historical intent and prepares unconfigured individual profiles before hosted links | Historical accounts retained; cross-source compatibility cannot be inferred from owner identity |
+| Private processing | Cached research and final release recheck current owner placement | Primary owner callback verified; private provisioning awaits provider registration |
+| One Stripe MCP | Separate owner OAuth, current-binding account proof and constrained balance read | Authenticated Dev reads remain pending; host ChatGPT connector is not a prerequisite |
 
-Acceptance remains open: normal browser-encrypted fixtures, both consumers'
-Connect and Checkout journeys, exact human quote confirmations, real-time access,
-refund and payout receipts, and One's separate owner Stripe OAuth/account reads.
-The ChatGPT Stripe plugin is not a prerequisite. Physical iOS is deferred to the
-independently active native session; physical Android remains a follow-up. Keep
-issue #7587 In Progress. Cleanup pauses new paid admission first and retains
-reconciliation, access enforcement and financial history until obligations resolve.
+Issue #7587 owns this integration and Sandbox acceptance. Issue
+[#7819](https://github.com/hushh-labs/hushh-research/issues/7819) owns the prepared-answer
+contract; it is related work, not a duplicate timed-access implementation.
 
-One is the private agent. It can help discover information and compose a request,
-but spending requires the authenticated human to review and confirm the exact
-quote. Neither an MCP tool result, a hosted browser arrival nor an owner consent
-decision alone releases paid information. Existing free requests retain their
-consent flow; missing pricing means free and still requires approval.
+| Responsibility | Existing authority |
+| --- | --- |
+| Provider transport and hosted links | Replaceable Stripe adapters and shared onboarding-link validation; retain each caller's credentials and retry intent |
+| Document and prepared-answer sales | Existing PKM settlement, shared webhook and payout service; one purchase delivers one answer |
+| Timed information access | Scope-commerce quotes, journal, staging, access checks and reconciliation; payment never expands consent |
+| Payment interface | Existing Payouts route composes labelled source projections; no merged balance or replacement ledger |
+
+Latest merge checks pass 83 graph/payout cases and 53 profile/Wallet cases;
+the preceding selection passed 187 backend/Postgres cases apart from two graph
+performance fixtures, now repaired without losing merged-history coverage.
+Earlier checks pass 106 backend/Postgres cases and 96 client/callback cases;
+the earlier hosted-return selection passes 114 cases. The account-binding race
+regression fails on all three conflicting actual-predecessor cases while its
+matching replay passes. Both cached private-placement cases fail on the actual
+incoming predecessor. The 447 Back cases pass; generated contract parity,
+complete core, exact-source hosted CI and Dev promotion must still complete.
+Source receipts never establish completed consumer purchases or bank payouts.
+
+The concurrent reconnect work retains the original request-key deadline and
+canonical pod cancellation authority. Stop admission now carries the captured
+owner generation and vault epoch through hosting selection, pod admission and
+the final web/native HTTP dispatch check. Retirement cannot route an old Stop
+through a successor session; same-owner cancellation and detach behavior remain
+covered. This source boundary does not prove process-loss recovery or an owner
+pod image upgrade.
+The 207 client/HTTP cases pass. Seven retirement cases fail against actual
+incoming source while the ordinary cancellation control passes. Final-dispatch
+coverage lives in the existing direct-pod test owner rather than expanding the
+oversized generic fetch suite.
+
+Latest-main integration preserves prepared-answer payment ownership. Incoming
+profile-review normalization now retains model citations and semantic metadata
+so the existing owner-selection fidelity gate can reject mismatches. All 128
+structure-agent cases pass; the three focused fidelity cases fail on the actual
+incoming predecessor. Soul-backed answers use exact domain-bound scopes, admit
+alternate facts only after successful empty canonical exports, preserve current
+structured values and combine parent-wildcard facts. All 66 answer/identity/cache
+cases pass. Shared synthetic fixtures retain the original assertions without
+duplicate test setup. No migration or financial-source authority changed.
+
+The first root core attempt stopped on unrelated concurrent documentation-tool
+edits scanning ignored drafts. Those edits and drafts remain preserved. An
+existing clean verification checkout qualifies the exact committed candidate;
+its stale main reference and two frontend lint failures were corrected before
+the next full core run. No required gate is skipped or weakened.
+
+The `22a555ca6b` core run passed web-core and 18,534 protocol cases, but failed
+five protocol cases. Exact Wallet sharing/reference routes and the canonical
+owner-bound encrypted checkpoint adapter were missing from their inventories;
+the Voice project test lacked its explicit Shared-hosting fixture, and its deploy
+assertions still targeted the pre-extraction build file. The precise registrations
+and fixture/assertion corrections preserve the scanners, private-hosting refusals
+and UAT-only project/probe checks. All 108 focused protocol cases pass after
+correction. Stripe's tools screen now opens the existing Payments and earnings
+pane directly, retaining Back to its origin; all 16 connection cases and 447 Back
+cases pass. The final exact-candidate core and hosted CI remain required.
+
+Source-aware payout admission now checks existing document bindings, creation
+receipts and concurrent insert winners against active and retained scope
+attribution, including another owner's exact account ID. Migration 332 adds
+read-only attribution and transaction-locked admission functions to the existing
+stores. It adds no ledger and rewrites no financial records; the original
+326–331 SQL, rollbacks and preservation receipt remain unchanged. Generated
+release contracts require both functions and release head 332.
+
+Scope account creation remains separate because document settlement's automatic
+payout/balance attribution cannot currently prove compatibility with scope
+settlement's manual, source-backed withdrawals. Compatible document, prepared-
+answer and Drive callers retain their existing shared payout authority. Existing
+account IDs, provider creation bodies and retry keys are preserved. Unknown
+retained mode, failed lookup or policy-filtered visibility refuses adoption;
+it does not invent an account or reinterpret protected earnings.
+
+The guard serializes competing exact-account claims under READ COMMITTED and
+rejects unsupported snapshot isolation. Retained seller routing is a financial
+projection, not a new account-admission authority; erasure can archive existing
+routing and detach its owner while obligations continue. Rollback removes only
+the new guards/functions after new paid admission is disabled.
+
+All 110 focused payout, provenance and PostgreSQL cases pass, including both
+race directions, separate-account/mode controls, retained erased routing,
+restricted-role visibility, historical account erasure and rollback. Five
+conflicting admission cases fail against actual predecessor `a09ee218b7`, while
+three positive controls pass. The data-model audit classifies all 295 tables,
+release/schema generators agree on head 332, and the architecture ratchet has
+zero new regressions. The inherited Gmail workflow helper baseline is qualified
+against exact incoming source/AST; budgets and unrelated entries are unchanged.
+The final full core, hosted CI and Dev promotion remain required.
+
+Candidate `590de3153e` passes governance and web-core, but protocol preflight
+rejects an interpolated SQL identifier in the new attribution adapter. That
+query is replaced with fixed, authored SQL statements and bound values;
+the focused security scan passes without an exception or weakened gate.
+Full core is rerun against the corrected exact candidate before any push.
+
+The latest legal/proxy selection passes all 41 cases, preserving the published
+October 12 Terms/Privacy versions, private-route indexing and strict hosted
+returns. The 447 Back cases pass on the combined source. Exact action retirement
+records retain both entry-handoff and card-scanning behavior; source contracts
+are regenerated together rather than selecting standalone branch digests.
+
+The last qualified Dev observation at `2026-10-13T00:14:00Z` served source `e04b76c614` and retained two funding records,
+three journals, zero purchases and zero withdrawals. Counterpart funding totals
+$10.50 ($0.50 plus $10), and the tagged $5 operating Topup was already settled;
+never repeat either. Reconcile fresh provider/application receipts before any
+new action. Reviewer cumulative funding caps remain $20 each, capital $25,
+refunds do not replenish caps, and live activity remains disabled.
+
+Microsoft consent does not establish Azure setup. The latest headless continuation
+preserves shared Chrome and the original memory-only owner session, with narrowly
+admitted provider navigation. The exact Azure callback shell owns its signed-out
+refusal instead of forwarding OAuth parameters through login; completion retains
+server Firebase identity, original owner/state and PKCE checks. The primary owner callback completed with authenticated HTTP 200 and the
+approved subscription. Provisioning then stopped at
+`PROVIDER_REGISTRATION_PENDING`; the canonical six Azure provider registrations
+were requested in that subscription. Source inspection identified a false global
+registration wait: Microsoft's regional registration contract permits
+`Registering`, while subsequent ARM resource calls still verify availability and
+authorization. The applier now follows that contract and retains bounded refusal
+for unregistered or unverifiable providers. Private provisioning and vault initialization
+remain acceptance requirements.
+
+The remaining lifecycle is both reviewer roles, one-cent reservation/preparation/
+activation, early-revocation refund, real one-hour maturity, explicit and automatic
+withdrawal, separate transfer/bank-payout receipts, original-source funding refunds,
+financial conservation and One OAuth reads. Physical iOS evidence belongs to the
+active device lane; physical Android is the agreed follow-up. The issue stays
+In Progress until the required acceptance receipts pass. Prior dated checkpoints
+remain available in this file's version history.
 
 ## Price and access terms
 
@@ -194,7 +219,7 @@ consent flow; missing pricing means free and still requires approval.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/316_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/327_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -265,21 +290,22 @@ Capacitor uses the existing direct backend transport through `ApiService`.
 An expired frozen quote is terminal. The buyer requests access again so the
 owner can approve new terms; refreshing status does not issue another price.
 
-Tariff controls live in existing My Information sharing rows. Account holds
-funding, onboarding, earnings, withdrawals and refunds. Human payment/preparation
+Tariff controls live in existing My Information sharing rows. Payments and earnings at `/one/profile/payouts` holds
+funding, onboarding, source-specific earnings, withdrawals and refunds; Account
+contains one navigation entry. Human payment/preparation
 review is `/one/consent?commerceRequestId=<opaque-request-id>`, linked from existing
 Profile, Chat request review, marketplace and Consent surfaces. No new top-level
 router or agent spending tool is created.
 
 Owner review displays the agreed gross price and server-attributed processing
-cost/net earnings in micro-USD precision, including negative net earnings. Account
+cost/net earnings in micro-USD precision, including negative net earnings. Payment
 withdrawal history distinguishes transfer to a connected account from confirmed
 bank payout; pending, failed or uncertain status never becomes a success message.
 
 Memory has two workspace tabs: Saved and Add. Saved combines browsable memories,
 exact-section sharing switches, saved tariff values and a canonical earnings summary.
 Prices apply to the authored section scope, not just one opened memory. Its wallet
-link opens Account; missing seller setup leads to Connect onboarding there. Checkout
+link opens Payments and earnings; missing seller setup leads to Connect onboarding there. Checkout
 funds buyer balances. Stripe MCP owner OAuth remains a separate read-tool connection.
 The Memory and PKM Structure agent manifests describe these boundaries; organizing
 information never sets a tariff, authorizes refresh or activates information access.
@@ -319,6 +345,14 @@ the existing consent audit records each phase once. Changed allocations require
 a new review. Terminal purchases carry no actionable acknowledgement prompt.
 
 Hosted Checkout uses `checkout.stripe.com`; onboarding uses `connect.stripe.com`.
+Both authenticated link responses include `return_url`, bound to the exact
+opaque operation identity. Web preopens a provider window from the trusted click;
+a blocked window stops before provider preparation. The original document retains
+its memory-only vault key. A same-origin matched callback emits only an advisory
+attempt/purpose/deadline hint, then closes; the initiating document cleans up its
+own records and refreshes authenticated status. Session retirement closes only
+the owned window and rejects late preparation. No key, credential or owner identity
+is written to callback storage.
 Native opens the system `Browser` and consumes a trusted App Link to
 `/one/profile/account?commerceReturn=1&commerceAttemptId=<opaque-attempt-id>`.
 The arrival closes the browser and refreshes server status; it proves no payment
@@ -530,7 +564,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/316_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/327_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 

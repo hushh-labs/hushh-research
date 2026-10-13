@@ -5,6 +5,43 @@ import { installReadOnlyMutationGuard, waitForReviewerVaultAdmission } from "../
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 describe("reviewer preparation-only authority", () => {
+  it.each([
+    [true, "https://login.microsoftonline.com/common/Consent/Set", true, true, true],
+    [true, "https://login.microsoftonline.com/common/Consent/Set", false, true, false],
+    [true, "https://login.microsoftonline.com/common/Consent/Set", true, false, false],
+    [true, "https://evil.invalid/common/Consent/Set", true, true, false],
+    [false, "https://login.microsoftonline.com/common/Consent/Set", true, true, false],
+  ])("admits only explicit owner OAuth document navigation (%s %s %s %s)", async (authorized, url, navigation, topFrame, allowed) => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", String(authorized));
+    let handler!: (route: unknown) => Promise<void>;
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", admitMutation: () => false,
+      admitProviderOAuth: (request: { url: () => string }) => new URL(request.url()).pathname === "/common/Consent/Set",
+    });
+    const route = { request: () => ({ url: () => url, method: () => "POST", isNavigationRequest: () => navigation,
+      resourceType: () => navigation ? "document" : "fetch", frame: () => ({ parentFrame: () => topFrame ? null : {} }) }),
+      continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    if (allowed) expect(() => guard.assertNoBlockedMutation()).not.toThrow();
+    else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+  });
+  it.each([
+    ["https://browser.events.data.microsoft.com/OneCollector/1.0/", true],
+    ["https://browser.events.data.microsoft.com/other", false],
+    ["https://browser.events.data.microsoft.com.evil.invalid/OneCollector/1.0/", false],
+  ])("suppresses only the exact provider telemetry endpoint %s", async (url, suppressed) => {
+    let handler!: (route: unknown) => Promise<void>;
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai",
+    });
+    const route = { request: () => ({ url: () => url, method: () => "POST" }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).not.toHaveBeenCalled();
+    expect(guard.suppressedAnalyticsRequests()).toBe(suppressed ? 1 : 0);
+    if (suppressed) expect(route.fulfill).toHaveBeenCalledWith({ status: 204, body: "" });
+    else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+  });
   it("requires the expected unlocked owner, not an anonymous route beacon", async () => {
     let predicate!: (expected: string) => boolean;
     const page = { waitForFunction: vi.fn(async (check, expected, options) => {

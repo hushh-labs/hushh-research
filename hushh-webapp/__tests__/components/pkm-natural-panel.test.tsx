@@ -453,11 +453,12 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Saved", "Add"]);
     expect(screen.getByRole("tab", { name: "Saved" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Sharing settings" }));
     const price = await screen.findByRole("button", { name: "Set sharing price for Financial · Profile" });
     await waitFor(() => expect(price).toHaveTextContent("1 Hussh coin ($0.01) / 1h"));
     expect(ScopeCommerceService.tariff).toHaveBeenCalledWith("id-token", "financial.profile", "attr.financial.profile.*");
     expect(screen.getByRole("switch", { name: "Make private Profile" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "View wallet and transactions in Account" })).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=account");
+    expect(screen.getByRole("link", { name: "View payments and earnings" })).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=payouts");
     expect(screen.getByRole("button", { name: "Download Memory" })).toBeTruthy();
     expect(screen.getByText("Readable file. Keep it private.")).toBeTruthy();
     expect(screen.getAllByText("Download Memory")).toHaveLength(1);

@@ -403,3 +403,91 @@ describe("projectFeedDriveProgress", () => {
     expect(projectFeedDriveProgress([payment])).toEqual([]);
   });
 });
+
+describe("Feed Pay rows from the shared payment view", () => {
+  const now = Date.parse("2026-09-29T10:00:00Z");
+  const view = (overrides: Record<string, unknown> = {}) => ({
+    state: "payable",
+    amountCents: 1000,
+    currency: "usd",
+    checkoutExpiresAt: new Date(now + 300_000).toISOString(),
+    requestExpiresAt: new Date(now + 86_400_000).toISOString(),
+    refund: null,
+    nextAction: "pay",
+    withdrawn: false,
+    ...overrides,
+  });
+  // Legacy fields claim an open Checkout; the view is the current server truth.
+  const payment = (paymentView: Record<string, unknown>) => entry({
+    kind: "outgoing_request", counterpart_label: "V", metadata: {
+      ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
+      checkoutExpiresAt: new Date(now + 600_000).toISOString(),
+      paymentAmountCents: 1000, paymentCurrency: "usd", paymentView,
+    },
+  });
+
+  it("takes Pay and its deadline from the view", () => {
+    const [row] = projectFeedDrivePayments([payment(view())], now);
+    expect(row).toMatchObject({ status: "ready", expiresAt: now + 300_000, title: "Pay $10 for files from V" });
+    expect(row.description).toMatch(/ · 5m left$/);
+  });
+
+  it.each([
+    ["link_expired", { state: "link_expired", checkoutExpiresAt: null, nextAction: "new_request" }],
+    ["expired", { state: "request_expired", checkoutExpiresAt: null, nextAction: "new_request" }],
+    ["waiting_owner_setup", { state: "awaiting_owner", checkoutExpiresAt: null, nextAction: "wait_owner" }],
+  ])("shows %s without a Pay action", (status, overrides) => {
+    expect(projectFeedDrivePayments([payment(view(overrides))], now)[0]?.status).toBe(status);
+  });
+
+  it("drops the row for a closed request and suppresses money that is settled or going back", () => {
+    expect(projectFeedDrivePayments([payment(view({ state: "closed", checkoutExpiresAt: null, nextAction: "none", withdrawn: true }))], now)).toEqual([]);
+    expect(projectFeedDrivePayments([payment(view({ state: "preparing", checkoutExpiresAt: null, nextAction: "wait_owner" }))], now)).toEqual([]);
+    const refundPending = payment(view({
+      state: "refund_pending", checkoutExpiresAt: null, nextAction: "none",
+      refund: { status: "queued", amountCents: 1000 },
+    }));
+    // An older, still-actionable duplicate of the same request never resurrects Pay.
+    expect(projectFeedDrivePayments([refundPending, payment(view())], now)).toEqual([]);
+  });
+
+  it("expires Pay on the device clock at the view's own deadline", () => {
+    const [row] = projectFeedDrivePayments([payment(view())], now);
+    expect(describeFeedDrivePayment(row!, now + 300_000).status).toBe("link_expired");
+    // The request deadline wins even while the legacy fields still say open.
+    expect(projectFeedDrivePayments([payment(view({ requestExpiresAt: new Date(now).toISOString() }))], now)[0]?.status)
+      .toBe("expired");
+  });
+
+  it("falls back to the legacy read for a malformed view", () => {
+    expect(projectFeedDrivePayments([payment({ state: "payable" })], now)[0]).toMatchObject({
+      status: "ready", expiresAt: now + 600_000,
+    });
+  });
+});
+
+describe("the requester's price line on sent requests", () => {
+  const sent = (metadata: Record<string, unknown>) => entry({
+    kind: "outgoing_request",
+    metadata: {
+      request_source: "drive_document_share_request",
+      direction: "outgoing",
+      automatic_progress_active: false,
+      paymentRequired: true,
+      ...metadata,
+    },
+  });
+
+  it.each([
+    // The owner may still set the price, so what the requester saw is an estimate.
+    [{ quotedAmountCents: 1000, estimateCents: 1000 }, "Estimate $10"],
+    [{ quotedAmountCents: 2500, estimateCents: 1000, owner_allowed: true }, "Price $25 · estimate was $10"],
+    [{ quotedAmountCents: 2500, estimateCents: 1000, paymentStatus: "paid", paymentAmountCents: 2500 }, "Final price $25"],
+    // Older servers send no estimate: an allowed price reads neutrally, never as locked.
+    [{ quotedAmountCents: 2500, owner_allowed: true }, "Price $25"],
+  ])("reads %j as %s", (metadata, line) => {
+    const [row] = projectFeedDriveProgress([sent(metadata)]);
+    expect(row?.description).toBe(`${line} · Waiting for the owner to review your request.`);
+    expect(row?.description).not.toMatch(/lock/i);
+  });
+});

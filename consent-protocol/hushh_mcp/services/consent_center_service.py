@@ -254,9 +254,8 @@ class ConsentCenterService:
             if getattr(self, "_require_complete", False):
                 raise
             logger.warning(
-                "consent_center.marketplace_collect_failed user=%s error=%s",
-                user_id,
-                exc,
+                "consent_center.marketplace_collect_failed type=%s",
+                type(exc).__name__,
             )
             return empty
 

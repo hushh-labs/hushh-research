@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const apiJson = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/services/api-client", () => ({ apiJson }));
 
+import { HOLD_REASONS, holdReasonCopy } from "@/lib/payouts/review-copy";
 import { DocumentPayoutService } from "@/lib/services/document-payout-service";
 
 describe("aggregate bank payout status", () => {
@@ -241,5 +242,136 @@ describe("payout account and earnings boundary", () => {
     apiJson.mockResolvedValueOnce({ currency: "USD", transactions: [], nextCursor: nextId });
     await expect(DocumentPayoutService.earnings("vault", nextId)).rejects.toThrow("Invalid earnings response");
     await expect(DocumentPayoutService.earnings("vault", "private-cursor")).rejects.toThrow("Invalid earnings cursor");
+  });
+});
+
+describe("payouts v2 additive fields", () => {
+  beforeEach(() => apiJson.mockReset());
+  const ready = { detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true, ready: true, status: "ready" };
+  const verification = { state: "due", deadline: "2026-10-30T12:00:00+00:00", items: ["identity", "bank_account"],
+    eventuallyDue: true, hasErrors: false, disabledReason: null };
+
+  it("reads verification and payout schedule tolerantly, never failing the account read", async () => {
+    apiJson.mockResolvedValueOnce({ account: { ...ready, verification, payoutSchedule: { interval: "daily", delayDays: 2 } } });
+    expect(await DocumentPayoutService.account("vault")).toEqual({ account: { ...ready, verification,
+      payoutSchedule: { interval: "daily", delayDays: 2 } } });
+    apiJson.mockResolvedValueOnce({ account: { ...ready, payoutSchedule: { interval: "hourly", delayDays: 2 },
+      verification: { ...verification, deadline: "soon", items: ["identity", "ownership", 7, "identity"],
+        disabledReason: "rejected.fraud", hasErrors: "yes", reason: "Private provider text" } } });
+    const tolerant = (await DocumentPayoutService.account("vault")).account;
+    expect(tolerant?.verification).toEqual({ ...verification, deadline: null, items: ["identity", "other"],
+      hasErrors: false, disabledReason: "other" });
+    expect(tolerant?.payoutSchedule).toBeNull();
+    expect(JSON.stringify(tolerant)).not.toContain("Private provider text");
+    // A state this build can't name is ignored, as an older server's absence would be.
+    apiJson.mockResolvedValueOnce({ account: { ...ready, verification: { ...verification, state: "paused_forever" } } });
+    expect(await DocumentPayoutService.account("vault")).toEqual({ account: ready });
+  });
+
+  const live = (patch: object = {}) => ({ ...wallet(), payoutMode: "live", testPayouts: false, liveRedemptionEnabled: true,
+    sandbox: { ...wallet().sandbox, reservedCoins: 0, availableCoins: 911 },
+    live: { balanceCoins: 1500, reservedCoins: 0, availableCoins: 1500, amountCents: 1500, held: false,
+      nextRedeemCoins: 911, redeemableCoins: 1499, redeemableCount: 2, remainingAfterNextCoins: 589, notRedeemableCoins: 1,
+      nextRedeemSource: { requestId, label: "October statements" }, holds: [], ...patch } });
+
+  it("keeps redeemable totals only while next <= redeemable <= available holds", async () => {
+    apiJson.mockResolvedValueOnce(live());
+    expect((await DocumentPayoutService.hashcoins("vault")).live).toEqual(live().live);
+    for (const [patch, field] of [
+      [{ redeemableCoins: 900, notRedeemableCoins: 600 }, "live.redeemableCoins"],
+      [{ redeemableCoins: 1501 }, "live.redeemableCoins"],
+      [{ redeemableCoins: 1499.5 }, "live.redeemableCoins"],
+      [{ redeemableCount: 0 }, "live.redeemableCount"],
+      [{ remainingAfterNextCoins: 1500 }, "live.remainingAfterNextCoins"],
+      [{ notRedeemableCoins: 0 }, "live.notRedeemableCoins"],
+    ] as const) {
+      apiJson.mockResolvedValueOnce(live(patch));
+      await expect(DocumentPayoutService.hashcoins("vault")).rejects.toMatchObject({ ...contractFailure, field });
+    }
+  });
+
+  it("reads holds as closed review codes and drops rows it can't read", async () => {
+    const hold = { id: `earning:${requestId}`, reason: "payment_disputed", nextStep: "wait_for_bank", coins: 911,
+      requestId, requestLabel: "October statements", since: "2026-10-10T12:00:00+00:00" };
+    apiJson.mockResolvedValueOnce(live({ held: true, availableCoins: 0, nextRedeemCoins: 0, redeemableCoins: 0,
+      redeemableCount: 0, remainingAfterNextCoins: 0, notRedeemableCoins: 0,
+      nextRedeemSource: { requestId, label: null },
+      holds: [hold, hold, { ...hold, id: `redemption:${nextId}`, reason: "chargeback_text", nextStep: "call_bank",
+        requestId: "acct_private", requestLabel: "", since: "never" },
+      { ...hold, id: "tr_private" }, { ...hold, id: "balance", coins: -5 }] }));
+    const parsed = (await DocumentPayoutService.hashcoins("vault")).live;
+    expect(parsed.holds).toEqual([hold, { ...hold, id: `redemption:${nextId}`, reason: "under_review", nextStep: "none",
+      requestId: null, requestLabel: null, since: null }]);
+    // Nothing is next while held, so no source is named.
+    expect(parsed.nextRedeemSource).toBeNull();
+  });
+
+  it("words every hold in Hussh's name and the Redeem action", () => {
+    for (const reason of HOLD_REASONS) expect(holdReasonCopy(reason)).not.toMatch(/Hushh|cash(ed)? out/i);
+    expect(holdReasonCopy("refund_recovery")).toBe("This payment was refunded after you redeemed it.");
+  });
+
+  it("asks for one earnings mode and refuses another mode's page", async () => {
+    apiJson.mockResolvedValueOnce({ currency: "USD", stripeMode: "live", mode: "test", transactions: [earning()], nextCursor: null });
+    expect(await DocumentPayoutService.earnings("vault", nextId, "test")).toEqual({ currency: "USD", stripeMode: "live",
+      mode: "test", transactions: [earning()], nextCursor: null });
+    expect(apiJson).toHaveBeenLastCalledWith(`/api/one/payouts/account/earnings?cursor=${nextId}&mode=test`, {
+      headers: { Authorization: "Bearer vault" }, cache: "no-store",
+    });
+    apiJson.mockResolvedValueOnce({ currency: "USD", mode: "live", transactions: [earning()], nextCursor: null });
+    await expect(DocumentPayoutService.earnings("vault", undefined, "test")).rejects.toThrow("Invalid earnings response");
+    apiJson.mockResolvedValueOnce({ currency: "USD", mode: "all", transactions: [], nextCursor: null });
+    await expect(DocumentPayoutService.earnings("vault")).rejects.toThrow("Invalid earnings response");
+    await expect(DocumentPayoutService.earnings("vault", undefined, "legacy" as "test")).rejects.toThrow("Invalid earnings mode");
+  });
+
+  it("pages bank deposits by an opaque cursor and reads each deposit's own bank and times", async () => {
+    const paid = { id: "po_1", amountCents: 911, status: "paid", expectedArrivalAt: "2026-10-12T00:00:00Z", failureCode: null,
+      createdAt: "2026-10-10T00:00:00Z", paidAt: "2026-10-12T09:00:00Z", failedAt: null,
+      bank: { name: "Example Bank", last4: "6789" }, bankReference: "TRACE123" };
+    apiJson.mockResolvedValueOnce({ currency: "USD", stripeMode: "live", payouts: [paid,
+      { ...paid, id: "po_2", createdAt: "yesterday", bank: { name: "", last4: "123456789" }, bankReference: "x".repeat(129) }],
+      nextCursor: "page+2/=" });
+    expect(await DocumentPayoutService.bankPayouts("vault", "page_1")).toEqual({ currency: "USD", stripeMode: "live",
+      payouts: [paid, { ...paid, id: "po_2", createdAt: null, bank: null, bankReference: null }], nextCursor: "page+2/=" });
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/account/bank-payouts?cursor=page_1", {
+      headers: { Authorization: "Bearer vault" }, cache: "no-store",
+    });
+    // A repeated or unusable cursor ends the list instead of looping.
+    for (const nextCursor of ["page_1", "has space", 7]) {
+      apiJson.mockResolvedValueOnce({ currency: "USD", payouts: [], nextCursor });
+      expect((await DocumentPayoutService.bankPayouts("vault", "page_1")).nextCursor).toBeNull();
+    }
+    await expect(DocumentPayoutService.bankPayouts("vault", "x".repeat(257))).rejects.toThrow("Invalid bank payout cursor");
+  });
+
+  it("reads the In Stripe balance and never shows money for an unlinked account", async () => {
+    const balance = { stripeMode: "live", currency: "USD", accountLinked: true, inStripeCents: 1155, availableCents: 0,
+      pendingCents: 1155, nextAvailableOn: "2026-10-14T00:00:00+00:00", nextAvailableCents: 1155,
+      asOf: "2026-10-11T10:00:00+00:00", stale: false };
+    apiJson.mockResolvedValueOnce({ ...balance, stripeAccountId: "acct_private" });
+    expect(await DocumentPayoutService.balance("vault")).toEqual(balance);
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/account/balance", {
+      headers: { Authorization: "Bearer vault" }, cache: "no-store",
+    });
+    for (const invalid of [{ ...balance, accountLinked: false }, { ...balance, pendingCents: 1.5 },
+      { ...balance, asOf: "now" }, { ...balance, currency: "EUR" }, { ...balance, stale: "no" }]) {
+      apiJson.mockResolvedValueOnce(invalid);
+      await expect(DocumentPayoutService.balance("vault")).rejects.toThrow("Invalid payout balance response");
+    }
+  });
+
+  it("asks Stripe to collect upcoming details only for verify", async () => {
+    apiJson.mockResolvedValue({ url: "https://connect.stripe.com/setup/safe_link" });
+    await DocumentPayoutService.onboard("vault", "verify");
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/account/onboard", {
+      method: "POST", headers: { Authorization: "Bearer vault", "Content-Type": "application/json" },
+      body: JSON.stringify({ purpose: "verify" }), cache: "no-store",
+    });
+    await DocumentPayoutService.onboard("vault");
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/account/onboard", {
+      method: "POST", headers: { Authorization: "Bearer vault" }, cache: "no-store",
+    });
+    await expect(DocumentPayoutService.onboard("vault", "update" as "verify")).rejects.toThrow("Invalid payout setup purpose");
   });
 });

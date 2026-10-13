@@ -21,6 +21,10 @@ from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchServic
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_request_payment_refunds import _claim_refunds
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
+from hushh_mcp.services.drive_request_recovery_view import (
+    owner_review_request_view,
+    requester_recovery_view,
+)
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
     ShareRequestPurpose,
@@ -1098,6 +1102,206 @@ async def test_paid_partial_progressive_retry_preserves_sibling_approvals_and_ou
                 {"request": request_id},
             )
         ) == [(request_revision + i, 2) for i in range(batches + 1)]
+
+
+def test_a_final_payout_closes_retry_and_an_unknown_refund_is_never_refunded():
+    asked = datetime(2026, 10, 1, tzinfo=UTC)
+
+    def recovery(*, refund=None, payout=None, review_requested_at=None):
+        return requester_recovery_view(
+            request_status="partial",
+            review_requested_at=review_requested_at,
+            outcomes={("succeeded", None): 1, ("skipped", "provider_unavailable"): 1},
+            retryable_count=1,
+            retryable_updated_at=asked - timedelta(minutes=5),
+            request_open=True,
+            paid=True,
+            refund=refund,
+            payout=payout,
+            order_amount_cents=1000,
+        )
+
+    assert recovery()["ownerRetry"]["state"] == "available"
+    final = {
+        "status": "awaiting_refund",
+        "gross_amount_cents": 1000,
+        "expected_files": 2,
+        "confirmed_files": 1,
+        "refund_amount_cents": 500,
+        "finalized_at": asked,
+    }
+    # Finalization froze the delivered count: no retry is offered after it.
+    closed = recovery(payout=final, refund={"status": "unknown", "amount_cents": 500})
+    assert closed["ownerRetry"] == {
+        "state": "unavailable",
+        "retryableCount": 0,
+        "requestedAt": None,
+    }
+    assert closed["refund"] == {
+        "state": "pending",
+        "amountCents": 500,
+        "grossCents": 1000,
+        "expectedFiles": 2,
+        "confirmedFiles": 1,
+    }
+    # Owed but not started is pending too; only a provider success is a refund.
+    assert recovery(payout=final)["refund"]["state"] == "pending"
+    done = recovery(
+        payout=final, refund={"status": "succeeded", "amount_cents": 500}, review_requested_at=asked
+    )
+    assert done["refund"]["state"] == "succeeded"
+    assert owner_review_request_view(done, review_request_count=1) == {
+        "requestedAt": asked.isoformat(),
+        "count": 1,
+        "unsharedCount": 1,
+        "refund": {"state": "succeeded", "amountCents": 500},
+    }
+
+
+@pytest.mark.asyncio
+async def test_requester_review_ask_follows_the_owner_retry_and_stops_at_three(
+    request_bulk, sharing
+):
+    from hushh_mcp.services.drive_request_requester_store import request_review
+
+    request_id, (original,) = await _paid_partial_progressive_request(request_bulk, sharing)
+    projections = DriveSuggestionStore(db=sharing.db, authority_key="synthetic-ledger-key")
+
+    async def views(user_id):
+        snapshot = await projections.delivery_snapshot(
+            user_id=user_id, request_id=request_id, views=True
+        )
+        return snapshot["result"]
+
+    def ask(user_id="trusted-member"):
+        return request_review(sharing, user_id=user_id, request_id=request_id)
+
+    def owner_events():
+        with sharing.db.engine.begin() as connection:
+            return connection.execute(
+                text("""SELECT user_id,count(*) FROM drive_share_events
+                  WHERE request_id=:request AND event_type='document_share_review_requested'
+                  GROUP BY user_id"""),
+                {"request": request_id},
+            ).all()
+
+    assert (await views("trusted-member"))["recovery"] == {
+        "undeliveredCount": 1,
+        "reasons": [{"reasonCode": "provider_unavailable", "count": 1}],
+        "ownerRetry": {"state": "available", "retryableCount": 1, "requestedAt": None},
+        "refund": {
+            "state": "none",
+            "amountCents": None,
+            "grossCents": 1000,
+            "expectedFiles": None,
+            "confirmedFiles": None,
+        },
+    }
+    owner = await views("owner")
+    assert "recovery" not in owner and "reviewRequest" not in owner
+    with pytest.raises(DriveSharingError, match="request_unavailable"):
+        await ask("owner")
+
+    first = await ask()
+    assert first["ownerRetry"] == {"state": "requested", "retryableCount": 1}
+    assert first["refund"] == {"state": "none", "amountCents": None}
+    # A repeat before the owner acts is the same ask: no second owner event.
+    assert await ask() == first
+    assert owner_events() == [("owner", 1)]
+    assert (await views("owner"))["reviewRequest"] == {
+        "requestedAt": first["reviewRequestedAt"],
+        "count": 1,
+        "unsharedCount": 1,
+        "refund": {"state": "none", "amountCents": None},
+    }
+
+    # The owner retries: the requester sees it running and the notice clears.
+    review = await request_bulk.review(user_id="owner", share_id=original["shareId"])
+    await request_bulk.retry(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    assert (await views("trusted-member"))["recovery"]["ownerRetry"]["state"] == "retrying"
+    assert "reviewRequest" not in await views("owner")
+    with pytest.raises(DriveSharingError, match="review_not_available"):
+        await ask()
+
+    # Google fails again: a new ask is its own owner event.
+    job = await request_bulk.claim(
+        user_id="owner", share_id=review["shareId"], position=1, recipient_user_id="trusted-member"
+    )
+    await request_bulk.release(job, error="provider_unavailable")
+    assert (await views("trusted-member"))["recovery"]["ownerRetry"]["state"] == "available"
+    assert (await ask())["ownerRetry"]["state"] == "requested"
+    assert owner_events() == [("owner", 2)]
+
+    # Three asks per request: a fourth is refused and emits nothing.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET review_request_count=3,
+              review_requested_at=review_requested_at-INTERVAL '1 day'
+              WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    assert (await views("trusted-member"))["recovery"]["ownerRetry"]["state"] == "available"
+    with pytest.raises(DriveSharingError, match="review_limit_reached"):
+        await ask()
+    assert owner_events() == [("owner", 2)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "blocker",
+    [
+        """UPDATE connections SET status='removed'
+           WHERE user_a_id='owner' AND user_b_id='trusted-member'""",
+        # The batch's Drive connection is no longer the owner's verified one.
+        """UPDATE user_external_connector_connections SET validation_state='policy_drift'
+           WHERE user_id='owner' AND connector_id='google_drive'""",
+        # A payment under reconciliation never authorizes another grant.
+        """UPDATE drive_request_payment_orders SET reconciliation_required=TRUE,
+             reconciliation_reason='authority_changed',reconciliation_at=clock_timestamp()
+           WHERE requester_user_id='trusted-member'""",
+        # The owner's Drive sharing is switched off.
+        None,
+    ],
+    ids=["disconnected", "drive_unverified", "payment_reconciling", "owner_sharing_off"],
+)
+async def test_review_ask_needs_an_owner_retry_that_can_still_run(
+    request_bulk, sharing, blocker, monkeypatch
+):
+    from hushh_mcp.services.drive_request_requester_store import request_review
+
+    request_id, (original,) = await _paid_partial_progressive_request(request_bulk, sharing)
+    projections = DriveSuggestionStore(db=sharing.db, authority_key="synthetic-ledger-key")
+    if blocker is None:
+        monkeypatch.setattr(
+            DriveBulkShareStore, "_owner_grants_enabled", staticmethod(lambda _user_id: False)
+        )
+    else:
+        with sharing.db.engine.begin() as connection:
+            connection.execute(text(blocker))
+    # The owner has no Retry here, so the requester is offered no review.
+    owner_view = await request_bulk.review(user_id="owner", share_id=original["shareId"])
+    assert owner_view["canRetry"] is False
+    snapshot = await projections.delivery_snapshot(
+        user_id="trusted-member", request_id=request_id, views=True
+    )
+    assert snapshot["result"]["recovery"]["ownerRetry"] == {
+        "state": "unavailable",
+        "retryableCount": 0,
+        "requestedAt": None,
+    }
+    with pytest.raises(DriveSharingError, match="review_not_available"):
+        await request_review(sharing, user_id="trusted-member", request_id=request_id)
+    with sharing.db.engine.begin() as connection:
+        assert connection.execute(
+            text("""SELECT review_request_count,review_requested_at IS NULL
+              FROM drive_share_requests WHERE request_id=:request"""),
+            {"request": request_id},
+        ).one() == (0, True)
 
 
 @pytest.mark.asyncio

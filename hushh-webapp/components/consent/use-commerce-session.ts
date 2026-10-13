@@ -2,8 +2,22 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { resolveProfilePaneUrlState } from "@/lib/navigation/profile-pane";
+import { ROUTES } from "@/lib/navigation/routes";
 import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+
+/** Inactive retained Profile screens must not claim pane or underlying route Back. */
+export function useCommerceAccountBackLayer(depth: number, back: () => boolean) {
+  const pathname = usePathname();
+  const pane = resolveProfilePaneUrlState(useSearchParams());
+  const panel = pane.location.panel;
+  const active = pane.open ? panel === "payouts" && !pane.location.detail :
+    pathname === ROUTES.PROFILE_PAYOUTS;
+  useBackLayer(pathname, active ? depth : 0, back, pane.open && active ? { profile_pane: "1", profile_panel: panel! } : undefined);
+}
 
 /** A read or action may settle only in the account, view and vault session that began it. */
 export function useCommerceSession(scope: string) {

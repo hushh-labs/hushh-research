@@ -87,16 +87,16 @@ import {
   isDocumentShareSelection,
 } from "@/lib/consent/document-share-consent";
 import {
-  formatDocumentRequestPrice,
-  isValidDocumentRequestPriceCents,
-} from "@/lib/consent/document-request-price";
+  priceViewFromEntryMetadata,
+  requesterPriceLine,
+} from "@/lib/consent/document-request-requester-view";
 import {
   driveQueryRequestId,
-  driveSharingSelectionId,
   isDriveQueryEntry,
   isDriveQuerySelection,
   isDriveSharingEntry,
 } from "@/lib/consent/drive-query-consent";
+import { consentSelectionId } from "@/lib/consent/consent-selection-id";
 import {
   humanizeConsentScope,
   resolveConsentSupportingCopy,
@@ -451,12 +451,11 @@ export function formatLifecycleEventLabel(event: ConsentTrailEvent) {
 }
 
 function entrySummary(entry: ConsentCenterEntry) {
-  if (
-    isDocumentShareEntry(entry) &&
-    entry.metadata?.direction === "outgoing" &&
-    isValidDocumentRequestPriceCents(entry.metadata.quotedAmountCents)
-  ) {
-    return `Quote locked at ${formatDocumentRequestPrice(entry.metadata.quotedAmountCents)}`;
+  if (isDocumentShareEntry(entry) && entry.metadata?.direction === "outgoing") {
+    // Estimate, owner price or final price; the owner may reprice until an order exists.
+    const price = priceViewFromEntryMetadata(entry.metadata);
+    const line = price ? requesterPriceLine(price) : null;
+    if (line) return line;
   }
   if (entry.consent_trails && entry.consent_trails.length > 0) {
     const trailCount = entry.trail_count || entry.consent_trails.length;
@@ -1905,7 +1904,7 @@ function ConsentSurfaceListSection({
           <SettingsRow title={emptyMessage} className="py-3 min-h-[64px]" />
         ) : null}
         {groupByRequest
-          ? groupActiveConsentEntries(items).map((row, index) =>
+          ? groupActiveConsentEntries(items).map((row) =>
               row.kind === "request" ? (
                 <ConsentActiveRequestRow
                   key={row.key}
@@ -1917,7 +1916,7 @@ function ConsentSurfaceListSection({
                 />
               ) : (
                 <ConsentEntryRow
-                  key={`${row.entry.kind}-${row.entry.id}-${row.entry.request_id || "no-request"}-${index}`}
+                  key={JSON.stringify([row.entry.kind, row.entry.id])}
                   entry={row.entry}
                   selected={
                     Boolean(
@@ -1935,7 +1934,7 @@ function ConsentSurfaceListSection({
                 />
               ),
             )
-          : items.map((entry, index) => {
+          : items.map((entry) => {
               const isSelected =
                 // Bug: when nothing is selected, selectedEntry is null,
                 // so selectedEntry?.id and selectedEntry?.request_id are
@@ -1971,7 +1970,7 @@ function ConsentSurfaceListSection({
                   );
                 return (
                   <ConsentPendingRequestRow
-                    key={entry.id}
+                    key={JSON.stringify([entry.kind, entry.id])}
                     entry={entry}
                     summary={pendingBundleSummary(entry)}
                     selected={holdsSelection}
@@ -1984,7 +1983,7 @@ function ConsentSurfaceListSection({
               if (decision) {
                 return (
                   <ConsentPendingRequestRow
-                    key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+                    key={JSON.stringify([entry.kind, entry.id])}
                     entry={entry}
                     summary={consentEntryInformationLabel(entry)}
                     selected={isSelected}
@@ -1995,7 +1994,7 @@ function ConsentSurfaceListSection({
               }
               return (
                 <ConsentEntryRow
-                  key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+                  key={JSON.stringify([entry.kind, entry.id])}
                   entry={entry}
                   selected={isSelected}
                   onSelect={() => onSelectEntry(entry)}
@@ -3227,6 +3226,9 @@ export function ConsentCenterPage() {
     selectedId &&
     !isDocumentShareSelection(selectedId) &&
     !isDriveQuerySelection(selectedId) &&
+    // A paid answer is read by its own card. The generic lookup does not know
+    // this source and answered "missing", which hid a live request.
+    !isAnswerRequestSelection(selectedId) &&
     tab === "requests" &&
     !selectedEntryFromList,
   );
@@ -3706,13 +3708,13 @@ export function ConsentCenterPage() {
     setPreviousLocalPage,
   );
   return (
-    <AppPageShell as="main" width="agent" fitContent>
-      <AppPageHeaderRegion className="space-y-3.5 sm:space-y-3.5">
+    <AppPageShell as="main" width="agent" headerContentSpacing="compact" fitContent>
+      <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
         <PageHeader title="Consent Center" titleRole="agent" />
         <TopShellTabs tabSet={consentTabSet} />
       </AppPageHeaderRegion>
       <SettingsPresentationProvider density="compact">
-        <AppPageContentRegion className="!mt-3.5 sm:!mt-3.5">
+        <AppPageContentRegion>
           <section data-testid="consent-manager-primary" className="min-h-0">
             <section data-testid="consent-manager-list">
               <SettingsGroup
@@ -3878,7 +3880,7 @@ export function ConsentCenterPage() {
                         selectedBundleId={selectedBundleId}
                         onSelectEntry={(entry) =>
                           setParam({
-                            requestId: driveSharingSelectionId(entry),
+                            requestId: consentSelectionId(entry),
                           })
                         }
                         pagination={pendingPagination}
@@ -3898,7 +3900,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: driveSharingSelectionId(entry) })
+                        setParam({ requestId: consentSelectionId(entry) })
                       }
                       pagination={activePagination}
                       groupByRequest
@@ -3914,7 +3916,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: driveSharingSelectionId(entry) })
+                        setParam({ requestId: consentSelectionId(entry) })
                       }
                       pagination={previousPagination}
                     />
@@ -3940,7 +3942,7 @@ export function ConsentCenterPage() {
                         selectedId={selectedId}
                         onSelectEntry={(entry) =>
                           setParam({
-                            requestId: driveSharingSelectionId(entry),
+                            requestId: consentSelectionId(entry),
                           })
                         }
                         pagination={
@@ -3992,32 +3994,36 @@ export function ConsentCenterPage() {
             }
           }}
           title={
-            isQuerySelection
-              ? "Drive question"
-              : isDocumentSelection
-                ? "Document request"
-                : selectedEntry
-                  ? resolveCounterpartLabel(selectedEntry)
-                  : "Consent details"
+            isAnswerSelection
+              ? "Request scope"
+              : isQuerySelection
+                ? "Drive question"
+                : isDocumentSelection
+                  ? "Document request"
+                  : selectedEntry
+                    ? resolveCounterpartLabel(selectedEntry)
+                    : "Consent details"
           }
           description={
-            isQuerySelection
-              ? "A question about Google Drive."
-              : isDocumentSelection
-                ? "Google Drive"
-                : selectedEntry
-                  ? selectedEntry.kind === "connection"
-                    ? "Connection details"
-                    : selectedEntry.kind === "active_grant"
-                      ? "Active access"
-                      : selectedEntry.kind === "history"
-                        ? `${formatStatus(selectedEntry.status)} access`
-                        : selectedEntry.status === "pending"
-                          ? "Request awaiting your decision"
-                          : `${formatStatus(selectedEntry.status)} request`
-                  : selectedId
-                    ? "Resolving the selected consent request."
-                    : "Choose a consent entry from the list to review details and next actions."
+            isAnswerSelection
+              ? "Memory"
+              : isQuerySelection
+                ? "A question about Google Drive."
+                : isDocumentSelection
+                  ? "Google Drive"
+                  : selectedEntry
+                    ? selectedEntry.kind === "connection"
+                      ? "Connection details"
+                      : selectedEntry.kind === "active_grant"
+                        ? "Active access"
+                        : selectedEntry.kind === "history"
+                          ? `${formatStatus(selectedEntry.status)} access`
+                          : selectedEntry.status === "pending"
+                            ? "Request awaiting your decision"
+                            : `${formatStatus(selectedEntry.status)} request`
+                    : selectedId
+                      ? "Resolving the selected consent request."
+                      : "Choose a consent entry from the list to review details and next actions."
           }
           mobilePresentation="sheet"
           // Grouped background: the request's actionable sections read as cards.
@@ -4029,6 +4035,7 @@ export function ConsentCenterPage() {
         >
           {!isDocumentSelection &&
           !isQuerySelection &&
+          !isAnswerSelection &&
           notificationAction &&
           selectedEntry?.status === "pending" ? (
             <div

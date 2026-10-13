@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 320,
+  "expected_migration_version": 332,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -74,13 +74,16 @@
     "remove_wallet_card_registrations",
     "guard_wallet_card_access_grant",
     "notify_pkm_answer_changed",
+    "notify_feed_changed",
+    "stamp_drive_owner_payout_held_at",
     "publish_personal_agent_notification_checkpoint",
     "notification_checkpoint_admission_ready",
-    "notify_feed_changed",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
-    "scope_commerce_queue_continuous_refresh_v1"
+    "scope_commerce_queue_continuous_refresh_v1",
+    "scope_commerce_payout_account_claims_v1",
+    "enforce_stripe_payout_source_binding"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -792,7 +795,8 @@
       "settlement_method",
       "wallet_id",
       "sandbox_wallet_id",
-      "credited_at"
+      "credited_at",
+      "held_at"
     ],
     "drive_request_owner_pricing": [
       "user_id",
@@ -950,7 +954,10 @@
       "owner_allowed_at",
       "quoted_amount_cents",
       "quote_version",
-      "settlement_method"
+      "settlement_method",
+      "initial_quote_cents",
+      "review_requested_at",
+      "review_request_count"
     ],
     "drive_share_reviews": [
       "request_id",
@@ -2509,6 +2516,37 @@
       "created_at",
       "updated_at"
     ],
+    "stripe_connect_balance_snapshots": [
+      "stripe_account_id",
+      "livemode",
+      "currency",
+      "available_cents",
+      "pending_cents",
+      "next_available_on",
+      "next_available_cents",
+      "fetched_at",
+      "refresh_started_at",
+      "refresh_due_at",
+      "updated_at"
+    ],
+    "stripe_connect_balance_transactions": [
+      "stripe_balance_transaction_id",
+      "stripe_account_id",
+      "livemode",
+      "txn_type",
+      "amount_cents",
+      "fee_cents",
+      "net_cents",
+      "status",
+      "available_on",
+      "provider_created_at",
+      "source_id",
+      "source_transfer_id",
+      "source_charge_id",
+      "stripe_payout_id",
+      "observed_at",
+      "updated_at"
+    ],
     "stripe_connect_bank_payout_events": [
       "stripe_event_id",
       "stripe_account_id",
@@ -2528,6 +2566,28 @@
       "expected_arrival_at",
       "failure_code",
       "created_at",
+      "updated_at",
+      "destination_id",
+      "destination_kind",
+      "destination_bank_name",
+      "destination_last4",
+      "payout_method",
+      "automatic",
+      "trace_status",
+      "trace_value",
+      "reconciliation_status",
+      "provider_observed_at",
+      "status_changed_at",
+      "paid_at",
+      "failed_at"
+    ],
+    "stripe_connect_payout_reconciliations": [
+      "stripe_payout_id",
+      "stripe_account_id",
+      "status",
+      "cursor",
+      "scan_started_at",
+      "completed_at",
       "updated_at"
     ],
     "stripe_owner_payout_accounts": [
@@ -2675,13 +2735,17 @@
     "wallet_card_access_audit": [
       "id",
       "grant_id",
-      "event_type"
+      "event_type",
+      "profile_grant_id"
     ],
     "wallet_card_access_grants": [
       "id",
       "recipient_user_id",
       "message_id",
-      "revoked_at"
+      "revoked_at",
+      "last_accessed_at",
+      "trusted_at_creation",
+      "verification_attempts"
     ],
     "wallet_card_registrations": [
       "owner_user_id",
@@ -2695,7 +2759,25 @@
       "owner_user_id",
       "request_id",
       "expires_at"
+    ],
+    "wallet_profile_access_grants": [
+      "id",
+      "owner_user_id",
+      "recipient_user_id",
+      "card_id",
+      "permitted_fields",
+      "trusted_at_creation",
+      "last_accessed_at",
+      "verification_attempts",
+      "revoked_at"
+    ],
+    "wallet_profile_share_requests": [
+      "owner_user_id",
+      "request_id",
+      "card_id",
+      "expires_at",
+      "duration_minutes"
     ]
   },
-  "expected_schema_head": 320
+  "expected_schema_head": 332
 }

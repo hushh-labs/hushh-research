@@ -16,7 +16,7 @@ from hushh_mcp.services.scope_commerce.provider_config import (
     CountryPayoutPolicy,
     ScopeCommerceProviderConfig,
 )
-from hushh_mcp.services.scope_commerce.provider_contracts import _opaque
+from hushh_mcp.services.scope_commerce.provider_contracts import _derived_id, _opaque
 from hushh_mcp.services.scope_commerce.provider_sandbox import SandboxPolicy
 from hushh_mcp.services.scope_commerce.provider_service import ScopeCommerceProviderService
 from hushh_mcp.services.scope_commerce.stripe_adapter import (
@@ -393,6 +393,13 @@ async def test_onboarding_refresh_requires_authenticated_fresh_attempt_and_never
     assert normal == {"commerceAttemptId": [attempt], "commerceReturn": ["1"]}
     assert refresh == {**normal, "commerceAction": ["onboarding_refresh"]}
     assert adapter.request["account"] == "acct_owner"
+    assert adapter.request["collection_options"] == {"fields": "currently_due"}
+    # A pre-release Account Link keeps its exact immutable provider intent.
+    historical = store.operations[attempt]
+    prior = json.loads(historical["request_json"])
+    prior.pop("collection_options")
+    historical["request_json"] = json.dumps(prior, sort_keys=True, separators=(",", ":"))
+    historical["request_hash"] = _opaque(historical["request_json"])
     await service.onboarding(user_id="owner", country="US", operation_id=attempt)
     assert adapter.created == 1
     with pytest.raises(CommerceProviderError, match="provider_operation_conflict"):
@@ -417,6 +424,54 @@ async def test_onboarding_refresh_requires_authenticated_fresh_attempt_and_never
     assert denial.status_code == 403 and denial.detail == {
         "code": "provider_sandbox_reviewer_required"
     }
+
+
+@pytest.mark.asyncio
+async def test_individual_payout_defaults_preserve_unbound_historical_creation_and_recovery():
+    store, adapter = _OperationStore(), _OperationAdapter()
+    service = ScopeCommerceProviderService(
+        store, adapter=adapter, config=ScopeCommerceProviderConfig()
+    )
+    operation_id = _derived_id("owner", "seller_account")
+    requested = await service._seller_creation_request("owner", "US", operation_id)
+    assert requested["business_type"] == "individual"
+    assert requested["capabilities"] == {"transfers": {"requested": True}}
+    assert "url" not in requested["business_profile"]
+    assert "own information" in requested["business_profile"]["product_description"]
+    historical = {
+        key: value
+        for key, value in requested.items()
+        if key not in ("business_type", "business_profile")
+    }
+    adapter.response = {
+        "object": "account",
+        "id": "acct_recovered",
+        "country": "US",
+        "livemode": False,
+    }
+    adapter.fail_after_create = True
+
+    async def run(payload):
+        return await service._run_operation(
+            user_id="owner",
+            operation_id=operation_id,
+            kind="seller_account",
+            request=payload,
+            validate=lambda account: service._validate_object(
+                account, object_type="account", metadata=historical["metadata"]
+            ),
+        )
+
+    with pytest.raises(CommerceProviderError, match="provider_reconciliation_required"):
+        await run(historical)
+    assert await service._seller_creation_request("owner", "US", operation_id) == historical
+    adapter.fail_after_create = False
+    assert (await run(await service._seller_creation_request("owner", "US", operation_id)))[
+        "id"
+    ] == "acct_recovered"
+    assert adapter.created == 1
+    with pytest.raises(CommerceProviderError, match="provider_operation_conflict"):
+        await service._seller_creation_request("owner", "CA", operation_id)
 
 
 @pytest.mark.parametrize(

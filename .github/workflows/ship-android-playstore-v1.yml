@@ -4,7 +4,7 @@ name: Ship Android to Google Play Store
 # exact green `main` SHA, build the Capacitor app against the UAT backend (latest
 # frontend + latest backend, matching UAT) and the shared Firebase authority, sign
 # it with the existing Android Release Upload Keystore, and upload it directly to
-# the Google Play production track. The UAT backend must already be serving the
+# the selected Google Play internal or production track. The UAT backend must already be serving the
 # exact release SHA; this workflow never deploys infrastructure.
 #
 # iOS equivalent: .github/workflows/release-ios-appstore.yml (backend_target=uat).
@@ -13,6 +13,14 @@ name: Ship Android to Google Play Store
 "on":
   workflow_dispatch:
     inputs:
+      track:
+        description: "Google Play release track (internal for testers, production for public release)"
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - internal
       sha:
         description: "Exact green main SHA to ship (blank defaults to latest origin/main)"
         required: false
@@ -39,7 +47,7 @@ env:
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   ANDROID_PACKAGE_NAME: com.hussh.app
-  TARGET_TRACK: production
+  TARGET_TRACK: ${{ inputs.track }}
   NODE_OPTIONS: --max-old-space-size=8192
 
 concurrency:
@@ -48,15 +56,24 @@ concurrency:
 
 jobs:
   ship:
-    name: Build & upload Android AAB (UAT backend, Play production track)
+    name: Build & upload Android AAB (UAT backend, selected Play track)
     runs-on: ubuntu-latest
     # The `uat` environment carries the UAT workload identity needed to read the
     # UAT backend revision and secrets. Dispatch authority stays on the stricter
-    # production actor list because the upload target is the production track.
+    # production actor list for both supported upload tracks.
     environment: uat
     timeout-minutes: 50
 
     steps:
+      - name: Validate target track
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$TARGET_TRACK" in
+            internal|production) ;;
+            *) echo "Refusing unsupported Google Play track." >&2; exit 1 ;;
+          esac
+
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |
@@ -248,7 +265,7 @@ jobs:
           put NEXT_PUBLIC_APP_ENV "uat"
           put NEXT_PUBLIC_BACKEND_URL "$BACKEND_URL"
           put NEXT_PUBLIC_APP_URL "$APP_URL"
-          put NEXT_PUBLIC_PASSKEY_RP_ID "one.hushh.ai"
+          put NEXT_PUBLIC_PASSKEY_RP_ID "uat.one.hushh.ai"
           put NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
           put NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
           put NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
@@ -529,7 +546,7 @@ jobs:
           serviceAccountJson: ${{ env.PLAY_SERVICE_ACCOUNT_PATH }}
           packageName: ${{ env.ANDROID_PACKAGE_NAME }}
           releaseFiles: hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab
-          tracks: production
+          tracks: ${{ env.TARGET_TRACK }}
           status: completed
 
       - name: Publish job summary

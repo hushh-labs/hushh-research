@@ -183,6 +183,9 @@ _SAFE_METADATA_KEYS = frozenset(
         "owner_earning_cents",
         "current_refund_amount_cents",
         "current_payment_amount_cents",
+        # The requester's shared payment view state (drive_request_payment_view):
+        # one closed enum, so a Pay row and its history line cannot disagree.
+        "current_payment_state",
         "new_status",
         "actor_is_self",
         # Which lane a location share belongs to ("sos" vs everything else).
@@ -255,6 +258,18 @@ def _safe_feed_metadata(value: object) -> dict[str, str | int | float | bool]:
         elif isinstance(raw, float) and math.isfinite(raw) and abs(raw) <= _MAX_METADATA_NUMBER:
             safe[key] = raw
     return safe
+
+
+def _aware_instant(value: object) -> datetime | None:
+    """A timezone-aware instant from a database value, or None."""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 def _safe_photo_url(value: object) -> str | None:
@@ -456,7 +471,13 @@ class FeedService:
                            CASE WHEN f.status='succeeded'
                              THEN COALESCE(f.amount_cents,o.amount_cents) END
                              AS current_refund_amount_cents,
-                           o.amount_cents AS current_payment_amount_cents
+                           o.amount_cents AS current_payment_amount_cents,
+                           r.payment_required AS view_payment_required,
+                           r.preparation_error_code AS view_preparation_error_code,
+                           r.quoted_amount_cents AS view_quoted_amount_cents,
+                           o.reconciliation_reason AS view_reconciliation_reason,
+                           f.status AS view_refund_status,
+                           f.amount_cents AS view_refund_amount_cents
                     FROM drive_share_requests r
                     JOIN jsonb_array_elements_text(CAST(:request_ids_json AS JSONB)) ids(value)
                       ON r.request_id = CAST(ids.value AS UUID)
@@ -542,8 +563,70 @@ class FeedService:
                 ):
                     projection["current_refund_amount_cents"] = refund_amount
                     projection["current_payment_amount_cents"] = payment_amount
+            if current.get("viewer_is_owner") is False and row.get("event_type") in {
+                "document_share_payment_ready",
+                "document_share_payment_confirmed",
+            }:
+                projection.update(self._requester_payment_projection(row["event_type"], current))
             result.append({**row, "metadata": {**metadata, **projection}})
         return result
+
+    @staticmethod
+    def _requester_payment_projection(event_type: str, current: dict[str, Any]) -> dict[str, Any]:
+        """The shared payment view state for the requester's own payment rows.
+
+        A confirmed-payment row changes only when that payment arrived after
+        the request closed (it is refunded, never "confirmed"); otherwise the
+        historical confirmation stays as it was.
+        """
+        if current.get("view_payment_required") is not True:
+            return {}
+        if (
+            event_type == "document_share_payment_confirmed"
+            and current.get("view_reconciliation_reason") != "request_closed"
+        ):
+            return {}
+        from hushh_mcp.services.drive_request_payment_view import requester_payment_view
+
+        checkout_expires_at = _aware_instant(current.get("current_checkout_expires_at"))
+        status = current.get("current_payment_status")
+        readiness = current.get("current_owner_payout_account_ready")
+        view = requester_payment_view(
+            payment_required=True,
+            request_status=str(current.get("current_request_status") or ""),
+            request_expires_at=_aware_instant(current.get("current_request_expires_at")),
+            now=datetime.now(timezone.utc),
+            access_stopped=current.get("current_access_stopped") is True,
+            preparation_error_code=current.get("view_preparation_error_code"),
+            quoted_amount_cents=current.get("view_quoted_amount_cents"),
+            order=(
+                {
+                    "status": status,
+                    "amount_cents": current.get("current_payment_amount_cents"),
+                    "checkout_bound": checkout_expires_at is not None,
+                    "checkout_expires_at": checkout_expires_at,
+                    "reconciliation_reason": current.get("view_reconciliation_reason"),
+                }
+                if isinstance(status, str)
+                else None
+            ),
+            refund=(
+                {
+                    "status": current["view_refund_status"],
+                    "amount_cents": current.get("view_refund_amount_cents"),
+                }
+                if isinstance(current.get("view_refund_status"), str)
+                else None
+            ),
+            owner_payout_ready=readiness if type(readiness) is bool else None,
+        )
+        projection: dict[str, Any] = {"current_payment_state": view["state"]}
+        if event_type == "document_share_payment_confirmed":
+            projection["current_request_status"] = current.get("current_request_status")
+            refund = view.get("refund")
+            if refund is not None and type(refund.get("amountCents")) is int:
+                projection["current_refund_amount_cents"] = refund["amountCents"]
+        return projection
 
     def _with_counterpart_photos(
         self, user_id: str, rows: list[dict[str, Any]]
@@ -715,7 +798,24 @@ class FeedService:
         cte = (
             _WALLET_GROUPED_FEED_CTE if self._wallet_card_access_installed() else _GROUPED_FEED_CTE
         )
+        if cte == _WALLET_GROUPED_FEED_CTE and self._universal_wallet_installed():
+            cte = cte.replace("wallet_card_access_grants", "wallet_all_access_grants")
         return cte + (_GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT)
+
+    def _universal_wallet_installed(self):
+        try:
+            rows = (
+                self._get_db()
+                .execute_raw(
+                    "SELECT to_regclass('public.wallet_all_access_grants') IS NOT NULL AS available",
+                    {},
+                )
+                .data
+                or []
+            )
+            return bool(rows and rows[0].get("available") is True)
+        except Exception:
+            return False
 
     def _with_wallet_card_grants(self, user_id, rows):
         ids = [
@@ -726,18 +826,26 @@ class FeedService:
         ]
         if not ids or not self._wallet_card_access_installed():
             return rows
+        grants_table = (
+            "wallet_all_access_grants"
+            if self._universal_wallet_installed()
+            else "wallet_card_access_grants"
+        )
         try:
             links = (
                 self._get_db()
                 .execute_raw(
-                    """SELECT g.message_id::text AS source_row_id,g.id::text AS grant_id
- FROM wallet_card_access_grants g JOIN messages m ON m.id=g.message_id
- JOIN conversations c ON c.id=m.conversation_id
- WHERE g.recipient_user_id=:viewer AND g.owner_user_id=m.sender_user_id
- AND m.deleted_for_everyone_at IS NULL AND m.deleted_for_recipient_at IS NULL
- AND m.id=ANY(CAST(:ids AS uuid[]))
- AND ((c.participant_a_user_id=g.owner_user_id AND c.participant_b_user_id=:viewer)
- OR (c.participant_b_user_id=g.owner_user_id AND c.participant_a_user_id=:viewer))""",
+                    # Only fixed sharing-source identifiers/fragments; request values are bound.
+                    (
+                        f"SELECT g.message_id::text AS source_row_id,g.id::text AS grant_id\n"  # nosec B608
+                        f" FROM {grants_table} g JOIN messages m ON m.id=g.message_id\n"
+                        f" JOIN conversations c ON c.id=m.conversation_id\n"
+                        f" WHERE g.recipient_user_id=:viewer AND g.owner_user_id=m.sender_user_id\n"
+                        f" AND m.deleted_for_everyone_at IS NULL AND m.deleted_for_recipient_at IS NULL\n"
+                        f" AND m.id=ANY(CAST(:ids AS uuid[]))\n"
+                        f" AND ((c.participant_a_user_id=g.owner_user_id AND c.participant_b_user_id=:viewer)\n"
+                        f" OR (c.participant_b_user_id=g.owner_user_id AND c.participant_a_user_id=:viewer))"
+                    ),
                     {"viewer": user_id, "ids": ids},
                 )
                 .data

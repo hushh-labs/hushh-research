@@ -178,6 +178,136 @@ class CapacityObservabilityTest(unittest.TestCase):
             self.assertIsNone(re.search(expression, payload))
         self.assertNotIn("labelExtractors", metric)
 
+    def test_voice_metrics_extract_only_bounded_provider_dimensions(self) -> None:
+        server = (
+            "INFO one_voice.latency session=private turn=private phase=first_audio "
+            "ms=1312 provider=vertex_ai vertex_project=hussh-511311 "
+            "live_model=gemini-live-2.5-flash-native-audio live_location=us-central1"
+        )
+        tool = server.replace("phase=first_audio ms=1312", "phase=tool tool=read_mail ms=4700")
+        client = (
+            "INFO one_voice.client_perf session=private turn=private "
+            "metric=audio_receive_to_audible ms=120 provider=vertex_ai "
+            "vertex_project=hussh-511311 "
+            "live_model=gemini-live-2.5-flash-native-audio live_location=us-central1"
+        )
+        cases = (
+            ("obs_one_voice_latency_ms", server, "1312", "phase", "first_audio"),
+            ("obs_one_voice_latency_ms", tool, "4700", "phase", "tool"),
+            (
+                "obs_one_voice_client_perf_ms", client, "120", "metric",
+                "audio_receive_to_audible",
+            ),
+        )
+        for name, line, elapsed, dimension, value in cases:
+            with self.subTest(name=name, line=line):
+                metric = json.loads((ROOT / "log-metrics" / f"{name}.json").read_text())
+                self.assertEqual(metric["metricDescriptor"]["valueType"], "DISTRIBUTION")
+                self.assertEqual(metric["metricDescriptor"]["unit"], "ms")
+                self.assertEqual(
+                    set(metric["labelExtractors"]),
+                    {label["key"] for label in metric["metricDescriptor"]["labels"]},
+                )
+                self.assertEqual(
+                    set(metric["labelExtractors"]),
+                    {dimension, "vertex_project", "live_model", "live_location"},
+                )
+                self.assertNotIn("session", metric["labelExtractors"])
+                self.assertNotIn("turn", metric["labelExtractors"])
+                log_filter = re.search(r'textPayload=~"([^"]+)"', metric["filter"])
+                self.assertIsNotNone(log_filter)
+                self.assertIsNotNone(re.search(log_filter.group(1), line))
+                extractor = re.search(r'REGEXP_EXTRACT\(textPayload, "([^"]+)"\)', metric["valueExtractor"])
+                self.assertEqual(re.search(extractor.group(1), line).group(1), elapsed)
+                for label, expression in metric["labelExtractors"].items():
+                    capture = re.search(r'REGEXP_EXTRACT\(textPayload, "([^"]+)"\)', expression)
+                    extracted = re.search(capture.group(1), line).group(1)
+                    self.assertEqual(extracted, value if label == dimension else {
+                        "vertex_project": "hussh-511311",
+                        "live_model": "gemini-live-2.5-flash-native-audio",
+                        "live_location": "us-central1",
+                    }[label])
+
+        # These are configuration labels, never a general label for user/session content.
+        server_metric = json.loads((ROOT / "log-metrics/obs_one_voice_latency_ms.json").read_text())
+        filter_expression = re.search(r'textPayload=~"([^"]+)"', server_metric["filter"]).group(1)
+        self.assertIsNone(re.search(filter_expression, server.replace("phase=first_audio", "phase=unknown")))
+        self.assertIsNone(re.search(filter_expression, server.replace("provider=vertex_ai", "provider=other")))
+
+    def test_voice_dashboard_uses_phase_percentiles_without_cross_series_reduction(self) -> None:
+        args = module.cli(["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"])
+        dashboard = module.render(ROOT / "dashboard-observability.json.in", args)
+        widgets = {widget["title"]: widget for widget in dashboard["gridLayout"]["widgets"]}
+        expected = {
+            "One Voice First Audio P50 (ms, per revision)": ("first_audio", "ALIGN_PERCENTILE_50"),
+            "One Voice First Audio P95 (ms, per revision)": ("first_audio", "ALIGN_PERCENTILE_95"),
+            "One Voice Tool P95 (ms, per revision)": ("tool", "ALIGN_PERCENTILE_95"),
+            "One Voice Client Endpointing P95 (ms, per revision)": ("endpointing_client", "ALIGN_PERCENTILE_95"),
+            "One Voice Client Audio Audible P95 (ms, per revision)": ("audio_receive_to_audible", "ALIGN_PERCENTILE_95"),
+        }
+        for title, (slice_value, aligner) in expected.items():
+            with self.subTest(title=title):
+                query = widgets[title]["xyChart"]["dataSets"][0]["timeSeriesQuery"]
+                series_filter = query["timeSeriesFilter"]
+                self.assertIn(slice_value, series_filter["filter"])
+                self.assertEqual(series_filter["aggregation"]["perSeriesAligner"], aligner)
+                self.assertNotIn("crossSeriesReducer", series_filter["aggregation"])
+                self.assertEqual(query["unitOverride"], "ms")
+
+    def test_voice_metric_reconcile_ignores_server_descriptor_fields_but_detects_drift(self) -> None:
+        args = module.cli(["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"])
+        desired = module.render(ROOT / "log-metrics/obs_one_voice_latency_ms.json", args)
+        current = copy.deepcopy(desired)
+        current["metricDescriptor"]["type"] = "logging.googleapis.com/user/obs_one_voice_latency_ms"
+        current["metricDescriptor"]["labels"].reverse()
+        self.assertTrue(module.same_log_metric(current, desired))
+        for label in current["metricDescriptor"]["labels"]:
+            label.pop("valueType")  # Actual gcloud readback omits default STRING.
+        self.assertTrue(module.same_log_metric(current, desired))
+        current["metricDescriptor"]["labels"][0]["valueType"] = "INT64"
+        self.assertFalse(module.same_log_metric(current, desired))
+        current["metricDescriptor"]["labels"][0].pop("valueType")
+        current["labelExtractors"]["phase"] = 'REGEXP_EXTRACT(textPayload, " phase=(.*)")'
+        self.assertFalse(module.same_log_metric(current, desired))
+
+    def test_voice_only_apply_is_idempotent_and_never_touches_alerts(self) -> None:
+        args = module.cli([
+            "--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg",
+            "--voice-only", "--apply",
+        ])
+        metrics = {}
+        dashboard = None
+        writes = []
+
+        def fake_run(*command, **kwargs):
+            nonlocal dashboard
+            if command[:4] == ("gcloud", "logging", "metrics", "list"):
+                return copy.deepcopy(list(metrics.values()))
+            if command[:4] == ("gcloud", "monitoring", "dashboards", "describe"):
+                return copy.deepcopy(dashboard)
+            self.fail(f"Voice-only mode attempted unrelated cloud read: {command}")
+
+        def fake_write(config, action):
+            nonlocal dashboard
+            writes.append(action)
+            if action[:3] == ["gcloud", "logging", "metrics"]:
+                metrics[config["name"]] = copy.deepcopy(config)
+            elif action[:3] == ["gcloud", "monitoring", "dashboards"]:
+                dashboard = copy.deepcopy(config)
+                dashboard["gridLayout"]["columns"] = str(
+                    dashboard["gridLayout"]["columns"]
+                )
+            else:
+                self.fail(f"Voice-only mode attempted unrelated write: {action}")
+
+        with patch.object(module, "run", side_effect=fake_run), \
+             patch.object(module, "write_config", side_effect=fake_write), \
+             contextlib.redirect_stdout(io.StringIO()):
+            module.reconcile(args)
+            self.assertEqual(len(writes), 3)
+            module.reconcile(args)
+            self.assertEqual(len(writes), 3)
+
     def test_default_plan_never_mutates_cloud(self) -> None:
         args = module.cli(
             ["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"]

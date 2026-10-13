@@ -20,12 +20,25 @@ class PkmAnswerCenterContributor:
             rows = (
                 connection.execute(
                     text("""SELECT r.request_id,r.owner_user_id,r.requester_user_id,
-                r.status,r.created_at,o.status AS payment_status,
+                r.status,r.created_at,r.question,o.status AS payment_status,
+                o.amount_cents,
+                -- The resolver's proposal. Zero means nothing of the owner's
+                -- matched the question, so the requester is told the answer is
+                -- not there instead of being shown a price that cannot exist.
+                (SELECT COUNT(*) FROM pkm_answer_request_scopes s
+                   WHERE s.request_id=r.request_id) AS proposed_scope_count,
+                -- Whether the owner's device has actually prepared the answer,
+                -- and whether the approved information yielded anything. A
+                -- proposal count is what the resolver suggested; only this is
+                -- evidence that an answer exists to be bought.
+                d.request_id IS NOT NULL AS answer_staged,
+                d.has_content AS answer_has_content,
                 requester_identity.display_name AS requester_label, owner_identity.display_name AS owner_label,
                 EXISTS(SELECT 1 FROM connections c WHERE c.status='active' AND
                   ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id) OR
                    (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id))) AS connected
                 FROM pkm_answer_requests r LEFT JOIN pkm_answer_payment_orders o USING(request_id)
+                LEFT JOIN pkm_answer_deliveries d ON d.request_id=r.request_id
                 LEFT JOIN actor_identity_cache requester_identity ON requester_identity.user_id=r.requester_user_id
                 LEFT JOIN actor_identity_cache owner_identity ON owner_identity.user_id=r.owner_user_id
                 WHERE r.owner_user_id=:user OR r.requester_user_id=:user ORDER BY r.created_at DESC"""),
@@ -63,7 +76,7 @@ class PkmAnswerCenterContributor:
                         "status": status if row["connected"] else "connection_revoked",
                         "action": "ANSWER_REQUEST_REVIEW",
                         "scope": None,
-                        "scope_description": "Paid answer",
+                        "scope_description": "Request scope",
                         "counterpart_type": "person",
                         "counterpart_id": row["requester_user_id"]
                         if owner
@@ -79,6 +92,19 @@ class PkmAnswerCenterContributor:
                             "direction": "incoming" if needs else "outgoing",
                             "request_status": status,
                             "payment_status": row["payment_status"],
+                            # Both participants already read these through
+                            # /state and /payment; the row carries them so the
+                            # Feed can name the price and the question without
+                            # one request per row. feed_events stays coarse.
+                            "question": row["question"],
+                            "amount_cents": row["amount_cents"],
+                            "proposed_scope_count": int(row["proposed_scope_count"] or 0),
+                            "answer_staged": bool(row["answer_staged"]),
+                            "answer_has_content": (
+                                None
+                                if row["answer_has_content"] is None
+                                else bool(row["answer_has_content"])
+                            ),
                         },
                     }
                 )

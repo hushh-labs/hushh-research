@@ -69,6 +69,7 @@ import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
@@ -210,10 +211,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const sharedIntent = searchParams?.get("section") === "shared";
   const availableSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
+  const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [showUnlockDialog, setShowUnlockDialog] = useState(false);
   const request = usePersonInformationRequest(resolvedPersonRef);
   const requesting = request.pending;
   const requestGeneration = useRef(0);
+  const viewerReadGeneration = useRef(0);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState(false);
   const catalogInFlight = useRef(false);
@@ -269,6 +272,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   useEffect(() => {
     if (authLoading || !user) return;
     requestGeneration.current += 1;
+    const generation = ++viewerReadGeneration.current;
     catalogInFlight.current = false;
     setCatalogLoading(false);
     setCatalogError(false);
@@ -280,7 +284,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       .getIdToken()
       .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token, { page: 1 }))
       .then((value) => {
-        if (active) {
+        if (active && generation === viewerReadGeneration.current) {
           setViewerProfileState({
             personRef: resolvedPersonRef,
             viewerUid: user.uid,
@@ -289,7 +293,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         }
       })
       .catch(() => {
-        if (active) {
+        if (active && generation === viewerReadGeneration.current) {
           setViewerLoadError({ personRef: resolvedPersonRef, viewerUid: user.uid });
           // Do not present an older eligibility catalog as current authority.
           setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
@@ -309,9 +313,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     (tool: string | null, result: ToolResultPublic | null) => {
       if (!isPeopleGraphChange(tool, result)) return;
       if (!voiceRefreshDedupe.current.shouldRefresh(result)) return;
+      requestGeneration.current += 1;
+      viewerReadGeneration.current += 1;
+      setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user?.uid
+        ? { ...current, profile: null } : current);
       setViewerReloadToken((token) => token + 1);
     },
-    [],
+    [resolvedPersonRef, user?.uid],
   );
   useVoiceToolEffects({
     onToolResult: (tool, result) => reloadAfterVoice(tool, result),
@@ -336,10 +344,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     if (!user) return;
     const refresh = () => {
       requestGeneration.current += 1;
+      viewerReadGeneration.current += 1;
       setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user.uid
         ? { ...current, profile: null } : current);
       setViewerReloadToken((value) => value + 1);
     };
+    const unsubscribe = subscribeToConnectionGraphChanges(({ userId }) => {
+      if (userId === user.uid) refresh();
+    });
     const onPush = (event: Event) => {
       const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
       if (["consent_resolved", "shared_information_updated"].includes(String(detail?.data?.type || ""))) refresh();
@@ -347,6 +359,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
     window.addEventListener(FCM_MESSAGE_EVENT, onPush);
     return () => {
+      unsubscribe();
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
       window.removeEventListener(FCM_MESSAGE_EVENT, onPush);
     };
@@ -508,6 +521,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 resolvedPersonRef,
                 idToken,
               );
+      requestGeneration.current += 1;
+      viewerReadGeneration.current += 1;
+      catalogInFlight.current = false;
+      setCatalogLoading(false);
+      setCatalogError(false);
       if (action === "remove") {
         CacheSyncService.onConnectionGraphMutated(user.uid);
       } else {
@@ -518,7 +536,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           ? {
               personRef: resolvedPersonRef,
               viewerUid: user.uid,
-              profile: { ...current.profile, relationship },
+              profile: {
+                ...current.profile,
+                relationship,
+                ...(relationship.status !== "connected" ? { contactEmail: null, contactPhoneNumber: null } : {}),
+              },
             }
           : current,
       );
@@ -769,6 +791,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               {viewerProfile.contactEmail}
             </a>
           ) : null}
+          {viewerProfile?.relationship.status === "connected" && /^\+[1-9][0-9]{1,14}$/.test(viewerProfile.contactPhoneNumber ?? "") ? (
+            <a className="mt-1 block break-all text-center text-sm text-muted-foreground hover:underline" href={`tel:${viewerProfile.contactPhoneNumber}`}>
+              {viewerProfile.contactPhoneNumber}
+            </a>
+          ) : null}
           <div className={styles.actions} aria-label="Relationship actions">
             {viewerProfile ? (
               <Button type="button" variant="blue-gradient" effect="fill" className={styles.request} onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
@@ -781,6 +808,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               variant="none"
               effect="fade"
               className={styles.share}
+              ref={requestScopeReturnFocusRef}
               aria-label="Share profile"
               onClick={() => {
                 void navigator.clipboard.writeText(window.location.href);
@@ -826,17 +854,18 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   </Button>
                 ) : null}
                 {viewerProfile.relationship.status === "connected" ? <DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} /> : null}
-                {/* An active connection is the whole gate: no connector setup
-                    and no Trusted-circle membership, unlike the Drive file
-                    actions above, which also wait on a staged connector flag. */}
-                {viewerProfile.relationship.status === "connected" ? (
-                  <RequestScopeButton
-                    personRef={resolvedPersonRef}
-                    personName={profile.displayName || "this person"}
-                    className={styles.requestScope}
-                  />
-                ) : null}
               </>
+            ) : null}
+            {/* Preserve accepted confirmation while profile authority refreshes. */}
+            {user ? (
+              <RequestScopeButton
+                key={`${user.uid}:${resolvedPersonRef}`}
+                personRef={resolvedPersonRef}
+                personName={profile.displayName || "this person"}
+                className={styles.requestScope}
+                canRequest={viewerProfile?.relationship.status === "connected"}
+                returnFocusRef={requestScopeReturnFocusRef}
+              />
             ) : null}
 
           </div>

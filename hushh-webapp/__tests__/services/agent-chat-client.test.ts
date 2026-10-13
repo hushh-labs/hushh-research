@@ -856,7 +856,7 @@ describe("AG-UI Agent One client", () => {
     expect(messages[1].metadata?.turnActivity).toBeUndefined();
   });
   beforeEach(() => {
-    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("user-1");
     mockTransport.runAgent.mockClear();
     mockTransport.outcome = "success";
     mockTransport.emitEvents = null;
@@ -1223,6 +1223,7 @@ describe("AG-UI Agent One client", () => {
     expect(ApiService.agentChatRequest).toHaveBeenCalledExactlyOnceWith(
       "/api/one/agent-chat/runs/thread-hitl/stop",
       expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal) }),
+      false, undefined, expect.any(Function),
     );
   });
 
@@ -1650,6 +1651,7 @@ describe("a turn the app stops reading keeps running server-side", () => {
 
   beforeEach(() => {
     publishValidatedAuthSessionOwner("user-1");
+    vi.mocked(ApiService.agentChatRequest).mockReset().mockResolvedValue(Response.json({ stopped: true, returned: [] }));
     mockTransport.aborted = false;
     mockTransport.outcome = "success";
     clearWatchedAgentTurns();
@@ -1691,6 +1693,23 @@ describe("a turn the app stops reading keeps running server-side", () => {
       expect(result.detached).toBe(watched);
       expect(isAgentTurnWatched("user-1", "thread-left")).toBe(watched);
     }
+  });
+
+  it.each(["owner", "vault"])("does not send a retiring turn's Stop after %s rotation", async (rotation) => {
+    vi.mocked(ApiService.agentChatRequest).mockClear();
+    const controller = new AbortController();
+    mockTransport.emitEvents = (subscriber) => {
+      liveTurnEvents(subscriber);
+      if (rotation === "owner") publishValidatedAuthSessionOwner("successor");
+      else advanceVaultSessionEpoch();
+      controller.abort();
+    };
+    const onError = vi.fn();
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+      conversationId: "thread-retired", vaultOwnerToken: "owner-token", signal: controller.signal,
+      handlers: { onError } });
+    expect(ApiService.agentChatRequest).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("holds a new prompt until the left turn settles, and never hangs on a cleared watch", async () => {

@@ -101,7 +101,7 @@ const WALLET_TABS = [
 type WalletTab = "cards" | "add" | "sharing";
 
 /** One column for header and content, so both share a start line. */
-const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-1.5 sm:space-y-3.5";
+const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]";
 
 const CARD_SLOT_RADIUS = { borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})` };
 
@@ -610,6 +610,21 @@ export function WalletWorkspace() {
     return () => { cancelled = true; readRevision += 1; document.removeEventListener("visibilitychange", visibility); };
   }, [numberScopeRevision, numberReadRevision, activeTab, view.kind, focusedCardId, focusedCard?.cardId]);
   const displayedNumber = ownerNumber?.revision === cardActionScopeRef.current.revision ? ownerNumber.pan : undefined;
+  const getHistoryContext = useCallback((_cardId: string) => {
+    const context = vaultContextRef.current();
+    const revision = cardActionScopeRef.current.revision;
+    const isCurrent = () => {
+      const current = vaultContextRef.current();
+      return Boolean(context && current?.userId === context.userId && current.vaultKey === context.vaultKey &&
+        current.vaultOwnerToken === context.vaultOwnerToken && cardActionScopeRef.current.revision === revision &&
+        cardActionScopeRef.current.tab === "sharing" && document.visibilityState !== "hidden");
+    };
+    if (!context || !isCurrent()) return null;
+    return { ...context, isCurrent, getIdToken: async () => {
+      if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
+      return sharingUserRef.current.getIdToken();
+    } };
+  }, []);
   const getCardShareContext = useCallback((cardId: string) => {
     const context = vaultContextRef.current();
     const revision = cardActionScopeRef.current.revision;
@@ -821,6 +836,7 @@ export function WalletWorkspace() {
     <AppPageShell
       as="div"
       width="standard"
+      headerContentSpacing="compact"
       fitContent
       className="relative isolate [--app-page-content-bottom-gap:0px]"
     >
@@ -981,6 +997,7 @@ export function WalletWorkspace() {
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
                 backRoute={ROUTES.ONE_WALLET}
+                getNetworkContext={vaultContext}
                 scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
@@ -1054,7 +1071,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} /> : null}
+            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
           </div>
           </SwipeViews>
           </div>

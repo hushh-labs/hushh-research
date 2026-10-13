@@ -1188,11 +1188,12 @@ export async function streamAgentChat(input: {
   const handlers = input.handlers ?? {};
   const mcpOwner = snapshotValidatedAuthSessionOwner();
   const mcpVaultEpoch = snapshotVaultSessionEpoch();
-  const mcpSessionCurrent = () => Boolean(
+  const ownerSessionCurrent = () => Boolean(
     mcpOwner && mcpOwner.userId === input.userId &&
     isValidatedAuthSessionOwnerCurrent(mcpOwner) &&
-    isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted,
+    isVaultSessionEpochCurrent(mcpVaultEpoch),
   );
+  const mcpSessionCurrent = () => ownerSessionCurrent() && !input.signal?.aborted;
   const recovered = input.resumeMcpReview;
   if (recovered && (!input.conversationId || input.message || input.attachments?.length ||
       Date.parse(recovered.reference.expiresAt) <= serverNow() || !mcpSessionCurrent() ||
@@ -1305,11 +1306,15 @@ export async function streamAgentChat(input: {
   let serverTerminal = false;
   let detached = false;
   let stopRequest: Promise<void> | null = null;
-  const stopOnServer = () => stopRequest ??= createQueuedInputPorts(() => input.vaultOwnerToken)
+  const stopOnServer = () => {
+    if (!ownerSessionCurrent()) return Promise.resolve();
+    return stopRequest ??= createQueuedInputPorts(() => input.vaultOwnerToken, ownerSessionCurrent)
     .stop(threadId).then((receipt) => { if (!receipt.stopped) throw new Error(); }).catch(() => {
+      if (!ownerSessionCurrent()) return;
       failure = new Error("Could not confirm that One stopped. Reconnect before continuing.");
       handlers.onError?.(failure.message);
     });
+  };
   const startedAtMs = Date.now();
   let settleTerminalRun: (() => void) | null = null;
   const terminalRun = new Promise<void>((resolve) => {
@@ -2142,8 +2147,8 @@ export async function streamAgentIntro(input: {
  * key, because nothing sealed is read. The text is sent once, to the running
  * turn, and is never written to storage or logged on this device.
  */
-export function createQueuedInputPorts(getVaultOwnerToken: () => string | null): QueuedInputPorts {
-  return queuedInputPorts(getVaultOwnerToken, readError);
+export function createQueuedInputPorts(getVaultOwnerToken: () => string | null, isCurrent?: () => boolean): QueuedInputPorts {
+  return queuedInputPorts(getVaultOwnerToken, readError, isCurrent);
 }
 
 export async function listAgentChatConversations(input: {

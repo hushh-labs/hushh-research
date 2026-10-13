@@ -1,5 +1,10 @@
 "use client";
 
+import { useState } from "react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
+
 import { SpinnerGapIcon as Loader2 } from "@/components/icons";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Switch } from "@/components/ui/switch";
@@ -26,10 +31,15 @@ type Props = {
 
 /** Saved section controls reuse the existing exact-scope owner mutations. */
 export function PkmSavedSharing({ userId, active, domains, sharingManifests, sharingManifestsLoading, retrySharing, sharingActionKey, isVaultUnlocked, exportBusy, exportStatus, exportError, handleExportMemory, updateSharingBundles }: Props) {
+  const [expanded, setExpanded] = useState({ owner: userId, value: "" });
+  const section = expanded.owner === userId ? expanded.value : "";
+  useBackLayer(ROUTES.PKM, active && section ? 1 : 0, () => {
+    setExpanded({ owner: userId, value: "" });
+    return true;
+  });
   const sharingUnavailable = domains.some(domain => !sharingManifests[domain.key]);
   return (
           <div className="space-y-4 pb-1 pr-px" data-pkm-memory-sharing="true">
-            <p className="px-1 text-sm text-muted-foreground">Sharing and prices apply to each section below. Every requester still needs your approval.</p>
             {sharingManifestsLoading ? (
               <p className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -62,6 +72,9 @@ export function PkmSavedSharing({ userId, active, domains, sharingManifests, sha
               </p>
             ) : null}
 
+            <Accordion type="single" collapsible value={section} onValueChange={value => setExpanded({ owner: userId, value })}>
+              <AccordionItem value="sharing"><AccordionTrigger>Sharing settings</AccordionTrigger><AccordionContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">Choose which sections people can request and set their price. Every requester needs your approval.</p>
             {!sharingManifestsLoading &&
               domains.map((domain) => {
                 const manifest = sharingManifests[domain.key] || null;
@@ -147,6 +160,8 @@ export function PkmSavedSharing({ userId, active, domains, sharingManifests, sha
                 );
               })}
 
+              </AccordionContent></AccordionItem>
+            </Accordion>
             {!sharingManifestsLoading && sharingUnavailable ? (
               <div className="px-1 text-sm text-muted-foreground" role="status">
                 <p>Some sharing settings could not be checked. Try again before changing access.</p>

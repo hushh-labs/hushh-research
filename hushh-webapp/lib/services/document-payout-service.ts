@@ -1,5 +1,25 @@
+import { documentPayoutLinkUrl } from "./document-payout-links";
+export { documentPayoutLinkUrl } from "./document-payout-links";
+
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
+import { parseHoldNextStep, parseHoldReason, type HoldNextStep, type HoldReason } from "@/lib/payouts/review-copy";
 import { apiJson } from "@/lib/services/api-client";
+import { parseCommerceHostedSession, type CommerceHostedSession } from "@/lib/services/scope-commerce-return";
+
+export const PAYOUT_VERIFICATION_STATES = ["none", "upcoming", "due", "past_due", "in_review", "disabled"] as const;
+const VERIFICATION_ITEMS = ["identity", "tax_id", "address", "bank_account", "business", "terms", "other"] as const;
+const DISABLED_REASONS = ["requirements_past_due", "pending_verification", "under_review", "rejected", "listed",
+  "platform_paused", "action_required", "other"] as const;
+/** What Stripe still needs from the owner, in closed categories; never Stripe's own wording. */
+export type PayoutVerification = {
+  state: (typeof PAYOUT_VERIFICATION_STATES)[number];
+  deadline: string | null;
+  items: (typeof VERIFICATION_ITEMS)[number][];
+  eventuallyDue: boolean;
+  hasErrors: boolean;
+  disabledReason: (typeof DISABLED_REASONS)[number] | null;
+};
+export type PayoutSchedule = { interval: "daily" | "weekly" | "monthly" | "manual"; delayDays: number | null };
 
 /** Stripe Connect readiness for a US document owner. */
 export type DocumentPayoutAccount = {
@@ -15,6 +35,9 @@ export type DocumentPayoutAccount = {
     last4: string | null;
     status: "new" | "validated" | "verified" | "verification_failed" | "errored" | "unknown";
   } | null;
+  /** Newer servers only. */
+  verification?: PayoutVerification;
+  payoutSchedule?: PayoutSchedule | null;
 };
 export type DocumentPayoutAccountResponse = { account: DocumentPayoutAccount | null; stripeMode?: "test" | "live" };
 export type DocumentBankPayout = {
@@ -23,12 +46,41 @@ export type DocumentBankPayout = {
   status: "pending" | "in_transit" | "paid" | "canceled" | "failed";
   expectedArrivalAt: string | null;
   failureCode: string | null;
+  /** Newer servers only: the deposit's own times, destination and bank trace. */
+  createdAt?: string | null;
+  paidAt?: string | null;
+  failedAt?: string | null;
+  bank?: { name: string | null; last4: string | null } | null;
+  bankReference?: string | null;
 };
-export type DocumentBankPayoutsResponse = { currency: "USD"; payouts: DocumentBankPayout[]; stripeMode?: "test" | "live" };
+export type DocumentBankPayoutsResponse = {
+  currency: "USD"; payouts: DocumentBankPayout[]; stripeMode?: "test" | "live";
+  /** Newer servers only; null on the last page. */
+  nextCursor?: string | null;
+};
+/** The connected account's Stripe balance ("In Stripe"), from a server snapshot. */
+export type DocumentPayoutBalance = {
+  stripeMode: "test" | "live"; currency: "USD"; accountLinked: boolean;
+  inStripeCents: number; availableCents: number; pendingCents: number;
+  nextAvailableOn: string | null; nextAvailableCents: number | null;
+  asOf: string; stale: boolean;
+};
 
+/** Why some coins can't move yet, from the server's closed review vocabulary. */
+export type HashcoinHold = {
+  id: string; reason: HoldReason; nextStep: HoldNextStep; coins: number;
+  requestId: string | null; requestLabel: string | null; since: string | null;
+};
 export type HashcoinBalance = {
   balanceCoins: number; reservedCoins: number; availableCoins: number; amountCents: number; held: boolean;
   nextRedeemCoins?: number;
+  /** Live wallet, newer servers only. nextRedeemCoins <= redeemableCoins <= availableCoins. */
+  holds?: HashcoinHold[];
+  redeemableCoins?: number;
+  redeemableCount?: number;
+  remainingAfterNextCoins?: number;
+  notRedeemableCoins?: number;
+  nextRedeemSource?: { requestId: string; label: string | null } | null;
 };
 export type HashcoinRedemption = {
   id: string; clientRequestId?: string; amountCoins: number;
@@ -81,7 +133,11 @@ export type DocumentEarning = {
   creditedCoins?: number | null;
   creditedAt?: string | null;
 };
-export type DocumentEarningsResponse = { currency: "USD"; transactions: DocumentEarning[]; nextCursor: string | null; stripeMode?: "test" | "live" };
+export type DocumentEarningsResponse = {
+  currency: "USD"; transactions: DocumentEarning[]; nextCursor: string | null; stripeMode?: "test" | "live";
+  /** Newer servers only: which mode's earnings this page holds ("test" includes legacy rows). */
+  mode?: "test" | "live";
+};
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -104,22 +160,72 @@ function nullableInteger(value: unknown): value is number | null {
 function date(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
+function label(value: unknown, max: number): string | null {
+  return typeof value === "string" && value.trim() && value.length <= max ? value : null;
+}
+// Opaque, printable and bounded; the server alone knows what it encodes.
+const PAGE_CURSOR = /^[\x21-\x7e]{1,256}$/;
+const HOLD_ID = /^(?:(?:earning|redemption):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|balance)$/i;
+
+/** Additive fields read tolerantly: a part this build can't read is left out, as an older server would. */
+function verification(value: unknown): PayoutVerification | undefined {
+  const state = PAYOUT_VERIFICATION_STATES.find((item) => isObject(value) && item === value.state);
+  if (!isObject(value) || !state) return undefined;
+  const named = (Array.isArray(value.items) ? value.items.slice(0, 20) : []).filter((item) => typeof item === "string")
+    .map((item) => VERIFICATION_ITEMS.find((known) => known === item) ?? "other");
+  const reason = value.disabledReason;
+  return { state, deadline: date(value.deadline) ? value.deadline : null,
+    items: VERIFICATION_ITEMS.filter((item) => named.includes(item)),
+    eventuallyDue: value.eventuallyDue === true, hasErrors: value.hasErrors === true,
+    disabledReason: typeof reason === "string" ? DISABLED_REASONS.find((known) => known === reason) ?? "other" : null };
+}
+function payoutSchedule(value: unknown): PayoutSchedule | null {
+  if (!isObject(value) || !["daily", "weekly", "monthly", "manual"].includes(String(value.interval))) return null;
+  return { interval: value.interval as PayoutSchedule["interval"],
+    delayDays: integer(value.delayDays) && value.delayDays <= 365 ? value.delayDays : null };
+}
+function hold(row: unknown): HashcoinHold | null {
+  if (!isObject(row) || typeof row.id !== "string" || !HOLD_ID.test(row.id) || !integer(row.coins)) return null;
+  // An unknown reason reads as a neutral check, never as a refund.
+  return { id: row.id, reason: parseHoldReason(row.reason), nextStep: parseHoldNextStep(row.nextStep), coins: row.coins,
+    requestId: typeof row.requestId === "string" && DOCUMENT_REQUEST_UUID.test(row.requestId) ? row.requestId : null,
+    requestLabel: label(row.requestLabel, 120), since: date(row.since) ? row.since : null };
+}
+/** Live-only additions. Holds drop unreadable rows; redeemable totals must keep their invariants. */
+function liveExtras(row: Record<string, unknown>): Partial<HashcoinBalance> {
+  const invalid = (key: string) => new PayoutContractError("Invalid Hussh Coins balance", `live.${key}`);
+  const extras: Partial<HashcoinBalance> = {};
+  for (const key of ["redeemableCoins", "redeemableCount", "remainingAfterNextCoins", "notRedeemableCoins"] as const) {
+    if (row[key] === undefined) continue;
+    if (!integer(row[key])) throw invalid(key);
+    extras[key] = row[key];
+  }
+  const available = row.availableCoins as number;
+  const next = (row.nextRedeemCoins as number | undefined) ?? 0;
+  const { redeemableCoins: redeemable, redeemableCount: count, remainingAfterNextCoins: remaining, notRedeemableCoins: blocked } = extras;
+  if (redeemable !== undefined && (redeemable < next || redeemable > available)) throw invalid("redeemableCoins");
+  // Each source is at least one coin, and none means nothing redeemable.
+  if (count !== undefined && redeemable !== undefined && (count > redeemable || (count === 0) !== (redeemable === 0))) {
+    throw invalid("redeemableCount");
+  }
+  if (remaining !== undefined && remaining !== available - next) throw invalid("remainingAfterNextCoins");
+  if (blocked !== undefined && (blocked > available || (redeemable !== undefined && blocked !== available - redeemable))) {
+    throw invalid("notRedeemableCoins");
+  }
+  if (Array.isArray(row.holds)) {
+    const holds = row.holds.slice(0, 20).map(hold).filter((item) => item !== null);
+    extras.holds = holds.filter((item, index) => holds.findIndex((other) => other.id === item.id) === index);
+  }
+  const source = row.nextRedeemSource;
+  if (source !== undefined) {
+    extras.nextRedeemSource = next > 0 && isObject(source) && typeof source.requestId === "string" &&
+      DOCUMENT_REQUEST_UUID.test(source.requestId) ? { requestId: source.requestId, label: label(source.label, 120) } : null;
+  }
+  return extras;
+}
 function authHeaders(vaultOwnerToken: string) {
   if (!vaultOwnerToken) throw new Error("Unlock your vault to view payouts");
   return { Authorization: `Bearer ${vaultOwnerToken}` };
-}
-/** Stripe owns onboarding and bank edits; validate again at the navigation boundary. */
-export function documentPayoutLinkUrl(value: unknown, purpose: "onboarding" | "management"): string {
-  if (typeof value !== "string") throw new Error("Invalid payout link");
-  let url: URL;
-  try { url = new URL(value); } catch { throw new Error("Invalid payout link"); }
-  const allowed = purpose === "management"
-    ? ["stripe.com", "connect.stripe.com"].includes(url.hostname) && /^\/express\/.+/.test(url.pathname)
-    : url.hostname === "connect.stripe.com";
-  if (url.protocol !== "https:" || !allowed || url.username || url.password || url.port) {
-    throw new Error("Invalid payout link");
-  }
-  return url.href;
 }
 function connectLink(value: unknown, purpose: "onboarding" | "management"): { url: string } {
   return { url: documentPayoutLinkUrl(object(value).url, purpose) };
@@ -137,7 +243,8 @@ function coinBalance(row: unknown, field: "live" | "sandbox"): HashcoinBalance {
   }
   return { balanceCoins: row.balanceCoins as number, reservedCoins: row.reservedCoins as number,
     availableCoins: row.availableCoins as number, amountCents: row.amountCents as number, held: row.held,
-    ...(row.nextRedeemCoins !== undefined ? { nextRedeemCoins: row.nextRedeemCoins as number } : {}) };
+    ...(row.nextRedeemCoins !== undefined ? { nextRedeemCoins: row.nextRedeemCoins as number } : {}),
+    ...(field === "live" ? liveExtras(row) : {}) };
 }
 
 function redemption(row: unknown, mode: "test" | "live"): HashcoinRedemption {
@@ -243,10 +350,13 @@ export class DocumentPayoutService {
         (account.ready === true && ["missing", "needs_attention", "unavailable"].includes(String(account.bankStatus)))) {
       throw new Error("Invalid payout bank response");
     }
+    const verified = verification(account.verification);
     return { ...mode, account: {
       ...(bank !== undefined ? { bank } : {}),
       ...(account.bankStatus !== undefined ? { bankStatus: account.bankStatus as DocumentPayoutAccount["bankStatus"] } : {}),
       ...(account.canManageBank !== undefined ? { canManageBank: account.canManageBank as boolean } : {}),
+      ...(verified ? { verification: verified } : {}),
+      ...(account.payoutSchedule !== undefined ? { payoutSchedule: payoutSchedule(account.payoutSchedule) } : {}),
       detailsSubmitted: account.detailsSubmitted as boolean,
       transfersEnabled: account.transfersEnabled as boolean,
       payoutsEnabled: account.payoutsEnabled as boolean,
@@ -255,10 +365,41 @@ export class DocumentPayoutService {
     } };
   }
 
-  static async onboard(vaultOwnerToken: string): Promise<{ url: string }> {
-    return connectLink(await apiJson<unknown>("/api/one/payouts/account/onboard", {
+  /** "verify" also collects what Stripe will need later, in the same visit. */
+  static async onboard(vaultOwnerToken: string, purpose?: "verify", attemptId?: string): Promise<{ url: string; returnUrl?: string; attemptId?: string; source?: "documents" }> {
+    if (purpose !== undefined && purpose !== "verify") throw new Error("Invalid payout setup purpose");
+    const value = await apiJson<unknown>("/api/one/payouts/account/onboard", purpose || attemptId ? {
+      method: "POST", headers: { ...authHeaders(vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ ...(purpose ? { purpose } : {}), ...(attemptId ? { attempt_id: attemptId } : {}) }), cache: "no-store",
+    } : {
       method: "POST", headers: authHeaders(vaultOwnerToken), cache: "no-store",
-    }), "onboarding");
+    });
+    if (!attemptId) return connectLink(value, "onboarding");
+    const body = object(value);
+    const session: CommerceHostedSession = parseCommerceHostedSession(body, attemptId, "documents");
+    if (body.attempt_id !== attemptId || session.source !== "documents") throw new Error("Invalid payout return binding");
+    documentPayoutLinkUrl(session.url, "onboarding");
+    return session;
+  }
+
+  static async balance(vaultOwnerToken: string): Promise<DocumentPayoutBalance> {
+    const body = object(await apiJson<unknown>("/api/one/payouts/account/balance", {
+      headers: authHeaders(vaultOwnerToken), cache: "no-store",
+    }));
+    const cents = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value);
+    const nextOn = body.nextAvailableOn ?? null;
+    const nextCents = body.nextAvailableCents ?? null;
+    if ((body.stripeMode !== "test" && body.stripeMode !== "live") || body.currency !== "USD" ||
+        typeof body.accountLinked !== "boolean" || typeof body.stale !== "boolean" || !date(body.asOf) ||
+        !cents(body.inStripeCents) || !cents(body.availableCents) || !cents(body.pendingCents) ||
+        !(nextOn === null || date(nextOn)) || !(nextCents === null || cents(nextCents)) ||
+        // No linked account has no money in Stripe.
+        (!body.accountLinked && (body.inStripeCents !== 0 || body.availableCents !== 0 || body.pendingCents !== 0))) {
+      throw new Error("Invalid payout balance response");
+    }
+    return { stripeMode: body.stripeMode, currency: "USD", accountLinked: body.accountLinked,
+      inStripeCents: body.inStripeCents, availableCents: body.availableCents, pendingCents: body.pendingCents,
+      nextAvailableOn: nextOn, nextAvailableCents: nextCents, asOf: body.asOf, stale: body.stale };
   }
 
   static async manage(vaultOwnerToken: string): Promise<{ url: string }> {
@@ -267,16 +408,24 @@ export class DocumentPayoutService {
     }), "management");
   }
 
-  static async earnings(vaultOwnerToken: string, cursor?: string): Promise<DocumentEarningsResponse> {
+  /** `mode` picks live or test earnings ("test" includes legacy rows); omitted, the server's mode. */
+  static async earnings(vaultOwnerToken: string, cursor?: string, mode?: "live" | "test"): Promise<DocumentEarningsResponse> {
     if (cursor !== undefined && !DOCUMENT_REQUEST_UUID.test(cursor)) throw new Error("Invalid earnings cursor");
-    const suffix = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+    if (mode !== undefined && mode !== "live" && mode !== "test") throw new Error("Invalid earnings mode");
+    const query = new URLSearchParams();
+    if (cursor) query.set("cursor", cursor);
+    if (mode) query.set("mode", mode);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
     const body = object(await apiJson<unknown>(`/api/one/payouts/account/earnings${suffix}`, {
       headers: authHeaders(vaultOwnerToken), cache: "no-store",
     }));
     if (body.currency !== "USD" || !Array.isArray(body.transactions) || body.transactions.length > 20 ||
         !(body.nextCursor === null || (typeof body.nextCursor === "string" && DOCUMENT_REQUEST_UUID.test(body.nextCursor))) ||
-        (cursor !== undefined && body.nextCursor === cursor)) throw new Error("Invalid earnings response");
-    const mode = stripeMode(body);
+        (cursor !== undefined && body.nextCursor === cursor) ||
+        // Another mode's rows must never fill this mode's list.
+        (body.mode !== undefined && body.mode !== "live" && body.mode !== "test") ||
+        (mode !== undefined && body.mode !== undefined && body.mode !== mode)) throw new Error("Invalid earnings response");
+    const accountMode = stripeMode(body);
     const transactions = body.transactions.map((value): DocumentEarning => {
       const item = object(value);
       if (typeof item.requestId !== "string" || !DOCUMENT_REQUEST_UUID.test(item.requestId) ||
@@ -308,11 +457,15 @@ export class DocumentPayoutService {
       };
     });
     if (new Set(transactions.map((item) => item.requestId)).size !== transactions.length) throw new Error("Invalid earnings response");
-    return { ...mode, currency: "USD", transactions, nextCursor: body.nextCursor as string | null };
+    return { ...accountMode, ...(body.mode !== undefined ? { mode: body.mode as "live" | "test" } : {}),
+      currency: "USD", transactions, nextCursor: body.nextCursor as string | null };
   }
 
-  static async bankPayouts(vaultOwnerToken: string): Promise<DocumentBankPayoutsResponse> {
-    const body = object(await apiJson<unknown>("/api/one/payouts/account/bank-payouts", {
+  /** Newest deposits first, at most 20 a page; `cursor` is the previous page's nextCursor. */
+  static async bankPayouts(vaultOwnerToken: string, cursor?: string): Promise<DocumentBankPayoutsResponse> {
+    if (cursor !== undefined && !PAGE_CURSOR.test(cursor)) throw new Error("Invalid bank payout cursor");
+    const suffix = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+    const body = object(await apiJson<unknown>(`/api/one/payouts/account/bank-payouts${suffix}`, {
       headers: authHeaders(vaultOwnerToken), cache: "no-store",
     }));
     if (body.currency !== "USD" || !Array.isArray(body.payouts) || body.payouts.length > 20) {
@@ -326,9 +479,20 @@ export class DocumentPayoutService {
           !(item.failureCode === null || typeof item.failureCode === "string")) {
         throw new Error("Invalid bank payout response");
       }
+      // Additive details read tolerantly; an unreadable one shows as not recorded.
+      const at = (key: "createdAt" | "paidAt" | "failedAt") => item[key] === undefined ? {}
+        : { [key]: date(item[key]) ? item[key] as string : null };
+      const bank = isObject(item.bank) ? { name: label(item.bank.name, 80),
+        last4: typeof item.bank.last4 === "string" && /^\d{4}$/.test(item.bank.last4) ? item.bank.last4 : null } : null;
       return { id: item.id, amountCents: item.amountCents, status: item.status as DocumentBankPayout["status"],
-        expectedArrivalAt: item.expectedArrivalAt as string | null, failureCode: item.failureCode as string | null };
+        expectedArrivalAt: item.expectedArrivalAt as string | null, failureCode: item.failureCode as string | null,
+        ...at("createdAt"), ...at("paidAt"), ...at("failedAt"),
+        ...(item.bank !== undefined ? { bank: bank && (bank.name || bank.last4) ? bank : null } : {}),
+        ...(item.bankReference !== undefined ? { bankReference: label(item.bankReference, 128) } : {}) };
     });
-    return { ...stripeMode(body), currency: "USD", payouts };
+    // A cursor this build can't send back, or one that repeats, ends the list.
+    const next = body.nextCursor;
+    return { ...stripeMode(body), currency: "USD", payouts,
+      ...(next !== undefined ? { nextCursor: typeof next === "string" && PAGE_CURSOR.test(next) && next !== cursor ? next : null } : {}) };
   }
 }

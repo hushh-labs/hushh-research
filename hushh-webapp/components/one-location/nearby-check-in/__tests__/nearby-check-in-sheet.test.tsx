@@ -208,6 +208,26 @@ describe("NearbyCheckInSheet", () => {
     });
   });
 
+  it.each([false, true])("settles startup after Places for a fallback fix=%s before revealing the sheet", async (fallback) => {
+    const ready = vi.fn();
+    let finishPlaces!: (places: unknown[]) => void;
+    service.nearbyPlaces.mockReturnValueOnce(new Promise(resolve => { finishPlaces = resolve; }));
+    const capture = fallback
+      ? vi.fn().mockRejectedValue(new Error("GPS temporarily unavailable"))
+      : vi.fn().mockResolvedValue(point);
+    if (fallback) locationMemory.readLastKnownFix.mockResolvedValue(point);
+    const props = { open: true, ownerId: "user-1", vaultOwnerToken: "owner-token", captureCurrentPosition: capture, onOpenChange: vi.fn(), onStartupReadyChange: ready };
+    const view = render(<NearbyCheckInSheet {...props} presentationReady={false} />);
+    await waitFor(() => expect(service.nearbyPlaces).toHaveBeenCalled());
+    expect(ready).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByRole("heading", { name: "Check in nearby" })).toBeNull();
+    await act(async () => finishPlaces([{ placeId: "stanford-main", text: "Stanford University", latitude: point.latitude, longitude: point.longitude, distanceMeters: 20 }]));
+    await waitFor(() => expect(ready).toHaveBeenLastCalledWith(true));
+    view.rerender(<NearbyCheckInSheet {...props} presentationReady />);
+    expect(await screen.findByRole("radio", { name: /Stanford University/ })).toBeInTheDocument();
+    expect(service.checkInNearby).not.toHaveBeenCalled();
+  });
+
   it("uses the compact nearby check-in header and a count-aware place expansion", async () => {
     service.nearbyPlaces.mockResolvedValue([
       {
@@ -711,6 +731,7 @@ describe("NearbyCheckInSheet", () => {
       new Error("temporary network failure"),
     );
     const capture = vi.fn().mockResolvedValue(point);
+    const ready = vi.fn();
 
     render(
       <NearbyCheckInSheet
@@ -719,6 +740,7 @@ describe("NearbyCheckInSheet", () => {
         vaultOwnerToken="owner-token"
         captureCurrentPosition={capture}
         onOpenChange={vi.fn()}
+        onStartupReadyChange={ready}
       />,
     );
 
@@ -728,6 +750,7 @@ describe("NearbyCheckInSheet", () => {
       ),
     ).toBeInTheDocument();
     expect(capture).not.toHaveBeenCalled();
+    expect(ready).toHaveBeenLastCalledWith(true);
     const callsBeforeRetry = service.getNearbyPresence.mock.calls.length;
     service.getNearbyPresence.mockResolvedValue({
       presence: null,
@@ -752,6 +775,7 @@ describe("NearbyCheckInSheet", () => {
         category: "all",
       });
     });
+    expect(await screen.findByRole("radio", { name: /Stanford University/ })).toBeInTheDocument();
     expect(
       service.getNearbyPresence.mock.invocationCallOrder[callsBeforeRetry],
     ).toBeLessThan(capture.mock.invocationCallOrder[0]);

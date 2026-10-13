@@ -14,6 +14,7 @@ import {
 } from "@/lib/profile/gmail-receipt-memory-index";
 import { maskSecretSpans } from "@/lib/pkm/secret-span-guard";
 import { businessMemoryEntity } from "@/lib/pkm/business-memory-origin";
+import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import {
   OWNER_STYLE_BRANCH,
@@ -85,6 +86,14 @@ type AgentPkmWorkingSet = {
   receiptIndex: ReceiptCanonicalIndex | null;
   loadedAt: number;
   metadataUpdatedAt: string | null;
+};
+
+/** One preparation's memory-only witness, not write authority or a new cache. */
+export type ProfileReviewInventory = {
+  findLocalDuplicate: (candidate: string) => LocalPkmDuplicateMatch;
+  findReconciliationCandidates: (text: string) => PkmReconciliationCandidate[];
+  businessTarget: (card: AgentPkmPreviewCard, targetDomain: string) =>
+    { businessUid: string; metadata: Record<string, unknown> } | null;
 };
 
 export type AgentPkmWorkingContextMode = "full";
@@ -647,9 +656,13 @@ export class AgentPkmContextStore {
    * full domain back into a proposal request.
    */
   static findLocalDuplicate(params: { userId: string; candidate: string }): LocalPkmDuplicateMatch {
-    const candidate = normalizedMemoryValue(params.candidate);
+    return this.findLocalDuplicateIn(currentWorkingSet(params.userId), params.candidate);
+  }
+
+  private static findLocalDuplicateIn(workingSet: AgentPkmWorkingSet | undefined, text: string): LocalPkmDuplicateMatch {
+    const candidate = normalizedMemoryValue(text);
     if (!candidate) return null;
-    const inventory = currentWorkingSet(params.userId)?.inventory;
+    const inventory = workingSet?.inventory;
     if (!inventory) return null;
     const exact = inventory.facts.find((fact) => normalizedMemoryValue(fact.value) === candidate);
     if (exact) return { kind: "exact", domain: exact.domain, path: [...exact.path] };
@@ -677,9 +690,15 @@ export class AgentPkmContextStore {
     text: string;
     limit?: number;
   }): PkmReconciliationCandidate[] {
-    const inventory = currentWorkingSet(params.userId)?.inventory;
+    return this.findReconciliationCandidatesIn(currentWorkingSet(params.userId), params.text, params.limit);
+  }
+
+  private static findReconciliationCandidatesIn(
+    workingSet: AgentPkmWorkingSet | undefined, text: string, limit = 10,
+  ): PkmReconciliationCandidate[] {
+    const inventory = workingSet?.inventory;
     if (!inventory) return [];
-    const wanted = tokenize(params.text);
+    const wanted = tokenize(text);
     if (!wanted.size) return [];
     const best = new Map<string, PkmReconciliationCandidate & { score: number }>();
     for (const fact of inventory.facts) {
@@ -721,7 +740,7 @@ export class AgentPkmContextStore {
     }
     return [...best.values()]
       .sort((left, right) => right.score - left.score)
-      .slice(0, Math.max(0, params.limit ?? 10))
+      .slice(0, Math.max(0, limit))
       .map(({ score: _score, ...candidate }) => candidate);
   }
 
@@ -736,13 +755,18 @@ export class AgentPkmContextStore {
 
   /** Semantic merge context, excluding immutable identity bookkeeping. */
   static findProfileReconciliationCandidates(params: { userId: string; text: string }): PkmReconciliationCandidate[] {
-    const workingSet = currentWorkingSet(params.userId);
+    return this.findProfileReconciliationCandidatesIn(currentWorkingSet(params.userId), params.text);
+  }
+
+  private static findProfileReconciliationCandidatesIn(
+    workingSet: AgentPkmWorkingSet | undefined, text: string,
+  ): PkmReconciliationCandidate[] {
     if (!workingSet?.businessInventoryComplete)
       throw new Error("Existing details could not be checked. Try again.");
     const businesses = [...workingSet.businesses.values()].flatMap(candidates =>
       candidates.map(({ originMetadata: _origin, ...candidate }) => candidate));
-    const personal = this.findReconciliationCandidates(params);
-    const wanted = tokenize(params.text);
+    const personal = this.findReconciliationCandidatesIn(workingSet, text);
+    const wanted = tokenize(text);
     const ranked = new Map<string, { candidate: PkmReconciliationCandidate; score: number }>();
     for (const candidate of [...personal, ...businesses]) {
       const tokens = tokenize(candidate.message);
@@ -757,8 +781,13 @@ export class AgentPkmContextStore {
   }
 
   /** A research model can extend a known business; it cannot mint its provenance. */
-  static profileBusinessTarget(userId: string, card: import("@/lib/agent/agent-pkm-memory").AgentPkmPreviewCard, targetDomain: string) {
-    const workingSet = currentWorkingSet(userId);
+  static profileBusinessTarget(userId: string, card: AgentPkmPreviewCard, targetDomain: string) {
+    return this.profileBusinessTargetIn(currentWorkingSet(userId), card, targetDomain);
+  }
+
+  private static profileBusinessTargetIn(
+    workingSet: AgentPkmWorkingSet | undefined, card: AgentPkmPreviewCard, targetDomain: string,
+  ) {
     if (!workingSet?.businessInventoryComplete) throw new Error("Existing businesses need a fresh review.");
     let target = String(card.merge_decision?.target_entity_path || "");
     if (!target) {
@@ -772,6 +801,35 @@ export class AgentPkmContextStore {
       !["extend_entity", "correct_entity"].includes(String(card.merge_decision?.merge_mode || "")))
       throw new Error("The proposed update would replace or combine existing businesses. Review your saved details first.");
     return { businessUid: matches[0]!.businessUid, metadata: structuredClone(matches[0]!.candidate.originMetadata) };
+  }
+
+  /** Pin the inventory used by the model before any awaited preparation.
+   * Domain changes may invalidate the shared cache, but must not rebind a
+   * reviewed business to a different UID. The canonical writer still checks
+   * the fresh target on every conflict rebuild. Never survives vault expiry.
+   */
+  static captureProfileReviewInventory(userId: string): ProfileReviewInventory {
+    const workingSet = currentWorkingSet(userId);
+    if (!workingSet?.businessInventoryComplete)
+      throw new Error("Existing details could not be checked. Try again.");
+    const assertCurrent = () => {
+      if (!isVaultSessionEpochCurrent(workingSet.vaultEpoch))
+        throw new Error("Unlock your vault to review these details again.");
+    };
+    return {
+      findLocalDuplicate: candidate => {
+        assertCurrent();
+        return this.findLocalDuplicateIn(workingSet, candidate);
+      },
+      findReconciliationCandidates: text => {
+        assertCurrent();
+        return this.findProfileReconciliationCandidatesIn(workingSet, text);
+      },
+      businessTarget: (card, targetDomain) => {
+        assertCurrent();
+        return this.profileBusinessTargetIn(workingSet, card, targetDomain);
+      },
+    };
   }
 
   static async load(params: {

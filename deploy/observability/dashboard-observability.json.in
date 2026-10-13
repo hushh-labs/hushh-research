@@ -74,6 +74,111 @@
         }
       },
       {
+        "title": "One Voice First Audio P50 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_latency_ms\" AND metric.label.\"phase\"=\"first_audio\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_50"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "One Voice First Audio P95 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_latency_ms\" AND metric.label.\"phase\"=\"first_audio\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "One Voice Tool P95 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_latency_ms\" AND metric.label.\"phase\"=\"tool\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "One Voice Client Endpointing P95 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_client_perf_ms\" AND metric.label.\"metric\"=\"endpointing_client\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "One Voice Client Audio Audible P95 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_client_perf_ms\" AND metric.label.\"metric\"=\"audio_receive_to_audible\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
         "title": "Frontend Request Rate (req/s)",
         "xyChart": {
           "dataSets": [

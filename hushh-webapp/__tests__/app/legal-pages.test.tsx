@@ -87,6 +87,17 @@ describe("Privacy Policy and Terms of Use pages", () => {
     );
   });
 
+  it("identifies the canonical application and retained addresses without promising all processing is offline", () => {
+    for (const doc of Object.values(LEGAL_DOCUMENTS)) {
+      expect(plainText(doc)).toContain("one.hussh.si");
+      expect(plainText(doc)).toContain("one.hussh.ai");
+      expect(plainText(doc)).toContain("one.hushh.ai");
+    }
+    const privacy = plainText(LEGAL_DOCUMENTS.privacy);
+    expect(privacy).toContain("This indexing step loads its model files locally");
+    expect(privacy).toContain("relevant passages may still be sent to your selected AI service");
+  });
+
   it("describe One as a private agent, with Kai as one feature among many", () => {
     const privacyIds = LEGAL_DOCUMENTS.privacy.sections.map((s) => s.id);
     for (const id of [
