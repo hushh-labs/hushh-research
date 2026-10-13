@@ -74,7 +74,7 @@ describe("profile workspace duplication contract", () => {
   it("makes document pricing and payouts reachable from Profile, including after vault creation", () => {
     const home = profilePageSource.split('const profileRootContent = (')[1]?.split('if (legacyProfileRedirectHref)')[0] ?? "";
     const memory = profilePageSource.split('const myDataContent = (')[1]?.split('const accessContent = (')[0] ?? "";
-    expect(home).toMatch(/title="Payouts"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("payouts"\)\}/);
+    expect(home).toMatch(/title="Payments and earnings"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("payouts"\)\}/);
     expect(home).toMatch(/title="Request pricing"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("request-pricing"\)\}/);
     expect(memory).not.toContain("DocumentRequestPricingCard");
     expect(memory).not.toContain("DocumentPayoutAccountCard");
