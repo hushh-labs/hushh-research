@@ -141,6 +141,7 @@ function escapeHtml(value: string): string {
 function decide(mode: Mode, variant: Variant) {
   const scope = {
     isPuppySurface: mode === "puppy",
+    oneDisplayName: "One",
     canPickOneModel: variant.canPickOneModel,
     modelPreference: MODEL_PREFERENCE,
   };
