@@ -172,8 +172,8 @@ export class KycIdentityProfilePkmService {
     });
     return {
       success: result.success, saveState: result.success ? "saved" : "failed", fullBlob: {},
-      message: result.success ? "Your details are available in Soul.md and syncing privately."
-        : result.message || "Your details could not be added to Soul.md.",
+      message: result.success ? "Your details are available in memory.md and syncing privately."
+        : result.message || "Your details could not be added to memory.md.",
     };
   }
 }

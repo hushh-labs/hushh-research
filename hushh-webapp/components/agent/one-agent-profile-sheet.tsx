@@ -136,11 +136,11 @@ function ProfileCards({ close }: { close: () => void }) {
       <div className={styles.cards}>
         <article
           className={`${styles.fileCard} ${styles.soul}`}
-          aria-label="soul.md preview"
+          aria-label="memory.md preview"
         >
           <div>
             <Heart className="size-5" aria-hidden />
-            <h4 data-app-pane-row-title>soul.md</h4>
+            <h4 data-app-pane-row-title>memory.md</h4>
             <p>Voice, values, and personality.</p>
           </div>
           <div className={styles.cardFooter}>

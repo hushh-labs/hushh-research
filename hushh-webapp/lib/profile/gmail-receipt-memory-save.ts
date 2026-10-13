@@ -107,6 +107,6 @@ export async function saveReceiptCanonicalIndexToMemory(params: {
     beforeEffect: assertSnapshotCurrent,
     confirmation: { confirmedByUser: true, surface: "web", source: RECEIPT_MEMORY_SAVE_WRITER },
   });
-  if (!result.success) throw new Error("Receipt trends could not be added to Soul.md.");
+  if (!result.success) throw new Error("Receipt trends could not be added to memory.md.");
   return { count: result.saved };
 }

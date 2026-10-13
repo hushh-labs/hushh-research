@@ -361,7 +361,7 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
       freshness.push({ domain: "one_memory", title: "Identity facts", status: soulSource.unavailableReason ? "unavailable" : "current",
         contentRevision: soulSource.contentRevision, updatedAt: soul?.updated_at ?? null, cardCount: facts.length,
         ...(soulSource.unavailableReason ? { reason: soulSource.unavailableReason } : {}) });
-      body.push("## Identity facts", "", `_Soul.md revision ${soulSource.contentRevision ?? "unknown"}._`, "");
+      body.push("## Identity facts", "", `_memory.md revision ${soulSource.contentRevision ?? "unknown"}._`, "");
       if (soulSource.unavailableReason) body.push(`_Unavailable: ${soulSource.unavailableReason}._`, "");
       else {
         body.push("| Fact | Value |", "| --- | --- |");
