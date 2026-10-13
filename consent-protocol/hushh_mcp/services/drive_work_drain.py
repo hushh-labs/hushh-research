@@ -118,6 +118,7 @@ _WORKER_ALLOWED_OUTCOMES = {
     ),
     "suggestions": frozenset(
         {
+            "package_queued",
             "not_claimed",
             "no_ready_files",
             "review_ready",

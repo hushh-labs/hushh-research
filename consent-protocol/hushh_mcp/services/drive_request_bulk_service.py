@@ -179,9 +179,12 @@ class DriveRequestBulkService:
     async def start_search(
         self, *, user_id, request_id, timezone="UTC", authority_mode="owner", after_page=None
     ):
-        if authority_mode not in {"owner", "trusted_auto"}:
+        if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
             raise DriveSharingError("invalid_argument")
         context = await self._context(user_id, request_id)
+        if context.get("agentPackageRequired"):
+            authority_mode = "agent_package"
+            await self.sharing.package_preparation_authority(user_id=user_id, request_id=request_id)
         purpose = context["purpose"]
         if not (purpose.get("periodStart") and purpose.get("periodEnd")):
             raise DriveSharingError("date_range_required")
@@ -273,6 +276,8 @@ class DriveRequestBulkService:
 
     async def prepare(self, *, user_id, request_id, excluded_positions=None, positions=None):
         context = await self._context(user_id, request_id)
+        if context.get("agentPackageRequired") and not context.get("packageAllowed"):
+            raise DriveSharingError("package_not_allowed")
         purpose = context["purpose"]
         if not (purpose.get("periodStart") and purpose.get("periodEnd")):
             raise DriveSharingError("date_range_required")
