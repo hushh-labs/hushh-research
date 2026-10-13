@@ -11,7 +11,7 @@ struct NativeDrawerIdentity: Codable, Equatable {
         Self.identifier(documentId) && Self.identifier(ownerEpoch) && ownerGeneration > 0 &&
             ownerGeneration <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
             revision > 0 && revision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
-            ["history", "profile"].contains(family)
+            ["history", "profile", "agent-profile"].contains(family)
     }
     static func identifier(_ value: String) -> Bool { !value.isEmpty && value.utf16.count <= 128 }
 }

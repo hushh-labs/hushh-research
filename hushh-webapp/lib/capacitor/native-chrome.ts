@@ -37,7 +37,10 @@ export type ChromeControlProjection = NativeControlAppearance & ChromeControl & 
   presentationGroup?: "profile" | "history";
   presentationOwnerEpoch?: string;
   presentationGeneration?: number;
+  contentPane?: NativeContentPaneIdentity;
 };
+export type NativeContentPaneIdentity = { documentId: string; ownerEpoch: string; generation: number; privacyGeneration: number };
+export type NativeContentPaneReceipt = NativeContentPaneIdentity & { phase: "active" | "retired" };
 export type ChromeProjection = ChromeIdentity & ChromeControlProjection;
 export type ChromeAcknowledgement = ChromeIdentity & {
   presentationApplied?: boolean;
@@ -67,6 +70,7 @@ export type NativeChromeCapabilities = {
   panelPresentation?: boolean;
   contentBackedPresentation?: boolean;
   coherentPresentation?: boolean;
+  ownedContentPane?: boolean;
   reservedPresentationRegions?: boolean;
   fullWindowOverlays?: boolean;
   /** Debug qualification: rectangular exposure of retained stationary chrome. */
@@ -76,6 +80,8 @@ export type NativeChromeCapabilities = {
 };
 
 export interface HushhNativeChromePlugin {
+  acquireContentPane(options: NativeContentPaneIdentity & { viewport: { width: number; height: number } }): Promise<NativeContentPaneReceipt>;
+  releaseContentPane(options: NativeContentPaneIdentity): Promise<NativeContentPaneReceipt>;
   setPresentationRegions(options: NativePresentationRegions): Promise<NativePresentationRegions>;
   interactionFeedback(options: { documentId: string; privacyGeneration: number; intentId: string; kind: "light" | "selection"; issuedAtMs: number }): Promise<{ played: boolean }>;
   applyPanelPose(options: NativePanelPose): Promise<NativePanelReceipt>;
@@ -199,7 +205,7 @@ export function chromeOwnerEpoch(owner: string | null, controlId: ChromeControlI
 }
 function retainedShape(projection: ChromeProjection | ChromeControlProjection) {
   const { kind, label, frame, viewport } = projection;
-  return JSON.stringify({ kind, label, frame, viewport,
+  return JSON.stringify({ kind, label, frame, viewport, contentPane: projection.contentPane,
     options: "options" in projection ? projection.options : undefined,
     bounds: projection.kind === "date" ? [projection.minimum, projection.maximum] : undefined,
     accent: projection.kind === "accent" ? [projection.fullTrigger, projection.palette] : undefined });

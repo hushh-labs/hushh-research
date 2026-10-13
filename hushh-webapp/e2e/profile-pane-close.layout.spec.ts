@@ -151,7 +151,10 @@ test.describe("Profile pane custom close layout", () => {
             // Only bridge side effects are replaced. The feature page, Radix
             // dialog, class merging and shell button are the product modules.
             if (id.endsWith("/native-chat-chrome.tsx")) return {
-              code: 'import { createElement } from "react"; export function NativeChatChrome(p) { return createElement("div", { className:p.className, "data-native-chrome-slot":p.kind }, p.children); }', map: null,
+              code: 'import { createElement, useLayoutEffect } from "react"; export function NativeChatChrome(p) { useLayoutEffect(() => { p.onPresentationReady?.(); }, []); return createElement("div", { className:p.className, "data-native-chrome-slot":p.kind }, p.children); }', map: null,
+            };
+            if (id.endsWith("/use-native-content-pane.ts")) return {
+              code: 'export function useNativeContentPane(node, owner, enabled) { return enabled ? { phase:"native", identity:{ documentId:"synthetic", ownerEpoch:"synthetic", generation:1, privacyGeneration:0 } } : { phase:"web" }; }', map: null,
             };
             if (id.endsWith("/lib/capacitor/native-navigation.ts")) return {
               code: 'export function useNativeNavigationOverlayRef(ref) { return ref; }', map: null,
@@ -232,6 +235,27 @@ test.describe("Profile pane custom close layout", () => {
         const broken = await back.evaluate(node => node.getBoundingClientRect().toJSON());
         expect(broken.x).toBeLessThan(0);
         expect(broken.y).toBeLessThan(bounds.y);
+      }
+      // The same product component/CSS must keep nested details in the full
+      // pane, not return to the shorter reserved-band layout. Bridge acceptance
+      // is covered by the focused lifecycle tests, not this geometry fixture.
+      for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 1366 }]) {
+        await page.setViewportSize(viewport);
+        await page.setContent(`<style>${css}:root { --app-safe-area-top-effective:0px; }</style><div id="root" data-pane="true"></div>`);
+        await page.addScriptTag({ content: script });
+        const pane = page.locator('[data-native-feature-pane="profile"]');
+        await expect(pane).toBeVisible();
+        const bounds = await pane.boundingBox();
+        expect(bounds!.y).toBe(0);
+        expect(bounds!.height).toBeCloseTo(viewport.height, 0);
+        expect(bounds!.width).toBeCloseTo(viewport.width < 640 ? viewport.width : 430, 0);
+        const close = page.locator('[data-native-chrome-slot="close"]');
+        await expect(close).toBeVisible();
+        const back = page.locator('[data-native-chrome-slot="profile-back"]');
+        const control = await close.boundingBox(), leading = await back.boundingBox();
+        expect(control!.width).toBe(44);
+        expect(control!.height).toBe(44);
+        expect(control!.y).toBeCloseTo(leading!.y, 0);
       }
     } finally { fs.rmSync(output, { recursive: true, force: true }); }
   });

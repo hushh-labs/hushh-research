@@ -30,6 +30,7 @@ function rehearsalFailureCode(error: unknown): string {
   return error instanceof Error && rehearsalFailureCodes.has(error.message) ? error.message : "other";
 }
 type Props = {
+  contentPane?: import("@/lib/capacitor/native-chrome").NativeContentPaneIdentity;
   owner: string | null;
   /** Parent-owned route/session context; include the vault epoch and motion admission. */
   context: string;
@@ -88,7 +89,7 @@ export function NativeChatChrome(props: Props) {
   const epoch = useMemo(() => retainedControls ? chromeOwnerEpoch(props.owner, controlId) : crypto.randomUUID(), [props.owner, controlId, retainedControls]);
   const value = "value" in props ? props.value : undefined;
   // Labels/options/family are immutable for a lease; changing them retires it.
-  const context = JSON.stringify([props.context, owningLayer, "label" in props ? props.label : null,
+  const context = JSON.stringify([props.context, props.contentPane, owningLayer, "label" in props ? props.label : null,
     "options" in props ? props.options : null, props.kind === "date" ? [props.minimum, props.maximum] : null,
     props.kind === "accent" ? [props.fullTrigger, props.palette] : null]);
   const expanded = props.kind === "history" ? !coherent && (props.expanded ?? false) : undefined;
@@ -582,7 +583,7 @@ export function NativeChatChrome(props: Props) {
         }
         if (kind === "agent-surface" && value === undefined) { setHidden(false); return; }
         const next = new NativeChromeLease({ ...control,
-          enabled: true, ...theme, ...geometry }, epoch, context, inPlaceUpdates);
+          enabled: true, ...theme, ...geometry, ...(props.contentPane ? { contentPane: props.contentPane } : {}) }, epoch, context, inPlaceUpdates);
         owned = next;
         lease.current = next;
         stage = "prepare";

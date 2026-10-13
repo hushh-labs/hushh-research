@@ -72,7 +72,7 @@ import {
  * Run: npx playwright test e2e/agent-surface-model-authority.layout.spec.ts --project=chromium
  */
 
-const WIDTHS = [360, 390, 430, 768, 1024, 1280] as const;
+const WIDTHS = [320, 360, 390, 430, 768, 1024, 1280] as const;
 
 /** A person with a choice of cloud models, so One's picker exists at all. */
 const MODEL_PREFERENCE = {
@@ -129,11 +129,12 @@ function escapeHtml(value: string): string {
  * shipped source is the `AS_REPORTED` one, which reproduces a condition that no
  * longer exists to extract; see `Variant.applyShippedGate`.
  */
-function decide(mode: Mode, variant: Variant) {
+function decide(mode: Mode, variant: Variant, width = 1024) {
   const scope = {
     isPuppySurface: mode === "puppy",
     canPickOneModel: variant.canPickOneModel,
     modelPreference: MODEL_PREFERENCE,
+    hasInlineModelPicker: width >= 640,
   };
   const showPicker = variant.applyShippedGate
     ? Boolean(evaluateShippedExpression(SRC.cloudPicker.gateExpression, scope))
@@ -175,8 +176,8 @@ function cloudChipTitle(): string {
   );
 }
 
-function renderScreen(mode: Mode, variant: Variant): string {
-  const plan = decide(mode, variant);
+function renderScreen(mode: Mode, variant: Variant, width: number): string {
+  const plan = decide(mode, variant, width);
 
   const segments = SRC.toggle.options
     .map((option) => {
@@ -209,7 +210,7 @@ function renderScreen(mode: Mode, variant: Variant): string {
 
   const header = `
     <div data-testid="agent-header" class="${SRC.header.containerClass}">
-      <button type="button" aria-label="Open chat history" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full"></button>
+      <button type="button" aria-label="Open chat history" class="${escapeHtml(SRC.header.historyClass)}"></button>
       <div data-agent-chat-header-region="identity" data-testid="agent-identity" class="${SRC.header.identityClass}">
         <div data-agent-chat-brand-tile data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}"></div>
         <div class="min-w-0">
@@ -217,7 +218,7 @@ function renderScreen(mode: Mode, variant: Variant): string {
           ${plan.subtitle ? `<p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}">${escapeHtml(plan.subtitle)}</p>` : ""}
         </div>
       </div>
-      <div data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">${actions}</div>
+      <div data-agent-chat-header-region="actions" data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">${actions}</div>
     </div>`;
 
   /*
@@ -329,14 +330,14 @@ const fixtureCache = new Map<string, string>();
  * change is a real re-render in a real layout rather than two screenshots of
  * two documents.
  */
-async function buildFixture(variant: Variant): Promise<string> {
-  const key = JSON.stringify(variant);
+async function buildFixture(variant: Variant, width: number): Promise<string> {
+  const key = JSON.stringify([variant, width]);
   const cached = fixtureCache.get(key);
   if (cached) return cached;
 
   const screens: Record<Mode, string> = {
-    one: renderScreen("one", variant),
-    puppy: renderScreen("puppy", variant),
+    one: renderScreen("one", variant, width),
+    puppy: renderScreen("puppy", variant, width),
   };
 
   const used = new Set<string>();
@@ -363,8 +364,7 @@ async function buildFixture(variant: Variant): Promise<string> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="fixture.css">
 <style>${TOKENS}
-:root { --agent-chat-header-height:96px; }
-@media(min-width:1280px) { :root { --agent-chat-header-height:60px; } }
+:root { --agent-chat-header-height:60px; }
 ${geometry}
 ${productFontStyle()}
 </style></head><body>
@@ -390,7 +390,7 @@ ${productFontStyle()}
 
 async function openFixture(page: Page, variant: Variant, width: number) {
   await page.setViewportSize({ width, height: 844 });
-  await page.goto(await buildFixture(variant));
+  await page.goto(await buildFixture(variant, width));
   await awaitProductFont(page);
   await expect(page.getByTestId("agent-toggle")).toBeVisible();
 }
@@ -453,7 +453,7 @@ test.describe("Agent Chat: which agent is answering", () => {
   test("Puppy mode carries exactly one model control, and it is not a cloud one", async ({
     page,
   }) => {
-    await openFixture(page, SHIPPED, 390);
+    await openFixture(page, SHIPPED, 768);
 
     // One first, so the picker is proven to exist before its absence means
     // anything. A gate stuck shut would fail here, not silently pass below.
@@ -509,14 +509,13 @@ test.describe("Agent Chat: which agent is answering", () => {
     // The name is the reader's only guarantee about which agent is answering,
     // so it names the agent on screen, not the workspace.
     await expect(page.getByTestId("agent-name")).toHaveText(puppyName);
-    await expect(page.getByTestId("agent-subtitle")).toHaveText(decide("puppy", SHIPPED).subtitle);
+    await expect(page.getByTestId("agent-subtitle")).toHaveCount(0);
     await expect(
       page.locator(`[aria-label="${puppyOption.accessibleLabel}"]`),
     ).toHaveAttribute("aria-checked", "true");
 
-    // The spoken label says what is being chosen; "One" and "Puppy" alone do
-    // not. Both options carry one, and it names the machine for Puppy.
-    expect(puppyOption.accessibleLabel ?? "").toMatch(/on your machine/i);
+    // The selected agent's concise authored name matches native and web.
+    expect(puppyOption.accessibleLabel).toBe("Puppy One");
     expect(oneOption.accessibleLabel ?? "").toMatch(/cloud/i);
 
     // Name and controls moved in the same render: the surface below is Puppy's
@@ -649,8 +648,12 @@ test.describe("Agent Chat: which agent is answering", () => {
         const cluster = await box(page, "agent-header-cluster");
         const disjoint = identity.y + identity.height <= cluster.y + 0.5 || identity.x + identity.width <= cluster.x + 0.5;
         expect(disjoint, "Identity and actions must occupy separate tracks, never overlap").toBe(true);
-        expect(before.header.height).toBeLessThanOrEqual(width < 1280 ? 96 : 60);
+        expect(before.header.height).toBeLessThanOrEqual(60);
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
+        // Identity and controls are side by side, not two separate app-bar rows.
+        expect(Math.abs(identity.y + identity.height / 2 - (cluster.y + cluster.height / 2))).toBeLessThanOrEqual(1);
+        const name = page.getByTestId("agent-name");
+        expect(await name.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       }
     });
   }
@@ -699,7 +702,7 @@ test.describe("Agent Chat: which agent is answering", () => {
      * the checks above have stopped being able to see the defect they exist
      * for, and are passing for some other reason.
      */
-    await openFixture(page, AS_REPORTED, 390);
+    await openFixture(page, AS_REPORTED, 768);
     await switchTo(page, "puppy");
 
     await expect(page.getByTestId("agent-name")).toHaveText(

@@ -251,7 +251,7 @@ struct NativeAgentSurfaceSelector: View {
     var body: some View {
         NativeFiniteSegmentedPicker(label: "Agent", identifier: "chat-agent-surface", options: [
             .init(id: "one", symbol: "cloud", label: "One, your cloud agent"),
-            .init(id: "puppy", symbol: "laptopcomputer", label: "Puppy One, on your machine, with its own conversation")
+            .init(id: "puppy", symbol: "laptopcomputer", label: "Puppy One")
         ], selected: selected, width: width, theme: theme, action: action, layout: layout)
     }
 }
@@ -339,6 +339,7 @@ struct HushhChromeConfiguration {
 }
 
 private final class ChromeSlot {
+    var contentPane: NativeContentPaneIdentity?
     var controlId = ""
     var group: String?
     var groupGeneration: Int?
@@ -397,6 +398,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setPresentationRegions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "acquireContentPane", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "releaseContentPane", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setCanvasAppearance", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepare", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepareBackReplacement", returnType: CAPPluginReturnPromise),
@@ -599,7 +602,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if contentBacked {
                 if self?.backAdmitted == true { families.append("back") }
                 if self?.chatControlsAdmitted == true { families += Self.stationaryChatControlIds.keys.sorted() }
-                if self?.chatControlsAdmitted == true, self?.compositor?.wholeNativeDrawers == true { families.append("profile-back") }
+                if self?.chatControlsAdmitted == true, self?.compositor?.wholeNativeDrawers == true { families += ["profile-back", "close"] }
             } else if self?.backAdmitted == true {
                 families.append("back")
                 if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "profile-back", "more", "selection", "date", "appearance", "accent"] }
@@ -611,6 +614,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "panelPresentation": self?.compositor != nil && !contentBacked,
                           "contentBackedPresentation": contentBacked,
                           "coherentPresentation": self?.compositor?.wholeNativeDrawers == true && NativeDrawerQualificationPolicy.coherentShell,
+                          "ownedContentPane": self?.compositor?.wholeNativeDrawers == true && self?.chatControlsAdmitted == true,
                           "reservedPresentationRegions": legacyRegions,
                           "fullWindowOverlays": legacyRegions,
                           "drawerClipping": self?.compositor?.drawerClipping == true,
@@ -624,6 +628,60 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "focusReturn": true,
                           "rehearsalDiagnostics": self?.chatControlsAdmitted == true &&
                               ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics")])
+        }
+    }
+
+    private func readContentPane(_ object: JSObject?) -> NativeContentPaneIdentity? {
+        guard let object, let document = object["documentId"] as? String,
+              let owner = object["ownerEpoch"] as? String, let generation = object["generation"] as? Int,
+              let privacy = object["privacyGeneration"] as? Int else { return nil }
+        let identity = NativeContentPaneIdentity(document: document, ownerEpoch: owner, generation: generation, privacyGeneration: privacy)
+        return identity.valid ? identity : nil
+    }
+    private func paneReceipt(_ identity: NativeContentPaneIdentity, phase: String) -> [String: Any] {
+        ["documentId": identity.document, "ownerEpoch": identity.ownerEpoch, "generation": identity.generation,
+         "privacyGeneration": identity.privacyGeneration, "phase": phase]
+    }
+    private func readContentPaneCall(_ call: CAPPluginCall) -> NativeContentPaneIdentity? {
+        guard let document = call.getString("documentId"), let owner = call.getString("ownerEpoch"),
+              let generation = call.getInt("generation"), let privacy = call.getInt("privacyGeneration") else { return nil }
+        return readContentPane(["documentId": document, "ownerEpoch": owner, "generation": generation, "privacyGeneration": privacy])
+    }
+    @objc func acquireContentPane(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.chatControlsAdmitted, self.canMirrorPresentation,
+                  let identity = self.readContentPaneCall(call), let viewport = self.presentationViewport(call),
+                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
+                  !self.retiredDocuments.contains(identity.document) else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
+            self.acceptDocument(identity.document)
+            self.compositor?.revealUnderlay()
+            guard self.compositor?.acquireContentPane(identity, viewport: viewport) == true else {
+                call.reject("NATIVE_CONTENT_PANE_REFUSED"); return
+            }
+            self.interactionGeneration += 1
+            for slot in self.slots.values { slot.state.invalidateChoices(through: slot.sequence) }
+            call.resolve(self.paneReceipt(identity, phase: "active"))
+        }
+    }
+    @objc func releaseContentPane(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.readContentPaneCall(call),
+                  !self.retiredDocuments.contains(identity.document),
+                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
+                  self.compositor?.beginContentPaneRetirement(identity) == true else {
+                call.reject("NATIVE_CONTENT_PANE_RETIRE_STALE"); return
+            }
+            let dismissal = DispatchGroup()
+            for slot in self.slots.values where slot.contentPane?.sameLifetime(as: identity) == true {
+                slot.state.invalidate(); self.removeHosting(slot)
+                if let presenter = slot.presenter { dismissal.enter(); presenter.retire { dismissal.leave() } }
+            }
+            dismissal.notify(queue: .main) {
+                guard self.compositor?.releaseContentPane(identity) == true else {
+                    call.reject("NATIVE_CONTENT_PANE_RETIRE_STALE"); return
+                }
+                call.resolve(self.paneReceipt(identity, phase: "retired"))
+            }
         }
     }
 
@@ -764,6 +822,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE"); return
             }
             self.acceptDocument(identity.document)
+            let pane = self.readContentPane(call.getObject("contentPane"))
+            guard call.getObject("contentPane") == nil ||
+                (pane?.document == identity.document && pane.map { self.compositor?.contentPaneAdmits($0) == true } == true &&
+                 ["profile-back", "close"].contains(kind)),
+                kind != "close" || self.compositor?.wholeNativeDrawers != true || pane != nil else {
+                call.reject("NATIVE_CONTENT_PANE_STALE"); return
+            }
             let group = call.getString("presentationGroup")
             let groupPose = group.flatMap { self.compositor?.groupPose($0) }
             if let group {
@@ -776,7 +841,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let localFrame = groupPose.map { frame.offsetBy(dx: -$0.frame.minX, dy: -$0.frame.minY) } ?? frame
             guard !self.slots.contains(where: { id, slot in
-                id != identity.controlId && slot.state.phase == "active" && slot.group == group && slot.authoredFrame.intersects(frame)
+                id != identity.controlId && slot.state.phase == "active" && slot.group == group && slot.contentPane == pane && slot.authoredFrame.intersects(frame)
             }) else { call.reject("NATIVE_CHROME_OVERLAPPING_CONTROLS"); return }
             let slot = self.slot(identity.controlId)
             guard slot.presenter == nil, let configuration = self.readOptions(call, kind: kind) else {
@@ -790,7 +855,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             let retained = slot.layoutConfirmed && slot.state.phase == "suspended" && previous?.document == identity.document &&
                 previous?.ownerEpoch == identity.ownerEpoch && slot.kind == kind && slot.label == label &&
                 slot.fullAccentTrigger == (kind == "accent" && call.getBool("fullTrigger") == true) &&
-                slot.authoredFrame == frame && slot.group == group && slot.viewport == bounds && slot.configuration.matches(configuration)
+                slot.authoredFrame == frame && slot.group == group && slot.contentPane == pane && slot.viewport == bounds && slot.configuration.matches(configuration)
             // Reopening grants fresh authority, not a fresh SwiftUI tree.
             // Button callbacks resolve the current slot; no old lease is kept.
             let retainRoot = retained && slot.presentation == presentation && slot.focus.sequence == 0
@@ -798,6 +863,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if !retained { self.removeHosting(slot) }
             slot.kind = kind
             slot.group = group
+            slot.contentPane = pane
             slot.groupGeneration = groupPose?.generation
             slot.authoredFrame = frame
             slot.label = label
@@ -843,7 +909,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if !retained {
                 parent.addChild(controller)
                 if let compositor = self.compositor {
-                    compositor.install(controller.view, id: identity.controlId, group: group)
+                    compositor.install(controller.view, id: identity.controlId, group: group, pane: pane)
                 } else if let cover = parent.view.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
                     parent.view.insertSubview(controller.view, belowSubview: cover)
                 } else { parent.view.addSubview(controller.view) }
@@ -955,9 +1021,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             guard let identity = self.identity(call), let slot = self.slots[identity.controlId],
                   self.canMirrorPresentation, self.geometryIsCurrent(slot), self.document == identity.document,
                   slot.pendingLayout == nil, let hosting = slot.hosting,
+                  slot.contentPane == nil || slot.contentPane == self.compositor?.contentPane,
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
                   !self.slots.contains(where: { id, other in
-                      id != identity.controlId && other.state.phase == "active" && other.group == slot.group &&
+                      id != identity.controlId && other.state.phase == "active" && other.group == slot.group && other.contentPane == slot.contentPane &&
                           other.authoredFrame.intersects(slot.authoredFrame)
                   }) else { call.reject("NATIVE_CHROME_ACTIVATE_REFUSED"); return }
             guard self.compositor?.acceptsPresentationRevision(call.getInt("presentationRegionRevision"),
@@ -1033,6 +1100,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   self.canMirrorPresentation, self.geometryIsCurrent(slot), self.document == identity.document,
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
                   slot.state.identity == identity, slot.state.phase == "active", let hosting = slot.hosting,
+                  slot.contentPane == nil || slot.contentPane == self.compositor?.contentPane,
                   self.admittedValue(presentation.value, slot: slot, forUpdate: true) else {
                 call.reject("NATIVE_CHROME_UPDATE_REFUSED"); return
             }
@@ -1102,7 +1170,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 self.resolveKeyboardFocus(call, identity: identity); return
             }
             guard let self, let identity = self.identity(call), let slot = self.slots[identity.controlId],
-                  slot.kind != "agent-surface", self.canPresent, self.compositor?.interactionIsolated != true, self.geometryIsCurrent(slot),
+                  slot.kind != "agent-surface", self.canPresent, self.controlPlaneAllows(slot), self.geometryIsCurrent(slot),
                   slot.state.identity == identity, slot.state.phase == "active",
                   slot.presentation?.enabled == true, slot.pendingFocus == nil,
                   let sequence = call.getInt("focusSequence"), sequence > slot.focus.sequence,
@@ -1133,7 +1201,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func completeFocus(_ controlId: String) {
         guard let slot = slots[controlId], let call = slot.pendingFocus else { return }
         guard let identity = identity(call), slot.state.identity == identity, slot.state.phase == "active",
-              canPresent, compositor?.interactionIsolated != true, geometryIsCurrent(slot), slot.presentation?.enabled == true,
+              canPresent, controlPlaneAllows(slot), geometryIsCurrent(slot), slot.presentation?.enabled == true,
               slot.focus.sequence == call.getInt("focusSequence"),
               slot.state.updateSequence == call.getInt("updateSequence"),
               HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
@@ -1156,7 +1224,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             var valid = false
             if let identity = self.identity(call), let slot = self.slots[identity.controlId] {
                 valid = slot.state.confirm(identity, sequence: call.getInt("sequence") ?? -1, latestSequence: slot.sequence,
-                    allowed: self.canPresent && self.compositor?.interactionIsolated != true && self.panelIsSettled(slot) &&
+                    allowed: self.canPresent && self.controlPlaneAllows(slot) && self.panelIsSettled(slot) &&
                     (slot.group == nil || (call.getInt("presentationGeneration") == slot.groupGeneration &&
                         call.getInt("presentationSequence") == self.compositor?.groupPose(slot.group!)?.sequence)) &&
                     slot.presentation?.enabled == true && self.geometryIsCurrent(slot) && self.document == identity.document &&
@@ -1258,6 +1326,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     // Preserve the owning host's existing entrypoint while covering every slot.
     func layoutBackControl() { layoutControls() }
     private func geometryIsCurrent(_ slot: ChromeSlot) -> Bool { bridge?.viewController?.view.bounds.size == slot.viewport }
+    private func controlPlaneAllows(_ slot: ChromeSlot) -> Bool {
+        compositor?.allowsControl(slot.controlId) ?? true
+    }
     private func panelIsSettled(_ slot: ChromeSlot) -> Bool {
         guard let group = slot.group else { return true }
         let pose = compositor?.groupPose(group)
@@ -1298,6 +1369,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if kind == "back" { return backAdmitted && controlId == "top-shell-back" }
             if kind == "profile-back" && compositor?.wholeNativeDrawers == true {
                 return chatControlsAdmitted && controlId == "profile-back"
+            }
+            if kind == "close" && compositor?.wholeNativeDrawers == true {
+                return chatControlsAdmitted && controlId == "profile-close"
             }
             return chatControlsAdmitted && Self.stationaryChatControlIds[kind] == controlId
         }
@@ -1351,7 +1425,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         if controlId == "chat-history-toggle" { historyChoiceStage = "tap"; historyTapCount = min(1_000_000, historyTapCount + 1) }
         #endif
         guard let slot = slots[controlId], let identity = slot.state.identity, let presentation = slot.presentation,
-              slot.state.phase == "active", presentation.enabled, canPresent, compositor?.interactionIsolated != true,
+              slot.state.phase == "active", presentation.enabled, canPresent, controlPlaneAllows(slot),
               geometryIsCurrent(slot), panelIsSettled(slot) else {
             #if DEBUG
             if controlId == "chat-history-toggle" { historyChoiceStage = "refused" }
@@ -1395,11 +1469,12 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             invalidatePresentation()
             slots.removeAll()
             compositor?.resetGroups()
+            compositor?.resetContentPane()
         }
         document = next
     }
     private func requestChoice(_ controlId: String, value: String? = nil) {
-        guard let slot = slots[controlId], slot.presentation?.enabled == true, canPresent, compositor?.interactionIsolated != true, geometryIsCurrent(slot), slot.state.phase == "active",
+        guard let slot = slots[controlId], slot.presentation?.enabled == true, canPresent, controlPlaneAllows(slot), geometryIsCurrent(slot), slot.state.phase == "active",
               panelIsSettled(slot),
               let identity = slot.state.identity, document == identity.document,
               HushhSessionPrivacyShield.shared.acceptsDocument(identity.document) else { return }

@@ -4828,9 +4828,10 @@ function ProfilePageContent({
     <NativeProfileMenu owner={user.uid} ready={isVaultUnlocked} open={nativeMenuOpen && (!activePanel || nativeDetailReady !== nativeDetailOwner)}
       name={user.displayName || "Your account"} email={user.email} onClose={() => onNativeMenuClose?.()}
       groups={menuGroups} actions={menuActions} />
-    <NativeFeaturePage open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
+    <NativeFeaturePage pane open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
       owner={user.uid} context={JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail])}
       onReady={() => setNativeDetailReady(nativeDetailOwner)}
+      onClose={() => onNativeMenuClose?.()}
       onBack={() => popProfilePaneLocation(pathname, searchParams)}>{page}</NativeFeaturePage>
   </>;
 }

@@ -3005,13 +3005,9 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
  * stationary opener must use the same row and leading inset, not two grids. */
 :root {
   --agent-chat-header-safe-top: var(--app-safe-area-top-effective, 0px);
-  --agent-chat-header-row-height: 6rem;
+  --agent-chat-header-row-height: 3.75rem;
   --agent-chat-header-inline-gutter: 1rem;
   --agent-chat-header-height: calc(var(--agent-chat-header-row-height) + var(--agent-chat-header-safe-top));
-}
-
-@media (min-width: 1280px) {
-  :root { --agent-chat-header-row-height: 3.75rem; }
 }
 
 /* Qualification-only feature pages occupy the existing WebView content band.
@@ -3048,6 +3044,30 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   flex-shrink: 0;
 }
 .native-feature-page-body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.native-feature-page[data-native-feature-pane="profile"] {
+  inset: 0 18px 0 auto;
+  height: 100dvh;
+  width: min(430px, calc(100vw - 36px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 25px;
+  background: var(--background);
+}
+.native-feature-page[data-native-feature-pane="profile"] .native-feature-page-body { flex: 1; }
+.native-feature-page[data-native-feature-pane="profile"] .native-feature-page-header { padding: 12px 16px; }
+.native-feature-pane-overlay[data-slot="dialog-overlay"] { inset: 0; }
+@media (pointer: coarse) {
+  .native-feature-page[data-native-feature-pane="profile"] { top: 0; bottom: 0; height: 100dvh; }
+  .native-feature-page[data-native-feature-pane="profile"] .native-feature-page-header {
+    padding-top: calc(12px + var(--app-safe-area-top-effective, 0px));
+  }
+  .native-feature-page[data-native-feature-pane="profile"] .native-feature-page-body {
+    padding-bottom: var(--app-safe-area-bottom-effective, 0px);
+  }
+}
+@media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
+  .native-feature-page[data-native-feature-pane="profile"] { inset: 0; width: 100vw; height: 100dvh; border-radius: 0; }
+}
 
 html.native-ios {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective, 0px));
@@ -9432,32 +9452,34 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 }
 
 /* One shared header measure, including feature-page and History reservations.
-   Constrained widths retain all actions on a compact second row, not a 72px hero avatar.
-   Both agents use the same tracks so switching does not move the transcript. */
+   Identity and actions share one row. The optional cloud-model picker moves
+   into One's existing profile on phones, not another shell row. */
 .agent-chat-header {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  grid-template-rows: 44px 44px;
-  column-gap: 12px;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-rows: 44px;
+  column-gap: 8px;
   row-gap: 0;
   height: var(--agent-chat-header-height);
-  padding-top: calc(4px + var(--agent-chat-header-safe-top));
-  padding-bottom: 4px;
+  padding-top: calc(8px + var(--agent-chat-header-safe-top));
+  padding-bottom: 8px;
 }
 .agent-chat-header > :first-child {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1;
+  align-self: center;
 }
 .agent-chat-header > :last-child {
-  grid-column: 2;
-  grid-row: 2;
+  grid-column: 3;
+  grid-row: 1;
   justify-self: end;
+  align-self: center;
 }
 .agent-chat-header [data-agent-chat-header-region="identity"] {
-  grid-column: 1 / -1;
+  grid-column: 2;
   grid-row: 1;
   flex-direction: row;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   text-align: left;
 }
@@ -9473,9 +9495,19 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 }
 
 @media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
+  .agent-chat-header { column-gap: 4px; }
   .agent-chat-header [data-agent-chat-header-region="identity"] {
-    justify-content: flex-start;
+    gap: 4px;
   }
+  .agent-chat-header [data-agent-chat-header-region="identity"] > div:last-child > div { font-size: 14px; }
+  .agent-chat-header [data-agent-chat-header-region="actions"] { gap: 4px; }
+}
+
+@media (max-width: 359px) {
+  :root { --agent-chat-header-inline-gutter: 8px; }
+  .agent-chat-header { column-gap: 2px; }
+  .agent-chat-header [data-agent-chat-header-region="identity"],
+  .agent-chat-header [data-agent-chat-header-region="actions"] { gap: 2px; }
 }
 
 @media (min-width: 1280px) {

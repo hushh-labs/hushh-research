@@ -341,7 +341,7 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(editor.value as? String, sample, "PUBLIC_AGENT_EDITOR_INPUT_NOT_RETAINED")
         let selector = fixture.segmentedControls["chat-agent-surface"].firstMatch
         let cloud = selector.buttons["One, your cloud agent"].firstMatch
-        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
+        let puppy = selector.buttons["Puppy One"].firstMatch
         guard waitForAdmittedControl(cloud), waitForAdmittedControl(puppy) else {
             XCTFail("PUBLIC_AGENT_SELECTOR_NOT_ADMITTED"); return
         }
@@ -901,7 +901,7 @@ final class AppUITests: XCTestCase {
         }
         let initialDraft = editor.value as? String // Process-only; never an assertion operand or artifact.
         let cloud = selector.buttons["One, your cloud agent"].firstMatch
-        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
+        let puppy = selector.buttons["Puppy One"].firstMatch
         guard cloud.isSelected else { XCTFail("COHERENT_SHELL_REQUIRES_ONE_CONTEXT"); return }
         var initialPuppyDraft: String?
         var puppyDraftObserved = false
@@ -1212,7 +1212,7 @@ final class AppUITests: XCTestCase {
         }
         let openProfile = app.buttons["Open Profile"].firstMatch
         let closeProfile = app.buttons["Close Profile"].firstMatch
-        let puppy = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Puppy One, on your machine, with its own conversation")).firstMatch
+        let puppy = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Puppy One")).firstMatch
         let cloud = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "One, your cloud agent")).firstMatch
         for cycle in 0..<10 {
             guard waitForAdmittedControl(puppy) else { XCTFail("SHARED_DOCK_AGENT_TAB_MISSING"); return }
@@ -2091,7 +2091,7 @@ final class AppUITests: XCTestCase {
             }
         }
         let cloud = selector.buttons["One, your cloud agent"].firstMatch
-        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
+        let puppy = selector.buttons["Puppy One"].firstMatch
         for cycle in 0..<10 {
             guard waitForAdmittedControl(puppy) else { XCTFail("NATIVE_MATERIAL_PUPPY_SEGMENT_UNAVAILABLE"); return }
             puppy.tap()
@@ -2322,7 +2322,7 @@ final class AppUITests: XCTestCase {
         let selector = app.segmentedControls["chat-agent-surface"].firstMatch
         func segment(_ value: String) -> XCUIElement {
             let names = value == "one" ? ["Cloud", "One, your cloud agent"] :
-                ["Puppy", "Puppy One, on your machine, with its own conversation"]
+                ["Puppy", "Puppy One"]
             return selector.buttons.matching(NSPredicate(format: "label IN %@", names)).firstMatch
         }
         func assertSameHost() {
@@ -2372,7 +2372,7 @@ final class AppUITests: XCTestCase {
         print("NATIVE_CHAT_ENTRY keyboard=\(app.keyboards.firstMatch.exists) history_dom=\(web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND identifier != %@", "Open chat history", "chat-history-toggle")).firstMatch.exists) picker_native=\(selector.exists)")
         let selectorRoots = app.descendants(matching: .any).matching(identifier: "chat-agent-surface")
         let fallbackNames = web.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", [
-            "One, your cloud agent", "Puppy One, on your machine, with its own conversation"
+            "One, your cloud agent", "Puppy One"
         ]))
         print("NATIVE_CHAT_SELECTOR_PROBE roots=\(selectorRoots.count) role=\(selectorRoots.firstMatch.exists ? selectorRoots.firstMatch.elementType.rawValue : 0) fallback_names=\(fallbackNames.count)")
         let status = web.staticTexts["native-selector-rehearsal-status"].firstMatch
@@ -2437,7 +2437,7 @@ final class AppUITests: XCTestCase {
             // Exclude the known native segments explicitly. AX membership under
             // WebKit alone is not proof that an element is DOM-owned.
             let publicNames = NSPredicate(format: "label IN %@", [
-                "One, your cloud agent", "Puppy One, on your machine, with its own conversation"
+                "One, your cloud agent", "Puppy One"
             ])
             let nestedNative = web.segmentedControls["chat-agent-surface"].firstMatch
             let permitted = nestedNative.exists ? nestedNative.descendants(matching: .any).matching(publicNames).count : 0
@@ -3474,7 +3474,7 @@ final class AppUITests: XCTestCase {
         let editor = app.textViews["native-dock-editor"].firstMatch
         let initialDraft = editor.value as? String // Process memory only.
         let opener = app.buttons["Open Profile"].firstMatch
-        let close = app.buttons["Close Profile"].firstMatch
+        let close = app.buttons["native-profile-drawer-close"].firstMatch
         let back = app.buttons["Back in Profile"].firstMatch
         let destinations = ["account", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
         func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
@@ -3560,6 +3560,17 @@ final class AppUITests: XCTestCase {
                 continue
             }
             guard admittedBack() else { XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
+            let detailClose = app.buttons["profile-close"].firstMatch
+            XCTAssertTrue(waitForAdmittedControl(detailClose), "PROFILE_DETAIL_CLOSE_UNAVAILABLE")
+            XCTAssertEqual(detailClose.frame.width, 44, accuracy: 1)
+            XCTAssertEqual(detailClose.frame.height, 44, accuracy: 1)
+            let detailPane = web.otherElements["Profile pane"].firstMatch
+            XCTAssertTrue(detailPane.waitForExistence(timeout: 5), "PROFILE_DETAIL_FRAME_UNAVAILABLE")
+            XCTAssertEqual(detailPane.frame.minY, app.frame.minY, accuracy: 1, "PROFILE_DETAIL_TOP_GAP")
+            XCTAssertEqual(detailPane.frame.maxY, app.frame.maxY, accuracy: 1, "PROFILE_DETAIL_BOTTOM_GAP")
+            // Touch isolation is proven by the root's absence below; Back and
+            // Close have their own foreground plane, not the covered Chat host.
+            XCTAssertFalse(app.buttons["chat-history-toggle"].firstMatch.isHittable)
             // Native menu isolation deliberately removes the covered WebView
             // from AX. Count it while its authored content layer is active,
             // not while the menu owns accessibility.
@@ -3592,6 +3603,23 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
         XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
         print("PROFILE_STACK_CONTINUITY screens=9 warm=true single_host=true")
+        let oneProfile = web.buttons["Open One profile"].firstMatch
+        guard waitForAdmittedControl(oneProfile) else { XCTFail("ONE_PROFILE_OPENER_UNAVAILABLE"); return }
+        oneProfile.tap()
+        let oneClose = app.buttons["native-agent-profile-drawer-close"].firstMatch
+        guard waitForAdmittedControl(oneClose) else { XCTFail("ONE_NATIVE_PROFILE_UNAVAILABLE"); return }
+        let oneRow = app.buttons["native-profile-row-one-profile"].firstMatch
+        guard waitForAdmittedControl(oneRow) else { XCTFail("ONE_NATIVE_PROFILE_ROW_UNAVAILABLE"); return }
+        oneRow.tap()
+        let oneBack = app.buttons["Back to One profile"].firstMatch
+        XCTAssertTrue(waitForAdmittedControl(oneBack), "ONE_PROFILE_DETAIL_BACK_UNAVAILABLE")
+        XCTAssertTrue(waitForAdmittedControl(app.buttons["profile-close"].firstMatch))
+        oneBack.tap()
+        XCTAssertTrue(waitForAdmittedControl(oneClose))
+        oneClose.tap()
+        XCTAssertTrue(waitForAdmittedControl(editor))
+        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+        XCTAssertTrue((editor.value as? String) == initialDraft, "ONE_PROFILE_DRAFT_CHANGED")
     }
 
     func testLocalSessionWorkspaceFamiliesKeepDraftAndAuthoritativeSelection() throws {

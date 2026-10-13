@@ -173,7 +173,7 @@ describe("the chat header during a turn", () => {
     expect(header([], null)).toBe("");
     // Puppy One's header never narrates One's calls.
     expect(chatHeaderSubtitle({ isPuppySurface: true, activeToolCalls: [gmail], statusText: null }))
-      .toBe("Separate conversation");
+      .toBe("");
   });
 });
 

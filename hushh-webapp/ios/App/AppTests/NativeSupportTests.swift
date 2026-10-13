@@ -361,6 +361,52 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testOwnedProfileContentPlaneRetainsBaseButRejectsCoveredAndStaleActions() throws {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        container.frame = web.frame
+        let base = UIButton(frame: CGRect(x: 16, y: 60, width: 44, height: 44))
+        container.install(base, id: "base", group: nil)
+        container.setAdmission("base", admitted: true)
+        let retainedHost = try XCTUnwrap(base.superview)
+        let identity = NativeContentPaneIdentity(document: "synthetic", ownerEpoch: "owner", generation: 1,
+            privacyGeneration: HushhSessionPrivacyShield.shared.snapshot().generation)
+        XCTAssertFalse(container.acquireContentPane(identity, viewport: CGSize(width: 400, height: 844)))
+        XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
+        XCTAssertTrue(base.superview === retainedHost)
+        XCTAssertFalse(base.isHidden)
+        XCTAssertLessThan(retainedHost.layer.zPosition, web.layer.zPosition)
+        container.setAdmission("base", admitted: true)
+        XCTAssertFalse(base.isUserInteractionEnabled, "A fresh base update must not bypass the owned content plane")
+        XCTAssertTrue(web.isUserInteractionEnabled)
+        let back = UIButton(frame: base.frame)
+        container.install(back, id: "profile-back", group: nil, pane: identity)
+        container.setAdmission("profile-back", admitted: true)
+        XCTAssertTrue(back.isUserInteractionEnabled)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 30, y: 75), with: nil) === back)
+        XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
+        XCTAssertTrue(back.isUserInteractionEnabled, "An idempotent acquisition must not strand an already admitted header")
+        XCTAssertFalse(container.releaseContentPane(identity), "Header removal must be confirmed before uncovering base chrome")
+        container.remove("profile-back")
+        XCTAssertTrue(container.releaseContentPane(identity))
+        XCTAssertFalse(base.isUserInteractionEnabled, "Release never restores stale permissions")
+        XCTAssertFalse(container.acquireContentPane(identity, viewport: container.bounds.size), "A delayed acquisition cannot follow retirement")
+        let next = NativeContentPaneIdentity(document: "synthetic", ownerEpoch: "new-owner", generation: 2,
+            privacyGeneration: identity.privacyGeneration)
+        XCTAssertTrue(container.acquireContentPane(next, viewport: container.bounds.size))
+        XCTAssertFalse(container.releaseContentPane(identity), "An old completion cannot release a reopened pane")
+        XCTAssertEqual(container.contentPane, next)
+        XCTAssertTrue(container.acquireContentPane(next, viewport: container.bounds.size), "Compatible viewport admission retains ownership")
+        XCTAssertTrue(container.beginContentPaneRetirement(next))
+        XCTAssertFalse(container.acquireContentPane(next, viewport: container.bounds.size), "Retirement fences late preparation before dismissal completion")
+        XCTAssertFalse(container.contentPaneAdmits(next))
+        container.conceal()
+        container.setAdmission("base", admitted: true)
+        XCTAssertFalse(base.isUserInteractionEnabled)
+        XCTAssertTrue(container.releaseContentPane(next))
+    }
+
+    @MainActor
     func testPendingNativeCloseSurvivesContentRefreshAndUncoversTheSameWebViewOnlyAfterAcknowledgement() async throws {
         let state = privateDrawerState(family: "history")
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))

@@ -13,6 +13,48 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Compact header and owned Profile content plane — 2026-10-12
+
+The follow-up keeps Chat's mark, title/activity, History and One/Puppy on one
+60px header row. The SVG mark has a transparent 44px action region; the artwork
+stays 32px. Phones use One's existing profile for the cloud-model picker rather
+than crowding the header. Puppy is labelled **Puppy One**, without a second
+conversation description. These are shared web/Android/iOS geometry changes.
+
+In the qualification wrapper, the mark opens an independent `agent-profile`
+NativeDrawers v1 menu. Its Feed and Profile content retain their existing React
+owners. Account Profile details retain the existing query/Back stack and use the
+same full-height pane bounds, not the earlier shorter reserved band.
+
+NativeChrome v2 negotiates `ownedContentPane` before this geometry is admitted.
+The existing container retains base hosts behind the single WebView for that
+content lifetime; a separate bounded foreground plane hosts its Back/Close.
+Plane ownership is document/opaque-owner/generation/privacy fenced. Compatible
+viewport updates retain it. Header layout acknowledgments and the plane receipt
+are both required before menu dismissal. Retirement tombstones the lifetime
+before asynchronous popup dismissal and restores base order only after actual
+DOM exit and confirmed header removal. Privacy validation completion is observed
+even when native emits no JavaScript event. No extra WebView, router, store,
+snapshot, aperture or per-frame clipping is introduced.
+
+This whole-plane demotion **does not prove base-glass visibility outside a narrow
+tablet pane**. iPad remains qualification-only; physical transition and visual
+acceptance cannot be inferred from header receipts. Older wrappers retain the
+previous bounded feature-page fallback. Ordinary custom-native admission remains
+off, and this local change does not authorize a release.
+
+Verification before installation: typecheck, 216 focused cases, 28 WebKit layout
+cases using optimized product CSS (including phone/tablet pane bounds), UI
+generation/check, design/accent/performance/cache/docs/brand checks, signed native
+build and 69 physical native-support cases. Device product journeys must be tied
+to the subsequent exact build, not the previous evidence below.
+
+Maintenance rule: paint-plane ownership, action admission and privacy are separate
+contracts. Never release a mounted content pane on resize, restore captured base
+permissions, or let late preparation revive a retiring pane. Native Back/Close
+are authored adapters, not DOM-inferred operations. Keep the existing overlay
+registry through actual DOM exit; a target `open=false` is not disappearance.
+
 ### Integrated native shell candidate — 2026-10-12
 
 Current candidate `64ea4a5d1c` contains fetched `main` at

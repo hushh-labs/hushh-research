@@ -3,7 +3,7 @@ import type { NativeControlAppearance } from "./native-control-appearance";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
  * process-local replicas of the existing feature owner, not another store. */
-export type NativeDrawerFamily = "history" | "profile";
+export type NativeDrawerFamily = "history" | "profile" | "agent-profile";
 export type NativeDrawerRow = {
   id: string;
   label: string;
@@ -54,7 +54,7 @@ export type NativeDrawerChoice = NativeDrawerIdentity & {
 };
 export type NativeDrawerIsolation = { generation: number; isolated: boolean };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; profileMenuRows?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; profileMenuRows?: boolean; agentProfileMenu?: boolean }>;
   apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
   confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;
   settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
@@ -149,7 +149,7 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading"]) ||
       !validIdentifier(value.documentId) || !validIdentifier(value.ownerEpoch) ||
       !validSequence(value.ownerGeneration) || !validSequence(value.revision) || !validSequence(value.updateSequence) ||
-      !["history", "profile"].includes(value.family) ||
+      !["history", "profile", "agent-profile"].includes(value.family) ||
       !Number.isSafeInteger(value.privacyGeneration) || value.privacyGeneration < 0 ||
       ![value.open, value.enabled, value.backEnabled].every(item => typeof item === "boolean") ||
       [value.searchable, value.loading].some(item => item !== undefined && typeof item !== "boolean") ||

@@ -19,6 +19,7 @@ import { useNativeHistoryPresentation } from "@/components/agent/native-history-
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
+import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
@@ -121,6 +122,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { EmailDraftCard, type GmailDraftSaveState } from "@/components/agent/email-draft-card";
 import { richEmailPlainText } from "@/components/agent/email-rich-text";
@@ -2451,7 +2453,7 @@ export function chatHeaderSubtitle(input: {
   activeToolCalls: readonly ActiveToolCall[];
   statusText: string | null;
 }): string {
-  if (input.isPuppySurface) return "Separate conversation";
+  if (input.isPuppySurface) return "";
   const current = input.activeToolCalls.at(-1);
   if (current) return `${current.activity || current.label}…`;
   return input.statusText || IDLE_AGENT_SUBTITLE;
@@ -2461,6 +2463,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
   const isCanonicalChatRoute = pathname === ROUTES.HOME;
+  // Default compact during hydration: never flash a second header track on
+  // phones. Resizing retires the old Select instead of leaving an owned popup
+  // attached to a hidden trigger. Both placements use the same operation owner.
+  const hasInlineModelPicker = useMediaQuery("(min-width: 640px) and (min-height: 640px), (min-width: 960px)");
   const agentDockHost = useAgentDockHost();
   const agentDockFrame = useAgentDockFrame();
   const nativeDockPorts = useNativeDockPorts();
@@ -3264,6 +3270,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const canPickOneModel = Boolean(
     modelPreference && modelPreference.choices.length > 1,
   );
+  const handleOneModelChange = (nextModel: string) => {
+    if (!modelPreference || !user || isPuppySurface) return;
+    const previous = modelPreference;
+    setModelPreference({ ...previous, effective_model: nextModel });
+    void (async () => {
+      try {
+        setModelPreference(await ModelPreferenceService.set(await user.getIdToken(), nextModel));
+      } catch { setModelPreference(previous); }
+    })();
+  };
   const statusText = useMemo(() => {
     // Every line below narrates One's turn, so in Puppy One a bare "Thinking"
     // or "Streaming" would report on an agent the reader is not looking at:
@@ -8830,8 +8846,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               "h-[var(--agent-chat-header-height)]",
             )}
           >
-            {/* Both agents share compact centered identity and action tracks;
-                narrow phones reserve a separate control row. */}
+            {/* Both agents share one compact identity/action row. */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
             <NativeHistoryOpener owner={renderedWorkspaceOwnerId}
@@ -8853,7 +8868,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {/* The shared mark/name track remains stable across agents. */}
               <div
                 data-agent-chat-brand-tile
-                className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"
+                className="grid h-11 w-11 shrink-0 place-items-center"
               >
                 {isPuppySurface ? (
                   <Laptop
@@ -8868,9 +8883,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-11 focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                    className="!size-11 !border-transparent !bg-transparent !shadow-none hover:!bg-transparent focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
                     <HushhMark
+                      vector
                       aria-hidden="true"
                       className="size-8 items-center justify-center overflow-visible"
                       imageClassName="!size-8"
@@ -8894,7 +8910,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div data-agent-chat-header-region="actions" className="flex shrink-0 items-center gap-2">
               {/*
                 Order is picker, toggle, profile, and it is load-bearing. The
                 toggle is anchored to the profile button at the right edge, so
@@ -8911,27 +8927,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   rewrite the other agent's model with no visible consequence
                   on the screen being looked at. Gated, not merely hidden: the
                   write must not stay reachable from the on-device surface. */}
-              {canPickOneModel && modelPreference && !isPuppySurface ? (
+              {canPickOneModel && modelPreference && !isPuppySurface && hasInlineModelPicker ? (
                 <Select
                   value={modelPreference.effective_model}
-                  onValueChange={(nextModel) => {
-                    const previous = modelPreference;
-                    // Optimistic: the picker must not stall the header while the
-                    // write lands. A failure restores exactly what was showing.
-                    setModelPreference({ ...previous, effective_model: nextModel });
-                    void (async () => {
-                      try {
-                        if (!user) return;
-                        const saved = await ModelPreferenceService.set(
-                          await user.getIdToken(),
-                          nextModel,
-                        );
-                        setModelPreference(saved);
-                      } catch {
-                        setModelPreference(previous);
-                      }
-                    })();
-                  }}
+                  onValueChange={handleOneModelChange}
                 >
                   <SelectTrigger
                     data-testid="agent-chat-model-picker"
@@ -8976,7 +8975,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   if (next === "puppy") enterPuppySurface();
                   else setAgentSurface(next);
                 }} focusRef={agentSurfaceFocusRef}
-                className="flex h-11 w-[94px] shrink-0 items-center justify-center sm:w-[116px]">
+                className="flex h-11 w-[88px] shrink-0 items-center justify-center sm:w-[116px]">
               <SegmentedControl
                 selectedButtonRef={agentSurfaceFocusRef}
                 variant="sliding"
@@ -9002,8 +9001,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     value: "puppy",
                     label: "Puppy",
                     icon: Laptop,
-                    accessibleLabel:
-                      "Puppy One, on your machine, with its own conversation",
+                    accessibleLabel: "Puppy One",
                   },
                 ]}
                 iconClassName="sm:hidden"
@@ -9038,7 +9036,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <OneAgentProfileSheet open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
+          <OneAgentProfileSheet open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
+            nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
+            modelControl={canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (
+              <Select value={modelPreference.effective_model} onValueChange={handleOneModelChange}>
+                <SelectTrigger aria-label="One's model" className="h-11 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper" className="z-[560]">
+                  {modelPreference.choices.map((choice) => <SelectItem key={choice.model_id} value={choice.model_id}>{choice.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            ) : null} />
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface

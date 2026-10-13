@@ -355,6 +355,7 @@ function encodeIco(images) {
 // their existing host dimensions while this asset supplies identical artwork.
 const runtimeMark = await markLayer(512, 512, 478, 512);
 await emit("public/brand/hushh-mark.png", runtimeMark);
+await emit("public/brand/hushh-mark.svg", source);
 
 // Browser icons use a transparent canvas and a generous, centered mark.
 // Keep a small safe margin so the artwork is legible without clipping at 16px.

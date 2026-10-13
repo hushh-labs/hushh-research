@@ -7,7 +7,7 @@ enum NativeDrawerLayout {
     }
     static func frame(family: String, in bounds: CGRect, phone: Bool) -> CGRect {
         if phone || bounds.width < 640 { return bounds }
-        if family == "profile" {
+        if family != "history" {
             let gutter: CGFloat = 18
             let width = min(430, max(0, bounds.width - 2 * gutter))
             return CGRect(x: bounds.maxX - gutter - width, y: bounds.minY,
@@ -437,13 +437,14 @@ struct NativeDrawerContent: View {
                 }
                 Text(model.projection.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
                 if model.projection.family != "history" {
-                    control("xmark", "Close Profile") { model.close?() }
+                    control("xmark", model.projection.family == "agent-profile" ? "Close One profile" : "Close Profile",
+                        identifier: "native-\(model.projection.family)-drawer-close") { model.close?() }
                 }
             }.padding(model.projection.family == "history" ? model.headerInsets :
                 EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
             if let row = detailedRow {
                 details(row)
-            } else if model.projection.family == "profile" {
+            } else if model.projection.family != "history" {
                 profileContent
             } else {
                 ForEach(model.projection.sections.filter { $0.id == "create" }) { section in
@@ -646,7 +647,7 @@ struct NativeDrawerContent: View {
         }.buttonStyle(.borderless).padding(16)
             .frame(maxWidth: .infinity, alignment: .leading).disabled(!model.interactionEnabled || model.choicePending || !row.enabled || row.pending == true)
     }
-    @ViewBuilder private func control(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+    @ViewBuilder private func control(_ symbol: String, _ label: String, identifier: String = "", action: @escaping () -> Void) -> some View {
         if #available(iOS 26.0, *) {
             Button(action: action) {
                 Image(systemName: symbol).font(.system(size: 18))
@@ -654,10 +655,12 @@ struct NativeDrawerContent: View {
                     .contentShape(.interaction, Rectangle())
             }
                 .buttonStyle(.glass).buttonBorderShape(.circle).frame(width: 44, height: 44).accessibilityLabel(label)
+                .accessibilityIdentifier(identifier)
                 .disabled(!model.interactionEnabled)
         } else {
             Button(action: action) { Image(systemName: symbol) }.frame(width: 44, height: 44)
                 .accessibilityLabel(label).disabled(!model.interactionEnabled)
+                .accessibilityIdentifier(identifier)
         }
     }
 }

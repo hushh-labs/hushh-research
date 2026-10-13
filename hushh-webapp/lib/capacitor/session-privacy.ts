@@ -51,6 +51,17 @@ const WEB_STATE: NativeSessionPrivacyState = Object.freeze({
 // Nonsecret admission metadata, not session validation or credential state.
 let observedPrivacy: NativeSessionPrivacyState | undefined;
 let lifecycleEpoch = 0;
+const observationListeners = new Set<() => void>();
+export function subscribeNativePrivacyObservation(listener: () => void) {
+  observationListeners.add(listener);
+  return () => { observationListeners.delete(listener); };
+}
+function observePrivacy(state: NativeSessionPrivacyState) {
+  const changed = !observedPrivacy || observedPrivacy.generation !== state.generation || observedPrivacy.shielded !== state.shielded ||
+    observedPrivacy.appIsActive !== state.appIsActive || observedPrivacy.cause !== state.cause;
+  observedPrivacy = state;
+  if (changed) observationListeners.forEach(listener => listener());
+}
 export function nativePrivacyObservation() {
   return { state: observedPrivacy, epoch: lifecycleEpoch };
 }
@@ -76,7 +87,7 @@ export async function subscribeNativeSessionPrivacy(
     try {
       const state = checkedState(event);
       lifecycleEpoch += 1;
-      observedPrivacy = state;
+      observePrivacy(state);
       listener(state);
     } catch { /* getState catch-up owns recovery */ }
   });
@@ -91,7 +102,7 @@ export async function getNativeSessionPrivacyState(): Promise<NativeSessionPriva
   if (!Capacitor.isNativePlatform()) return WEB_STATE;
   const epoch = lifecycleEpoch;
   const state = checkedState(await HushhSessionPrivacy.getState({ documentId: privacyDocumentId() }));
-  if (epoch === lifecycleEpoch) observedPrivacy = state;
+  if (epoch === lifecycleEpoch) observePrivacy(state);
   return state;
 }
 
@@ -121,7 +132,7 @@ export async function completeNativeSessionPrivacyValidation(
   // Advancing the epoch also fences reads started before this completion.
   if (epoch === lifecycleEpoch) {
     lifecycleEpoch += 1;
-    observedPrivacy = result;
+    observePrivacy(result);
   }
   return result;
 }

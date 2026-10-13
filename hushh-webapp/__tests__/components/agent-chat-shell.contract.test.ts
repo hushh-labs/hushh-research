@@ -229,9 +229,9 @@ describe("private-agent chat shell contract", () => {
 
     expect(brandTileStart).toBeGreaterThan(0);
     expect(brandTile).toContain("<HushhMark");
-    expect(brandTile).toContain('className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"');
-    expect(brandTile).toContain('className="size-[72px] items-center justify-center overflow-visible"');
-    expect(brandTile).toContain('imageClassName="!size-16"');
+    expect(brandTile).toContain('className="grid h-11 w-11 shrink-0 place-items-center"');
+    expect(brandTile).toContain('className="size-8 items-center justify-center overflow-visible"');
+    expect(brandTile).toContain('imageClassName="!size-8"');
     expect(brandTile).not.toContain("max-sm:hidden");
   });
 
@@ -249,7 +249,7 @@ describe("private-agent chat shell contract", () => {
     const anchor = workspace.indexOf('data-testid="agent-chat-model-picker"');
     expect(anchor).toBeGreaterThan(0);
     const pickerBlock = workspace.slice(anchor - 1600, anchor);
-    expect(pickerBlock).toContain("modelPreference && !isPuppySurface ? (");
+    expect(pickerBlock).toContain("modelPreference && !isPuppySurface && hasInlineModelPicker ? (");
     // The ungated form the defect shipped as.
     expect(workspace).not.toContain(
       "{modelPreference && modelPreference.choices.length > 1 ? (",
@@ -325,7 +325,7 @@ describe("private-agent chat shell contract", () => {
     expect(shell).toContain("agentBarHidden?: boolean");
     expect(shell).not.toContain("const agentBarVisible = !model.agentBarHidden");
     expect(shell).toContain("<AgentDockVoiceBoundary>");
-    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute}");
+    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute && !isPuppySurface}");
     expect(workspace).toContain('<AgentBar layout="slot" />');
     expect(workspace).toContain("<AgentBarSurface");
     expect(workspace).not.toContain("<AgentVoiceWaveInput");

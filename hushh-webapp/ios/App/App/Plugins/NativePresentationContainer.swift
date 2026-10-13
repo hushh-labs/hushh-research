@@ -1,6 +1,51 @@
 import UIKit
 import WebKit
 
+/// Opaque presentation ownership, never an account, route, or private payload.
+struct NativeContentPaneIdentity: Equatable {
+    let document: String
+    let ownerEpoch: String
+    let generation: Int
+    let privacyGeneration: Int
+    func sameLifetime(as other: NativeContentPaneIdentity) -> Bool {
+        document == other.document && ownerEpoch == other.ownerEpoch && generation == other.generation
+    }
+    var valid: Bool {
+        !document.isEmpty && document.count <= 128 && !ownerEpoch.isEmpty && ownerEpoch.count <= 128 &&
+            generation > 0 && generation < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
+            privacyGeneration >= 0 && privacyGeneration < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration
+    }
+}
+
+struct NativeContentPaneFence {
+    private(set) var identity: NativeContentPaneIdentity?
+    private(set) var retiring = false
+    private var retiredGeneration = 0
+    mutating func acquire(_ next: NativeContentPaneIdentity) -> Bool {
+        guard next.valid, next.generation > retiredGeneration else { return false }
+        if let identity {
+            guard !retiring, identity.document == next.document, identity.ownerEpoch == next.ownerEpoch,
+                  identity.generation == next.generation, next.privacyGeneration >= identity.privacyGeneration else { return false }
+        }
+        identity = next
+        return true
+    }
+    mutating func beginRetirement(_ requested: NativeContentPaneIdentity) -> Bool {
+        guard requested.valid, identity == nil || identity?.sameLifetime(as: requested) == true else { return false }
+        retiredGeneration = max(retiredGeneration, requested.generation)
+        retiring = true
+        return true
+    }
+    mutating func release(_ requested: NativeContentPaneIdentity) -> Bool {
+        // Tombstone a not-yet-delivered acquisition as well as an installed one.
+        guard requested.valid, identity == nil || identity?.sameLifetime(as: requested) == true else { return false }
+        retiredGeneration = max(retiredGeneration, requested.generation)
+        identity = nil
+        retiring = false
+        return true
+    }
+}
+
 /// Capacitor resizes only WK for the keyboard. Stationary native chrome stays
 /// in host coordinates; only an actual WK-sized keyboard viewport may inherit
 /// the host height. Arbitrary/stale geometry is never normalized.
@@ -98,9 +143,12 @@ final class NativePresentationContainer: UIView {
     private let baseViewport = UIView()
     // Retain the legacy name for the independently reversible underlay pilot.
     let underlay = UIView()
+    private let contentChrome = UIView()
+    private var contentPaneFence = NativeContentPaneFence()
+    var contentPane: NativeContentPaneIdentity? { contentPaneFence.identity }
     private var groups: [String: UIView] = [:]
     private var fences: [String: NativePanelPoseFence] = [:]
-    private var controls: [String: (view: UIView, group: String?, admitted: Bool)] = [:]
+    private var controls: [String: (view: UIView, group: String?, pane: NativeContentPaneIdentity?, admitted: Bool)] = [:]
     private var regionDocument: String?
     private var regionRevision = -1
     private var regionPrivacyGeneration: Int?
@@ -237,6 +285,10 @@ final class NativePresentationContainer: UIView {
             baseViewport.addSubview(underlay)
         } else { addSubview(underlay) }
         underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
+        contentChrome.frame = bounds
+        contentChrome.backgroundColor = .clear
+        contentChrome.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(contentChrome)
         // DOM aperture ownership is explicit; this does not clear page CSS.
         webView.isOpaque = false
         webView.backgroundColor = .clear
@@ -257,18 +309,59 @@ final class NativePresentationContainer: UIView {
         if let appearance { overrideUserInterfaceStyle = appearance }
     }
 
-    func install(_ view: UIView, id: String, group: String?) {
-        if let group {
+    func install(_ view: UIView, id: String, group: String?, pane: NativeContentPaneIdentity? = nil) {
+        if pane != nil { contentChrome.addSubview(view) }
+        else if let group {
             let host = groupHost(group)
             host.addSubview(view)
         } else { underlay.addSubview(view) }
-        controls[id] = (view, group, false)
+        controls[id] = (view, group, pane, false)
+    }
+
+    /// A full-height React pane owns WK's whole paint plane, not frame-by-frame
+    /// clipping. Base hosts survive behind WK; only its authored header is above.
+    func acquireContentPane(_ identity: NativeContentPaneIdentity, viewport: CGSize) -> Bool {
+        guard wholeNativeDrawers, viewport == bounds.size, !privacyConcealed,
+              identity.privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation,
+              contentPaneFence.acquire(identity) else { return false }
+        underlay.layer.zPosition = -1
+        for (id, control) in controls where control.pane != identity { setAdmission(id, admitted: false) }
+        return true
+    }
+
+    func releaseContentPane(_ identity: NativeContentPaneIdentity) -> Bool {
+        guard !controls.values.contains(where: { $0.pane?.sameLifetime(as: identity) == true }), contentPaneFence.release(identity) else { return false }
+        underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
+        // Fresh feature bindings must re-admit; old covered permissions never return.
+        NotificationCenter.default.post(name: Self.isolationDidChange, object: self)
+        return true
+    }
+    func beginContentPaneRetirement(_ identity: NativeContentPaneIdentity) -> Bool {
+        guard contentPaneFence.beginRetirement(identity) else { return false }
+        for id in Array(controls.keys) { setAdmission(id, admitted: false) }
+        return true
+    }
+    func contentPaneAdmits(_ identity: NativeContentPaneIdentity) -> Bool {
+        !contentPaneFence.retiring && contentPane == identity
+    }
+
+    func resetContentPane() {
+        contentPaneFence = NativeContentPaneFence()
+        underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
+    }
+
+    func allowsControl(_ id: String) -> Bool {
+        guard !privacyConcealed, !ownedDrawerIsolation, !overlayIsolated, let control = controls[id] else { return false }
+        if let pane = control.pane {
+            return contentPaneAdmits(pane) && pane.privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation
+        }
+        return contentPane == nil
     }
 
     func setAdmission(_ id: String, admitted: Bool, presentationRegionRevision: Int? = nil, privacyGeneration: Int? = nil) {
         guard var control = controls[id] else { return }
         let currentRegion = acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration)
-        let admitted = admitted && currentRegion && !privacyConcealed && !ownedDrawerIsolation && !(contentBackedPresentation && overlayIsolated)
+        let admitted = admitted && currentRegion && allowsControl(id)
         control.admitted = admitted
         controls[id] = control
         control.view.isUserInteractionEnabled = admitted
@@ -394,6 +487,7 @@ final class NativePresentationContainer: UIView {
         lastRejectedInitialFrame = nil
         #endif
         privacyConcealed = true
+        contentChrome.isHidden = true
         reconcileBaseVisibility()
         groups.values.forEach { $0.isHidden = true }
         for id in Array(controls.keys) { setAdmission(id, admitted: false) }
@@ -404,6 +498,7 @@ final class NativePresentationContainer: UIView {
         guard privacy.appIsActive, !privacy.shielded,
               acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration) else { return }
         privacyConcealed = false
+        contentChrome.isHidden = false
         reconcileBaseVisibility()
     }
 
@@ -446,13 +541,13 @@ final class NativePresentationContainer: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, alpha > 0.01, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         // Privacy/launch covers and standard UIKit presentations always win.
-        for child in subviews.reversed() where child !== webView && child !== underlay && child !== baseViewport && !groups.values.contains(where: { $0 === child }) {
+        for child in subviews.reversed() where child !== webView && child !== underlay && child !== contentChrome && child !== baseViewport && !groups.values.contains(where: { $0 === child }) {
             if let hit = child.hitTest(child.convert(point, from: self), with: event) { return hit }
         }
         // Follow actual UIKit stacking, not dictionary enumeration. The host
         // hit test enforces clipping, ancestor visibility and disabled state.
         let presentationHosts = subviews.map { $0 === baseViewport ? underlay : $0 }
-        for host in presentationHosts.reversed() where host === underlay || groups.values.contains(where: { $0 === host }) {
+        for host in presentationHosts.reversed() where host === underlay || host === contentChrome || groups.values.contains(where: { $0 === host }) {
             if host === underlay && drawerClipping && !baseVisibleFrame.contains(point) { continue }
             if let group = groups.first(where: { $0.value === host })?.key,
                fences[group]?.pose?.settled != true { continue }

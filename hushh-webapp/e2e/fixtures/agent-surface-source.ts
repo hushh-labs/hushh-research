@@ -108,7 +108,7 @@ const workspace = read(WORKSPACE_PATH);
  * lines of composer and transcript underneath and match the wrong control.
  */
 const headerStart = workspace.indexOf('"agent-chat-header ');
-const headerEnd = workspace.indexOf("Both transcripts are HIDDEN");
+const headerEnd = workspace.indexOf("<OneAgentProfileSheet", headerStart);
 if (headerStart < 0 || headerEnd < headerStart) {
   fail("the header region", WORKSPACE_PATH);
 }
@@ -120,6 +120,10 @@ const headerContainerClass = one(
   "header container class",
   WORKSPACE_PATH,
 )[1];
+const chromeSource = read("components/app-ui/native-chat-chrome.tsx");
+const historySource = chromeSource.slice(chromeSource.indexOf("export function NativeHistoryOpener"), chromeSource.indexOf("export function NativeHistoryClose"));
+const historyClass = one(historySource, /className="(relative z-\[540\] flex h-11 w-11[^\"]+)"/,
+  "authored History hit region", "components/app-ui/native-chat-chrome.tsx")[1];
 
 /**
  * The header is three flex regions and only the middle one may give way:
@@ -188,7 +192,7 @@ const subtitleExpression = `isPuppySurface ? ${puppySubtitle} : ${idleSubtitle}`
 
 const clusterClass = one(
   header,
-  /<div className="(flex shrink-0 items-center gap-2)">/,
+  /<div data-agent-chat-header-region="actions" className="(flex shrink-0 items-center gap-2)">/,
   "right-hand cluster class",
   WORKSPACE_PATH,
 )[1];
@@ -423,6 +427,7 @@ const segmentedSlidingSize = one(segmented, /isSliding \? "([^"]+)" : config\.se
 
 export const AGENT_SURFACE_SOURCE = {
   header: {
+    historyClass,
     containerClass: headerContainerClass,
     identityClass,
     brandTileClass,

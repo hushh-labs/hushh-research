@@ -47,6 +47,10 @@
   gap: 0;
   overflow: hidden;
 }
+.modelControl {
+  flex: none;
+  padding: 0 var(--page-inline-gutter-standard) 12px;
+}
 .tabList {
   flex: none;
   width: auto;

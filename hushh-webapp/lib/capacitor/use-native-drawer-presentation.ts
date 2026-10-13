@@ -67,6 +67,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(capability => {
       if (active) setSupported(capability.contractVersion === 1 && capability.supported && capability.wholePresentation &&
         (port.family !== "history" || capability.historyActions === true) &&
+        (port.family !== "agent-profile" || capability.agentProfileMenu === true) &&
         (!port.profileMenuRows || capability.profileMenuRows === true));
     }).catch(() => { if (active) setSupported(false); });
     return () => { active = false; void observer?.remove(); };
