@@ -650,7 +650,7 @@ describe("parallel local memory and encrypted sync", () => {
     const prior = snapshotVaultSessionEpoch();
     advanceVaultSessionEpoch();
     renewMarkdownMemorySession({ ...syncParams, previousEpoch: prior, vaultOwnerToken: "renewed", beforeEffect: async () => {} });
-    expect(await loadMarkdownMemory({ ...syncParams, vaultOwnerToken: "renewed" })).toMatchObject({ markdown: expect.stringContaining("# Soul.md") });
+    expect(await loadMarkdownMemory({ ...syncParams, vaultOwnerToken: "renewed" })).toMatchObject({ markdown: expect.stringContaining("# memory.md") });
     expect(getStaleFirst).toHaveBeenCalledOnce();
   });
 });
@@ -696,6 +696,8 @@ describe("encrypted Markdown memory", () => {
     expect(normalizeSoulDocument(cleaned)).toBe(cleaned);
     expect(normalizeSoulDocument("")).toBe("");
     expect(normalizeSoulDocument("# My document\n\nA paragraph.\n")).toBe("# My document\n\nA paragraph.\n");
+    const existingFacts = "\n\n## Facts\n- A note mentioning Soul.md.\n\n## Preferences\n- Short replies.\n";
+    expect(normalizeSoulDocument(`# Soul.md${existingFacts}`)).toBe(`# memory.md${existingFacts}`);
     getStaleFirst.mockResolvedValue({ data: { markdown: legacy } });
     const current = await loadMarkdownMemory(syncParams);
     savePreparedDomain.mockImplementation(async params => {
@@ -872,7 +874,7 @@ describe("encrypted Markdown memory", () => {
     });
 
     expect(result).toMatchObject({ success: true, saved: 1 });
-    expect(written?.markdown).toContain("# Soul.md");
+    expect(written?.markdown).toContain("# memory.md");
     expect(written?.markdown).not.toContain("Private-agent PKM context");
     expect(written?.markdown).toContain("- Studies mechanical engineering.");
   });
