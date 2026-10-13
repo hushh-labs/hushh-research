@@ -19,7 +19,10 @@ from zoneinfo import ZoneInfo
 
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
-from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
+from hushh_mcp.services.drive_owner_search_store import (
+    DriveOwnerSearchStore,
+    validate_reusable_packet,
+)
 from hushh_mcp.services.drive_sharing_contract import request_requires_explicit_dates
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation, drive_stage
 from hushh_mcp.services.drive_work_wake import wake_drive_work
@@ -626,10 +629,195 @@ def _advance_query(checkpoint):
 
 
 class DriveOwnerSearchService:
-    def __init__(self, store=None, transport=None, sharing=None):
+    def __init__(
+        self,
+        store=None,
+        transport=None,
+        sharing=None,
+        *,
+        facts=None,
+        packets=None,
+        packet_matcher=None,
+        packet_checker=None,
+    ):
         self.store = store or DriveOwnerSearchStore()
         self.transport = transport or GoogleDriveRestTransport()
         self.sharing = sharing
+        self.facts = facts
+        self.packets = packets
+        self.packet_matcher = packet_matcher
+        self.packet_checker = packet_checker
+
+    def _facts_store(self):
+        if self.facts is None:
+            from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
+
+            self.facts = DriveDocumentFactsStore(db=self.store.db)
+        return self.facts
+
+    def _packet_store(self):
+        if self.packets is None:
+            from hushh_mcp.services.drive_packet_store import DrivePacketStore
+
+            self.packets = DrivePacketStore(db=self.store.db)
+        return self.packets
+
+    async def request_evidence_route(self, *, user_id, reusable_packet=None, request=None):
+        if reusable_packet is not None:
+            manifest = await self._packet_store().current_packet_manifest(
+                owner_user_id=user_id,
+                packet_id=reusable_packet["packetId"],
+                version=reusable_packet["version"],
+            )
+            validate_reusable_packet(manifest, reusable_packet, user_id)
+            return {"kind": "packet", "reusable_packet": reusable_packet}
+        try:
+            status = await self._facts_store().current_index_status(owner_user_id=user_id)
+        except DriveReadError as error:
+            if str(error) not in {
+                "collection_processing_required",
+                "background_preparation_required",
+                "connector_unavailable",
+            }:
+                raise
+            return {"kind": "provider", "fallback_reason": "collection_not_enabled"}
+        if status["complete"]:
+            if request is not None:
+                matched = await self._match_canonical_packet(user_id=user_id, request=request)
+                if matched is not None:
+                    return {**matched, "index_snapshot": status}
+            return {"kind": "index", "index_snapshot": status}
+        return {
+            "kind": "hybrid" if status.get("indexed", 0) else "provider",
+            "fallback_reason": "index_incomplete",
+            "index_snapshot": status,
+        }
+
+    async def _match_canonical_packet(self, *, user_id, request):
+        from hushh_mcp.services.drive_packet_intelligence import match_request_packet
+
+        matcher = self.packet_matcher or match_request_packet
+        cursor, candidates, manifests = None, [], {}
+        source_facts = {}
+        # Bound both request latency and model context. If the catalogue exceeds
+        # this window, use the full paged index; never pick the first match.
+        for _ in range(2):
+            page = await self._packet_store().list_packets(user_id=user_id, cursor=cursor, limit=25)
+            for item in page["packets"]:
+                if (
+                    item["state"] != "ready"
+                    or item["freshness"] != "current"
+                    or not 0 < item["documentCount"] <= 120
+                ):
+                    continue
+                try:
+                    manifest = await self._packet_store().current_packet_manifest(
+                        owner_user_id=user_id, packet_id=item["packetId"], version=item["version"]
+                    )
+                except DriveReadError as error:
+                    if str(error) == "packet_unavailable":
+                        continue
+                    raise
+                identities = []
+                for source in manifest["sources"]:
+                    identity = tuple(
+                        source[key] for key in ("document_id", "source_version", "facts_version")
+                    )
+                    if identity not in source_facts:
+                        if len(source_facts) == 120:
+                            return None
+                        document = await self._facts_store().current_document(
+                            owner_user_id=user_id,
+                            **{
+                                key: source[key]
+                                for key in ("document_id", "source_version", "facts_version")
+                            },
+                        )
+                        facts = document["facts"]
+                        source_facts[identity] = {
+                            "document_id": source["document_id"],
+                            "source_version": source["source_version"],
+                            "facts_version": source["facts_version"],
+                            "evidence_complete": document["complete"],
+                            **{
+                                key: facts[key]["value"] if facts.get(key) else None
+                                for key in ("document_type", "issuer", "subject", "account")
+                            },
+                            "content_periods": [
+                                {"start": item["start"], "end": item["end"]}
+                                for item in facts["periods"]
+                            ],
+                            "topics": [item["value"] for item in facts["topics"]],
+                            "missing_information": facts["missing_information"],
+                            "ambiguous": facts["ambiguous"],
+                        }
+                    identities.append(source_facts[identity])
+                candidates.append(
+                    {
+                        "packet_id": manifest["packet_id"],
+                        "version": manifest["version"],
+                        "assessment": manifest["assessment"],
+                        "verification": manifest["verification"],
+                        "document_count": len(manifest["sources"]),
+                        "current_source_facts": identities,
+                    }
+                )
+                manifests[(manifest["packet_id"], manifest["version"])] = manifest
+            cursor = page["nextCursor"]
+            if cursor is None:
+                break
+        if (
+            cursor is not None
+            or not candidates
+            or len(json.dumps(candidates, ensure_ascii=False).encode()) > 128 * 1024
+        ):
+            return None
+        try:
+            async with asyncio.timeout(55):
+                result = await matcher(user_id=user_id, request=request, packets=candidates)
+        except Exception:  # noqa: BLE001 - optional model routing never hides the full index
+            logger.info("drive_search.packet_match status=unavailable")
+            return None
+        if result.decision != "exact":
+            return None
+        manifest = manifests.get((result.packet_id, result.version))
+        if manifest is None:
+            raise DriveReadError("provider_response_invalid")
+        from hushh_mcp.services.drive_packet_intelligence import verify_packet
+
+        checker = self.packet_checker or verify_packet
+        selected = next(
+            item
+            for item in candidates
+            if item["packet_id"] == result.packet_id and item["version"] == result.version
+        )
+        try:
+            async with asyncio.timeout(55):
+                checked = await checker(
+                    user_id=user_id,
+                    packet={**manifest["assessment"], "document_request": request},
+                    documents=selected["current_source_facts"],
+                    complete=True,
+                    batch_scope="complete_current_request_packet",
+                )
+        except Exception:  # noqa: BLE001 - fallback still evaluates the full index
+            logger.info("drive_search.packet_request_check status=unavailable")
+            return None
+        if checked.state != "ready":
+            return None
+        binding = {
+            "packetId": manifest["packet_id"],
+            "version": manifest["version"],
+            "manifestDigest": manifest["digest"],
+            "listingRevision": manifest["listing_revision"],
+            "priceCents": manifest["price_cents"],
+            "ownerUserId": user_id,
+        }
+        return {
+            "kind": "packet",
+            "matched_packet": binding,
+            "request_packet_verification": checked.model_dump(mode="json"),
+        }
 
     @staticmethod
     def _request(query, timezone):
@@ -725,11 +913,17 @@ class DriveOwnerSearchService:
         authority_mode="owner",
         requested_at: datetime | None = None,
         after_page=None,
+        evidence_route=None,
     ):
         """Start or resume the owner-approved request's durable metadata search."""
         if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
             raise DriveReadError("invalid_argument")
-        if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+        route = evidence_route or {"kind": "provider"}
+        indexed = route["kind"] in {"index", "packet"}
+        if (
+            not (purpose.get("periodStart") and purpose.get("periodEnd"))
+            and route["kind"] != "packet"
+        ):
             raise DriveReadError("date_range_required")
         await require_current()
         query = purpose["purpose"]
@@ -740,14 +934,18 @@ class DriveOwnerSearchService:
             if existing["status"] not in {"failed", "limited", "stopped"}:
                 return existing
             await self.store.clear_terminal_request(user_id=user_id, request_id=request_id)
-        queries, period = compile_request_queries(
-            plan, purpose, timezone, requested_at=requested_at
-        )
+        if indexed:
+            period = {"start": purpose.get("periodStart"), "end": purpose.get("periodEnd")}
+            queries = [{"arguments": {"orderBy": "modifiedTime desc"}}]
+        else:
+            queries, period = compile_request_queries(
+                plan, purpose, timezone, requested_at=requested_at
+            )
         time_intent = plan.get("time_intent", "document_coverage")
         owner_review_required = (
             time_intent == "document_coverage" or authority_mode == "agent_package"
         )
-        result_limit = plan.get("result_limit")
+        result_limit = None if indexed else plan.get("result_limit")
         direct_originals = (
             result_limit is not None and not plan.get("terms") and not plan.get("exact_title")
         )
@@ -764,6 +962,23 @@ class DriveOwnerSearchService:
                 "query_index": 0,
                 "request_origin_id": request_id,
                 "request_revision": request_revision,
+                "evidence_route": route["kind"],
+                **(
+                    {
+                        key: route[key]
+                        for key in (
+                            "reusable_packet",
+                            "matched_packet",
+                            "request_packet_verification",
+                        )
+                        if key in route
+                    }
+                ),
+                **(
+                    {"index_snapshot": route["index_snapshot"]} if "index_snapshot" in route else {}
+                ),
+                "index_cursor": None,
+                "packet_offset": 0,
                 "authority_mode": authority_mode,
                 "agent_package_required": authority_mode == "agent_package",
                 "request_shareability_version": 1,
@@ -783,6 +998,15 @@ class DriveOwnerSearchService:
                 "requested_period": period,
                 "coverage_manifest": {
                     "corpora": ["user", "member_shared_drives"],
+                    "retrievalSource": {
+                        "index": "document_index",
+                        "packet": "reusable_packet",
+                        "hybrid": "index_and_google_drive",
+                        "provider": "google_drive",
+                    }[route["kind"]],
+                    "retrievalCompleteness": "verified_index" if indexed else "provider_candidates",
+                    "fallbackReason": route.get("fallback_reason"),
+                    "lastIndexedAt": route.get("index_snapshot", {}).get("last_synced_at"),
                     "fileKind": plan.get("file_kind", "any"),
                     "requestedPeriod": period,
                     "timeIntent": time_intent,
@@ -801,7 +1025,11 @@ class DriveOwnerSearchService:
                 "coverage_counts": {},
                 "folder_queue": [],
                 "folder_digests": [],
-                "phase": "user",
+                "phase": "index"
+                if route["kind"] == "hybrid"
+                else route["kind"]
+                if indexed
+                else "user",
                 "page_token": None,
                 "drive_page_token": None,
                 "drives": [],
@@ -1157,7 +1385,111 @@ class DriveOwnerSearchService:
             )
         return files, incomplete
 
+    async def _indexed_page(self, job):
+        checkpoint = copy.deepcopy(job["checkpoint"])
+        if checkpoint["evidence_route"] == "packet":
+            binding = checkpoint.get("reusable_packet") or checkpoint["matched_packet"]
+            manifest = await self._packet_store().current_packet_manifest(
+                owner_user_id=job["user_id"],
+                packet_id=binding["packetId"],
+                version=binding["version"],
+            )
+            validate_reusable_packet(manifest, binding, job["user_id"])
+            offset = checkpoint["packet_offset"]
+            sources = manifest["sources"][offset : offset + PAGE_SIZE]
+            documents = [
+                {**source, "metadata": manifest["source_metadata"][source["document_id"]]}
+                for source in sources
+            ]
+            checkpoint["packet_offset"] += len(documents)
+            done = checkpoint["packet_offset"] == len(manifest["sources"])
+        else:
+            current = await self._facts_store().current_index_status(owner_user_id=job["user_id"])
+            if (
+                checkpoint["evidence_route"] == "index"
+                and not current["complete"]
+                or current["signature"] != checkpoint["index_snapshot"]["signature"]
+            ):
+                raise DriveReadError("source_changed")
+            page = await self._facts_store().current_documents_page(
+                owner_user_id=job["user_id"], cursor=checkpoint["index_cursor"], limit=PAGE_SIZE
+            )
+            documents = page["documents"]
+            checkpoint["index_cursor"] = page["next_cursor"]
+            done = page["next_cursor"] is None
+        semaphore = asyncio.Semaphore(6)
+
+        async def candidate(document):
+            metadata = document["metadata"]
+            async with semaphore:
+                # The whole page is fenced before provider I/O and atomically
+                # at commit; avoid rescanning the collection per file.
+                result = await self.transport.read_tool(
+                    user_id=job["user_id"],
+                    tool_name="get_file_metadata",
+                    arguments={"fileId": metadata["file_id"]},
+                )
+                if result.is_error or result.truncated or not isinstance(result.payload, dict):
+                    raise DriveReadError("provider_response_invalid")
+                source = result.payload.get("file")
+                match = DriveLiveReader._match(source)
+                if (
+                    match is None
+                    or match["file_id"] != metadata["file_id"]
+                    or source.get("version") != document["source_version"]
+                    or match["name"] != metadata["name"]
+                    or source.get("trashed") is True
+                ):
+                    raise DriveReadError("source_changed")
+                capabilities = source.get("capabilities", {})
+                if (
+                    capabilities.get("canDownload") is not True
+                    or capabilities.get("canAccessViaGenAi") is False
+                ):
+                    raise DriveReadError("source_unavailable")
+                return {
+                    "id": match["file_id"],
+                    "name": match["name"],
+                    "mimeType": match["mime_type"],
+                    "modifiedTime": match["modified_time"],
+                    "createdTime": match.get("created_time"),
+                    "openUrl": match["open_url"],
+                    **_shareability(source),
+                    "indexedEvidence": {
+                        key: document[key]
+                        for key in ("document_id", "source_version", "facts_version")
+                    },
+                    "indexedEvidenceBytes": len(
+                        json.dumps(document.get("facts", {}), ensure_ascii=False).encode()
+                    )
+                    * 2,
+                    "requestEvidence": {
+                        "version": 1,
+                        "assessment": "unverified",
+                        "basis": "document_index",
+                    },
+                }
+
+        tasks = [asyncio.create_task(candidate(document)) for document in documents]
+        try:
+            files = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        _counter(checkpoint, "indexedDocumentsReused", len(files))
+        if done and checkpoint["evidence_route"] == "hybrid":
+            checkpoint["phase"] = "user"
+            done = False
+        return checkpoint, files, False, done
+
     async def _page(self, job, *, page_size_override=None):
+        if (
+            job["checkpoint"].get("evidence_route") in {"index", "packet"}
+            or job["checkpoint"].get("phase") == "index"
+        ):
+            return await self._indexed_page(job)
         checkpoint = copy.deepcopy(job["checkpoint"])
         if (
             checkpoint.get("request_origin_id")
@@ -1439,7 +1771,9 @@ class DriveOwnerSearchService:
                     page_started = time.monotonic()
                     phase = job["checkpoint"].get("phase")
                     phase = (
-                        phase if phase in {"user", "drives", "files", "folder_files"} else "unknown"
+                        phase
+                        if phase in {"user", "drives", "files", "folder_files", "index", "packet"}
+                        else "unknown"
                     )
                     page_outcome = "failed"
                     page_count = 0

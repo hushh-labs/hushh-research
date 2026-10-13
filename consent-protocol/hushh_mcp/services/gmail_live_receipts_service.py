@@ -791,6 +791,9 @@ def _validated_projection(
         and merchant_evidence_id == verified_merchant["id"]
         and merchant_name == verified_merchant["name"]
     )
+    if quoted_merchant:
+        # Apply the same length normalization used when validating the quote.
+        merchant_name = merchant_name.strip()
     if not quoted_merchant and not registry_merchant:
         # Merchant identity is optional. Fail closed on only this field so an
         # unsupported model claim cannot suppress an otherwise verified real
@@ -999,7 +1002,7 @@ class GmailLiveReceiptsService:
         return "grs1_" + base64.urlsafe_b64encode(nonce + sealed).decode().rstrip("=")
 
     def _open_locator(self, authority: _ReadAuthority, locator: str) -> str | None:
-        if not re.fullmatch(r"grs1_[A-Za-z0-9_-]{40,310}", locator):
+        if not re.fullmatch(r"grs1_[A-Za-z0-9_-]{39,310}", locator):
             return None
         try:
             sealed = base64.urlsafe_b64decode(locator[5:] + "=" * (-len(locator[5:]) % 4))

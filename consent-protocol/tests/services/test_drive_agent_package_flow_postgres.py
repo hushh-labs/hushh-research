@@ -159,7 +159,17 @@ async def test_allow_binds_exact_package_and_owner_cent_price_without_sending_fi
     # metadata-only sharing when the rollout flag is subsequently disabled.
     monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
     clear_runtime_settings_caches()
+    assert "packageDisclosure" not in await sharing.requester_context(
+        user_id="recipient", request_id=created["requestId"]
+    )
     result = await allow(sharing, created, ready)
+    context = await sharing.requester_context(user_id="recipient", request_id=created["requestId"])
+    disclosure = context["packageDisclosure"]
+    assert disclosure["selectedCount"] == 1
+    assert disclosure["coverageStatus"] == "unknown"  # no cited periods in fixture
+    assert disclosure["limitations"] and disclosure["periods"] == []
+    assert "Unrelated old record" not in str(disclosure)
+    assert disclosure["packageDigest"] == ready["digest"]
     assert result["ownerAllowed"] is True and result["amountCents"] == 125
     row, private = private_request(sharing, created["requestId"])
     marker = package_allow_marker(private)
@@ -312,7 +322,10 @@ async def test_46_evaluated_candidates_freeze_only_30_selected_before_checkout(
             )
         return {"status": "awaiting_payment"}
 
-    payment = SimpleNamespace(ensure_payment_for_frozen_batch=AsyncMock(side_effect=payment_ready))
+    payment = SimpleNamespace(
+        ensure_payment_for_frozen_batch=AsyncMock(side_effect=payment_ready),
+        payment_state=AsyncMock(return_value={"status": "awaiting_payment"}),
+    )
     service = DriveTrustedAutoService(
         sharing=sharing, bulk=request_bulk, payment=payment, wake=AsyncMock()
     )

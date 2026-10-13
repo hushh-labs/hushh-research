@@ -17,11 +17,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
-from hushh_mcp.services.drive_document_parser import ParseError
-
-# The live lane parses what the selected lane does, plus CSV (a Google Sheets
-# export or an uploaded .csv). Bound to this name so the read path is unchanged.
-from hushh_mcp.services.drive_document_parser import parse_live_document as parse_document
+from hushh_mcp.services.drive_document_processor import IsolatedDocumentParser
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
@@ -362,9 +358,11 @@ class GoogleDriveRestTransport:
             file_id=file_id, mime_type=metadata.mime_type, access_token=token
         )
         try:
-            parsed = parse_document(content, mime_type)
+            parsed = await IsolatedDocumentParser().parse(
+                content=content, mime_type=mime_type, live=True
+            )
             text = "\n\n".join(parsed.pages)
-        except ParseError as error:
+        except DriveReadError as error:
             code = str(error)
             if code in PARSE_REASONS:
                 return {"textFormattingNotSupported": True, "reason": code}

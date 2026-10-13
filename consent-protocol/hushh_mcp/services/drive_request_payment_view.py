@@ -129,6 +129,8 @@ def requester_payment_view(
     refund: Mapping[str, Any] | None = None,
     owner_payout_ready: bool | None = None,
     configured_mode: str | None = None,
+    package_disclosure_required: bool = False,
+    package_disclosure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the closed RequesterPaymentView shape for one request.
 
@@ -138,9 +140,18 @@ def requester_payment_view(
     when an enrolled bank-settled order is waiting for the owner's payout
     account, ``None`` when unknown or not applicable.
     """
+
+    def disclosed_view(*args, **kwargs) -> dict[str, Any]:
+        result = _view(*args, **kwargs)
+        if package_disclosure_required:
+            result["packageDisclosureRequired"] = True
+            if package_disclosure is not None:
+                result["packageDisclosure"] = package_disclosure
+        return result
+
     withdrawn = request_status == "cancelled"
     if not payment_required:
-        return _view(
+        return disclosed_view(
             "none", amount_cents=None, request_expires_at=request_expires_at, withdrawn=withdrawn
         )
     order_status = order.get("status") if order is not None else None
@@ -157,21 +168,21 @@ def requester_payment_view(
             "withdrawn": withdrawn,
         }
         if order_status == "refunded":
-            return _view(
+            return disclosed_view(
                 "refunded",
                 **paid,
                 refund={"status": "succeeded", "amountCents": refund_amount or order_amount},
             )
         if refund_status is not None and refund_amount is not None:
             if refund_status == "succeeded":
-                return _view(
+                return disclosed_view(
                     "partially_refunded"
                     if order_amount is not None and refund_amount < order_amount
                     else "refunded",
                     **paid,
                     refund={"status": "succeeded", "amountCents": refund_amount},
                 )
-            return _view(
+            return disclosed_view(
                 "refund_pending",
                 **paid,
                 refund={"status": refund_status, "amountCents": refund_amount},
@@ -179,12 +190,12 @@ def requester_payment_view(
         if order.get("reconciliation_reason") == "request_closed" and order_amount is not None:
             # Paid after the request closed: nothing can be delivered, and the
             # refund worker returns the full amount.
-            return _view(
+            return disclosed_view(
                 "refund_pending",
                 **paid,
                 refund={"status": "queued", "amountCents": order_amount},
             )
-        return _view("paid", **paid)
+        return disclosed_view("paid", **paid)
 
     amount = (
         order_amount
@@ -201,11 +212,11 @@ def requester_payment_view(
     if access_stopped or (
         request_status not in OPEN_REQUEST_STATUSES and request_status != "expired"
     ):
-        return _view("closed", **unpaid)
+        return disclosed_view("closed", **unpaid)
     if request_status == "expired" or (
         request_expires_at is not None and request_expires_at <= now
     ):
-        return _view("request_expired", **unpaid)
+        return disclosed_view("request_expired", **unpaid)
     if order is not None:
         expires_at = order.get("checkout_expires_at")
         if (
@@ -220,16 +231,16 @@ def requester_payment_view(
                 and (not isinstance(expires_at, datetime) or expires_at <= now)
             )
         ):
-            return _view("link_expired", **unpaid)
+            return disclosed_view("link_expired", **unpaid)
     if owner_payout_ready is False or (
         order is None and preparation_error_code in OWNER_SETUP_CODES
     ):
-        return _view("awaiting_owner", **unpaid)
+        return disclosed_view("awaiting_owner", **unpaid)
     if (
         order is not None
         and order_status == "checkout_open"
         and order.get("checkout_bound") is True
         and isinstance(order.get("checkout_expires_at"), datetime)
     ):
-        return _view("payable", **unpaid, checkout_expires_at=order["checkout_expires_at"])
-    return _view("preparing", **unpaid)
+        return disclosed_view("payable", **unpaid, checkout_expires_at=order["checkout_expires_at"])
+    return disclosed_view("preparing", **unpaid)

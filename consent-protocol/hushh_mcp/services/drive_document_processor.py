@@ -10,6 +10,7 @@ import asyncio
 import json
 import math
 import os
+import signal
 import struct
 import sys
 from dataclasses import asdict
@@ -23,6 +24,11 @@ from hushh_mcp.services.document_index_service import (
     PreparedIndex,
 )
 from hushh_mcp.services.drive_document_embedding import PROFILE, prepare_payload
+from hushh_mcp.services.drive_document_pages import (
+    MAX_BATCH_PAGES,
+    MAX_SOURCE_BYTES,
+    ExtractedPages,
+)
 from hushh_mcp.services.drive_document_parser import MAX_TEXT_BYTES, ParsedText
 from hushh_mcp.services.embedding_client_leaf import (
     BAKED_MODEL_DIR,
@@ -55,7 +61,11 @@ async def _private_process(
 ) -> dict:
     # Children do not inherit database credentials, Google tokens or cloud SDK
     # environment. Their only input is this bounded private byte stream.
-    scripts = {"parser": "drive_document_parser.py", "embedding": "drive_document_embedding.py"}
+    scripts = {
+        "parser": "drive_document_parser.py",
+        "embedding": "drive_document_embedding.py",
+        "pages": "drive_document_pages.py",
+    }
     if leaf not in scripts:
         raise DriveReadError("processor_unavailable")
     process = await asyncio.create_subprocess_exec(
@@ -65,6 +75,7 @@ async def _private_process(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
+        start_new_session=True,
         env={
             "PATH": os.defpath,
             "LANG": "C.UTF-8",
@@ -119,7 +130,14 @@ async def _private_process(
         raise DriveReadError("processing_timeout", retryable=True) from None
     finally:
         if process.returncode is None:
-            process.kill()
+            # Reap OCR descendants as well as the Python leaf on cancellation.
+            if type(getattr(process, "pid", None)) is int and os.name == "posix":
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
         await process.wait()
         if not writer.done():
             writer.cancel()
@@ -127,7 +145,7 @@ async def _private_process(
 
 
 class Scanner(Protocol):
-    async def scan(self, content: bytes) -> None: ...
+    async def scan(self, content: bytes, *, max_bytes: int = CONTENT_LIMIT) -> None: ...
 
 
 class _StaleSignatures(DriveReadError):
@@ -204,8 +222,12 @@ class ClamAvScanner:
                 except OSError:
                     pass
 
-    async def scan(self, content: bytes) -> None:
-        if not content or len(content) > CONTENT_LIMIT:
+    async def scan(self, content: bytes, *, max_bytes: int = CONTENT_LIMIT) -> None:
+        if (
+            max_bytes not in {CONTENT_LIMIT, MAX_SOURCE_BYTES}
+            or not content
+            or len(content) > max_bytes
+        ):
             raise DriveReadError("file_too_large")
         await self._require_fresh_signatures()
         writer = None
@@ -238,11 +260,11 @@ class ClamAvScanner:
 
 
 class IsolatedDocumentParser:
-    async def parse(self, *, content: bytes, mime_type: str) -> ParsedText:
+    async def parse(self, *, content: bytes, mime_type: str, live: bool = False) -> ParsedText:
         try:
             result = await _private_process(
                 "parser",
-                mime_type,
+                ("live:" if live else "") + mime_type,
                 content,
                 timeout=25,
                 limit=MAX_TEXT_BYTES * 6 + 4096,
@@ -355,3 +377,33 @@ class LocalDocumentProcessor:
             await self.scanner.scan(content)
             parsed = await self.parser.parse(content=content, mime_type=mime_type)
             return await self.embedder.prepare(parsed)
+
+    async def extract_pages(
+        self,
+        *,
+        content: bytes,
+        mime_type: str,
+        start_page: int = 1,
+        page_limit: int = MAX_BATCH_PAGES,
+    ) -> ExtractedPages:
+        """Full evidence lane; safe bounded batches are persisted by ingestion."""
+        if not content or len(content) > MAX_SOURCE_BYTES:
+            raise DriveReadError("file_too_large")
+        async with self._lock:
+            await self.scanner.scan(content, max_bytes=MAX_SOURCE_BYTES)
+            result = await _private_process(
+                "pages",
+                json.dumps(
+                    {"mime_type": mime_type, "start_page": start_page, "page_limit": page_limit}
+                ),
+                content,
+                timeout=75,
+                limit=2 * 1024 * 1024,
+            )
+            if "error" in result:
+                code = result["error"]
+                raise DriveReadError(code if code in PARSE_CODES else "processor_unavailable")
+            try:
+                return ExtractedPages.from_dict(result)
+            except (ValueError, KeyError, TypeError):
+                raise DriveReadError("index_response_invalid") from None

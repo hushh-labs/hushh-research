@@ -186,16 +186,11 @@ function OneFeedPreview({
 function ProfileCards({ close }: { close: () => void }) {
   return (
     <div className={styles.profile}>
-      <div className={styles.identityNote} data-app-pane-card>
-        <span className={styles.eyebrow}>ONE</span>
-        <h3 data-app-pane-row-title>Identity</h3>
-        <p>A place for One’s identity and what you’ve chosen to remember.</p>
-      </div>
       <SettingsPresentationProvider density="compact" separatorInset>
         <div data-app-pane-card>
           <SettingsGroup>
-            <SettingsRow icon={Heart} iconTone="capability" title="memory.md"
-              description={<>Voice, values, and personality.<br /><span>Identity preview</span></>} />
+            <SettingsRow icon={Heart} iconTone="capability" title="soul.md"
+              description={<>Voice, values, and personality.<br /><span>Soul preview</span></>} />
             <SettingsRow asChild icon={Fingerprint} iconTone="capability" title="memory.md"
               description="What you’ve chosen to remember." chevron>
               <Link href={ROUTES.PKM} onClick={close} aria-label="Open memory.md in Memory" />

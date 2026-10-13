@@ -32,7 +32,7 @@ JOB_STAGES = {
     "drive-work-sharing-uat": "sharing",
 }
 JOB_SCHEDULES = {
-    "drive-work-drain-uat": {"*/2 * * * *", "*/4 * * * *"},
+    "drive-work-drain-uat": {"*/2 * * * *", "*/4 * * * *", "* * * * *"},
     # Accept the pre-rollout schedule so an in-flight release can restore its
     # exact baseline, while new setup writes the one-minute cadence.
     "drive-work-suggestions-uat": {"* * * * *", "2-59/4 * * * *"},
@@ -42,7 +42,7 @@ JOB_SCHEDULES = {
 # JOB_SCHEDULES also retains legacy cadence values so rollback can validate a
 # snapshot captured before the one-minute recovery fix.
 CANONICAL_JOB_SCHEDULES = {
-    "drive-work-drain-uat": "*/4 * * * *",
+    "drive-work-drain-uat": "* * * * *",
     "drive-work-suggestions-uat": "* * * * *",
     "drive-work-sharing-uat": "* * * * *",
 }

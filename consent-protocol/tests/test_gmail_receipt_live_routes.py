@@ -18,6 +18,7 @@ def _item(source_id: str = "gmail_live_source.sig") -> dict:
     return {
         "id": -1,
         "source_id": source_id,
+        "durable_source_ref": "grs1_" + "a" * 40,
         "receipt_key": source_id,
         "source_kind": "gmail_live",
         "gmail_message_id": "provider-message-id",
@@ -29,6 +30,7 @@ def _item(source_id: str = "gmail_live_source.sig") -> dict:
         "from_email": "receipts@myntra.com",
         "order_id": "ORDER-100",
         "amount": 100.0,
+        "amount_decimal": "100.00",
         "currency": "INR",
         "receipt_date": "2026-10-04T00:00:00+00:00",
         "gmail_internal_date": "2026-10-04T00:00:00+00:00",
@@ -92,16 +94,16 @@ def test_scan_is_sealed_bounded_and_no_store(monkeypatch):
     service = MagicMock()
     service.scan = AsyncMock(
         return_value={
-            "items": [],
+            "items": [_item()],
             "page": 1,
             "per_page": 6,
-            "returned_count": 0,
+            "returned_count": 1,
             "has_more": False,
             "coverage": {
                 "source": "gmail_live",
-                "listed_count": 0,
-                "candidate_count": 0,
-                "matched_count": 0,
+                "listed_count": 1,
+                "candidate_count": 1,
+                "matched_count": 1,
                 "pages_scanned": 1,
                 "max_messages": 6,
                 "max_pages": 10,
@@ -132,6 +134,8 @@ def test_scan_is_sealed_bounded_and_no_store(monkeypatch):
     )
 
     assert response.status_code == 200
+    assert response.json()["items"][0]["durable_source_ref"] == _item()["durable_source_ref"]
+    assert response.json()["items"][0]["amount_decimal"] == "100.00"
     assert response.headers["cache-control"] == "private, no-store"
     assert response.headers["pragma"] == "no-cache"
     kwargs = service.scan.await_args.kwargs

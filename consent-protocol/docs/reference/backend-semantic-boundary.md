@@ -208,6 +208,31 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   not satisfy that gate. This is bounded synthetic evidence, not a calibration,
   production-corpus recall measurement or empirical market-price validation.
 
+### Declared: Continuous Drive evidence and reusable packets
+
+- Owner: existing Documents `agent_documents_suggestions` gene in
+  `hushh_mcp/agents/documents/agent.yaml`; modes `page_facts`, `document_facts`,
+  `canonical_packet`, and `packet_verification`. Request matching retains its
+  existing document/package modes. No keyword router decides relevance.
+- Output: `DocumentPageFacts`, `DocumentFacts`, `PacketAssessment`, and
+  `PacketVerification` in `services/drive_packet_contract.py`. Meaning, canonical
+  grouping, coverage, importance and suggested prices remain model decisions.
+- Validators account for every supplied page, exact page/unit quotation,
+  source/facts versions, complete processing, bounded context and approved
+  identities. Consolidation cannot invent citations; unfinished evidence cannot
+  be ready. A simpler provider JSON grammar avoids measured Vertex complexity
+  errors; all original Pydantic limits still apply to returned output.
+- Live evaluation: original PDFs, including image-only scans, through real OCR,
+  fact extraction, request selection and a separate runtime verifier using
+  `consent-protocol/scripts/eval_drive_pipeline.py` and
+  `consent-protocol/scripts/drive_pipeline_model_adapter.py`.
+  Independent fixture labels never enter model inputs. Preserve every failure,
+  report all-attempt denominators, model/prompt/schema/extraction versions and
+  latency. Synthetic results are a regression gate, never the 99.9% proof.
+- Permission and commerce: explicit collection processing consent is separate
+  from summary publication and exact buyer approval. Existing purchase/delivery
+  workers retain authority. A runtime checker is not an independent gold label.
+
 ### Declared: Soul.md reconciliation profile
 
 - Owners: existing Memory Segmentation, Intent, Merge and PKM Structure agents;

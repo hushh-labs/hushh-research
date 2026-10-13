@@ -63,7 +63,7 @@ export function validateReceiptSnapshot(v: unknown): ReceiptSnapshot {
     rowRefs.add(String(r.ref));
     for (const e of r.events) {
       record(e, ["ref", "locator", "document_kind", "status", "kind", "date", "amount", "currency"]);
-      if ((typeof e.ref !== "string" || !REF.test(e.ref)) || eventRefs.has(String(e.ref)) || (e.locator !== null && (typeof e.locator !== "string" || !/^grs1_[A-Za-z0-9_-]{40,310}$/.test(e.locator))) || !member(e.document_kind, DOCS) || !member(e.status, STATUSES) || !oneOf(e.kind, ["purchase", "fulfillment", "refund", "cancellation", "unknown"]) || !date(e.date) || (e.amount !== null && (typeof e.amount !== "string" || !DECIMAL.test(e.amount))) || !member(e.currency, ["USD", "INR", "EUR", "GBP", "$"])) throw new Error("Invalid receipt event.");
+      if ((typeof e.ref !== "string" || !REF.test(e.ref)) || eventRefs.has(String(e.ref)) || (e.locator !== null && (typeof e.locator !== "string" || !/^grs1_[A-Za-z0-9_-]{39,310}$/.test(e.locator))) || !member(e.document_kind, DOCS) || !member(e.status, STATUSES) || !oneOf(e.kind, ["purchase", "fulfillment", "refund", "cancellation", "unknown"]) || !date(e.date) || (e.amount !== null && (typeof e.amount !== "string" || !DECIMAL.test(e.amount))) || !member(e.currency, ["USD", "INR", "EUR", "GBP", "$"])) throw new Error("Invalid receipt event.");
       eventRefs.add(String(e.ref));
     }
     if (!r.events.some(e => e.ref === r.primary_event_ref)) throw new Error("Receipt representative is missing.");

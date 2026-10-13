@@ -5,7 +5,7 @@ open transaction, so they share its locks, cipher and row helpers without an
 import cycle. Nothing here calls a provider.
 
 Requester-safe fields only: their own words, dates and email, the price, their
-own refund, counts and public reason codes. Never owner coverage, file names,
+own refund, counts and public reason codes. Only approved package coverage; never file names,
 Drive or trust state, owner fees or earnings.
 """
 
@@ -19,6 +19,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+from hushh_mcp.services.drive_owner_allowed import valid_owner_price_cents
+from hushh_mcp.services.drive_request_package_disclosure import buyer_package_disclosure
 from hushh_mcp.services.drive_request_recovery_view import (
     MAX_REVIEW_REQUESTS,
     requester_recovery_view,
@@ -34,7 +36,7 @@ PRICE_STATES = frozenset({"estimate", "owner_set", "final", "awaiting_owner"})
 
 
 def _price(value: Any) -> int | None:
-    return value if type(value) is int and 100 <= value <= 50000 and value % 100 == 0 else None
+    return value if valid_owner_price_cents(value) else None
 
 
 def requester_price_view(
@@ -79,7 +81,7 @@ def requester_context(store, connection, *, user_id: str, request_id: str) -> di
     """
     row = store._row(
         connection,
-        """SELECT request_id,user_id,request_envelope,payment_required,created_at
+        """SELECT request_id,user_id,request_envelope,payment_required,created_at,revision,owner_allowed_at
            FROM drive_share_requests WHERE request_id=:id AND recipient_user_id=:user""",
         {"id": str(UUID(request_id)), "user": user_id},
     )
@@ -92,12 +94,17 @@ def requester_context(store, connection, *, user_id: str, request_id: str) -> di
     recipient = private.get("recipient")
     email = recipient.get("email") if isinstance(recipient, dict) else None
     time_zone = private.get("request_time_zone")
+    disclosure = buyer_package_disclosure(
+        private, request_revision=row["revision"], owner_allowed_at=row["owner_allowed_at"]
+    )
     return {
         "requestId": str(row["request_id"]),
+        "requestRevision": row["revision"],
         "purpose": purpose.model_dump(),
         "recipientEmail": email if isinstance(email, str) else None,
         "requestedAt": row["created_at"].isoformat(),
         "timeZone": time_zone if isinstance(time_zone, str) else None,
+        **({"packageDisclosure": disclosure} if disclosure is not None else {}),
     }
 
 

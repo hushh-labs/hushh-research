@@ -46,6 +46,7 @@ test.beforeAll(async () => {
         })),
         ...[
           "@/hooks/use-auth",
+          "@/lib/services/auth-service",
           "@/lib/services/api-service",
           "@/lib/cache/cache-sync-service",
           "@/lib/capacitor",

@@ -74,7 +74,7 @@ def test_scheduler_targets_only_the_bounded_oidc_drain_and_never_mutates_runtime
     assert "--http-method=POST" in source
     assert '--message-body="{\\"stage\\":\\"${STAGE}\\"}"' in source
     for name, stage, cron in (
-        ("drive-work-drain-uat", "documents", "*/4 * * * *"),
+        ("drive-work-drain-uat", "documents", "* * * * *"),
         ("drive-work-suggestions-uat", "suggestions", "* * * * *"),
         ("drive-work-sharing-uat", "sharing", "* * * * *"),
     ):
