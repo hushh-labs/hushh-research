@@ -796,9 +796,10 @@ def test_non_trusted_approval_creates_order_without_premature_pay_notification(
 
 def test_new_owner_settlement_never_falls_back_to_platform_price():
     private = {"owner_settlement_required": True}
-    for missing_price in (None, 0, 1050):
+    for missing_price in (None, 0, 49):
         with pytest.raises(DriveSharingError, match="owner_price_required"):
             _order_amount_cents({"quoted_amount_cents": missing_price}, private)
+    assert _order_amount_cents({"quoted_amount_cents": 1050}, private) == 1050
     assert _order_amount_cents({"quoted_amount_cents": 200}, private) == 200
     assert _order_amount_cents({}, {}) == 1000  # Legacy payment terms stay unchanged.
 
