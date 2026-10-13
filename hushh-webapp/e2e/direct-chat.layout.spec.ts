@@ -555,9 +555,12 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await page.evaluate(() => { document.documentElement.classList.remove('kb-open', 'native-keyboard-inset'); document.documentElement.style.removeProperty("--kb-height"); });
   const edited = page.locator('[data-chat-message]').filter({ hasText: "Edited reply" });
   await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "React to message" }).click();
+  await fixture(page, "fixture.holdReaction()");
   await page.getByRole("button", { name: "React ❤️", exact: true }).click();
   await expect(edited.getByRole("button", { name: "❤️ reaction, 1", exact: true })).toBeVisible();
-  await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "Message options" }).click();
+  await edited.locator("[data-chat-bubble]").click();
+  await fixture(page, "fixture.releaseReaction()");
+  await edited.getByRole("button", { name: "Message options" }).click();
   await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
   const deleted = page.getByText("This message was deleted.", { exact: true });

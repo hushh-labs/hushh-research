@@ -167,7 +167,7 @@ function alignSettledSwipePosition(api: EmblaCarouselType, index: number): void 
       typeof rendered !== "number" || !Number.isFinite(rendered) ||
       engine.dragHandler?.pointerDown?.()) return;
   const snap = index === 0 ? 0 : -(index * width);
-  if (Math.abs(rendered - snap) <= 0.5) return;
+  if (rendered === snap) return;
   engine.target.set(snap);
   engine.location.set(snap);
   engine.previousLocation.set(snap);

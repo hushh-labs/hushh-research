@@ -11,6 +11,8 @@ const deliveries: { conversationId: string; messageIds: string[] }[] = [];
 let delayOlder = false;
 let settleOlder: (() => void) | null = null;
 let olderPending = false;
+let delayReaction = false;
+let settleReaction: (() => void) | null = null;
 for (const conversationId of ["maya", "arjun"]) rows.set(conversationId, Array.from({ length: 80 }, (_, index) => ({
   id: `${conversationId}-${index}`, conversationId, senderIsViewer: index % 3 === 1,
   content: index === 79 ? "Let’s meet tomorrow. I’ll share the details here 😊" : index === 78 ? "https://example.com/" + "long-path".repeat(50) : `Message ${index + 1} — a friendly conversation.`,
@@ -35,6 +37,8 @@ let delayRead = false;
 let settleRead: (() => void) | null = null;
 const fixture = {
   sends, reads, deliveries,
+  holdReaction: () => { delayReaction = true; },
+  releaseReaction: () => { delayReaction = false; settleReaction?.(); settleReaction = null; },
   holdOlder: () => { delayOlder = true; }, olderPending: () => olderPending,
   releaseOlder: () => { delayOlder = false; settleOlder?.(); settleOlder = null; },
   quoteOldest: () => {
@@ -144,7 +148,9 @@ export class DirectMessagesService {
   }
   static async reactToMessage(input: { conversationId: string; messageId: string; emoji: string }) {
     const message = rows.get(input.conversationId)!.find((item) => item.id === input.messageId)!;
-    message.reactions = [{ emoji: input.emoji, count: 1, reactedByViewer: true }]; return { ...message };
+    message.reactions = [{ emoji: input.emoji, count: 1, reactedByViewer: true }];
+    if (delayReaction) await new Promise<void>(resolve => { settleReaction = resolve; });
+    return { ...message };
   }
   static async openEvents() { return new Response(new ReadableStream({ start() {} }), { status: 200 }); }
 }

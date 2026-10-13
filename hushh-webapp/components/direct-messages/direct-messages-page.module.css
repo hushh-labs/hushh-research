@@ -568,6 +568,12 @@ article[data-actions-visible="true"] .messageActions {
   pointer-events: auto;
 }
 
+/* A late action response or closing dialog must not disable the target under
+   the pointer. Keyboard and touch ownership still follow the active row. */
+@media (hover: hover) and (pointer: fine) {
+  .messageFeedItem article:hover .messageActions { opacity: 1; pointer-events: auto; }
+}
+
 .messageActionButton {
   display: inline-grid;
   width: 1.75rem;
