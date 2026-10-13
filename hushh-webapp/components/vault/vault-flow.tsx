@@ -17,6 +17,7 @@ import {
   Loader2,
   AlertCircle,
   Key,
+  AccentedKeyIcon,
   Check,
   Copy,
   Download,
@@ -41,7 +42,6 @@ import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
 import {
-  ProfilePaneKeyIcon,
   ProfilePanePreviewIcon,
   ProfilePanePreviewOffIcon,
 } from "@/components/profile/profile-pane-icons";
@@ -1844,7 +1844,7 @@ export function VaultFlow({
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <ProfilePaneKeyIcon size={18} className="shrink-0" />
+                    <AccentedKeyIcon size={18} className="shrink-0" />
                     <Input
                       id="passphrase"
                       type={showPassphrase ? "text" : "password"}
@@ -1879,7 +1879,7 @@ export function VaultFlow({
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <ProfilePaneKeyIcon size={18} className="shrink-0" />
+                    <AccentedKeyIcon size={18} className="shrink-0" />
                     <Input
                       id="confirm"
                       type={showConfirmPassphrase ? "text" : "password"}
@@ -2005,7 +2005,7 @@ export function VaultFlow({
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <ProfilePaneKeyIcon size={18} className="shrink-0" />
+                    <AccentedKeyIcon size={18} className="shrink-0" />
                     <Input
                       id="unlock-passphrase"
                       type={showPassphrase ? "text" : "password"}

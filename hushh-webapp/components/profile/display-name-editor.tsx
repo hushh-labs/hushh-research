@@ -285,13 +285,13 @@ export function DisplayNameEditor({
             id={helpId}
             className="flex items-baseline justify-between gap-3"
           >
-            <span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">
               {shownName
                 ? `Shown to people you share with. Currently ${shownName}.`
                 : "Shown to people you share with."}
             </span>
             <span
-              className="tabular-nums text-muted-foreground"
+              className="shrink-0 whitespace-nowrap tabular-nums text-muted-foreground"
               aria-hidden="true"
               data-testid="display-name-count"
             >

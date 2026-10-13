@@ -5228,6 +5228,7 @@ function ProfilePageContent({
         <AlertDialogContent
           className={cn(
             "w-[calc(100%-1rem)] sm:max-w-lg",
+            accountStyles.accountDialogCompact,
             isPanePresentation && accountStyles.accountDialog,
             isPanePresentation && accountStyles.dangerDialog,
           )}
@@ -5270,6 +5271,7 @@ function ProfilePageContent({
         <AlertDialogContent
           className={cn(
             "w-[calc(100%-1rem)] sm:max-w-lg",
+            accountStyles.accountDialogCompact,
             isPanePresentation && accountStyles.accountDialog,
           )}
           overlayClassName={

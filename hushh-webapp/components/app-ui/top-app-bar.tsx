@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BriefcaseBusiness,
   Code2,
-  KeyRound,
+  AccentedKeyIcon,
   LayoutDashboard,
   type LucideIcon,
   Loader2,
@@ -1263,7 +1263,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                             aria-label="Unlock vault"
                             onClick={() => setVaultUnlockOpen(true)}
                           >
-                            <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
+                            <AccentedKeyIcon size={20} className="h-5 w-5" />
                           </ShellActionSurface>
                         ) : null}
 
