@@ -217,6 +217,14 @@ async function poll() {
     await state.periodic.mock.lastCall?.[2]();
   });
 }
+const agentPackage = (overrides: Record<string, unknown> = {}) => ({
+  status: "ready", revision: 2, digest: "b".repeat(64), selectedCount: 4,
+  evaluatedCount: 8, candidateCount: 12, confidenceScore: 82,
+  confidenceBasis: "model_assessment", importanceScore: 175,
+  suggestedPriceCents: 1050, priceReason: "Four relevant records with partial coverage.",
+  summary: "The package covers January and March.", coverageStatus: "partial",
+  gaps: ["February is missing."], canAllow: true, ...overrides,
+});
 describe("exact-file document review", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -252,6 +260,83 @@ describe("exact-file document review", () => {
     cleanup();
     vi.restoreAllMocks();
   });
+  it("polls a preparing package, then approves its exact digest with an editable suggested price", async () => {
+    state.status.mockResolvedValue(pending(3));
+    state.review.mockResolvedValue(partial({ revision: 3, trustedAuto: true, durableAvailable: true,
+      agentPackage: agentPackage({ status: "preparing", canAllow: false, digest: null }) }));
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(await screen.findByText("Preparing your file package")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
+    expect(state.periodic.mock.lastCall?.[3]).toMatchObject({ enabled: true });
+    expect(state.prepare).not.toHaveBeenCalled();
+    expect(state.startRequestSearch).not.toHaveBeenCalled();
+    state.review.mockResolvedValue(partial({ revision: 3, paymentRequired: true,
+      ownerPriceRequired: true, priceCents: 2000, agentPackage: agentPackage() }));
+    await poll();
+    expect(await screen.findByText("Package ready for your decision")).toBeVisible();
+    expect(screen.getByText("82/100")).toBeVisible();
+    expect(screen.getByText("175/500")).toBeVisible();
+    expect(screen.getByText("February is missing.")).toBeVisible();
+    expect(screen.getByText("4 files")).toBeVisible();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(state.requestSearchFiles).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    expect(priceSheet.props).toMatchObject({ moneyPolicy: "drive_cents", initialAmountCents: 1050 });
+    state.review.mockResolvedValue(partial({ revision: 4, paymentRequired: true, priceCents: 2000,
+      agentPackage: agentPackage({ status: "allowed", canAllow: false }) }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit $20" }));
+    await waitFor(() => expect(state.allow).toHaveBeenCalledWith("owner-a", requestId,
+      { revision: 3, amountCents: 2000, packageRevision: 2, packageDigest: "b".repeat(64) }, expect.any(Function)));
+    expect(await screen.findByText("The requester pays before this approved package is shared.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(state.approve).not.toHaveBeenCalled();
+    expect(state.prepareRequestBulk).not.toHaveBeenCalled();
+  });
+
+  it("reuses background Drive setup before polling package preparation", async () => {
+    state.status.mockResolvedValue(pending(3));
+    state.review.mockResolvedValue(partial({ revision: 3, preparationError: "background_preparation_required",
+      agentPackage: agentPackage({ status: "preparing", canAllow: false, digest: null }) }));
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(await screen.findByText("Background Drive access needed")).toBeVisible();
+    expect(state.periodic.mock.lastCall?.[3]).toMatchObject({ enabled: false });
+    state.review.mockResolvedValue(partial({ revision: 3,
+      agentPackage: agentPackage({ status: "preparing", canAllow: false, digest: null }) }));
+    fireEvent.click(screen.getByRole("button", { name: "Enable background Drive access" }));
+    await waitFor(() => expect(state.setLiveBackground).toHaveBeenCalledWith("owner-a", true));
+    expect(await screen.findByText("Preparing your file package")).toBeVisible();
+    expect(state.periodic.mock.lastCall?.[3]).toMatchObject({ enabled: true });
+    expect(state.allow).not.toHaveBeenCalled();
+  });
+
+  it("closes the price decision when a ready package is replaced", async () => {
+    state.status.mockResolvedValue(pending(3));
+    state.review.mockResolvedValue(partial({ revision: 3, paymentRequired: true, agentPackage: agentPackage() }));
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+    expect(screen.getByRole("dialog", { name: "Set a price" })).toBeVisible();
+    state.review.mockResolvedValue(partial({ revision: 4, paymentRequired: true,
+      agentPackage: agentPackage({ revision: 3, digest: "c".repeat(64), summary: "A different package." }) }));
+    await poll();
+    expect(await screen.findByText("A different package.")).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Set a price" })).toBeNull();
+    expect(state.allow).not.toHaveBeenCalled();
+  });
+
+  it.each(["stale", "unavailable", "no_match"])("blocks Allow for a %s package and keeps Deny available", async (status) => {
+    state.status.mockResolvedValue(pending(3));
+    state.review.mockResolvedValue(partial({ revision: 3, allowAvailable: true,
+      agentPackage: agentPackage({ status, canAllow: false }) }));
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Allow" })).toBeDisabled();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(state.periodic.mock.lastCall?.[3]).toMatchObject({ enabled: false });
+    fireEvent.click(screen.getByRole("button", { name: /^Deny/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Confirm.*Deny|Deny.*confirm/i }));
+    await waitFor(() => expect(state.decide).toHaveBeenCalledWith("owner-a", requestId, "decline", 3, expect.any(Function)));
+    expect(state.allow).not.toHaveBeenCalled();
+  });
+
   it("opens for review only, renders untrusted names as text and requires explicit sharing", async () => {
     const changed = vi.fn();
     render(<DocumentShareReview requestId={requestId} onChanged={changed} />);
@@ -1133,7 +1218,7 @@ describe("exact-file document review", () => {
         purpose: "Statements", paymentRequired: true, busy: false, error: null });
       // A refused price keeps the decision open and says what to change.
       fireEvent.click(screen.getByRole("button", { name: "Submit $20" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a whole-dollar price from $1 to $500.");
+      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a price from $0.50 to $500.");
       expect(screen.getByRole("dialog", { name: "Set a price" })).toBeVisible();
       expect(changed).not.toHaveBeenCalled();
 

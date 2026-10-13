@@ -253,7 +253,7 @@ describe("projectFeedDriveProgress", () => {
     } }).title).toBe("Pay $20 · Standup notes");
   });
 
-  it("drops a payment row unless the amount is a whole-dollar USD price from $1 to $500", () => {
+  it("drops a payment row unless the amount is a integer-cent USD price from $0.50 to $500", () => {
     const payment = (paymentAmountCents: unknown, paymentCurrency = "usd") => entry({
       kind: "outgoing_request", metadata: {
         ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
@@ -261,8 +261,8 @@ describe("projectFeedDriveProgress", () => {
         paymentAmountCents, paymentCurrency,
       },
     });
-    expect(projectFeedDrivePayments([payment(2000)])).toHaveLength(1);
-    for (const invalid of [payment(150), payment(0), payment(60_000), payment(2000.5), payment(2000, "eur")]) {
+    expect(projectFeedDrivePayments([payment(51)])[0]).toMatchObject({ amountCents: 51, title: "Pay $0.51 for your document request" });
+    for (const invalid of [payment(49), payment(0), payment(60_000), payment(2000.5), payment(2000, "eur")]) {
       expect(projectFeedDrivePayments([invalid])).toEqual([]);
     }
   });

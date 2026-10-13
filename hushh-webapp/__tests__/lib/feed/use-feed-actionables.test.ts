@@ -92,6 +92,11 @@ describe("isOwnerDecidableDocumentRequest", () => {
     expect(isOwnerDecidableDocumentRequest(decidable({ owner_decision_available: "true" }))).toBe(false);
   });
 
+  it("routes prepared packages to their review instead of inline approval", () => {
+    expect(ownerDocumentDecision(decidable({ agent_package: true }))).toBeNull();
+    expect(ownerDocumentDecision(decidable({ agent_package: false }))).not.toBeNull();
+  });
+
   it("never offers the requester's own outgoing request", () => {
     expect(
       isOwnerDecidableDocumentRequest(

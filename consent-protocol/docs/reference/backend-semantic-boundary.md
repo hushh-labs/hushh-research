@@ -185,6 +185,29 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: Drive request package assessment
+
+- Owner: the existing Documents `agent_documents_suggestions` gene, with explicit
+  `document_assessment` and `package_assessment` task modes in
+  `hushh_mcp/agents/documents/agent.yaml`; no parallel router or direct model prompt.
+- Output: `DocumentBatchAssessment` and `PackageAssessment` in
+  `hushh_mcp/services/drive_request_package_assessment.py`. The gene decides
+  relevance, content periods, inclusion, coverage, confidence (0–100 assessment,
+  not a probability), importance (1–500) and editable estimated USD cents (50–50000).
+- Validators check supplied document identity, exact same-document quotation,
+  source references, provider-version binding, calendar validity, bounded context,
+  typed money, and consistency with explicit truncation/unreadable evidence. They
+  reject invalid output; they never invent relevance, substitute prices, approve
+  sharing, or treat the model's confidence as measured accuracy. The caller owns
+  consent, current provider versions, request revision and exact package approval.
+- Live eval before promotion: `scripts/eval_drive_package_assessment.py --reps 3`
+  uses 12 synthetic gold-labeled cases, both real model stages and 36 repetitions.
+  Every exact document/package decision and money bound must pass, with zero
+  false acceptance or missing expected included file. It reports abstention,
+  precision, recall, latency and errors. Mock tests and model self-confidence do
+  not satisfy that gate. This is bounded synthetic evidence, not a calibration,
+  production-corpus recall measurement or empirical market-price validation.
+
 ### Declared: Soul.md reconciliation profile
 
 - Owners: existing Memory Segmentation, Intent, Merge and PKM Structure agents;
