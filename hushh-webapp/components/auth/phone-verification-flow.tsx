@@ -1,5 +1,7 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
+
 import {
   type CSSProperties,
   type FormEvent,
@@ -711,7 +713,7 @@ export function PhoneVerificationFlow({
       rejectedPhoneInputRef.current = false;
       setPhoneNumberError(null);
 
-      if (currentPhoneNumber && normalizedPhone === currentPhoneNumber) {
+      if (currentPhoneNumber && normalizedPhone === currentPhoneNumber && !Capacitor.isNativePlatform()) {
         trackEvent("phone_verification_completed", {
           action: "existing",
           result: "success",
@@ -793,6 +795,26 @@ export function PhoneVerificationFlow({
       busy,
     ],
   );
+
+  const handleContinueExisting = useCallback(async () => {
+    if (!Capacitor.isNativePlatform()) {
+      await onContinueExisting?.();
+      return;
+    }
+    if (busy || phoneFlowInFlightRef.current || !currentPhoneNumber) return;
+    phoneFlowInFlightRef.current = true;
+    setBusy(true);
+    try {
+      const result = await startVerification(currentPhoneNumber);
+      if (!result.autoVerified) throw new Error("Phone verification could not be synchronized. Please retry.");
+      await onContinueExisting?.();
+    } catch (error) {
+      morphyToast.error(error instanceof Error ? error.message : "Phone verification could not be synchronized. Please retry.");
+    } finally {
+      phoneFlowInFlightRef.current = false;
+      setBusy(false);
+    }
+  }, [busy, currentPhoneNumber, onContinueExisting, startVerification]);
 
   // Voice parity: "my phone number is +1 555 010 1234" fills the same fields
   // a typed entry would, then runs the exact same start-verification flow as
@@ -1017,7 +1039,8 @@ export function PhoneVerificationFlow({
           </p>
         </div>
         <Button
-          onClick={() => void onContinueExisting?.()}
+          onClick={() => void handleContinueExisting()}
+          disabled={busy}
           variant="none"
           effect="fill"
           size="default"

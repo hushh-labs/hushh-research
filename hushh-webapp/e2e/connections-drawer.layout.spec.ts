@@ -43,9 +43,9 @@ test.beforeAll(async () => {
         ...[
           "@/hooks/use-auth",
           "@/lib/services/auth-service",
-          "@/lib/cache/cache-sync-service",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
+          "@/lib/cache/cache-sync-service",
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
           "@/lib/services/gmail-receipts-service",

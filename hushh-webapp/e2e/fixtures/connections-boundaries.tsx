@@ -27,11 +27,6 @@ export const AuthService = {
   documentRequestIdentityToken: async () => "synthetic-firebase",
   linkGoogleIdentity: async () => { throw new Error("No identity mutation in the layout fixture"); },
 };
-// Keep real FeedService reads and the mounted feed preview. App-wide cache
-// invalidation belongs to mutations, which this read-only fixture never makes.
-export const CacheSyncService = {
-  onFeedChanged: () => { throw new Error("No feed mutation in the layout fixture"); },
-};
 export function useVault() {
   return { vaultOwnerToken: "synthetic-owner" };
 }
@@ -113,4 +108,13 @@ export const HushhKeychain = {
   get: async () => ({ value: null }),
   set: async () => { throw new Error("Not admitted in layout fixture"); },
   delete: async () => { throw new Error("Not admitted in layout fixture"); },
+};
+
+// The mounted Feed preview reads through the real service/cache/epoch paths.
+// Mutations are outside this fixture; keep their cold resource imports out of
+// its synthetic auth/PKM/Plaid boundaries and reject an unexpected write.
+export const CacheSyncService = {
+  onFeedChanged(_userId: string): never {
+    throw new Error("Feed mutations are not admitted in the read-only Connections layout fixture");
+  },
 };
