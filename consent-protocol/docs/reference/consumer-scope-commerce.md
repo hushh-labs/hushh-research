@@ -39,6 +39,13 @@ The immediately preceding candidate `78e118a69a76` passed canonical core in
 12 Chromium/WebKit layout cases, type checking and regenerated UI contracts;
 its completed-candidate core and hosted CI are still required.
 
+The subsequent main Wallet presentation update `bd4e93bec540` is also merged
+normally on this branch. Its Profile typography and icons retain the branch's
+owner/vault retirement guards and receipt-only copy history; all 57 affected
+frontend cases pass, with zero architecture regressions. The canonical financial
+rehearsal now opens Payments and earnings and its existing withdrawal/refund
+disclosures, reusing signed funding receipts rather than submitting them again.
+
 Research now uses existing private-placement admission before checkpoint reads,
 provider dispatch and result release. Invitation requests revalidate the owner
 and vault session after asynchronous key preparation; claims evaluate expiry
