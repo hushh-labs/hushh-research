@@ -371,9 +371,45 @@ END $$;"""
     return entry.sql[:start] + repair + entry.sql[end:]
 
 
+def _replay_referral_settings_sql(entry: MigrationManifestEntryV2) -> str:
+    # 289's original transition requires v2 to remain active forever. A later
+    # settings version or the published rollback can legitimately retire it.
+    # Replay must preserve that decision, never reactivate historical settings.
+    # Keep the immutable body and ledger checksum; adapt only this exact source.
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "52a25acc61327f6b7f3b69c905fae9425844c934ac7a1000e040d7f5b2737c65"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Legacy referral settings replay source checksum changed")
+    # All ten configuration comparisons and the final single-active invariant
+    # still execute. Never-activated, mismatched and zero-active states fail.
+    # The existing-v2 branch performs no UPDATE or INSERT, including after a
+    # deliberate rollback. Fresh v1-only databases retain the original transition.
+    return (
+        entry.sql.replace(
+            "IF v2_row.activated_at IS NULL OR v2_row.retired_at IS NOT NULL THEN",
+            "IF v2_row.activated_at IS NULL THEN",
+            1,
+        )
+        .replace(
+            "version 2 exists and is active, but its configuration",
+            "version 2 exists, but its configuration",
+            1,
+        )
+        .replace(
+            "version 2 already active with matching configuration; idempotent no-op",
+            "version 2 history matches; preserving current settings; idempotent no-op",
+            1,
+        )
+    )
+
+
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
     if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
         return _replay_drive_feed_sql(entry)
+    if entry.migration_id == "289" and entry.filename == "289_one_referral_program_settings_v2.sql":
+        return _replay_referral_settings_sql(entry)
     pinned = _BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS.get((entry.migration_id, entry.filename))
     if pinned:
         return _replay_bank_payout_event_sql(entry, pinned)

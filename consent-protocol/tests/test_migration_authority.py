@@ -227,6 +227,11 @@ async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
             "288_drive_request_feed_stream.sql",
             "b13a15ee0d27a4c78efd99718adb1996ecb8c54254dbf1377a250d8791424ee6",
         ),
+        (
+            289,
+            "289_one_referral_program_settings_v2.sql",
+            "52a25acc61327f6b7f3b69c905fae9425844c934ac7a1000e040d7f5b2737c65",
+        ),
     ],
 )
 async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
@@ -271,6 +276,7 @@ async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
     [
         "295_direct_message_attachments.sql",
         "288_drive_request_feed_stream.sql",
+        "289_one_referral_program_settings_v2.sql",
         "298_stripe_mode_isolation.sql",
         "304_connect_bank_payout_reconciliation.sql",
     ],
