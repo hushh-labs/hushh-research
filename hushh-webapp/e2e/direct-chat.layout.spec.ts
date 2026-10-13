@@ -109,7 +109,6 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   const bounds = (await navigation.boundingBox())!;
   expect(Math.abs(bounds.x + bounds.width / 2 - 393 / 2)).toBeLessThanOrEqual(1);
 });
-
 for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 844], [0, 844, 390]] as const) {
   test(`iOS Messages clears the status bar at ${inset}px in ${width}x${height} without covering the dock`, async ({ page }) => {
     await page.setViewportSize({ width, height });
@@ -126,7 +125,8 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
     const title = page.getByRole("heading", { name: "Arjun Mehta with a very long display name", exact: true });
     await expect(title).toBeVisible();
     expect((await title.boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
-    const dock = page.locator("[data-agent-bar-shell]");
+    const dock = page.locator("[data-bottom-shell-agent-slot] > [data-agent-bar-shell]");
+    await expect(dock).toHaveCount(1);
     const assertTranscriptClear = async () => {
       const bounds = (await canvas.boundingBox())!;
       expect(bounds.y).toBe(minimumTop);
@@ -251,7 +251,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
     await expect.poll(async () => (await send.boundingBox())!.y + (await send.boundingBox())!.height).toBeLessThanOrEqual(height! - inset + 1);
     await expect.poll(() => page.evaluate(() => {
       const transcript = document.querySelector('[data-testid="direct-message-list"]')!;
-      const dock = document.querySelector('[data-agent-bar-shell]')!;
+      const dock = document.querySelector('[data-bottom-shell-agent-slot] > [data-agent-bar-shell]')!;
       return transcript.getBoundingClientRect().bottom - dock.getBoundingClientRect().top;
     })).toBeLessThanOrEqual(1);
     const geometry = await editor.boundingBox(); const target = await send.boundingBox();
