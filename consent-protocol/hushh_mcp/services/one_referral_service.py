@@ -16,6 +16,7 @@ They do not see who, when precisely, which agent, or why something was held.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -44,6 +45,7 @@ from hushh_mcp.operons.referral.slug import (
     is_valid_slug,
     normalize_slug,
 )
+from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.one_referral_scoring_service import enqueue_scoring_work
 
 # What a referrer is told about where someone has reached. Deliberately about
@@ -143,73 +145,87 @@ def _display_name_for(connection, user_id: str) -> str | None:
     return row.display_name if row else None
 
 
-def get_or_create_referral_code(user_id: str, policy: ReferralPolicy) -> dict:
-    """This person's one active slug, minting it on first ask.
+def _active_referral_code(connection, user_id: str):
+    return connection.execute(
+        text("""
+            SELECT id, slug, normalized_slug, created_at
+              FROM one_referral_codes
+             WHERE owner_user_id = :uid AND status = 'active'
+             LIMIT 1
+        """),
+        {"uid": user_id},
+    ).fetchone()
 
-    Creation is idempotent under concurrency: two simultaneous first loads of
-    the Referrals tab both try to insert, the partial unique index lets exactly
-    one win, and the loser re-reads the winner's row instead of erroring.
-    """
-    with get_db_connection() as connection:
-        existing = connection.execute(
-            text(
-                """
-                SELECT slug, normalized_slug, created_at
-                  FROM one_referral_codes
-                 WHERE owner_user_id = :uid AND status = 'active'
-                 LIMIT 1
-                """
-            ),
-            {"uid": user_id},
-        ).fetchone()
-        if existing:
-            return {"slug": existing.slug, "normalized_slug": existing.normalized_slug}
 
-        display_name = _display_name_for(connection, user_id)
+def _code_dict(row) -> dict:
+    return {"id": str(row.id), "slug": row.slug, "normalized_slug": row.normalized_slug}
 
+
+def _allocate_referral_code(connection, user_id: str, policy: ReferralPolicy) -> dict:
+    """Allocate in the caller's transaction; collisions never abort that transaction."""
+    display_name = _display_name_for(connection, user_id)
     for _ in range(_SLUG_ATTEMPTS):
-        candidate = generate_slug(display_name)
-        normalized = normalize_slug(candidate)
+        normalized = normalize_slug(generate_slug(display_name))
         if not is_valid_slug(normalized):
             continue
-        try:
-            with get_db_connection() as connection:
-                connection.execute(
-                    text(
-                        """
-                        INSERT INTO one_referral_codes
-                          (owner_user_id, slug, normalized_slug, policy_version)
-                        VALUES (:uid, :slug, :normalized, :version)
-                        """
-                    ),
-                    {
-                        "uid": user_id,
-                        "slug": normalized,
-                        "normalized": normalized,
-                        "version": policy.version,
-                    },
-                )
-            return {"slug": normalized, "normalized_slug": normalized}
-        except Exception:  # noqa: BLE001 -- unique violation on either index
-            # Either this slug was taken, or this user won a race with
-            # themselves. Re-read before deciding which.
-            with get_db_connection() as connection:
-                row = connection.execute(
-                    text(
-                        """
-                        SELECT slug, normalized_slug
-                          FROM one_referral_codes
-                         WHERE owner_user_id = :uid AND status = 'active'
-                         LIMIT 1
-                        """
-                    ),
-                    {"uid": user_id},
-                ).fetchone()
-            if row:
-                return {"slug": row.slug, "normalized_slug": row.normalized_slug}
-            continue
-
+        row = connection.execute(
+            text("""
+                INSERT INTO one_referral_codes
+                  (owner_user_id, slug, normalized_slug, policy_version)
+                VALUES (:uid, :slug, :normalized, :version)
+                ON CONFLICT (normalized_slug) DO NOTHING
+                RETURNING id, slug, normalized_slug, created_at
+            """),
+            {
+                "uid": user_id,
+                "slug": normalized,
+                "normalized": normalized,
+                "version": policy.version,
+            },
+        ).fetchone()
+        if row:
+            return _code_dict(row)
     raise ReferralServiceError("could not allocate a referral slug")
+
+
+def get_or_create_referral_code(user_id: str, policy: ReferralPolicy) -> dict:
+    """One active code per owner, serialized with replacement and account reset."""
+    with get_db_connection() as connection:
+        lock_connection_graph_users(connection, user_ids=[user_id])
+        existing = _active_referral_code(connection, user_id)
+        return (
+            _code_dict(existing)
+            if existing
+            else _allocate_referral_code(connection, user_id, policy)
+        )
+
+
+def rotate_referral_code(user_id: str, *, expected_slug: str) -> dict:
+    """Invalidate the old invitation atomically; preserve all earned referral records.
+
+    A repeat or stale request cannot invalidate a newer replacement. Failure to
+    allocate rolls back the disable, so a failed operation never strands the owner.
+    """
+    policy = get_active_policy()
+    with get_db_connection() as connection:
+        lock_connection_graph_users(connection, user_ids=[user_id])
+        existing = _active_referral_code(connection, user_id)
+        if existing and existing.normalized_slug != normalize_slug(expected_slug):
+            return _code_dict(existing)
+        connection.execute(
+            text("""
+                UPDATE one_referral_codes
+                   SET status = 'disabled', disabled_at = NOW()
+                 WHERE owner_user_id = :uid AND status = 'active'
+            """),
+            {"uid": user_id},
+        )
+        replacement = _allocate_referral_code(connection, user_id, policy)
+        connection.execute(
+            text("SELECT pg_notify('one_referral_changed', :payload)"),
+            {"payload": json.dumps({"referrer_user_id": user_id})},
+        )
+        return replacement
 
 
 def get_referral_summary(user_id: str) -> dict:
@@ -231,9 +247,10 @@ def get_referral_summary(user_id: str) -> dict:
                 SELECT COUNT(*) AS link_open_count, MAX(first_seen_at) AS last_opened_at
                   FROM one_referral_attributions
                  WHERE referrer_user_id = :uid
+                   AND referral_code_id = CAST(:code_id AS UUID)
                 """
             ),
-            {"uid": user_id},
+            {"uid": user_id, "code_id": code["id"]},
         ).fetchone()
         all_statuses = connection.execute(
             text(
@@ -391,6 +408,7 @@ def resolve_slug_for_attribution(
                   FROM one_referral_codes
                  WHERE normalized_slug = :slug AND status = 'active'
                  LIMIT 1
+                 FOR SHARE
                 """
             ),
             {"slug": normalized},

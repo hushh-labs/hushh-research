@@ -14,6 +14,7 @@ import { WalletCardService } from "@/lib/services/wallet-card-service";
 import { WalletCardImageShareButton } from "./wallet-card-image-share-button";
 import type { WalletDemoProfile } from "./wallet-demo-cards";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
+import { WalletCardConfirmDialog } from "@/components/wallet-card/wallet-card-confirm-dialog";
 
 /** Uses the same referral authority and live summary as the wallet card face. */
 export function WalletReferralCardDetails({
@@ -22,14 +23,17 @@ export function WalletReferralCardDetails({
   profile,
   failed = false,
   onRetry,
+  onRevoke,
 }: {
   summary: ReferralSummary | null;
   shareToken: string | null;
   profile?: WalletDemoProfile | null;
   failed?: boolean;
   onRetry?: () => void;
+  onRevoke?: (slug: string) => Promise<void>;
 }) {
-  const [busy, setBusy] = useState<"wallet" | null>(null);
+  const [busy, setBusy] = useState<"wallet" | "revoke" | null>(null);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
   if (!summary) {
     return <div className="space-y-3 py-6">
       <p role={failed ? "alert" : "status"} className="text-sm text-muted-foreground">{failed ? "Your referral card could not be loaded." : "Your referral card is loading."}</p>
@@ -50,6 +54,20 @@ export function WalletReferralCardDetails({
     }
   };
 
+  const revokeAccess = async () => {
+    if (!onRevoke || busy) return;
+    setBusy("revoke");
+    try {
+      await onRevoke(summary.slug);
+      setConfirmRevoke(false);
+      morphyToast.success("Old referral QR revoked. Your new link starts with zero opens.");
+    } catch {
+      morphyToast.error("Could not revoke access. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <SettingsPresentationProvider separatorInset density="compact">
     <section aria-label="Referral card details" className={`${profileStyles.walletContent} space-y-4`}>
@@ -60,19 +78,20 @@ export function WalletReferralCardDetails({
           </div>
           <p className="break-all rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">{summary.link}</p>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" className="min-h-11" loading={busy === "wallet"} disabled={!shareToken} onClick={() => void addToWallet()}>
+            <Button type="button" size="sm" className="min-h-11" loading={busy === "wallet"} disabled={!shareToken || Boolean(busy)} onClick={() => void addToWallet()}>
               <Wallet className="mr-2 h-4 w-4" aria-hidden />Add to Apple Wallet
             </Button>
             <WalletCardImageShareButton cardId="agent-one-referral" profile={{ ...profile, displayName: profile?.displayName ?? null, shareUrl: profile?.shareUrl ?? null, referralUrl: summary.link }} disabled={!profile || Boolean(busy)} />
             <Button type="button" size="sm" className="min-h-11" variant="none" effect="fade" onClick={() => void copyWalletCardLink(summary.link).then((copied) => copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"))}>
               <Copy className="mr-2 h-4 w-4" aria-hidden />Copy link
             </Button>
+            <Button type="button" size="sm" className="min-h-11" variant="none" effect="fade" disabled={!onRevoke || Boolean(busy)} onClick={() => setConfirmRevoke(true)}>Revoke access</Button>
           </div>
           <a href={summary.link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">Preview referral page</a>
         </div>
       </SettingsGroup>
       <SettingsGroup title="Referral activity">
-        <SettingsRow density="compact" title="Link opens" trailing={<span>{summary.link_open_count?.toLocaleString() ?? "—"}</span>} />
+        <SettingsRow density="compact" title="Link opens" trailing={<span data-testid="wallet-referral-opens">{summary.link_open_count?.toLocaleString() ?? "—"}</span>} />
         <SettingsRow density="compact" title="Last opened" trailing={<span className="text-right text-xs text-muted-foreground">{formatLocalDateTime(summary.last_opened_at ?? null) || "No opens yet"}</span>} />
         <SettingsRow density="compact" title="Qualified referrals" trailing={<span>{summary.qualified_count.toLocaleString()}</span>} />
         <SettingsRow density="compact" title="In progress" trailing={<span>{summary.in_progress_count.toLocaleString()}</span>} />
@@ -86,6 +105,16 @@ export function WalletReferralCardDetails({
           ))}
         </SettingsGroup>
       ) : null}
+      <WalletCardConfirmDialog
+        open={confirmRevoke}
+        title="Revoke referral QR access?"
+        body="The current referral QR and shared link stop accepting new opens. A new QR is created with zero opens. Your earned referrals and existing referral progress stay unchanged. Add your pass to Apple Wallet again to update its QR."
+        confirmLabel="Revoke access"
+        destructive
+        busy={busy !== null}
+        onConfirm={() => void revokeAccess()}
+        onOpenChange={setConfirmRevoke}
+      />
     </section>
     </SettingsPresentationProvider>
   );
