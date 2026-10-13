@@ -176,8 +176,11 @@ def test_attio_is_a_reviewed_public_pkce_runtime_provider():
     assert attio.secret_env_names == ("ATTIO_OAUTH_CLIENT_ID",)
     assert attio.registration_url == "https://app.attio.com/oauth/register"
     assert set(attio.scopes) == {"mcp", "offline_access", "openid"}
-    assert attio.redirect_uris["uat"] == (
-        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return",
+    assert attio.redirect_uris["uat"][0] == (
+        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+    )
+    assert attio.redirect_uris["production"] == (
+        "https://one.hushh.ai/one/profile/connectors/oauth/return",
     )
     descriptor = validate_descriptor(attio.to_descriptor("uat")).raw
     assert descriptor["chatAdmission"] == "reviewed"
@@ -550,7 +553,7 @@ def notion_row() -> ExternalMcpConnectorDefinition:
         is_active=True,
         transport_kind="mcp",
         capability_policy={"version": 1, "chat": "reviewed"},
-        registered_redirect_uris=(REDIRECT,),
+        registered_redirect_uris=NOTION.redirect_uris["uat"],
         owner_user_id=None,
     )
 
@@ -649,7 +652,7 @@ def test_a_valid_manifest_row_keeps_the_development_loopback_callback(monkeypatc
         lambda: SimpleNamespace(app_frontend_origin="http://localhost:3000"),
     )
     assert oauth.registered_redirect_uris(notion_row) == (
-        REDIRECT,
+        *NOTION.redirect_uris["uat"],
         "http://localhost:3000/one/profile/connectors/oauth/return",
     )
 
