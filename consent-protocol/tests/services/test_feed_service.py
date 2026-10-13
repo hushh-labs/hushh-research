@@ -258,10 +258,11 @@ def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
             (4, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-b"}'),
             (5, "owner", "connected_systems", "document_share_decided", '{"request_id":"req-a"}'),
             (6, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-a"}'),
-            (7, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-b"}'),
-            (8, "owner", "kai", "kai_analysis_completed", "{}"),
-            (9, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
-            (10, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-a"}'),
+            (7, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-a"}'),
+            (8, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-b"}'),
+            (9, "owner", "kai", "kai_analysis_completed", "{}"),
+            (10, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
+            (11, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-a"}'),
         ],
     )
 
@@ -291,39 +292,46 @@ def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
     ] == [1, 2]
     # An independent earlier dismissal must not be undone with a later bundle.
     stamp[0] = "second-dismiss"
-    second_token = service.dismiss("owner", item_id=9)["dismissal_token"]
+    second_token = service.dismiss("owner", item_id=10)["dismissal_token"]
     assert second_token is not None
-    assert service.restore("owner", item_id=9, dismissal_token=second_token)["restored"] is True
+    assert service.restore("owner", item_id=10, dismissal_token=second_token)["restored"] is True
     assert (
         connection.execute("SELECT dismissed_at FROM feed_events WHERE id=1").fetchone()[0]
         == "first-dismiss"
     )
     assert (
-        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=9").fetchone()[0] is None
+        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=10").fetchone()[0] is None
     )
     stamp[0] = "drive-dismiss"
-    drive_token = service.dismiss("owner", item_id=6)["dismissal_token"]
+    drive_token = service.dismiss("owner", item_id=7)["dismissal_token"]
     assert drive_token is not None
     assert [
         row[0]
         for row in connection.execute(
             "SELECT id FROM feed_events WHERE dismissed_at='drive-dismiss' ORDER BY id"
         )
-    ] == [6]
-    # A valid earlier Drive progress/payment entry is an independent Feed row.
+    ] == [6, 7]
+    # The earlier suppressed outcome stays hidden, but a valid Drive decision
+    # and a later outcome remain independent Feed rows.
     assert (
         connection.execute("SELECT dismissed_at FROM feed_events WHERE id=5").fetchone()[0] is None
     )
-    assert service.restore("owner", item_id=6, dismissal_token=drive_token)["restored"] is True
+    assert (
+        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=11").fetchone()[0] is None
+    )
+    assert service.restore("owner", item_id=7, dismissal_token=drive_token)["restored"] is True
+    assert (
+        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=6").fetchone()[0] is None
+    )
     assert (
         connection.execute("SELECT dismissed_at FROM feed_events WHERE id=5").fetchone()[0] is None
     )
     assert (
-        connection.execute("SELECT read_at FROM feed_events WHERE id=6").fetchone()[0] is not None
+        connection.execute("SELECT read_at FROM feed_events WHERE id=7").fetchone()[0] is not None
     )
 
     stamp[0] = "clear"
-    service.clear("owner", up_to_id=8)
+    service.clear("owner", up_to_id=9)
     assert (
         connection.execute("SELECT dismissal_token FROM feed_events WHERE id=2").fetchone()[0]
         != first_token
@@ -335,7 +343,7 @@ def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
         for row in connection.execute(
             "SELECT id FROM feed_events WHERE user_id='owner' AND dismissed_at IS NULL ORDER BY id"
         )
-    ] == [9, 10]
+    ] == [10, 11]
     assert (
         connection.execute("SELECT dismissed_at FROM feed_events WHERE id=3").fetchone()[0] is None
     )

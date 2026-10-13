@@ -1199,7 +1199,8 @@ class FeedService:
                 """
             WITH target AS (
               SELECT source_domain, event_type,
-                     NULLIF(metadata->>'bundle_id', '') AS bundle_id
+                     NULLIF(metadata->>'bundle_id', '') AS bundle_id,
+                     NULLIF(metadata->>'request_id', '') AS request_id
                 FROM feed_events
                WHERE user_id = :user_id AND id = :item_id
                  AND dismissed_at IS NULL
@@ -1218,6 +1219,14 @@ class FeedService:
                  AND item.source_domain = 'consent'
                  AND item.event_type = target.event_type
                  AND item.metadata->>'bundle_id' = target.bundle_id
+                 AND item.id <= :item_id
+               ) OR (
+                 target.source_domain = 'connected_systems'
+                 AND target.event_type = 'document_share_outcome'
+                 AND target.request_id IS NOT NULL
+                 AND item.source_domain = 'connected_systems'
+                 AND item.event_type = 'document_share_outcome'
+                 AND item.metadata->>'request_id' = target.request_id
                  AND item.id <= :item_id
                ))
             RETURNING id, dismissal_token
@@ -1240,7 +1249,8 @@ class FeedService:
                 """
             WITH target AS (
               SELECT source_domain, event_type,
-                     NULLIF(metadata->>'bundle_id', '') AS bundle_id
+                     NULLIF(metadata->>'bundle_id', '') AS bundle_id,
+                     NULLIF(metadata->>'request_id', '') AS request_id
                 FROM feed_events
                WHERE user_id = :user_id AND id = :item_id
                  AND dismissal_token = :dismissal_token
@@ -1259,6 +1269,14 @@ class FeedService:
                  AND item.source_domain = 'consent'
                  AND item.event_type = target.event_type
                  AND item.metadata->>'bundle_id' = target.bundle_id
+                 AND item.id <= :item_id
+               ) OR (
+                 target.source_domain = 'connected_systems'
+                 AND target.event_type = 'document_share_outcome'
+                 AND target.request_id IS NOT NULL
+                 AND item.source_domain = 'connected_systems'
+                 AND item.event_type = 'document_share_outcome'
+                 AND item.metadata->>'request_id' = target.request_id
                  AND item.id <= :item_id
                ))
             RETURNING id

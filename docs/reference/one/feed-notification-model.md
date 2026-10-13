@@ -163,10 +163,11 @@ mutation and retains that existing atomic policy.
   idempotent presentation-only hide and versioned Undo; neither changes source
   activity. A dismissal returns a server token, and Undo succeeds only while
   that exact token is current. Clear replaces tokens to supersede stale Undo.
-  Older members of a displayed Consent bundle are hidden with the selected row;
-  Drive progress/payment events remain independent history entries. Because
-  Drive contradiction folding happens in the client, removing an outcome can
-  reveal an older suppressed state. Later activity remains visible.
+  Older members of a displayed Consent bundle are hidden with the selected row.
+  Removing a Drive outcome also hides earlier outcomes for that exact request,
+  so a suppressed outcome cannot reappear after refresh. Drive decisions,
+  progress, and payment events remain independent history entries. Later
+  activity remains visible.
 - `POST /api/one/feed/clear` — marks the owner's current rows through
   `up_to_id` hidden and read in one server update. Newer rows remain visible.
   Hidden state survives sign-out and other devices, and disappears with the

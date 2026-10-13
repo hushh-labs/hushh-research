@@ -557,6 +557,24 @@ describe("Feed history interactions", () => {
     expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
   });
 
+  it("does not reveal an older Drive outcome after removing the displayed outcome", async () => {
+    mocks.useActionTestRow = true;
+    mocks.data.items = [
+      { ...mocks.data.items[0], id: "6", source_domain: "connected_systems", event_type: "document_share_outcome", metadata: { request_id: "request-1", user_facing_status: "completed" } },
+      { ...mocks.data.items[0], id: "5", source_domain: "connected_systems", event_type: "document_share_outcome", metadata: { request_id: "request-1", user_facing_status: "no_match" } },
+    ];
+    await renderAfterAutomaticRead();
+    expect(screen.getByRole("button", { name: "row-6" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "row-6" }));
+    await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
+      idToken: "firebase-token", userId: "feed-user", itemId: "6",
+    }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "row-6" })).toBeNull());
+    expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
+  });
+
   it("keeps the clear action compact on phone and desktop layouts", async () => {
     await renderAfterAutomaticRead();
 

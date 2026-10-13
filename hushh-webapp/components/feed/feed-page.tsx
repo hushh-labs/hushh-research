@@ -122,6 +122,14 @@ function belongsToDismissedRow(candidate: FeedItem, selected: FeedItem): boolean
       candidate.event_type === selected.event_type &&
       candidate.metadata.bundle_id === bundle;
   }
+  if (selected.source_domain === "connected_systems" &&
+      selected.event_type === "document_share_outcome") {
+    const requestId = selected.metadata.request_id;
+    return typeof requestId === "string" && requestId.length > 0 &&
+      candidate.source_domain === "connected_systems" &&
+      candidate.event_type === "document_share_outcome" &&
+      candidate.metadata.request_id === requestId;
+  }
   return false;
 }
 

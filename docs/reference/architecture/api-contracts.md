@@ -2140,8 +2140,9 @@ and audit trails intact.
 The latest grouped chat row is hidden after grouping, so dismissing it cannot
 reveal an older message in the same thread. A later new message can make the
 thread visible again. A dismissal also covers older rows in the same displayed
-Consent bundle, while independent Drive progress and payment entries remain
-visible. Account deletion removes its Feed rows and hide state.
+Consent bundle. A Drive outcome dismissal also hides earlier outcome rows for
+that same request; its decision, progress, and payment entries remain visible.
+Account deletion removes its Feed rows and hide state.
 
 ### SSE (Server-Sent Events)
 
