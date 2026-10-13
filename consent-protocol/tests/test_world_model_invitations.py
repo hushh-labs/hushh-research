@@ -35,6 +35,8 @@ async def test_locked_authority_reuses_connection(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_phone_claim_retains_current_binding_until_commit(request, monkeypatch):
+    if sys.platform == "win32" or os.name != "posix":
+        pytest.skip("Disposable PostgreSQL needs Unix sockets")
     dsn = request.getfixturevalue("isolated_postgres")
     import asyncpg
     from psycopg2.extensions import parse_dsn
