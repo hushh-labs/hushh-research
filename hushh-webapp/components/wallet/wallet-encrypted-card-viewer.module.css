@@ -1,8 +1,8 @@
 .reader {
   --type-form-label-size: 13px;
-  --type-input-value-size: 12px;
+  --type-input-value-size: 13px;
   --type-helper-text-size: 12px;
-  --type-button-label-size: 14px;
+  --type-button-label-size: 13px;
 }
 .value {
   width: 100%;

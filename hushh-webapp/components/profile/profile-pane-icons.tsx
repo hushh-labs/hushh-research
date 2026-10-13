@@ -36,6 +36,23 @@ export function ProfilePaneCopyIcon(props: ProfilePaneIconProps) {
   </PaneIcon>;
 }
 
+export function ProfilePaneShareIcon(props: ProfilePaneIconProps) {
+  return <PaneIcon {...props}>
+    <path d="m8 10 8-5M8 14l8 5" />
+    <circle cx="5" cy="12" r="3" />
+    <circle className="profile-pane-icon-accent" cx="19" cy="4" r="3" />
+    <circle className="profile-pane-icon-accent" cx="19" cy="20" r="3" />
+  </PaneIcon>;
+}
+
+export function ProfilePaneBriefcaseIcon(props: ProfilePaneIconProps) {
+  return <PaneIcon {...props}>
+    <rect x="3" y="7" width="18" height="14" rx="2" />
+    <path d="M8 7V3h8v4M3 12a20 20 0 0 0 18 0" />
+    <path className="profile-pane-icon-accent" d="M10 13h4v3h-4z" />
+  </PaneIcon>;
+}
+
 export function ProfilePaneAccountIcon(props: ProfilePaneIconProps) {
   return (
     <PaneIcon {...props}>
@@ -218,7 +235,7 @@ export function ProfilePaneRotateIcon(props: ProfilePaneIconProps) {
 }
 
 export function ProfilePaneDeleteIcon(props: ProfilePaneIconProps) {
-  return <PaneIcon {...props} stroke="var(--app-destructive)"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></PaneIcon>;
+  return <PaneIcon {...props}><path stroke="var(--ios-account-label)" d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15" /><path className="profile-pane-icon-accent" d="M10 10v7M14 10v7" /></PaneIcon>;
 }
 
 export function ProfilePaneScanIcon(props: ProfilePaneIconProps) {
