@@ -7,6 +7,7 @@ export const DIRECT_MESSAGE_MAX_LENGTH = 2000;
 export class DirectMessagesServiceRequestError extends Error { status = 503; }
 const rows = new Map<string, DirectMessage[]>();
 const attachments = new Map<string, Blob>();
+const pendingPhotos = new Map<string, { wait: Promise<void>; release: () => void; started: boolean }>();
 const deliveries: { conversationId: string; messageIds: string[] }[] = [];
 let delayOlder = false;
 let settleOlder: (() => void) | null = null;
@@ -46,6 +47,23 @@ const fixture = {
     items.at(-1)!.replyTo = { id: items[0]!.id, content: items[0]!.content, senderIsViewer: false, deletedForEveryoneAt: null };
     dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: "maya", messageId: "quote", source: "sse" });
   },
+  addPhoto: () => {
+    const items = rows.get("maya")!, id = `fixture-photo-${items.length}`;
+    const canvas = document.createElement("canvas"); canvas.width = 400; canvas.height = 300;
+    const context = canvas.getContext("2d")!; context.fillStyle = "#EAF4FF"; context.fillRect(0, 0, 400, 300);
+    const bytes = Uint8Array.from(atob(canvas.toDataURL("image/png").split(",")[1]!), value => value.charCodeAt(0));
+    attachments.set(id, new Blob([bytes], { type: "image/png" }));
+    let release!: () => void;
+    const wait = new Promise<void>(resolve => { release = resolve; });
+    pendingPhotos.set(id, { wait, release, started: false });
+    items.push({ id, conversationId: "maya", content: "", senderIsViewer: false,
+      createdAt: new Date(Date.parse(items.at(-1)!.createdAt) + 60000).toISOString(), readAt: null,
+      attachment: { kind: "photo", name: "Photo.png", mimeType: "image/png", size: bytes.length } });
+    dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: "maya", messageId: id, source: "sse" });
+    return id;
+  },
+  photoPending: () => [...pendingPhotos.values()].some(photo => photo.started),
+  releasePhotos: () => { for (const photo of pendingPhotos.values()) photo.release(); },
   addFiles: () => {
     const bytes = new Uint8Array(44 + 128000), view = new DataView(bytes.buffer);
     for (const [offset, tag] of [[0, "RIFF"], [8, "WAVE"], [12, "fmt "], [36, "data"]] as const) bytes.set(new TextEncoder().encode(tag), offset);
@@ -112,7 +130,11 @@ export class DirectMessagesService {
     deliveries.push({ conversationId: input.conversationId, messageIds: input.messageIds });
     for (const item of rows.get(input.conversationId)!) if (input.messageIds.includes(item.id) && !item.senderIsViewer) item.deliveredAt ??= new Date().toISOString();
   }
-  static async getAttachment(input: { messageId: string }) { return attachments.get(input.messageId)!; }
+  static async getAttachment(input: { messageId: string }) {
+    const photo = pendingPhotos.get(input.messageId);
+    if (photo) { photo.started = true; await photo.wait; }
+    return attachments.get(input.messageId)!;
+  }
   static async getConversationWithPerson(input: { personRef: string }) { return { conversation: conversation(input.personRef), canSend: true }; }
   static async sendMessage(input: typeof sends[number]) {
     sends.push({ ...input });

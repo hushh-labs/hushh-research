@@ -348,6 +348,23 @@ for (const width of [320, 768]) test(`file and voice bubbles stay usable with na
   await page.screenshot({ path: test.info().outputPath(`file-voice-${width}.png`), animations: "disabled" });
   expect(errors).toEqual([]);
 });
+for (const scrollAway of [false, true]) test(`a delayed inline photo preserves ${scrollAway ? "the reader’s scrolled position" : "bottom alignment"}`, async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 }); const errors = await mount(page);
+  await fixture(page, "fixture.addPhoto()");
+  await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.photoPending())).toBe(true);
+  const list = transcript(page);
+  if (scrollAway) {
+    await list.evaluate(node => { node.scrollTop -= 350; });
+    await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
+  }
+  const before = await list.evaluate(node => node.scrollTop);
+  await fixture(page, "fixture.releasePhotos()");
+  const image = page.getByRole("img", { name: "Photo.png" });
+  await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(400);
+  if (scrollAway) await expect.poll(() => list.evaluate(node => node.scrollTop)).toBe(before);
+  else await expect.poll(() => list.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThanOrEqual(1);
+  expect(errors).toEqual([]);
+});
 test("retries a committed send with the same id and keeps older history available", async ({ page }) => {
   await mount(page); await fixture(page, "fixture.loseNextResponse()");
   await page.locator("[data-direct-message-composer-input]").fill("One message, even after a lost response"); await page.getByRole("button", { name: "Send message" }).click();

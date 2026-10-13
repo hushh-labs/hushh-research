@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => {
     listConnectionsPage: vi.fn(),
     getConversationWithPerson: vi.fn(),
     getConversationMessages: vi.fn(),
+    getAttachment: vi.fn(),
     markConversationRead: vi.fn(),
     acknowledgeDelivery: vi.fn(),
     captureStart: vi.fn(), captureFinish: vi.fn(), captureCancel: vi.fn(),
@@ -130,6 +131,7 @@ vi.mock("@/lib/services/direct-messages-service", async (importOriginal) => ({
     markConversationRead: (...args: unknown[]) =>
       mocks.markConversationRead(...args),
     acknowledgeDelivery: (...args: unknown[]) => mocks.acknowledgeDelivery(...args),
+    getAttachment: (...args: unknown[]) => mocks.getAttachment(...args),
     openEvents: (...args: unknown[]) => mocks.openEvents(...args),
     sendMessage: (...args: unknown[]) => mocks.sendMessage(...args),
     editMessage: (...args: unknown[]) => mocks.editMessage(...args),
@@ -227,6 +229,7 @@ describe("DirectMessagesPage", () => {
     });
     mocks.markConversationRead.mockResolvedValue({ readCount: 0, readAt: null });
     mocks.acknowledgeDelivery.mockReset().mockResolvedValue(undefined);
+    mocks.getAttachment.mockReset();
     mocks.captureStart.mockReset().mockResolvedValue(undefined);
     mocks.captureCancel.mockReset().mockResolvedValue(undefined);
     mocks.captureFinish.mockReset(); mocks.captureInstances.length = 0;
@@ -278,6 +281,70 @@ describe("DirectMessagesPage", () => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  function arrangePhoto() {
+    const observers = new Map<Element, IntersectionObserverCallback>();
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(private callback: IntersectionObserverCallback) {}
+      observe(target: Element) { observers.set(target, this.callback); }
+      unobserve(target: Element) { observers.delete(target); }
+      disconnect() {}
+    });
+    const create = vi.fn(() => "blob:fixture-photo"), revoke = vi.fn();
+    vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation,
+      items: [{ ...visibleMessage, attachment: { kind: "photo", name: "photo.png", mimeType: "image/png", size: 24 } }],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const enterViewport = () => {
+      const target = [...observers.keys()].find(node => node.textContent?.includes("photo.png"))!;
+      act(() => observers.get(target)!([{ target, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
+    };
+    return { create, revoke, enterViewport };
+  }
+
+  it("downloads an inline photo only near the viewport and releases its preview on unmount", async () => {
+    const photo = arrangePhoto();
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    const view = renderConnectionThread();
+    await screen.findByText("photo.png");
+    expect(mocks.getAttachment).not.toHaveBeenCalled();
+    photo.enterViewport();
+    expect(await screen.findByRole("img", { name: "photo.png" })).toHaveAttribute("src", "blob:fixture-photo");
+    expect(mocks.getAttachment).toHaveBeenCalledOnce();
+    view.unmount();
+    expect(photo.revoke).toHaveBeenCalledWith("blob:fixture-photo");
+  });
+
+  it("keeps Open available after an automatic photo failure and retries explicitly", async () => {
+    const photo = arrangePhoto();
+    mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"))
+      .mockResolvedValueOnce(new Blob(["synthetic-photo"], { type: "image/png" }));
+    const view = renderConnectionThread();
+    await screen.findByText("photo.png");
+    photo.enterViewport();
+    const open = screen.getByRole("button", { name: "Open photo.png" });
+    await waitFor(() => expect(mocks.getAttachment).toHaveBeenCalledOnce());
+    await waitFor(() => expect(open).toBeEnabled());
+    fireEvent.click(open);
+    expect(await screen.findByRole("img", { name: "photo.png" })).toHaveAttribute("src", "blob:fixture-photo");
+    expect(mocks.getAttachment).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+
+  it("discards a pending inline photo when its conversation unmounts", async () => {
+    const photo = arrangePhoto();
+    let finish!: (value: Blob) => void;
+    mocks.getAttachment.mockImplementation(() => new Promise<Blob>(resolve => { finish = resolve; }));
+    const view = renderConnectionThread();
+    await screen.findByText("photo.png");
+    photo.enterViewport();
+    await waitFor(() => expect(mocks.getAttachment).toHaveBeenCalledOnce());
+    const input = mocks.getAttachment.mock.calls[0]![0];
+    view.unmount();
+    expect(input.isEffectCurrent()).toBe(false);
+    await act(async () => { finish(new Blob(["synthetic-photo"])); });
+    expect(photo.create).not.toHaveBeenCalled();
   });
 
   it("acknowledges received inbox bodies, without treating sender messages or push hints as delivery", async () => {

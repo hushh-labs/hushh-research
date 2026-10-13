@@ -138,9 +138,10 @@ function toggleReaction(message: DirectMessage, emoji: string): DirectMessage {
   return { ...message, reactions };
 }
 
-function MessageAttachment({ message, getIdToken }: {
+function MessageAttachment({ message, getIdToken, onPhotoLoad }: {
   message: DirectMessage;
   getIdToken: () => Promise<string>;
+  onPhotoLoad: () => void;
 }) {
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
@@ -148,6 +149,40 @@ function MessageAttachment({ message, getIdToken }: {
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => () => { if (mediaUrl) URL.revokeObjectURL(mediaUrl); }, [mediaUrl]);
   const attachment = message.attachment;
+  const photoRef = useRef<HTMLDivElement>(null);
+  const [photoVisible, setPhotoVisible] = useState(false);
+  const tokenGetter = useRef(getIdToken);
+  tokenGetter.current = getIdToken;
+  useEffect(() => {
+    const node = photoRef.current;
+    if (attachment?.kind !== "photo" || !node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      setPhotoVisible(true);
+      observer.disconnect();
+    }, { rootMargin: "80px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [attachment?.kind, message.conversationId, message.id]);
+  useEffect(() => {
+    if (attachment?.kind !== "photo" || !photoVisible) return;
+    let current = true;
+    let url: string | null = null;
+    setOpening(true);
+    void (async () => {
+      const idToken = await tokenGetter.current();
+      if (!current) return;
+      const blob = await DirectMessagesService.getAttachment({ idToken,
+        conversationId: message.conversationId, messageId: message.id,
+        isEffectCurrent: () => current });
+      if (!current) return;
+      url = URL.createObjectURL(blob);
+      setMediaUrl(url);
+    })().catch(() => {
+      // Keep the Open control available for an explicit retry.
+    }).finally(() => { if (current) setOpening(false); });
+    return () => { current = false; if (url) URL.revokeObjectURL(url); };
+  }, [attachment?.kind, message.conversationId, message.id, photoVisible]);
   if (!attachment) return null;
   const typeLabel = ({ "application/pdf": "PDF", "text/plain": "Text file",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word document",
@@ -175,11 +210,11 @@ function MessageAttachment({ message, getIdToken }: {
       if (active.current && !isShareCancellationError(error)) morphyToast.error("This attachment is unavailable. Try again.");
     } finally { if (active.current) setOpening(false); }
   };
-  return <div className={styles.messageAttachment}>
+  return <div className={styles.messageAttachment} ref={photoRef}>
     {mediaUrl && attachment.kind === "photo" ? (
       // Encrypted attachments use short-lived blob URLs, which Next's image optimizer cannot serve.
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={mediaUrl} alt={attachment.name} />
+      <img src={mediaUrl} alt={attachment.name} onLoad={onPhotoLoad} />
     ) : null}
     <div className={styles.fileMessageCard}>
       <FileText className="h-6 w-6" aria-hidden="true" />
@@ -1663,6 +1698,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     <MessageAttachment message={message} getIdToken={() => {
                                       if (!user) throw new Error("Sign in to open this attachment.");
                                       return user.getIdToken();
+                                    }} onPhotoLoad={() => {
+                                      const node = messageListRef.current;
+                                      if (node && atBottomRef.current) node.scrollTop = node.scrollHeight;
                                     }} />
                                   </>
                                 )}
