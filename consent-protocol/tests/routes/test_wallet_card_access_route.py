@@ -32,7 +32,7 @@ def test_card_owner_mismatch_is_private_and_does_not_call_service(path):
 
 def test_rejects_credentials_invalid_duration_and_unbounded_body():
     with patch("api.routes.one.wallet_card_access.service") as service:
-        for extra in [{"pan": "4242424242424242"}, {"durationMinutes": 60}]:
+        for extra in [{"pan": "4242424242424242"}, {"durationMinutes": 180}]:
             response = client().post(
                 ROOT + "/cards/card_one/grants",
                 json={"requestId": ID, "recipientPersonRefs": [ID], "durationMinutes": 10, **extra},
@@ -57,7 +57,8 @@ def test_share_uses_authenticated_owner_and_explicit_recipients():
         service.create_grants.assert_called_once_with("owner", "card_one", ID, [ID], 10)
 
 
-def test_recipient_envelopes_are_forwarded_with_owner_authority():
+@pytest.mark.parametrize("minutes", [15, 60, 120])
+def test_recipient_envelopes_are_forwarded_with_owner_authority(minutes):
     service = MagicMock()
     service.create_grants.return_value = {"grants": []}
     with patch("api.routes.one.wallet_card_access.service", return_value=service):
@@ -66,13 +67,13 @@ def test_recipient_envelopes_are_forwarded_with_owner_authority():
             json={
                 "requestId": ID,
                 "recipientPersonRefs": [ID],
-                "durationMinutes": 10,
+                "durationMinutes": minutes,
                 "encryptedCards": {ID: "opaque-recipient-envelope"},
             },
         )
         assert response.status_code == 200
         service.create_grants.assert_called_once_with(
-            "owner", "card_one", ID, [ID], 10, encrypted_cards={ID: "opaque-recipient-envelope"}
+            "owner", "card_one", ID, [ID], minutes, encrypted_cards={ID: "opaque-recipient-envelope"}
         )
 
 
