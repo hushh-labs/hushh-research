@@ -143,14 +143,15 @@ class DrivePacketStore(DriveDocumentFactsStore):
             connection.execute(
                 text("""SELECT EXISTS(SELECT 1 FROM drive_collection_sync s
           WHERE s.user_id=:user AND s.connection_generation=:generation AND s.processing_enabled
-            AND s.initial_completed_at IS NOT NULL AND NOT s.incomplete_search AND s.last_error_code IS NULL
+            AND s.initial_completed_at IS NOT NULL AND s.phase='changes' AND NOT s.incomplete_search AND s.last_error_code IS NULL
             AND s.last_synced_at >= clock_timestamp()-interval '900 seconds'
             AND NOT EXISTS(SELECT 1 FROM connected_documents d WHERE d.user_id=s.user_id
               AND d.connection_generation=s.connection_generation AND d.source_profile='live'
               AND d.last_error_code IS DISTINCT FROM 'source_unavailable'
               AND (d.status<>'ready' OR d.active_version IS NULL OR NOT EXISTS(
                 SELECT 1 FROM drive_document_facts f WHERE f.document_id=d.document_id
-                  AND f.source_version=d.source_version AND f.status='complete' AND NOT f.has_gaps
+                  AND f.source_version=d.source_version AND f.extraction_version=d.active_version
+                  AND f.status='complete' AND NOT f.has_gaps
                   AND f.facts_profile=:policy AND f.extraction_profile=:profile))))"""),
                 {
                     "user": user_id,
@@ -182,7 +183,8 @@ class DrivePacketStore(DriveDocumentFactsStore):
               AND d.processing_enabled AND d.last_error_code IS DISTINCT FROM 'source_unavailable'
               AND (d.status IN ('queued','stale','fetching','parsing','indexing') OR (d.status='ready' AND NOT EXISTS(
                 SELECT 1 FROM drive_document_facts f WHERE f.document_id=d.document_id
-                  AND f.source_version=d.source_version AND f.facts_profile=:policy AND f.extraction_profile=:profile AND f.status IN ('complete','failed'))))))"""),
+                  AND f.source_version=d.source_version AND f.extraction_version=d.active_version
+                  AND f.facts_profile=:policy AND f.extraction_profile=:profile AND f.status IN ('complete','failed'))))))"""),
                 {
                     "user": user_id,
                     "generation": generation,

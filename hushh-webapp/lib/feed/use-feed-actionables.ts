@@ -553,6 +553,20 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const { user } = useAuth();
   const { vaultOwnerToken, getVaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
+  const checkoutScope = useRef<{ userId: string | null } | null>(null);
+  const checkoutRows = useRef<FeedActionable[]>([]);
+  useEffect(() => {
+    const scope = { userId };
+    checkoutScope.current = scope;
+    return () => { if (checkoutScope.current === scope) checkoutScope.current = null; };
+  }, [userId]);
+  const currentCheckout = useCallback((owner: string, rowId: string, actionKey: string, label: string) => {
+    const scope = checkoutScope.current;
+    const epoch = snapshotVaultSessionEpoch();
+    return () => scope !== null && scope.userId === owner && checkoutScope.current === scope &&
+      isVaultSessionEpochCurrent(epoch) && checkoutRows.current.some(row => row.id === rowId &&
+        row.actions.some(action => action.key === actionKey && action.label === label && !action.disabled));
+  }, []);
   const [dismissedSmsEmergencyIds, setDismissedSmsEmergencyIds] = useState<
     Set<string>
   >(() => new Set());
@@ -1459,15 +1473,21 @@ export function useFeedActionables(): UseFeedActionablesResult {
               label: `Pay ${formatDocumentRequestPrice(payment.amountCents)}`,
               tone: "primary" as const,
               run: async () => {
+                const current = currentCheckout(userId, `drive-payment:${payment.requestId}`, "pay",
+                  `Pay ${formatDocumentRequestPrice(payment.amountCents)}`);
+                if (!current()) return;
                 try {
                   const idToken = await user?.getIdToken();
+                  if (!current()) return;
                   if (!idToken) throw new Error("Sign in to continue");
                   const checkoutUrl = await DriveRequestPaymentService.checkout(
                     idToken,
                     payment.requestId,
                   );
+                  if (!current()) return;
                   window.location.assign(checkoutUrl);
                 } catch (cause) {
+                  if (!current()) return;
                   toast.error(drivePaymentErrorMessage(cause));
                   void refreshDocumentRequests();
                 }
@@ -1611,13 +1631,17 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     // price was decided before the tap, so a second screen
                     // only to press Pay again is a step with no decision in it.
                     run: async () => {
+                      const current = currentCheckout(userId, `consent:${requestId}`, "pay-answer", payLabel!);
+                      if (!current()) return;
                       try {
                         const token = await AuthService.getIdToken();
+                        if (!current()) return;
                         if (!token) throw new Error("Sign in to continue");
-                        window.location.assign(
-                          await AnswerRequestService.checkout(token, requestId),
-                        );
+                        const checkoutUrl = await AnswerRequestService.checkout(token, requestId);
+                        if (!current()) return;
+                        window.location.assign(checkoutUrl);
                       } catch {
+                        if (!current()) return;
                         // Paying is its own rollout gate: the request and its
                         // price stand even when checkout cannot open, and
                         // nothing has been charged.
@@ -2234,6 +2258,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // streaming debate's frequent ticks would rebuild every row each render.
   }, [
     appTaskState.tasks,
+    currentCheckout,
     refreshDocumentRequests,
     consentDecision.allow,
     declineConsentRequest,
@@ -2264,6 +2289,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
     userId,
     vaultOwnerToken,
   ]);
+
+  useEffect(() => { checkoutRows.current = actionables; }, [actionables]);
 
   const loading =
     consentSummaryResource.loading ||

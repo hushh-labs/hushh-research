@@ -280,8 +280,37 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         if state["status"] not in {"awaiting_payment", "checkout_open"}:
             raise DriveSharingError("payment_not_ready")
 
-        # Reusing working access must be decided before allocating an external
-        # attempt. An allocated attempt may already be reaching Stripe.
+        # A newly enrolled owner-paid order must have a live US Connect
+        # destination before charging the requester. Existing orders without
+        # a ledger remain on their original Hushh-merchant terms.
+        payout_enrolled = state.get("_payout_enrolled") is True
+        verified_account_id = None
+        bank_settlement = (
+            payout_enrolled
+            and state.get("_payout_settlement_method", "stripe_transfer") != "hashcoins"
+        )
+        if payout_enrolled:
+            from hushh_mcp.services.drive_request_owner_payout_service import payout_enabled
+
+            if not payout_enabled() or not state.get("_payout_owner_user_id"):
+                raise DriveSharingError("payment_unavailable")
+        if bank_settlement:
+            from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+
+            try:
+                account = await PkmPayoutService().refresh_account(
+                    user_id=state["_payout_owner_user_id"]
+                )
+            except Exception:
+                raise DriveSharingError("payment_unavailable") from None
+            if not account or not account["readiness"]["ready"]:
+                raise DriveSharingError("payment_not_ready")
+            verified_account_id = account["stripe_account_id"]
+
+        # Read source versions and recipient access after payout-account I/O,
+        # immediately before reserving provider work. Failed access checks must
+        # not leave an undispatched attempt allocated. Reserve then rechecks
+        # database authority; provider ACL and Stripe cannot be one transaction.
         if package_owner := state.get("_package_owner_user_id"):
             from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
             from hushh_mcp.services.drive_package_access_preflight import (
@@ -318,33 +347,6 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 raise DriveSharingError("package_existing_access_requires_review")
             if access.status != "none":
                 raise DriveSharingError("payment_not_ready")
-
-        # A newly enrolled owner-paid order must have a live US Connect
-        # destination before charging the requester. Existing orders without
-        # a ledger remain on their original Hushh-merchant terms.
-        payout_enrolled = state.get("_payout_enrolled") is True
-        verified_account_id = None
-        bank_settlement = (
-            payout_enrolled
-            and state.get("_payout_settlement_method", "stripe_transfer") != "hashcoins"
-        )
-        if payout_enrolled:
-            from hushh_mcp.services.drive_request_owner_payout_service import payout_enabled
-
-            if not payout_enabled() or not state.get("_payout_owner_user_id"):
-                raise DriveSharingError("payment_unavailable")
-        if bank_settlement:
-            from hushh_mcp.services.pkm_payout_service import PkmPayoutService
-
-            try:
-                account = await PkmPayoutService().refresh_account(
-                    user_id=state["_payout_owner_user_id"]
-                )
-            except Exception:
-                raise DriveSharingError("payment_unavailable") from None
-            if not account or not account["readiness"]["ready"]:
-                raise DriveSharingError("payment_not_ready")
-            verified_account_id = account["stripe_account_id"]
 
         def reserve(connection):
             request = self._current_checkout_authority(
@@ -454,22 +456,6 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             return order
 
         order = await self._transaction(reserve)
-        if order.get("_package_owner_user_id"):
-            from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
-
-            # An owner can edit/delete a source while the requester waits.
-            # Check the approved versions before exposing even an existing URL.
-            try:
-                async with asyncio.timeout(25):
-                    access = await DriveTrustedAutoService(
-                        sharing=DriveSharingStore(db=self.db)
-                    ).preflight_package(
-                        user_id=order["_package_owner_user_id"], request_id=request_id
-                    )
-                    if access is not None and access.status != "none":
-                        raise DriveSharingError("payment_not_ready")
-            except Exception:
-                raise DriveSharingError("payment_not_ready") from None
         if order["stripe_checkout_url"]:
             return {"checkoutUrl": order["stripe_checkout_url"]}
 

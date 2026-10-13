@@ -11,10 +11,12 @@ const state = vi.hoisted(() => ({
   assign: vi.fn(),
   token: "vault-token" as string | null,
   epoch: 1,
+  userId: "buyer",
+  idToken: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { getIdToken: async () => "firebase-token" } }),
+  useAuth: () => ({ user: { uid: state.userId, getIdToken: state.idToken } }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ getVaultOwnerToken: () => state.token }),
@@ -106,6 +108,9 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   state.token = "vault-token";
+  state.epoch = 1;
+  state.userId = "buyer";
+  state.idToken.mockReset().mockResolvedValue("firebase-token");
   vi.stubGlobal("location", { ...window.location, assign: state.assign });
 });
 afterEach(() => {
@@ -119,6 +124,50 @@ afterEach(() => {
 });
 
 describe("RequesterPaymentSection", () => {
+  it.each(["account", "session", "request", "unmount"])("ignores late checkout after %s changes", async (boundary) => {
+    let finish!: (url: string) => void;
+    state.checkout.mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve; }));
+    const onChanged = vi.fn();
+    const props = { requestId, revision: 3, payment: payment(), price: null, onChanged };
+    const mounted = render(<RequesterPaymentSection {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pay $25" }));
+    await waitFor(() => expect(state.checkout).toHaveBeenCalledOnce());
+    if (boundary === "account") {
+      state.userId = "another-buyer";
+      mounted.rerender(<RequesterPaymentSection {...props} />);
+    } else if (boundary === "session") state.epoch += 1;
+    else if (boundary === "request") mounted.rerender(<RequesterPaymentSection {...props} requestId="22222222-2222-4222-8222-222222222222" />);
+    else mounted.unmount();
+    await act(async () => { finish("https://checkout.stripe.com/c/pay/old"); });
+    expect(state.assign).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("does not send checkout when the account changes while its token is loading", async () => {
+    let finish!: (token: string) => void;
+    state.idToken.mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve; }));
+    const props = { requestId, revision: 3, payment: payment(), price: null, onChanged: vi.fn() };
+    const mounted = render(<RequesterPaymentSection {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pay $25" }));
+    state.userId = "another-buyer";
+    mounted.rerender(<RequesterPaymentSection {...props} />);
+    await act(async () => { finish("old-user-token"); });
+    expect(state.checkout).not.toHaveBeenCalled();
+    expect(state.assign).not.toHaveBeenCalled();
+  });
+
+  it("suppresses late checkout error and refresh after a session change", async () => {
+    let fail!: (cause: Error) => void;
+    state.checkout.mockReturnValueOnce(new Promise<string>((_, reject) => { fail = reject; }));
+    const onChanged = show(payment());
+    fireEvent.click(screen.getByRole("button", { name: "Pay $25" }));
+    await waitFor(() => expect(state.checkout).toHaveBeenCalledOnce());
+    state.epoch += 1;
+    await act(async () => { fail(new Error("old request")); });
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("shows the countdown and starts the existing Checkout from Pay", async () => {
     state.checkout.mockResolvedValueOnce("https://checkout.stripe.com/c/pay/cs_test");
     show(payment());

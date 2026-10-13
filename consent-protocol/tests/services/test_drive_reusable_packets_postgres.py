@@ -556,3 +556,13 @@ async def test_migration_replay_and_rollback_preserve_frozen_manifest(reusable):
     )
     assert not after["available"]
     assert packet["version"] == 1
+
+
+async def test_catalog_collection_rejects_facts_for_prior_extraction_version(reusable):
+    await ready_packet(reusable)
+    with reusable.facts.db.engine.begin() as connection:
+        assert reusable.packets._collection_complete(connection, "owner", 1, POLICY)
+        assert reusable.packets._collection_settled(connection, "owner", 1, POLICY)
+        connection.execute(text("UPDATE connected_documents SET active_version='new-extraction'"))
+        assert not reusable.packets._collection_complete(connection, "owner", 1, POLICY)
+        assert not reusable.packets._collection_settled(connection, "owner", 1, POLICY)

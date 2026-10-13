@@ -439,8 +439,8 @@ class DriveCollectionStore(DriveLivePreferences):
                     "SELECT * FROM connected_documents WHERE user_id=:user AND source_fingerprint=:source FOR UPDATE",
                     {"user": job["user_id"], "source": fingerprint},
                 )
-                if old and old["source_profile"] != "live":
-                    continue
+                if old and old["connection_generation"] != job["connection_generation"]:
+                    raise DriveReadError("connection_changed")
                 epoch = (
                     checkpoint.get("bootstrap_epoch")
                     if (phase or row["phase"]) == "bootstrap" or checkpoint.get("reconcile_epoch")
@@ -453,8 +453,47 @@ class DriveCollectionStore(DriveLivePreferences):
                         ),
                         {"epoch": epoch, "id": old["document_id"]},
                     )
+                if old and old["source_profile"] == "selected":
+                    # The separate collection disclosure explicitly admits this
+                    # existing owner source. A selected vector index is not full
+                    # page evidence; only the current complete extraction can
+                    # be reused. The document identity stays stable.
+                    from hushh_mcp.services.drive_document_page_store import DriveDocumentPageStore
+
+                    same_source = (
+                        old["source_version"] == metadata.version
+                        and self.cipher.open(dict(old)) == asdict(metadata)
+                        and old["last_error_code"] != "source_unavailable"
+                    )
+                    progress = (
+                        DriveDocumentPageStore(cipher=self.cipher).progress(
+                            connection, old, metadata.version
+                        )
+                        if same_source
+                        else None
+                    )
+                    if progress and progress["complete"]:
+                        connection.execute(
+                            text("""UPDATE connected_documents SET source_profile='live',
+                              processing_enabled=TRUE,processing_disclosure_version=:disclosure,
+                              processing_accepted_at=clock_timestamp(),processing_revision=processing_revision+1,
+                              collection_revision=:revision,status='ready',active_version=:version,
+                              lease_id=NULL,lease_expires_at=NULL,attempt_count=0,last_error_code=NULL,
+                              next_attempt_at=clock_timestamp(),updated_at=clock_timestamp()
+                              WHERE document_id=:id AND user_id=:user AND connection_generation=:generation"""),
+                            {
+                                "id": old["document_id"],
+                                "user": job["user_id"],
+                                "generation": job["connection_generation"],
+                                "disclosure": COLLECTION_DISCLOSURE,
+                                "revision": row["revision"],
+                                "version": progress["extraction_version"],
+                            },
+                        )
+                        continue
                 if (
                     old
+                    and old["source_profile"] == "live"
                     and old["source_version"] == metadata.version
                     and self.cipher.open(dict(old)) == asdict(metadata)
                     and old["last_error_code"] != "source_unavailable"
@@ -478,6 +517,8 @@ class DriveCollectionStore(DriveLivePreferences):
                       clock_timestamp(),1,'live',:revision,:epoch)
                     ON CONFLICT (user_id,connector_id,source_fingerprint) DO UPDATE SET
                       metadata_envelope=EXCLUDED.metadata_envelope,source_version=EXCLUDED.source_version,
+                      source_profile='live',processing_disclosure_version=EXCLUDED.processing_disclosure_version,
+                      processing_accepted_at=EXCLUDED.processing_accepted_at,
                       status='queued',active_version=NULL,source_changed_at=clock_timestamp(),lease_id=NULL,lease_expires_at=NULL,
                       processing_enabled=TRUE,collection_revision=EXCLUDED.collection_revision,
                       processing_revision=connected_documents.processing_revision+1,attempt_count=0,

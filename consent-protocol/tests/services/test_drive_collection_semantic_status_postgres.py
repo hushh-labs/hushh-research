@@ -123,3 +123,91 @@ async def test_late_status_read_uses_actual_evidence_time_and_stale_sync_is_not_
     assert stale["state"] == "unable_to_verify"
     assert stale["counts"]["indexed"] == 1
     assert stale["initialCompletedAt"] == status["initialCompletedAt"]
+
+
+async def test_preexisting_selected_source_is_admitted_and_legacy_index_is_reprocessed(reusable):
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+    from tests.services.test_drive_ingestion import collection_pages
+
+    files = await originals(reusable)
+    with reusable.collection.db.engine.begin() as connection:
+        identity = connection.execute(
+            text("""UPDATE connected_documents SET source_profile='selected',
+          processing_disclosure_version='selected-files-background-v1',active_version='legacy-vector-only'
+          RETURNING document_id""")
+        ).scalar_one()
+        connection.execute(text("DELETE FROM drive_document_extractions"))
+    # Collection consent admits the same source; no duplicate source row is created.
+    await reusable.collection.set_processing(
+        user_id="owner", enabled=True, disclosure=COLLECTION_DISCLOSURE
+    )
+    discovery = await reusable.collection.claim(user_id="owner")
+    await reusable.collection.commit_page(
+        discovery,
+        checkpoint={"changes_token": "selected-replay"},
+        files=files,
+        phase="changes",
+        caught_up=True,
+    )
+    status = await reusable.collection.status(user_id="owner")
+    assert status["counts"] == {
+        "discovered": 1,
+        "extracted": 0,
+        "indexed": 0,
+        "failed": 0,
+        "pending": 1,
+    }
+    job = await reusable.ingestion.claim(user_id="owner", generation=1)
+    assert job["document_id"] == identity
+    assert job["source_profile"] == "live" and job["active_version"] is None
+    assert job["processing_disclosure_version"] == COLLECTION_DISCLOSURE
+    await reusable.ingestion.publish_pages(job, metadata=files[0], batch=collection_pages())
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    assert (await reusable.collection.status(user_id="owner"))["counts"]["indexed"] == 1
+    for _ in range(3):
+        result = await reusable.worker.run_packet_one(user_id="owner")
+    assert result == "ready"
+    packets = (await reusable.packets.list_packets(user_id="owner"))["packets"]
+    assert len(packets) == 1 and packets[0]["documentCount"] == 1
+
+
+async def test_selected_source_reuses_only_complete_current_page_evidence(reusable):
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+
+    files = await originals(reusable)
+    with reusable.collection.db.engine.begin() as connection:
+        before = dict(
+            connection.execute(text("SELECT * FROM drive_document_extractions")).mappings().one()
+        )
+        identity = connection.execute(
+            text("""UPDATE connected_documents SET source_profile='selected',
+          processing_disclosure_version='selected-files-background-v1' RETURNING document_id""")
+        ).scalar_one()
+    await reusable.collection.set_processing(
+        user_id="owner", enabled=True, disclosure=COLLECTION_DISCLOSURE
+    )
+    discovery = await reusable.collection.claim(user_id="owner")
+    await reusable.collection.commit_page(
+        discovery,
+        checkpoint={"changes_token": "selected-replay"},
+        files=files,
+        phase="changes",
+        caught_up=True,
+    )
+    with reusable.collection.db.engine.connect() as connection:
+        after = dict(
+            connection.execute(text("SELECT * FROM drive_document_extractions")).mappings().one()
+        )
+        row = connection.execute(text("SELECT * FROM connected_documents")).mappings().one()
+    assert after == before
+    assert row["document_id"] == identity and row["source_profile"] == "live"
+    assert row["active_version"] == before["extraction_version"]
+    assert row["processing_disclosure_version"] == COLLECTION_DISCLOSURE
+    assert (await reusable.collection.status(user_id="owner"))["counts"] == {
+        "discovered": 1,
+        "extracted": 1,
+        "indexed": 0,
+        "failed": 0,
+        "pending": 1,
+    }
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"

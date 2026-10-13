@@ -296,35 +296,58 @@ async def test_access_preflight_stops_before_any_checkout_reservation(
         complete.assert_not_awaited()
 
 
-async def test_access_appearing_after_reservation_cannot_reach_stripe(monkeypatch):
+async def test_access_appearing_during_payout_lookup_never_allocates_checkout(monkeypatch):
     from hushh_mcp.services import drive_package_access_preflight as access_module
+    from hushh_mcp.services import drive_package_existing_access_store as completion_module
     from hushh_mcp.services import drive_request_payment_service as payment_module
-    from hushh_mcp.services import drive_trusted_auto_service as automatic_module
+    from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 
     monkeypatch.setattr(
         payment_module, "_config", lambda: ("synthetic", "synthetic", "https://example.invalid")
     )
-    inspect_access = AsyncMock(return_value=SimpleNamespace(status="none"))
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_owner_payout_service.payout_enabled", lambda: True
+    )
+    calls = []
+    verdict = SimpleNamespace(status="all_existing")
+
+    async def refresh(*, user_id):
+        calls.append("payout")
+        return {"stripe_account_id": "acct_synthetic", "readiness": {"ready": True}}
+
+    async def inspect(**kwargs):
+        assert calls == ["payout"]
+        calls.append("access")
+        return verdict
+
+    monkeypatch.setattr(PkmPayoutService, "refresh_account", staticmethod(refresh))
     monkeypatch.setattr(
         access_module,
         "DrivePackageAccessPreflight",
-        lambda **kw: SimpleNamespace(inspect=inspect_access),
+        lambda **kw: SimpleNamespace(inspect=inspect),
     )
-    late = AsyncMock(return_value=SimpleNamespace(status="all_existing"))
+    complete = AsyncMock()
     monkeypatch.setattr(
-        automatic_module,
-        "DriveTrustedAutoService",
-        lambda **kw: SimpleNamespace(preflight_package=late),
+        completion_module,
+        "DrivePackageExistingAccessStore",
+        lambda **kw: SimpleNamespace(complete=complete),
     )
     payment = DriveRequestPaymentService(db=object(), stripe_api=Mock())
     payment.payment_state = AsyncMock(
-        return_value={"status": "awaiting_payment", "_package_owner_user_id": "owner"}
+        return_value={
+            "status": "awaiting_payment",
+            "_package_owner_user_id": "owner",
+            "_payout_enrolled": True,
+            "_payout_owner_user_id": "owner",
+        }
     )
     payment._transaction = AsyncMock(
-        return_value={"_package_owner_user_id": "owner", "stripe_checkout_url": None}
+        side_effect=AssertionError("Access must settle before an attempt exists")
     )
-    with pytest.raises(DriveSharingError, match="payment_not_ready"):
-        await payment.checkout(requester_user_id="recipient", request_id=str(uuid4()))
-    inspect_access.assert_awaited_once()
-    late.assert_awaited_once()
+    request_id = str(uuid4())
+    with pytest.raises(DriveSharingError, match="request_already_accessible"):
+        await payment.checkout(requester_user_id="recipient", request_id=request_id)
+    assert calls == ["payout", "access"]
+    complete.assert_awaited_once_with(user_id="owner", request_id=request_id, result=verdict)
+    payment._transaction.assert_not_awaited()
     payment.stripe_api.checkout.Session.create.assert_not_called()

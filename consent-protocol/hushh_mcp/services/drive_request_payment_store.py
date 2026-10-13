@@ -119,15 +119,26 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         """
         identity = {"request": request["request_id"]}
         locked = {}
-        for name in ("orders", "obligations", "refunds", "owner_payouts"):
-            table = "drive_request_" + ("payment_" + name if name != "owner_payouts" else name)
-            locked[name] = (
-                connection.execute(
-                    text(f"SELECT * FROM {table} WHERE request_id=:request FOR UPDATE"), identity
-                )
-                .mappings()
-                .first()
-            )
+        statements = (
+            (
+                "orders",
+                "SELECT * FROM drive_request_payment_orders WHERE request_id=:request FOR UPDATE",
+            ),
+            (
+                "obligations",
+                "SELECT * FROM drive_request_payment_obligations WHERE request_id=:request FOR UPDATE",
+            ),
+            (
+                "refunds",
+                "SELECT * FROM drive_request_payment_refunds WHERE request_id=:request FOR UPDATE",
+            ),
+            (
+                "owner_payouts",
+                "SELECT * FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
+            ),
+        )
+        for name, statement in statements:
+            locked[name] = connection.execute(text(statement), identity).mappings().first()
         for name in ("orders", "obligations"):
             row = locked[name]
             if row is not None and (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { HelperText } from "@/components/app-ui/typography";
@@ -140,22 +140,43 @@ export function RequesterPaymentSection({ requestId, revision, payment, ownerNam
   const [reply, setReply] = useState<RequesterPaymentView | null>(null);
   const [withdrawn, setWithdrawn] = useState(false);
 
+  // Each committed account/request owns its asynchronous checkout callback.
+  const checkoutScope = useRef<object | null>(null);
+  useEffect(() => {
+    const scope = {};
+    checkoutScope.current = scope;
+    setBusy(null);
+    setError(null);
+    setReply(null);
+    setWithdrawn(false);
+    return () => { if (checkoutScope.current === scope) checkoutScope.current = null; };
+  }, [user?.uid, requestId, revision]);
+
   const view = reply && !(payment && MONEY_STATES.has(payment.state)) ? reply : payment;
   if (!view || view.state === "none") return null;
 
   const pay = async () => {
     if (busy) return;
+    const scope = checkoutScope.current;
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => scope !== null && checkoutScope.current === scope &&
+      isVaultSessionEpochCurrent(epoch);
+    if (!current()) return;
     setBusy("pay");
     setError(null);
     try {
       const idToken = await user?.getIdToken();
+      if (!current()) return;
       if (!idToken) throw new Error("Sign in to continue");
-      window.location.assign(await DriveRequestPaymentService.checkout(idToken, requestId));
+      const checkoutUrl = await DriveRequestPaymentService.checkout(idToken, requestId);
+      if (!current()) return;
+      window.location.assign(checkoutUrl);
     } catch (cause) {
+      if (!current()) return;
       setError(drivePaymentErrorMessage(cause));
       onChanged();
     } finally {
-      setBusy(null);
+      if (current()) setBusy(null);
     }
   };
 
