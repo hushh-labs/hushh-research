@@ -608,5 +608,13 @@
     "localSourceHead": "8aac6a05ee6d5f735005d3fd73ab6a39d114b8bc",
     "localHarnessOverrides": "Only ephemeral process environment for exact verified project/model and existing CLI OAuth; no deployed runtime or provider configuration mutation",
     "twoVertexCallsVerified": true
+  },
+  "displayedOwnerConsent": {
+    "source": "hushh-webapp/components/consent/answer-request-review.tsx",
+    "disclosure": "After approval, Google Gemini on Vertex AI writes from only ticked information; owner device encrypts and holds until verified payment. Ticked information reaches that provider under its retention and caching policies.",
+    "checkbox": "I agree to this question and the ticked information being used by Google Gemini to write the answer.",
+    "approvalBinding": "Model-processing consent, exact scopes, question and price are required before preparation and bound to request terms.",
+    "reviewSatisfied": false,
+    "remainingOwnerDecision": "Product/privacy owner must accept the displayed disclosure against the verified exact retention, contract and processing-residency evidence; the general policy reference does not establish a DURABLE TTL or abuse-monitoring exemption."
   }
 }
