@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -13,10 +13,14 @@ let script: string;
 let css: string;
 test.beforeAll(async () => {
   const root = process.cwd();
+  const workspace = fs.readFileSync(path.join(root, "components/agent/agent-chat-workspace.tsx"), "utf8");
+  const profileTriggerClass = workspace.match(/data-agent-chat-one-profile-trigger[\s\S]*?className="([^"]+)"/)?.[1];
+  if (!profileTriggerClass) throw new Error("Missing production One profile trigger");
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
+  for (const candidate of profileTriggerClass.split(/\s+/)) candidates.add(candidate);
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "connections-drawer-"));
   await build({
     configFile: false,
@@ -62,6 +66,7 @@ test.beforeAll(async () => {
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
+      __ONE_PROFILE_TRIGGER_CLASS__: JSON.stringify(profileTriggerClass),
     },
     build: {
       outDir,
@@ -115,10 +120,10 @@ test.beforeEach(async ({ page }) => {
     return route.continue();
   });
   await page.route(`**${HUSHH_MARK_PATH}`, route => route.fulfill({ contentType: "image/png", body: mark }));
-  await page.route("http://localhost/one-presence/profile-hd.png", route =>
+  await page.route("http://localhost/one-presence/*-hd.png", route =>
     route.fulfill({
       contentType: "image/png",
-      body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/profile-hd.png")),
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
@@ -1388,8 +1393,95 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
   await expectChatIntact(page, navigations);
 });
 
-test.describe("One profile Retina artwork", () => {
+async function presencePixels(artwork: Locator) {
+  return artwork.evaluate((canvas: HTMLCanvasElement) => {
+    const pixels = canvas.getContext("2d")!.getImageData(0, 0, 128, 128).data;
+    let hash = 0, opaque = 0;
+    for (let i = 0; i < pixels.length; i += 1) {
+      hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
+      if (i % 4 === 3 && pixels[i]! > 0) opaque += 1;
+    }
+    return { hash, opaque, cornerAlpha: [3, (128 - 1) * 4 + 3, (128 * 127) * 4 + 3, pixels.length - 1].map(i => pixels[i]) };
+  });
+}
+
+test.describe("One profile artwork and mapped work frames", () => {
   test.use({ deviceScaleFactor: 3 });
+  test("keeps header and profile presence in sync through drafting, answering and idle", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
+    await page.goto("http://localhost/connections-fixture?one-profile=1");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    const trigger = page.getByRole("button", { name: "Open One profile", exact: true });
+    await trigger.hover();
+    await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(trigger).toHaveCSS("border-radius", "0px");
+    // Tailwind composes shadow-none with zero-alpha ring/shadow slots.
+    await expect(trigger).toHaveCSS("box-shadow", /^(?:none|rgba\(0, 0, 0, 0\) 0px 0px 0px 0px(?:, rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)*)$/);
+    await trigger.click();
+    const panel = page.getByRole("dialog", { name: "One", exact: true });
+    await expect.poll(() => panel.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+    const header = page.getByTestId("one-presence-header").locator("[data-one-presence-state]");
+    const profile = panel.locator("[data-one-presence-state]");
+    for (const phase of [
+      { drafting: false, answering: false, state: "connected", file: "profile-hd.png" },
+      { drafting: true, answering: true, state: "working", file: "drafting-hd.png" },
+      { drafting: false, answering: true, state: "thinking", file: "thinking-hd.png" },
+      { drafting: false, answering: false, state: "connected", file: "profile-hd.png" },
+    ]) {
+      await page.evaluate(work => {
+        (window as unknown as { __setOnePresenceWork: (work: { drafting: boolean; answering: boolean }) => void }).__setOnePresenceWork(work);
+      }, { drafting: phase.drafting, answering: phase.answering });
+      await expect(header).toHaveAttribute("data-one-presence-state", phase.state);
+      await expect(profile).toHaveAttribute("data-one-presence-state", phase.state);
+      await expect(profile).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      expect(await profile.evaluate(element => getComputedStyle(element.parentElement!).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+      expect(await profile.evaluate(element => getComputedStyle(element.parentElement!).borderRadius)).toBe("0px");
+      const bounds = (await profile.boundingBox())!;
+      expect(bounds.width).toBe(192); expect(bounds.height).toBe(192);
+      if (phase.state === "connected") {
+        await expect(profile).toHaveAttribute("src", `/one-presence/${phase.file}`);
+        await expect(header).toHaveAttribute("src", "/one-presence/profile-hd.png");
+        await expect.poll(() => profile.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
+      } else {
+        for (const artwork of [header, profile]) {
+          await expect.poll(async () => (await presencePixels(artwork)).opaque).toBeGreaterThan(0);
+          expect((await presencePixels(artwork)).cornerAlpha).toEqual([0, 0, 0, 0]);
+          const first = (await presencePixels(artwork)).hash;
+          await expect.poll(async () => (await presencePixels(artwork)).hash).not.toBe(first);
+        }
+      }
+      await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
+    }
+  });
+  test("keeps HD reduced-motion artwork and pauses mapped frames for app lifecycle changes", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
+    await page.goto("http://localhost/connections-fixture?one-profile=1");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+    const panel = page.getByRole("dialog", { name: "One", exact: true });
+    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
+    const profile = panel.locator("canvas[data-one-presence-state]");
+    await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(profile).toHaveCSS("background-image", /drafting-hd\.png/);
+    await expect.poll(async () => (await presencePixels(profile)).opaque).toBe(0);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
+    await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
+    const paused = (await presencePixels(profile)).hash;
+    await page.waitForTimeout(200);
+    expect((await presencePixels(profile)).hash).toBe(paused);
+    await page.evaluate(() => (window as any).__setOnePresenceLifecycle("active"));
+    await expect.poll(async () => (await presencePixels(profile)).hash).not.toBe(paused);
+    await page.getByRole("button", { name: "Close One profile", exact: true }).click();
+    await expect(panel).toBeHidden();
+    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false }));
+    await expect(page.getByTestId("one-presence-header").locator("img")).toHaveAttribute("src", "/one-presence/profile-hd.png");
+  });
   for (const viewport of [
     { width: 320, height: 568 },
     { width: 390, height: 844 },

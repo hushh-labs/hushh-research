@@ -291,7 +291,12 @@
     "323_wallet_sharing_owner_index.sql",
     "324_wallet_sharing_recipient_index.sql",
     "325_wallet_sharing_audit_index.sql",
-    "326_answer_scope_resolution_lease.sql"
+    "326_answer_scope_resolution_lease.sql",
+    "327_direct_message_delivery_receipts.sql",
+    "328_drive_request_packages.sql",
+    "329_drive_request_cent_prices.sql",
+    "330_wallet_share_longer_durations.sql",
+    "331_feed_dismissal.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -455,7 +460,8 @@
       "322_wallet_universal_sharing.sql",
       "323_wallet_sharing_owner_index.sql",
       "324_wallet_sharing_recipient_index.sql",
-      "325_wallet_sharing_audit_index.sql"
+      "325_wallet_sharing_audit_index.sql",
+      "330_wallet_share_longer_durations.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -616,6 +622,10 @@
     "323_wallet_sharing_owner_index.sql": "rollback/323_wallet_sharing_owner_index.rollback.sql",
     "324_wallet_sharing_recipient_index.sql": "rollback/324_wallet_sharing_recipient_index.rollback.sql",
     "325_wallet_sharing_audit_index.sql": "rollback/325_wallet_sharing_audit_index.rollback.sql",
-    "326_answer_scope_resolution_lease.sql": "rollback/326_answer_scope_resolution_lease.rollback.sql"
+    "326_answer_scope_resolution_lease.sql": "rollback/326_answer_scope_resolution_lease.rollback.sql",
+    "327_direct_message_delivery_receipts.sql": "rollback/327_direct_message_delivery_receipts.rollback.sql",
+    "328_drive_request_packages.sql": "rollback/328_drive_request_packages.rollback.sql",
+    "329_drive_request_cent_prices.sql": "rollback/329_drive_request_cent_prices.rollback.sql",
+    "331_feed_dismissal.sql": "rollback/331_feed_dismissal.rollback.sql"
   }
 }

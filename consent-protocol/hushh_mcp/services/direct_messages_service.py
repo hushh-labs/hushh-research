@@ -25,6 +25,7 @@ import logging
 import os
 import secrets
 import uuid
+import wave
 import zipfile
 from contextlib import contextmanager
 from datetime import datetime
@@ -210,6 +211,50 @@ class DirectMessageCipher:
             ) from exc
 
 
+def _direct_voice_duration_ms(data: bytes) -> int:
+    """Validate the existing cross-device recorder's PCM container before encryption."""
+    if (
+        len(data) < 46
+        or data[:4] != b"RIFF"
+        or data[8:12] != b"WAVE"
+        or int.from_bytes(data[4:8], "little") + 8 != len(data)
+    ):
+        raise ValueError("invalid WAV length")
+    offset, format_seen, data_seen = 12, False, False
+    while offset + 8 <= len(data):
+        tag = data[offset : offset + 4]
+        size = int.from_bytes(data[offset + 4 : offset + 8], "little")
+        start, end = offset + 8, offset + 8 + size
+        if end > len(data):
+            raise ValueError("truncated WAV chunk")
+        if tag == b"fmt ":
+            if format_seen or size < 16:
+                raise ValueError("invalid WAV format")
+            fmt = data[start:end]
+            if (
+                int.from_bytes(fmt[0:2], "little"),
+                int.from_bytes(fmt[2:4], "little"),
+                int.from_bytes(fmt[4:8], "little"),
+                int.from_bytes(fmt[8:12], "little"),
+                int.from_bytes(fmt[12:14], "little"),
+                int.from_bytes(fmt[14:16], "little"),
+            ) != (1, 1, 16000, 32000, 2, 16):
+                raise ValueError("unsupported recording format")
+            format_seen = True
+        if tag == b"data":
+            if not format_seen or data_seen or size < 2 or size % 2:
+                raise ValueError("invalid WAV samples")
+            data_seen = True
+        offset = end + size % 2
+    if offset != len(data) or not format_seen or not data_seen:
+        raise ValueError("invalid WAV chunks")
+    with wave.open(io.BytesIO(data), "rb") as recording:
+        frames = recording.getnframes()
+        if not 0 < frames <= 16000 * 60 or len(recording.readframes(frames)) != frames * 2:
+            raise ValueError("invalid recording duration")
+        return max(1, (frames + 8) // 16)
+
+
 def normalize_direct_attachment(value: dict[str, Any] | None) -> dict[str, Any] | None:
     """Validate type and file signature before opening a DB transaction."""
 
@@ -247,6 +292,7 @@ def normalize_direct_attachment(value: dict[str, Any] | None) -> dict[str, Any] 
             "DIRECT_MESSAGE_ATTACHMENT_TOO_LARGE", "Choose a file up to 5 MB.", status_code=413
         )
     kind: str
+    duration_ms: int | None = None
     if mime_type == "image/png" and data.startswith(b"\x89PNG\r\n\x1a\n"):
         kind = "photo"
     elif mime_type == "image/jpeg" and data.startswith(b"\xff\xd8\xff"):
@@ -257,6 +303,16 @@ def normalize_direct_attachment(value: dict[str, Any] | None) -> dict[str, Any] 
         kind = "video"
     elif mime_type == "video/webm" and data.startswith(b"\x1a\x45\xdf\xa3"):
         kind = "video"
+    elif mime_type == "audio/wav":
+        try:
+            duration_ms = _direct_voice_duration_ms(data)
+            kind = "audio"
+        except (ValueError, wave.Error, EOFError) as exc:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_ATTACHMENT_INVALID",
+                "Choose a valid voice recording up to one minute.",
+                status_code=422,
+            ) from exc
     elif mime_type == "application/pdf" and data.startswith(b"%PDF-"):
         kind = "document"
     elif mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
@@ -283,7 +339,14 @@ def normalize_direct_attachment(value: dict[str, Any] | None) -> dict[str, Any] 
             "Choose a JPEG, PNG, WebP, MP4, WebM, PDF, DOCX, or text file.",
             status_code=422,
         )
-    return {"name": name, "mimeType": mime_type, "kind": kind, "size": len(data), "bytes": data}
+    return {
+        "name": name,
+        "mimeType": mime_type,
+        "kind": kind,
+        "size": len(data),
+        "bytes": data,
+        **({"durationMs": duration_ms} if duration_ms is not None else {}),
+    }
 
 
 def _stored_message_content(content: str, attachment: dict[str, Any] | None) -> str:
@@ -299,8 +362,15 @@ def _stored_message_content(content: str, attachment: dict[str, Any] | None) -> 
             "attachment": {
                 "name": attachment["name"],
                 "mimeType": attachment["mimeType"],
-                "kind": attachment["kind"],
+                # Keep the v1 file envelope readable by old servers/apps during
+                # rollout. New clients recognize voice from WAV + duration.
+                "kind": "document" if attachment["kind"] == "audio" else attachment["kind"],
                 "size": attachment["size"],
+                **(
+                    {"durationMs": attachment["durationMs"]}
+                    if attachment["kind"] == "audio"
+                    else {}
+                ),
             },
         },
         separators=(",", ":"),
@@ -318,7 +388,7 @@ def _opened_message_content(stored: str) -> tuple[str, dict[str, Any] | None]:
         attachment = payload["attachment"]
         if not isinstance(payload["text"], str) or not isinstance(attachment, dict):
             raise ValueError("invalid message attachment metadata")
-        if attachment.get("kind") not in {"photo", "video", "document"}:
+        if attachment.get("kind") not in {"photo", "video", "document", "audio"}:
             raise ValueError("invalid message attachment kind")
         return payload["text"], attachment
     except (ValueError, KeyError, TypeError) as exc:
@@ -806,7 +876,7 @@ class DirectMessagesService:
             reply_hidden_for_viewer = bool(row.get("reply_hidden_for_viewer"))
             reply_content = "This message was deleted."
             if not reply_deleted_at and not reply_hidden_for_viewer:
-                reply_content, _ = _opened_message_content(
+                reply_content, reply_attachment = _opened_message_content(
                     self._cipher.open(
                         {
                             "id": reply_id,
@@ -818,6 +888,12 @@ class DirectMessagesService:
                         }
                     )
                 )
+                if not reply_content and reply_attachment:
+                    reply_content = (
+                        "Voice message"
+                        if reply_attachment.get("mimeType") == "audio/wav"
+                        else str(reply_attachment.get("name") or "File")
+                    )
             reply_to = {
                 "id": reply_id,
                 "content": reply_content,
@@ -859,6 +935,7 @@ class DirectMessagesService:
             "attachment": attachment,
             "createdAt": _iso(row.get("created_at")),
             "readAt": _iso(row.get("read_at")),
+            "deliveredAt": _iso(row.get("delivered_at") or row.get("read_at")),
             "editedAt": _iso(row.get("edited_at")),
             "deletedForEveryoneAt": deleted_for_everyone_at,
             "replyTo": reply_to,
@@ -873,7 +950,7 @@ class DirectMessagesService:
         return self._execute_one(
             """
             SELECT id, conversation_id, sender_user_id, content_ciphertext,
-                   content_iv, content_algorithm, created_at, read_at, edited_at,
+                   content_iv, content_algorithm, created_at, read_at, delivered_at, edited_at,
                    reply_to_message_id, deleted_for_sender_at,
                    deleted_for_recipient_at, deleted_for_everyone_at
             FROM messages
@@ -902,6 +979,7 @@ class DirectMessagesService:
               message.content_algorithm,
               message.created_at,
               message.read_at,
+              message.delivered_at,
               message.edited_at,
               message.reply_to_message_id,
               message.deleted_for_sender_at,
@@ -1240,7 +1318,7 @@ class DirectMessagesService:
                 def replay() -> dict[str, Any] | None:
                     row = self._execute_one(
                         """SELECT id, conversation_id, sender_user_id, content_ciphertext,
-                                  content_iv, content_algorithm, created_at, read_at, reply_to_message_id,
+                                  content_iv, content_algorithm, created_at, read_at, delivered_at, reply_to_message_id,
                                   edited_at, deleted_for_sender_at, deleted_for_recipient_at,
                                   deleted_for_everyone_at
                            FROM messages WHERE id=CAST(:message_id AS UUID)
@@ -1301,7 +1379,7 @@ class DirectMessagesService:
                     )
                     ON CONFLICT (id) DO NOTHING
                     RETURNING id, conversation_id, sender_user_id, content_ciphertext,
-                              content_iv, content_algorithm, created_at, read_at,
+                              content_iv, content_algorithm, created_at, read_at, delivered_at,
                               edited_at, reply_to_message_id,
                               deleted_for_sender_at, deleted_for_recipient_at,
                               deleted_for_everyone_at
@@ -1372,7 +1450,12 @@ class DirectMessagesService:
         if reply_to:
             message["replyTo"] = {
                 "id": reply_to["id"],
-                "content": reply_to["content"],
+                "content": reply_to["content"]
+                or (
+                    "Voice message"
+                    if (reply_to.get("attachment") or {}).get("mimeType") == "audio/wav"
+                    else (reply_to.get("attachment") or {}).get("name", "")
+                ),
                 "senderIsViewer": reply_to["senderIsViewer"],
                 "deletedForEveryoneAt": reply_to["deletedForEveryoneAt"],
             }
@@ -1827,6 +1910,7 @@ class DirectMessagesService:
               latest.content_algorithm AS latest_content_algorithm,
               latest.created_at AS latest_created_at,
               latest.read_at AS latest_read_at,
+              latest.delivered_at AS latest_delivered_at,
               latest.edited_at AS latest_edited_at,
               latest.deleted_for_everyone_at AS latest_deleted_for_everyone_at,
               COALESCE(unread.unread_count, 0) AS unread_count,
@@ -1858,7 +1942,7 @@ class DirectMessagesService:
               ON peer_identity.user_id = peer_profile.user_id
             LEFT JOIN LATERAL (
               SELECT id, conversation_id, sender_user_id, content_ciphertext,
-                     content_iv, content_algorithm, created_at, read_at, edited_at,
+                     content_iv, content_algorithm, created_at, read_at, delivered_at, edited_at,
                      deleted_for_everyone_at
               FROM messages
               WHERE conversation_id = conversation.id
@@ -1903,6 +1987,7 @@ class DirectMessagesService:
                         "content_algorithm": row.get("latest_content_algorithm"),
                         "created_at": row.get("latest_created_at"),
                         "read_at": row.get("latest_read_at"),
+                        "delivered_at": row.get("latest_delivered_at"),
                         "edited_at": row.get("latest_edited_at"),
                         "deleted_for_everyone_at": row.get("latest_deleted_for_everyone_at"),
                     },
@@ -1964,6 +2049,7 @@ class DirectMessagesService:
               message.content_algorithm,
               message.created_at,
               message.read_at,
+              message.delivered_at,
               message.edited_at,
               message.reply_to_message_id,
               message.deleted_for_sender_at,
@@ -2076,7 +2162,8 @@ class DirectMessagesService:
             updated = self._execute_many(
                 """
                 UPDATE messages
-                SET read_at = clock_timestamp()
+                SET read_at = clock_timestamp(),
+                    delivered_at = COALESCE(delivered_at, statement_timestamp())
                 WHERE conversation_id = CAST(:conversation_id AS UUID)
                   AND sender_user_id <> :viewer_user_id
                   AND read_at IS NULL
@@ -2094,6 +2181,14 @@ class DirectMessagesService:
                     "viewer_user_id": viewer,
                     "through_message_id": through_message_id,
                 },
+            )
+        if updated:
+            self._notify_message_action(
+                {
+                    **conversation_row,
+                    "id": str(updated[0]["id"]),
+                    "conversation_id": conversation_key,
+                }
             )
         frontier_at = through["created_at"] if through else None
         frontier_id = through_message_id or ""
@@ -2120,6 +2215,65 @@ class DirectMessagesService:
                 if frontier_at
                 else {}
             ),
+        }
+
+    def acknowledge_delivery(
+        self, viewer_user_id: str, conversation_id: str, *, message_ids: list[str]
+    ) -> dict[str, Any]:
+        """Recipient acknowledgment after an authenticated client received the bodies.
+
+        The durable timestamp belongs to the existing message row; NOTIFY is
+        only a replaceable doorbell, not delivery authority or a Redis budget.
+        """
+        viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
+        conversation_key = self._normalize_conversation_id(conversation_id)
+        if not isinstance(message_ids, list) or not 1 <= len(message_ids) <= 100:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_INVALID_ID", "Choose received messages.", status_code=422
+            )
+        try:
+            ids = list(dict.fromkeys(str(uuid.UUID(value)) for value in message_ids))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_INVALID_ID", "Messages could not be verified.", status_code=422
+            ) from exc
+        conversation = self._conversation_for_participant(viewer, conversation_key)
+        if not conversation:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_CONVERSATION_NOT_FOUND",
+                "Conversation was not found.",
+                status_code=404,
+            )
+        with self._transaction():
+            received = self._execute_many(
+                """SELECT id FROM messages
+                   WHERE conversation_id=CAST(:conversation_id AS UUID)
+                     AND id=ANY(CAST(:message_ids AS UUID[])) AND sender_user_id<>:viewer_user_id
+                     AND deleted_for_recipient_at IS NULL AND deleted_for_everyone_at IS NULL
+                   FOR KEY SHARE""",
+                {"conversation_id": conversation_key, "message_ids": ids, "viewer_user_id": viewer},
+            )
+            if len(received) != len(ids):
+                raise DirectMessagesError(
+                    "DIRECT_MESSAGE_CONVERSATION_NOT_FOUND",
+                    "Messages were not found.",
+                    status_code=404,
+                )
+            updated = self._execute_many(
+                """UPDATE messages SET delivered_at=clock_timestamp()
+                   WHERE conversation_id=CAST(:conversation_id AS UUID)
+                     AND id=ANY(CAST(:message_ids AS UUID[])) AND sender_user_id<>:viewer_user_id
+                     AND delivered_at IS NULL AND deleted_for_recipient_at IS NULL AND deleted_for_everyone_at IS NULL
+                   RETURNING id, delivered_at""",
+                {"conversation_id": conversation_key, "message_ids": ids, "viewer_user_id": viewer},
+            )
+        if updated:
+            self._notify_message_action(
+                {**conversation, "id": str(updated[0]["id"]), "conversation_id": conversation_key}
+            )
+        return {
+            "deliveredCount": len(updated),
+            "deliveredAt": _iso(updated[0]["delivered_at"]) if updated else None,
         }
 
 

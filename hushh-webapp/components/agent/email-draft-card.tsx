@@ -69,6 +69,8 @@ type EmailDraftCardProps = {
    * so a follow-up chat turn can revise it. Observing only; never sends.
    */
   onDraftChange?: (draft: EmailDraft) => void;
+  /** Observes actual generation; an open editor or saved draft is idle. */
+  onDraftingChange?: (drafting: boolean) => void;
   /** Opens the existing connections drawer on Gmail for a never-connected mailbox. */
   onOpenConnections?: (provider: "gmail", trigger: HTMLButtonElement) => void;
   /**
@@ -163,6 +165,7 @@ export function EmailDraftCard({
   sourceBoundReply = null,
   sourceBoundEnvelope = null,
   onDraftChange,
+  onDraftingChange,
   onOpenConnections,
   onDeliveryPrepared,
   reviewedSend = null,
@@ -193,6 +196,10 @@ export function EmailDraftCard({
   const [activeDropdownField, setActiveDropdownField] = useState<"to" | "cc" | "bcc" | null>(null);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState<"draft" | "attachment" | "save" | null>(null);
+  useEffect(() => {
+    onDraftingChange?.(busy === "draft");
+    return () => onDraftingChange?.(false);
+  }, [busy, onDraftingChange]);
   const [savedToGmail, setSavedToGmail] = useState(false);
   const saveStartedRef = useRef(false);
   const [error, setError] = useState<EmailDeliveryError | null>(null);

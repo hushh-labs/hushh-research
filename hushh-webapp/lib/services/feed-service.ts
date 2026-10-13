@@ -1,5 +1,6 @@
 import { ApiService } from "@/lib/services/api-service";
 import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
   CACHE_TTL,
@@ -144,6 +145,70 @@ async function authHeader(idToken: string): Promise<Record<string, string>> {
 }
 
 export class FeedService {
+  private static async postMutation<T>(options: {
+    idToken: string;
+    userId: string;
+    path: string;
+    body?: Record<string, string>;
+  }): Promise<T> {
+    const response = await ApiService.apiFetch(options.path, {
+      method: "POST",
+      headers: {
+        ...(await authHeader(options.idToken)),
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+    });
+    const payload = (await response.json().catch(() => ({}))) as T & ErrorPayload;
+    if (!response.ok) {
+      throw feedRequestError(payload, response.status);
+    }
+    // Also advances the Feed epoch: an older in-flight list/count response
+    // cannot refill the cache after this server mutation has settled.
+    CacheSyncService.onFeedChanged(options.userId);
+    return payload as T;
+  }
+
+  static async dismiss(options: {
+    idToken: string;
+    userId: string;
+    itemId: string;
+  }): Promise<string | null> {
+    const result = await this.postMutation<{ dismissal_token?: unknown }>({
+      ...options,
+      path: `/api/one/feed/${encodeURIComponent(options.itemId)}/dismiss`,
+    });
+    return typeof result.dismissal_token === "string" ? result.dismissal_token : null;
+  }
+
+  static async restore(options: {
+    idToken: string;
+    userId: string;
+    itemId: string;
+    dismissalToken: string;
+  }): Promise<boolean> {
+    const result = await this.postMutation<{ restored?: unknown }>({
+      ...options,
+      path: `/api/one/feed/${encodeURIComponent(options.itemId)}/restore`,
+      body: { dismissal_token: options.dismissalToken },
+    });
+    return result.restored === true;
+  }
+
+  static async clear(options: {
+    idToken: string;
+    userId: string;
+    upToId: string;
+  }): Promise<void> {
+    await this.postMutation<{ status: string }>({
+      idToken: options.idToken,
+      userId: options.userId,
+      path: "/api/one/feed/clear",
+      // Preserve the full Postgres bigint on the wire.
+      body: { up_to_id: options.upToId },
+    });
+  }
+
   /**
    * The first page (no cursor) is the only page cached: it's what a revisit
    * needs to render instantly, and it's what the mutation/poll paths below

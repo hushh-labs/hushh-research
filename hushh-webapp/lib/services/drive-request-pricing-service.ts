@@ -69,7 +69,7 @@ export class DriveRequestPricingService {
     if (!vaultOwnerToken) throw new Error("Unlock your vault to change Drive pricing");
     if (typeof input.enabled !== "boolean" ||
         !isValidDocumentRequestPriceCents(input.amountCents)) {
-      throw new Error("Choose a whole-dollar price from $1 to $500");
+      throw new Error("Choose a price from $0.50 to $500");
     }
     version(input.expectedVersion);
     const value = record(await apiJson<unknown>("/api/connectors/google_drive/sharing/pricing", {

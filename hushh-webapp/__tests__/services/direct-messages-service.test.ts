@@ -16,6 +16,18 @@ import {
   DirectMessagesService,
   normalizeDirectMessageContent,
 } from "@/lib/services/direct-messages-service";
+import { inspectVoiceMessage } from "@/lib/direct-messages/voice-message";
+
+function voiceWav(durationMs = 1000): Uint8Array {
+  const bytes = new Uint8Array(44 + durationMs * 32), view = new DataView(bytes.buffer);
+  for (const [offset, tag] of [[0, "RIFF"], [8, "WAVE"], [12, "fmt "], [36, "data"]] as const)
+    bytes.set(new TextEncoder().encode(tag), offset);
+  view.setUint32(4, bytes.length - 8, true); view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, 16000, true);
+  view.setUint32(28, 32000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  view.setUint32(40, bytes.length - 44, true); view.setInt16(44, 16384, true);
+  return bytes;
+}
 
 const conversation = {
   id: "conversation-1",
@@ -40,6 +52,42 @@ describe("DirectMessagesService", () => {
     apiFetch.mockReset();
     apiFetchStream.mockReset();
     clearRead.mockReset(); activeKey.mockReset().mockReturnValue("fixture-key");
+  });
+
+  it("accepts the recorder WAV format and rejects malformed, wrong-format and overlong audio before sending", async () => {
+    const bytes = voiceWav();
+    expect(inspectVoiceMessage(bytes)).toMatchObject({ durationMs: 1000 });
+    expect(inspectVoiceMessage(bytes).peaks[0]).toBe(0.5);
+    expect(inspectVoiceMessage(voiceWav(60000)).durationMs).toBe(60000);
+    const invalid = [bytes.slice(0, -1), voiceWav(60001), new Uint8Array(bytes)];
+    new DataView(invalid[2]!.buffer).setUint32(24, 48000, true);
+    for (const sample of invalid) {
+      const file = new File([sample], "Voice message.wav", { type: "audio/wav" });
+      Object.defineProperty(file, "arrayBuffer", { value: async () => sample.buffer });
+      await expect(DirectMessagesService.sendMessage({ idToken: "auth", recipientPersonRef: "person", content: "", attachment: file })).rejects.toThrow("valid voice recording");
+    }
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("normalizes duration-tagged WAV files and preserves downloadable old-server attachments", async () => {
+    for (const durationMs of [1000, undefined]) {
+      const message = { ...conversation.latestMessage, attachment: { kind: "document", name: "Voice message.wav", mimeType: "audio/wav", size: 32044, durationMs } };
+      apiFetch.mockResolvedValueOnce(Response.json({ conversation, message }));
+      const result = await DirectMessagesService.sendMessage({ idToken: "auth", recipientPersonRef: "person", content: "caption" });
+      expect(result.message.attachment?.kind).toBe(durationMs ? "audio" : "document");
+      expect(result.message.attachment?.name).toBe("Voice message.wav");
+    }
+  });
+
+  it("sends bounded delivery acknowledgment with the owner fence and rejects unverified counts", async () => {
+    const current = () => true;
+    apiFetch.mockResolvedValueOnce(Response.json({ deliveredCount: 1 }));
+    await DirectMessagesService.acknowledgeDelivery({ idToken: "auth", conversationId: "conversation-1", messageIds: ["message-1"], isEffectCurrent: current });
+    expect(apiFetch).toHaveBeenLastCalledWith("/api/one/messages/conversations/conversation-1/delivered", expect.objectContaining({ isEffectCurrent: current, body: JSON.stringify({ messageIds: ["message-1"] }) }));
+    for (const deliveredCount of [2, -1, "1", undefined]) {
+      apiFetch.mockResolvedValueOnce(Response.json({ deliveredCount }));
+      await expect(DirectMessagesService.acknowledgeDelivery({ idToken: "auth", conversationId: "conversation-1", messageIds: ["message-1"], isEffectCurrent: current })).rejects.toThrow("could not be verified");
+    }
   });
 
   it("loads the authenticated inbox without exposing raw peer ids", async () => {

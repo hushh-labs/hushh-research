@@ -52,7 +52,7 @@ describe("Wallet card browser", () => {
     const card: WalletCardSummary = { cardId: "saved-card", nickname: "My card", brand: "visa", last4: "9876", expiryMonth: 5, expiryYear: 2030, issuingRegion: "IN", createdAt: "" };
     const { host, unmount } = setup([card], card.cardId);
     expect(screen.getByText("Protected details action")).toBeVisible();
-    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByText("Live profile controls")).toBeNull();
     expect(screen.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
     act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
@@ -86,7 +86,7 @@ describe("Wallet card browser", () => {
     expect(props.onSelect).toHaveBeenCalledWith("saved-card");
     expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
     expect(screen.getByText("Protected details action")).toBeVisible();
-    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(screen.queryByText("Card recipients")).toBeNull();
     fireEvent.click(dock.getByRole("button", { name: "Open Agent One Profile" }));
     rerender(<WalletCardBrowser {...props} selectedCardId={null} />);
     expect(screen.getByText("Live profile controls")).toBeVisible();

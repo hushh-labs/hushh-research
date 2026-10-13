@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 326,
+  "expected_migration_version": 331,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -880,14 +880,20 @@
       "error_code",
       "created_at",
       "updated_at",
-      "expires_at"
+      "expires_at",
+      "evaluation_status",
+      "evaluation_next_at",
+      "evaluation_attempts",
+      "evaluation_error_code"
     ],
     "drive_owner_search_results": [
       "job_id",
       "user_id",
       "position",
       "file_digest",
-      "metadata_envelope"
+      "metadata_envelope",
+      "evaluation_envelope",
+      "evaluated_at"
     ],
     "drive_owner_shares": [
       "request_id",
@@ -1147,7 +1153,8 @@
       "settlement_method",
       "initial_quote_cents",
       "review_requested_at",
-      "review_request_count"
+      "review_request_count",
+      "agent_package_required"
     ],
     "drive_share_reviews": [
       "request_id",
@@ -1612,6 +1619,7 @@
       "content_algorithm",
       "created_at",
       "read_at",
+      "delivered_at",
       "edited_at",
       "reply_to_message_id",
       "deleted_for_sender_at",

@@ -48,6 +48,24 @@ def grants_by_recipient(db):
     }
 
 
+@pytest.mark.parametrize("minutes", [15, 60, 120])
+@pytest.mark.parametrize("source", ["payment", "profile"])
+def test_share_duration_is_persisted_and_controls_expiry(cards_db, minutes, source):
+    db, service = cards_db
+    card = active_card(db, service) if source == "payment" else profile(db)
+    request_id = str(uuid.uuid4())
+    result = service.create_grants("alice", card, request_id, refs(db), minutes)
+    table = "wallet_card_share_requests" if source == "payment" else "wallet_profile_share_requests"
+    row = db.execute_raw(
+        f"SELECT duration_minutes,created_at,expires_at FROM {table} WHERE request_id=CAST(:id AS uuid)",  # nosec B608
+        {"id": request_id},
+    ).data[0]
+    assert row["duration_minutes"] == minutes
+    assert row["expires_at"] - row["created_at"] == timedelta(minutes=minutes)
+    assert len(result["grants"]) == 2
+    assert service.create_grants("alice", card, request_id, refs(db), minutes) == result
+
+
 def test_history_detail_handles_grant_erased_before_lock(cards_db, monkeypatch):
     from hushh_mcp.services import wallet_sharing_history
 
