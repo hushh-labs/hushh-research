@@ -15,14 +15,55 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-uat
+  group: uat-release-requests-backend
   cancel-in-progress: false
   queue: max
 
 jobs:
+  wait-capacity:
+    name: Wait for UAT One chat capacity outside the mutation lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      checks: read
+      id-token: write
+    environment:
+      name: uat
+      deployment: false
+    steps:
+      - name: Checkout current admission tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Authenticate for read-only UAT capacity inventory
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Wait for inherited backend capacity
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ inputs.sha }}
+        run: python3 scripts/ci/wait-uat-capacity.py --mode one-chat --target-sha "$TARGET_SHA"
+
   deploy:
     name: Deploy only consent-protocol
+    needs: wait-capacity
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
     environment: uat
     timeout-minutes: 65
     steps:

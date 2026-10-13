@@ -105,6 +105,23 @@ conservatively count every retained UAT database revision while cleanup is
 deferred, so overlapping drains cannot silently exceed the database budget.
 The capacity gate can still reject an unsafe release.
 
+Both UAT deploy workflows now poll capacity for at most 90 minutes before taking
+the `deploy-uat` mutation lock. A backend request (including One chat and `auto`)
+waits in the backend request group; an explicit `scope=frontend` request uses a
+separate group and can proceed while backend revisions drain. GitHub's
+`queue: max` holds at most 100 pending runs per group; a further run is canceled.
+Inventory or authentication errors fail immediately rather than being treated
+as capacity pressure. Once admitted, the deployment rechecks the exact SHA,
+actor, scope, and connection budget under the mutation lock before any writes.
+
+The wait depends on a verified Capacity Maintenance first pass and its deferred
+recheck to free old revisions. If no such run is scheduled, a governed operator
+should verify the live healthy release run and dispatch `capacity-maintenance.yml`
+for `environment=uat`, that `healthy_release_run_id`, and `apply=true`. The
+maintenance workflow verifies the source and live traffic before deletion. If
+there is no eligible source or capacity remains blocked after the bounded wait,
+escalate for capacity review; do not bypass the admission gate.
+
 Production's source-only selection skips cloud authentication after a settled
 pass, or while every retained drain deadline is still in the future. A completion
 receipt binds the environment, project, healthy release and latest completed

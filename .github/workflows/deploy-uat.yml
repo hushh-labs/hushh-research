@@ -52,7 +52,9 @@ env:
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
-  group: deploy-uat
+  # Backend candidates share one admission queue. Explicit frontend-only
+  # requests can proceed while backend revisions finish draining.
+  group: uat-release-requests-${{ inputs.scope == 'frontend' && 'frontend' || 'backend' }}
   cancel-in-progress: false
   queue: max
 
@@ -119,11 +121,61 @@ jobs:
             echo "- No deployment, traffic change, or release tag update was performed."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  deploy:
-    name: Deploy UAT Scope
+  wait-capacity:
+    name: Wait for UAT capacity outside the mutation lock
     needs: select-target
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      checks: read
+      id-token: write
+    environment:
+      name: uat
+      deployment: false
+    outputs:
+      scope: ${{ steps.admission.outputs.scope }}
+    steps:
+      - name: Checkout current admission tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Authenticate for read-only UAT capacity inventory
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Wait for scope-aware UAT capacity
+        id: admission
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ needs.select-target.outputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+        run: |
+          python3 scripts/ci/wait-uat-capacity.py \
+            --mode full --target-sha "$TARGET_SHA" \
+            --requested-scope "$REQUESTED_SCOPE" \
+            --github-output "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy UAT Scope
+    needs: [select-target, wait-capacity]
+    if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
     environment: uat
 
     steps:
@@ -315,8 +367,13 @@ jobs:
         env:
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
+          ADMITTED_SCOPE: ${{ needs.wait-capacity.outputs.scope }}
         run: |
           set -euo pipefail
+          if [ "${{ steps.scope.outputs.scope }}" != "$ADMITTED_SCOPE" ]; then
+            echo "UAT deploy scope changed after capacity admission; refusing deployment." >&2
+            exit 1
+          fi
           if [ "$DEPLOY_BACKEND" = true ]; then
             python3 scripts/ci/runtime-capacity-budget.py --environment uat \
               --candidate-service consent-protocol \
