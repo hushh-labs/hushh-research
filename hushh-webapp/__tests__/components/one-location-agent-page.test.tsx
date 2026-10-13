@@ -5151,7 +5151,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Manage sharing" }),
     ).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Stop" })).toHaveLength(4);
+    expect(screen.getAllByRole("button", { name: /^Stop the location share with/ })).toHaveLength(4);
   });
 
   it("does not render the removed onboarding tour", async () => {
@@ -8968,7 +8968,7 @@ describe("OneLocationAgentPage", () => {
     );
     expect(circleRecipientRow).not.toBeNull();
     return within(circleRecipientRow as HTMLElement).getByRole("button", {
-      name: "Change time",
+      name: "Change end time for Investor D",
     });
   }
 
@@ -8979,7 +8979,72 @@ describe("OneLocationAgentPage", () => {
     return Number(minutes) * 60 + Number(seconds);
   }
 
-  it("keeps the duration dialog modal inside Manage sharing for multiple grants", async () => {
+  it("keeps banner and Manage sharing aligned when one of two lanes expires", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    const initial = locationState();
+    const ordinary = { ...initial.ownerGrants[0]!, expiresAt: "2026-05-20T07:30:30.000Z" };
+    const sms = { ...ordinary, id: "grant_sms", shareKind: "sos" as const, expiresAt: "2026-05-20T08:00:00.000Z" };
+    mockGetState.mockResolvedValue({ ...initial, ownerGrants: [ordinary, sms] });
+    let unmount: (() => void) | undefined;
+    try {
+      const view = render(<OneLocationAgentPage />);
+      unmount = view.unmount;
+      const { rerender } = view;
+      await skipLocationEntryFlow();
+      await screen.findByTestId("one-location-overlap-count");
+      expect(screen.getByTestId("one-location-location-count")).toHaveTextContent("1 Location share");
+      expect(screen.getByTestId("one-location-sms-count")).toHaveTextContent("1 SMS");
+      await act(async () => { vi.advanceTimersByTime(31_000); });
+      expect(screen.queryByTestId("one-location-location-count")).toBeNull();
+      expect(screen.queryByTestId("one-location-overlap-count")).toBeNull();
+      expect(screen.getByTestId("one-location-sms-count")).toHaveTextContent("1 SMS");
+      mockLocationSearchParams("action=active-shares");
+      rerender(<OneLocationAgentPage />);
+      await screen.findByRole("heading", { name: "Manage sharing" });
+      const lanes = screen.getAllByTestId("one-location-share-lane");
+      expect(lanes).toHaveLength(1);
+      expect(lanes[0]).toHaveAttribute("data-grant-id", "grant_sms");
+    } finally {
+      await act(async () => { unmount?.(); });
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  }, 15000);
+
+  it("does not reconstruct the final expired share while its refresh is pending", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    const initial = locationState();
+    const grant = { ...initial.ownerGrants[0]!, expiresAt: "2026-05-20T07:30:10.000Z" };
+    const live = { ...initial, ownerGrants: [grant] };
+    let blockRefresh = false;
+    const pending: Array<(value: ReturnType<typeof locationState>) => void> = [];
+    mockGetState.mockImplementation(() => blockRefresh
+      ? new Promise((resolve) => { pending.push(resolve); })
+      : Promise.resolve(live));
+    let unmount: (() => void) | undefined;
+    try {
+      const view = render(<OneLocationAgentPage />);
+      unmount = view.unmount;
+      await skipLocationEntryFlow();
+      await screen.findByTestId("one-location-live-share");
+      blockRefresh = true;
+      await act(async () => { vi.advanceTimersByTime(12_000); });
+      expect(screen.queryByTestId("one-location-live-share")).toBeNull();
+      expect(pending.length).toBeGreaterThan(0);
+      await act(async () => {
+        blockRefresh = false;
+        pending.forEach((resolve) => resolve({ ...initial, ownerGrants: [{ ...grant, status: "expired" }] }));
+      });
+    } finally {
+      await act(async () => { unmount?.(); });
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  }, 15000);
+
+  it.each([false, true])("keeps the duration dialog modal and restores its grant control (replaced trigger: %s)", async (replaceTrigger) => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
     mockLocationSearchParams("action=active-shares");
@@ -8995,13 +9060,9 @@ describe("OneLocationAgentPage", () => {
       const shareRow = changeTime.closest('[data-testid="settings-row"]');
       expect(shareRow).not.toBeNull();
       const stop = within(shareRow as HTMLElement).getByRole("button", {
-        name: "Stop",
+        name: "Stop the location share with Investor D",
       });
-      expect(changeTime.parentElement).toContainElement(stop);
-      expect(changeTime.parentElement).toHaveClass("w-full", "sm:justify-end");
-      expect(
-        shareRow?.querySelector('[data-slot="settings-row-description"]'),
-      ).not.toContainElement(changeTime);
+      expect(changeTime.closest('[data-grant-id="grant_circle"]')).toContainElement(stop);
       fireEvent.click(changeTime);
 
       const dialog = await screen.findByRole("dialog", {
@@ -9024,13 +9085,17 @@ describe("OneLocationAgentPage", () => {
         expect(dialog).toContainElement(document.activeElement),
       );
 
+      // A responsive category/comparison switch mounts a new control for the
+      // same grant while the duration editor stays open.
+      const returnTrigger = replaceTrigger ? changeTime.cloneNode(true) as HTMLElement : changeTime;
+      if (replaceTrigger) changeTime.replaceWith(returnTrigger);
       fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
       await waitFor(() =>
         expect(
           screen.queryByRole("dialog", { name: "Change end time" }),
         ).toBeNull(),
       );
-      await waitFor(() => expect(changeTime).toHaveFocus());
+      await waitFor(() => expect(returnTrigger).toHaveFocus());
     } finally {
       vi.useRealTimers();
     }
@@ -9513,6 +9578,7 @@ describe("OneLocationAgentPage", () => {
       // No server state means no names — the count still has to be true.
       expect(within(card).getByText("Sharing with 1 person")).toBeTruthy();
       expect(countdownSeconds()).toBeGreaterThan(29 * 60);
+      expect(within(card).queryByTestId("one-location-live-share-audience")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

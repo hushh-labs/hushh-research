@@ -191,6 +191,30 @@ describe("LiveShareStatusCard", () => {
     expect(screen.getByText("Sharing with 2 people")).toBeTruthy();
     expect(screen.queryByTestId("one-location-live-share-countdown")).toBeNull();
     expect(screen.getByText("Different end times")).toBeTruthy();
+    expect(screen.queryByTestId("one-location-live-share-audience")).toBeNull();
+  });
+
+  it("shows both channel counts and explains the unique-recipient overlap", () => {
+    render(<LiveShareStatusCard status={status({ count: 6, grantCount: 7, names: [], stoppableGrantId: null,
+      audience: { peopleCount: 6, locationCount: 3, smsCount: 4, bothCount: 1 },
+    })} onManage={vi.fn()} />);
+    expect(screen.getByText("Sharing with 6 people")).toBeTruthy();
+    expect(screen.getByTestId("one-location-location-count")).toHaveTextContent("3 Location shares");
+    expect(screen.getByTestId("one-location-sms-count")).toHaveTextContent("4 SMS");
+    expect(screen.getByText("1 person receives both")).toBeTruthy();
+    expect(screen.queryByText("Different end times")).toBeNull();
+  });
+
+  it("identifies a single SMS stop and never offers its duration editor", () => {
+    const onStop = vi.fn();
+    render(<LiveShareStatusCard status={status({ singleGrantIsSms: true,
+      audience: { peopleCount: 1, locationCount: 0, smsCount: 1, bothCount: 0 },
+    })} onManage={vi.fn()} onStop={onStop} onChangeDuration={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Stop SMS" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("one-location-location-count")).toBeNull();
+    expect(screen.queryByTestId("one-location-overlap-count")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Change end time/ })).toBeNull();
   });
 
   it("offers Stop for a single share and Manage for several", () => {
