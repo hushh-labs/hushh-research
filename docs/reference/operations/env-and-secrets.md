@@ -332,6 +332,11 @@ Used by:
 | `DB_HOST` | same | Yes | |
 | `DB_PORT` | same | No (default 5432) | |
 | `DB_NAME` | same | No (default postgres) | |
+| `WORKOS_SSO_ENABLED` | `hushh_mcp/runtime_settings.py` | No (default off) | Flag for WorkOS enterprise SSO routes; off means every SSO route answers 404 |
+| `WORKOS_API_KEY` | `hushh_mcp/services/enterprise_sso/workos_adapter.py` | Only when SSO is on | Secret. Also the root the SSO `state` signing key is derived from |
+| `WORKOS_CLIENT_ID` | same | Only when SSO is on | Not secret; kept beside the key |
+| `WORKOS_WEBHOOK_SECRET` | same | Only when SSO is on | Secret. Verifies `WorkOS-Signature` on `/api/webhooks/workos` |
+| `WORKOS_REDIRECT_URI` | same | Only when SSO is on | Server-side configuration, never client input; must match a Redirect registered in the WorkOS dashboard |
 | `APP_FRONTEND_ORIGIN` | `server.py` | Yes (prod CORS fallback) | |
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
@@ -504,6 +509,11 @@ See [Logo.dev API keys](https://www.logo.dev/docs/platform/api-keys) and
 | `DB_HOST` | Yes | No | Local: `.env`; Prod: Cloud Run env | Pooler host |
 | `DB_PORT` | No | No | Local: `.env`; Prod: Cloud Run env (default 5432) | |
 | `DB_NAME` | No | No | Local: `.env`; Prod: Cloud Run env (default postgres) | |
+| `WORKOS_SSO_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Default off |
+| `WORKOS_API_KEY` | Only when SSO is on | Yes | Local: `.env`; Prod: Secret Manager | Never in `NEXT_PUBLIC_*` |
+| `WORKOS_CLIENT_ID` | Only when SSO is on | No | Local: `.env`; Prod: Secret Manager or Cloud Run env | |
+| `WORKOS_WEBHOOK_SECRET` | Only when SSO is on | Yes | Local: `.env`; Prod: Secret Manager | |
+| `WORKOS_REDIRECT_URI` | Only when SSO is on | No | Local: `.env`; Prod: Cloud Run env | |
 | `APP_FRONTEND_ORIGIN` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | CORS fallback source |
 | `BACKEND_RUNTIME_CONFIG_JSON` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Structured runtime policy for DB socket, CORS, remote toggles, and platform settings; `passkey_allowed_rp_ids` is derived as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment alias |
 | `CORS_ALLOWED_ORIGINS` | Yes (prod recommended) | No | Local: `.env`; Prod: Cloud Run env | Explicit CORS allowlist (comma-separated) |
@@ -650,6 +660,7 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 | Variable | Required | Secret | Where set | Notes |
 |----------|----------|--------|-----------|--------|
 | `NEXT_PUBLIC_BACKEND_URL` | Yes | No | Local: `.env.local`; Prod build: Secret Manager (BACKEND_URL) | Baked at build time |
+| `NEXT_PUBLIC_WORKOS_SSO_ENABLED` | No | No | Local: `.env.local`; build-time public config | Presentation only: shows "Continue with SSO" on web sign-in. Unset means off. The backend `WORKOS_SSO_ENABLED` flag stays the authority (every SSO route answers 404 while it is off). Not yet passed by the Cloud Build frontend manifests, so deployed builds keep it off until that is added deliberately. Never carries a WorkOS key |
 | `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | No | No | Local/build-time public config | Optional HTTPS template with exactly one `{domain}` placeholder. It must contain no secret; unset configuration uses the public DuckDuckGo domain icon endpoint; an explicitly empty or invalid template falls back to a category or generic receipt icon. |
 | `NEXT_PUBLIC_FIREBASE_API_KEY` | Yes | No | Local: `.env.local`; CI: dummy; Prod: build-arg | Public |
 | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Yes | No | Same as above | |
