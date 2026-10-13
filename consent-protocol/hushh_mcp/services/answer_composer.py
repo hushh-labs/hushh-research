@@ -1,4 +1,4 @@
-"""Writes the answer to one paid question from the approved information.
+"""Writes one Gemini answer from the exact approved information.
 
 Where this runs, and why that matters
 -------------------------------------
@@ -53,7 +53,7 @@ ANSWER_COMPOSE_SCHEMA: dict[str, Any] = {
 
 
 class AnswerComposerError(RuntimeError):
-    """A model FAILURE. The caller records a projection, never a guess."""
+    """A model failure. Preparation stays retryable; no completed answer is staged."""
 
 
 def _prompt(
@@ -90,6 +90,11 @@ def _prompt(
             "The same information structured, so you can cite exact figures:",
             json.dumps(values, ensure_ascii=False, sort_keys=True),
         ]
+    if projection.get("sourceFreshness"):
+        lines += [
+            "Source revisions, confirmed absence and derivation dates for these approved scopes:",
+            json.dumps(projection["sourceFreshness"], ensure_ascii=False, sort_keys=True),
+        ]
     prompt = "\n".join(lines)
     if len(prompt) > MAX_PROJECTION_CHARS:
         raise AnswerComposerError("approved projection exceeds the model bound")
@@ -125,7 +130,9 @@ class AnswerComposer:
         if not isinstance(payload, Mapping):
             raise AnswerComposerError("composer returned a non-object payload")
 
-        answer = str(payload.get("answer") or "").strip()
+        if not isinstance(payload.get("answer"), str):
+            raise AnswerComposerError("composer returned a non-string answer")
+        answer = payload["answer"].strip()
         if not answer:
             # Reject-whole. An empty answer is a failure, not a short answer.
             raise AnswerComposerError("composer returned no answer")
@@ -133,10 +140,12 @@ class AnswerComposer:
             raise AnswerComposerError("composer answer exceeded its bound")
 
         def _strings(key: str) -> list[str]:
-            value = payload.get(key)
-            if not isinstance(value, list):
+            if key not in payload:
                 return []
-            return [str(item).strip() for item in value if str(item or "").strip()][:12]
+            value = payload.get(key)
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise AnswerComposerError("composer returned malformed answer coverage")
+            return [item.strip() for item in value if item.strip()][:12]
 
         # The answer is returned as written. Nothing here rewrites it.
         return {"answer": answer, "covers": _strings("covers"), "gaps": _strings("gaps")}
@@ -147,6 +156,8 @@ class AnswerComposer:
                 return await self._runner(prompt)
             from hushh_mcp.hushh_adk.manifest import ManifestLoader
             from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+            from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+            from hushh_mcp.services.answer_composition_receipt import composition_model
 
             manifest = ManifestLoader.load(
                 str(Path(__file__).resolve().parents[1] / "agents" / "one" / "agent.yaml")
@@ -154,6 +165,14 @@ class AnswerComposer:
             gene = next(child for child in manifest.subagents if child.id == GENE_ID)
             if gene.runtime.adk_mode != "single_turn" or gene.privacy.plaintext_telemetry:
                 raise AnswerComposerError("composer gene has an invalid runtime boundary")
+            selected_model = resolve_fleet_model_name(gene.model.name)
+            if (
+                gene.model.provider != "gemini"
+                or gene.model.mode != "hushh_managed_vertex"
+                or not selected_model.startswith("gemini-")
+                or selected_model != composition_model()
+            ):
+                raise AnswerComposerError("composer gene must use the configured Gemini model")
             agent = build_single_turn_agent(gene, output_schema=ANSWER_COMPOSE_SCHEMA)
             return await run_single_turn(
                 agent,
@@ -164,7 +183,7 @@ class AnswerComposer:
             )
         except AnswerComposerError:
             raise
-        except Exception as error:  # noqa: BLE001 - model FAILURE -> recorded projection
+        except Exception as error:  # noqa: BLE001 - model failure -> retryable preparation
             raise AnswerComposerError(str(type(error).__name__)) from error
 
 

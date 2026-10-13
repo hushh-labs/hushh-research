@@ -99,13 +99,17 @@ for _pair in "${_drive_secret_pairs[@]}"; do
     connect_test_webhook) _STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET="${_value}" ;;
     answer_secret) _PKM_ANSWER_STRIPE_SECRET_KEY_SECRET="${_value}" ;;
     answer_webhook) _PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET="${_value}" ;;
+    answer_test_secret) _PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET="${_value}" ;;
+    answer_test_webhook) _PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET="${_value}" ;;
+    answer_live_secret) _PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET="${_value}" ;;
+    answer_live_webhook) _PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET="${_value}" ;;
     *) echo "Drive secret settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_secret_pairs[@]}" -ne 13 ]]; then
-  echo "Drive secret settings must contain thirteen keys." >&2; exit 1
+if [[ "${#_drive_secret_pairs[@]}" -ne 17 ]]; then
+  echo "Drive secret settings must contain seventeen keys." >&2; exit 1
 fi
-for _required in _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET _GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET _GOOGLE_DRIVE_PICKER_API_KEY_SECRET _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET _DRIVE_DOCUMENT_KEY_V1_SECRET _DRIVE_SHARING_KEY_V1_SECRET _STRIPE_SECRET_KEY_SECRET _STRIPE_WEBHOOK_SECRET_SECRET; do
+for _required in _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET _GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET _GOOGLE_DRIVE_PICKER_API_KEY_SECRET _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET _DRIVE_DOCUMENT_KEY_V1_SECRET _DRIVE_SHARING_KEY_V1_SECRET _STRIPE_SECRET_KEY_SECRET _STRIPE_WEBHOOK_SECRET_SECRET _PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET _PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET _PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET _PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET; do
   if ! declare -p "${_required}" >/dev/null 2>&1; then
     echo "Drive secret settings are missing ${_required}." >&2; exit 1
   fi
@@ -292,6 +296,10 @@ append_optional_secret "${_STRIPE_CONNECT_SECRET_KEY_SECRET}" "STRIPE_CONNECT_SE
 append_optional_secret "${_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET}" "STRIPE_CONNECT_TEST_WEBHOOK_SECRET"
 append_optional_secret "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_SECRET_KEY"
 append_optional_secret "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_WEBHOOK_SECRET"
+append_optional_secret "${_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_TEST_SECRET_KEY"
+append_optional_secret "${_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET"
+append_optional_secret "${_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY"
+append_optional_secret "${_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET"
 append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
 append_optional_secret "${_GOOGLE_MAPS_API_KEY_SECRET}" "GOOGLE_MAPS_API_KEY"
 # Literal secret names, not substitutions -- these two are named identically in

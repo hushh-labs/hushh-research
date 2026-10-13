@@ -25,6 +25,11 @@ from uuid import uuid4
 import stripe
 from sqlalchemy import text
 
+from hushh_mcp.services.answer_composition_receipt import (
+    COMPOSITION_RECEIPT_KEY,
+    CompositionReceiptError,
+    verify_composition_receipt,
+)
 from hushh_mcp.services.drive_request_payment_service import (
     CHECKOUT_HOLD_SECONDS,
     _stripe_dict,
@@ -32,7 +37,11 @@ from hushh_mcp.services.drive_request_payment_service import (
 from hushh_mcp.services.external_connector_lifecycle_store import (
     ExternalConnectorLifecycleStore,
 )
-from hushh_mcp.services.pkm_answer_config import answer_composer_enabled, answer_stripe_mode
+from hushh_mcp.services.pkm_answer_config import (
+    answer_composer_enabled,
+    answer_stripe_mode,
+    available_answer_payment_modes,
+)
 from hushh_mcp.services.pkm_answer_config import answer_payment_config as _config
 
 #: Registered in the Stripe webhook dispatcher. An unregistered kind would fall
@@ -109,7 +118,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             or row["status"] != "paid"
             or row["paid_at"] is None
             or row["reconciliation_required"]
-            or row.get("stripe_mode") != answer_stripe_mode()
+            or row.get("stripe_mode") not in {"test", "live"}
         ):
             raise AnswerPaymentError("payment_required")
         # The answer must be produced under the terms that were paid for.
@@ -123,9 +132,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             row = self._row(
                 connection,
                 """SELECT r.status AS request_status, r.amount_cents, r.currency,
+                          r.request_id, r.owner_user_id, r.terms_digest, r.composer_consent_digest,
                           r.answer_deadline_at, r.question, o.status AS order_status,
                           o.stripe_checkout_url, o.paid_at, o.refunded_at, o.refund_reason,
-                          o.reconciliation_required, d.has_content AS staged_has_content
+                          o.reconciliation_required, d.has_content AS staged_has_content,
+                          d.source_revisions AS staged_revisions
                    FROM pkm_answer_requests r
                    LEFT JOIN pkm_answer_payment_orders o ON o.request_id = r.request_id
                    LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
@@ -137,6 +148,10 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             return row
 
         row = await self._transaction(read)
+        prepared = bool(
+            row["staged_has_content"]
+            and self._has_composed_answer({"source_revisions": row["staged_revisions"]}, row)
+        )
         return {
             "requestStatus": row["request_status"],
             "orderStatus": row["order_status"],
@@ -144,6 +159,9 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             "currency": row["currency"],
             "checkoutUrl": row["stripe_checkout_url"]
             if row["request_status"] == "approved"
+            and prepared
+            and answer_payments_enabled()
+            and answer_composer_enabled()
             else None,
             "paidAt": row["paid_at"].isoformat() if row["paid_at"] else None,
             "refundedAt": row["refunded_at"].isoformat() if row["refunded_at"] else None,
@@ -153,6 +171,8 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 "preparing"
                 if row["staged_has_content"] is None
                 else "ready"
+                if prepared
+                else "preparing"
                 if row["staged_has_content"]
                 else "empty"
             ),
@@ -167,12 +187,28 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
     # -------------------------------------------------------------- checkout
 
     @staticmethod
-    def _require_prepared_answer(connection, request_id: str) -> None:
+    def _has_composed_answer(staged, request) -> bool:
+        if request.get("composer_consent_digest") != request["terms_digest"]:
+            return False
+        try:
+            verify_composition_receipt(
+                (staged.get("source_revisions") or {}).get(COMPOSITION_RECEIPT_KEY),
+                request_id=str(request["request_id"]),
+                owner_user_id=request["owner_user_id"],
+                terms_digest=request["terms_digest"],
+                require_fresh=False,
+            )
+            return True
+        except CompositionReceiptError:
+            return False
+
+    @staticmethod
+    def _require_prepared_answer(connection, request) -> None:
         staged = (
             connection.execute(
-                text("""SELECT has_content, ciphertext, iv, recipient_key_id
+                text("""SELECT has_content, ciphertext, iv, recipient_key_id, source_revisions
                     FROM pkm_answer_deliveries WHERE request_id = :request FOR SHARE"""),
-                {"request": request_id},
+                {"request": str(request["request_id"])},
             )
             .mappings()
             .first()
@@ -182,6 +218,8 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         if not staged["has_content"]:
             raise AnswerPaymentError("answer_not_found")
         if not all(staged.get(field) for field in ("ciphertext", "iv", "recipient_key_id")):
+            raise AnswerPaymentError("answer_not_ready")
+        if not PkmAnswerPaymentService._has_composed_answer(staged, request):
             raise AnswerPaymentError("answer_not_ready")
 
     def _retire_session(self, session_id: str, key: str) -> str:
@@ -234,7 +272,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         """
         if order is None:
             return {"action": "fresh", "stale": None}
-        if order.get("stripe_mode") != answer_stripe_mode():
+        if order.get("stripe_mode") not in {"test", "live"}:
             raise AnswerPaymentError("payment_mode_mismatch")
         if order["status"] in {"paid", "refunded"}:
             raise AnswerPaymentError("payment_already_paid")
@@ -272,15 +310,12 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
 
     async def checkout(self, *, requester_user_id: str, request_id: str) -> dict:
         """Open (or reuse) a hosted Checkout session for one approved question."""
-        if not answer_composer_enabled():
-            raise AnswerPaymentError("composer_not_enabled")
-        key, _webhook_secret, origin = _config()
 
         def load(connection):
             request = self._row(
                 connection,
                 """SELECT request_id, owner_user_id, requester_user_id, status,
-                          amount_cents, currency, terms_digest
+                          amount_cents, currency, terms_digest, composer_consent_digest
                    FROM pkm_answer_requests
                    WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
@@ -296,7 +331,6 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             # yielded nothing is already known to be unanswerable here, and
             # taking money for it would create a refund the person never
             # needed to be owed.
-            self._require_prepared_answer(connection, request_id)
             order = self._row(
                 connection,
                 """SELECT * FROM pkm_answer_payment_orders
@@ -308,9 +342,18 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             PkmAnswerRequestService._require_active_connection(
                 connection, request["owner_user_id"], requester_user_id
             )
-            return request, order, self._checkout_decision(request, order)
+            decision = self._checkout_decision(request, order)
+            # Recovering an idempotency key can create a new provider session
+            # when an old reservation never reached Stripe. Even returning an
+            # existing payable URL must first prove a complete Gemini stage.
+            if not answer_composer_enabled():
+                raise AnswerPaymentError("composer_not_enabled")
+            self._require_prepared_answer(connection, request)
+            return request, order, decision
 
         request, order, decision = await self._transaction(load)
+        order_mode = order["stripe_mode"] if order else answer_stripe_mode()
+        key, _webhook_secret, origin = _config(order_mode)
 
         if decision["action"] == "reuse":
             return {
@@ -337,7 +380,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             fresh_request = self._row(
                 connection,
                 """SELECT request_id, owner_user_id, requester_user_id, status,
-                          amount_cents, currency, terms_digest
+                          amount_cents, currency, terms_digest, composer_consent_digest
                    FROM pkm_answer_requests
                    WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
@@ -346,7 +389,6 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 raise AnswerPaymentError("request_unavailable")
             if fresh_request["status"] != "approved":
                 raise AnswerPaymentError("payment_not_ready")
-            self._require_prepared_answer(connection, request_id)
             fresh_order = self._row(
                 connection,
                 """SELECT * FROM pkm_answer_payment_orders
@@ -359,6 +401,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 connection, fresh_request["owner_user_id"], requester_user_id
             )
             again = self._checkout_decision(fresh_request, fresh_order)
+            if not answer_composer_enabled():
+                raise AnswerPaymentError("composer_not_enabled")
+            self._require_prepared_answer(connection, fresh_request)
+            if (fresh_order["stripe_mode"] if fresh_order else answer_stripe_mode()) != order_mode:
+                raise AnswerPaymentError("payment_mode_mismatch")
             if again["action"] == "recover":
                 return {
                     **fresh_request,
@@ -398,7 +445,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                         "currency": fresh_request["currency"],
                         "digest": fresh_request["terms_digest"],
                         "attempt": attempt_id,
-                        "stripe_mode": answer_stripe_mode(),
+                        "stripe_mode": order_mode,
                         "expires": checkout_expires,
                     },
                 )
@@ -420,7 +467,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                         "amount": fresh_request["amount_cents"],
                         "digest": fresh_request["terms_digest"],
                         "attempt": attempt_id,
-                        "stripe_mode": answer_stripe_mode(),
+                        "stripe_mode": order_mode,
                         "expires": checkout_expires,
                     },
                 )
@@ -543,11 +590,32 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
     # --------------------------------------------------------------- webhook
 
     async def process_webhook(self, *, payload: bytes, signature: str | None) -> None:
-        key, webhook_secret, _origin = _config()
-        try:
-            raw_event = self.stripe_api.Webhook.construct_event(payload, signature, webhook_secret)
-        except (ValueError, TypeError, stripe.error.SignatureVerificationError):
-            raise AnswerPaymentError("payment_invalid_signature") from None
+        raw_event = None
+        key = ""
+        signed_event = False
+        for mode in available_answer_payment_modes():
+            candidate_key, webhook_secret, _origin = _config(mode)
+            try:
+                verified = _stripe_dict(
+                    self.stripe_api.Webhook.construct_event(payload, signature, webhook_secret)
+                )
+                signed_event = True
+                # A shared endpoint can use the same signing secret for both
+                # modes. Choose the key from authenticated provider mode,
+                # never from the candidate secret's iteration order.
+                session = (verified.get("data") or {}).get("object") or {}
+                livemode = verified.get("livemode", session.get("livemode"))
+                if type(livemode) is bool and livemode != (mode == "live"):
+                    continue
+                raw_event = verified
+                key = candidate_key
+                break
+            except (ValueError, TypeError, stripe.error.SignatureVerificationError):
+                continue
+        if raw_event is None:
+            raise AnswerPaymentError(
+                "payment_invalid_event" if signed_event else "payment_invalid_signature"
+            )
         try:
             event = _stripe_dict(raw_event)
         except (AttributeError, TypeError, ValueError):
@@ -557,13 +625,28 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
 
         await self._settle_verified_event(event=event, key=key)
 
-    async def recover_checkout_event(self, *, request_id: str, stripe_event_id: str) -> None:
+    async def recover_checkout_event(
+        self, *, request_id: str, stripe_event_id: str, stripe_mode: str | None = None
+    ) -> None:
         """Operator recovery using an authenticated provider event, never fabricated signatures.
 
         This uses the same transaction and replay guard as signed webhooks.
         No browser-return, PaymentIntent, or caller-supplied event can settle an order.
         """
-        key, _secret, _origin = _config()
+        order = await self._transaction(
+            lambda connection: self._row(
+                connection,
+                "SELECT stripe_mode FROM pkm_answer_payment_orders WHERE request_id=:request",
+                {"request": request_id},
+            )
+        )
+        if order is None:
+            raise AnswerPaymentError("request_unavailable")
+        stored_mode = order.get("stripe_mode")
+        mode = stored_mode if stored_mode is not None else stripe_mode
+        if mode not in {"test", "live"} or (stripe_mode is not None and stripe_mode != mode):
+            raise AnswerPaymentError("payment_mode_mismatch")
+        key, _secret, _origin = _config(mode)
         from fastapi.concurrency import run_in_threadpool
 
         raw = await run_in_threadpool(self.stripe_api.Event.retrieve, stripe_event_id, api_key=key)
@@ -597,9 +680,13 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         ):
             if current.get(field) != session.get(field):
                 raise AnswerPaymentError("payment_invalid_event")
-        await self._settle_verified_event(event=event, key=key)
+        await self._settle_verified_event(
+            event=event, key=key, reconcile_mode=mode if stored_mode is None else None
+        )
 
-    async def _settle_verified_event(self, *, event: dict, key: str) -> None:
+    async def _settle_verified_event(
+        self, *, event: dict, key: str, reconcile_mode: str | None = None
+    ) -> None:
         """Only signed webhook or authenticated provider-read callers enter here."""
 
         event_type = event.get("type")
@@ -643,7 +730,8 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         def settle(connection):
             request = self._row(
                 connection,
-                """SELECT request_id, status, owner_user_id, requester_user_id, terms_digest
+                """SELECT request_id, status, owner_user_id, requester_user_id, terms_digest,
+                          composer_consent_digest
                    FROM pkm_answer_requests WHERE request_id=:request FOR UPDATE""",
                 {"request": request_id},
             )
@@ -656,7 +744,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             if order is None:
                 raise AnswerPaymentError("payment_invalid_event")
 
-            if order.get("stripe_mode") != answer_stripe_mode():
+            verified_mode = "live" if key.startswith("sk_live_") else "test"
+            historical_unbound = (
+                order.get("stripe_mode") is None and reconcile_mode == verified_mode
+            )
+            if order.get("stripe_mode") != verified_mode and not historical_unbound:
                 raise AnswerPaymentError("payment_invalid_event")
             if expired_event:
                 if (
@@ -685,6 +777,24 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 or order["terms_digest"] != metadata.get("terms_digest")
             ):
                 raise AnswerPaymentError("payment_invalid_event")
+
+            if (
+                order["status"] in {"paid", "refunded"}
+                and order["stripe_payment_intent_id"] != session["payment_intent"]
+            ):
+                raise AnswerPaymentError("payment_invalid_event")
+
+            if historical_unbound:
+                # Only authenticated Event + current Session recovery can bind
+                # an old row. Never infer its mode from today's deployment.
+                if order["stripe_checkout_session_id"] != session["id"]:
+                    raise AnswerPaymentError("payment_invalid_event")
+                connection.execute(
+                    text(
+                        "UPDATE pkm_answer_payment_orders SET stripe_mode=:mode WHERE request_id=:request"
+                    ),
+                    {"mode": verified_mode, "request": request_id},
+                )
 
             # Replay guard. A duplicate delivery of the same Stripe event is a
             # no-op, not a second settlement.
@@ -761,7 +871,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             staged = (
                 connection.execute(
                     text(
-                        """SELECT has_content FROM pkm_answer_deliveries
+                        """SELECT has_content, source_revisions FROM pkm_answer_deliveries
                            WHERE request_id = :request FOR SHARE"""
                     ),
                     {"request": request_id},
@@ -769,7 +879,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 .mappings()
                 .first()
             )
-            if staged is not None and staged["has_content"]:
+            if (
+                staged is not None
+                and staged["has_content"]
+                and self._has_composed_answer(staged, request)
+            ):
                 moved = connection.execute(
                     text(
                         """UPDATE pkm_answer_requests

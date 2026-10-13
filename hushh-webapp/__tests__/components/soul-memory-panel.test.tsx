@@ -54,11 +54,11 @@ describe("Soul.md editor", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Soul.md Markdown" }), { target: { value: "My unsaved edit" } });
     mocks.revision += 1;
     view.rerender(<SoulMemoryPanel {...props} />);
-    expect(screen.getByRole("textbox")).toHaveValue("My unsaved edit");
+    expect(screen.getByRole("textbox", { name: "Soul.md Markdown" })).toHaveValue("My unsaved edit");
     mocks.replace.mockResolvedValueOnce({ success: false, conflict: true, message: "Memory changed" });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await screen.findByRole("button", { name: "Reload latest version" });
-    expect(screen.getByRole("textbox")).toHaveValue("My unsaved edit");
+    expect(screen.getByRole("textbox", { name: "Soul.md Markdown" })).toHaveValue("My unsaved edit");
     expect(mocks.toast.success).not.toHaveBeenCalled();
   });
 
@@ -66,6 +66,7 @@ describe("Soul.md editor", () => {
     render(<SoulMemoryPanel {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Edit Soul.md" }));
     expect(mocks.back).not.toBeNull();
+    fireEvent.change(screen.getByLabelText("Legal name"), { target: { value: "Discard this identity edit" } });
     act(() => { expect(mocks.back!()).toBe(true); });
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(mocks.back).toBeNull();
@@ -76,7 +77,7 @@ describe("Soul.md editor", () => {
     mocks.replace.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<SoulMemoryPanel {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Edit Soul.md" }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Private owner A draft" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Soul.md Markdown" }), { target: { value: "Private owner A draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(finish).toBeDefined());
     view.rerender(<SoulMemoryPanel {...props} verified={false} />);
@@ -103,4 +104,22 @@ describe("Soul.md editor", () => {
     expect(view.container.querySelector("img")).toBeNull();
     expect(view.container.querySelector("script")).toBeNull();
   });
+});
+
+
+it("adds, edits and clears identity facts for an existing owner without onboarding", async () => {
+  mocks.load.mockResolvedValue({ markdown: `${markdown}- Legal name: Old name\n- Sex: female\n`, persisted: true });
+  render(<SoulMemoryPanel {...props} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Soul.md" }));
+  fireEvent.change(screen.getByLabelText("Legal name"), { target: { value: "Current name" } });
+  fireEvent.change(screen.getByLabelText("Date of birth"), { target: { value: "1998-03-14" } });
+  fireEvent.change(screen.getByLabelText("Sex"), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(mocks.replace).toHaveBeenCalledTimes(1));
+  const draft = mocks.replace.mock.calls[0]![0].markdown;
+  expect(draft).toContain("Legal name: Current name");
+  expect(draft).toContain("Date of birth: 1998-03-14");
+  expect(draft).toContain("Concise answers");
+  expect(draft).not.toContain("Old name");
+  expect(draft).not.toContain("Sex:");
 });

@@ -111,7 +111,7 @@ fi
 # Resolve the existing broad layout pack once. It already includes the agent
 # surface spec in both required browser engines; do not invoke that spec twice.
 layout_contracts_required=0
-if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html|fixtures/one-location-contact-scroll\.tsx|fixtures/guest-preview\.tsx|fixtures/direct-chat)|lib/(morphy-ux/hooks/use-page-enter|one-location/contact-picker-controls)\.ts|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/onboarding/(guest-preview|IntroStep)|components/app-ui/|components/one-location/|components/feed/|components/connect/|components/direct-messages/|components/secrets/)'; then
+if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html|fixtures/one-location-contact-scroll\.tsx|fixtures/guest-preview\.tsx|fixtures/direct-chat|fixtures/answer-profile-photo)|lib/(morphy-ux/hooks/use-page-enter|one-location/contact-picker-controls|answers/answer-profile-photo|one-marketplace/encryption|services/answer-request-service|vault/session-epoch|pkm/identity-memory-facts)\.ts|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/onboarding/(guest-preview|IntroStep)|components/app-ui/|components/one-location/|components/feed/|components/connect/|components/direct-messages/|components/secrets/|components/consent/answer-request-card\.tsx|components/ui/avatar\.tsx|components/agent/agent-markdown\.tsx)'; then
   layout_contracts_required=1
 fi
 

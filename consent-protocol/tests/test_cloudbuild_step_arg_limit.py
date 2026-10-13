@@ -303,3 +303,43 @@ def test_independent_answer_intake_reaches_the_extracted_deploy(value: str) -> N
         'append_optional_env "PKM_ANSWER_REQUESTS_ENABLED" "${_PKM_ANSWER_REQUESTS_ENABLED:-}"'
         in script
     )
+
+
+def test_retained_answer_mode_secrets_survive_packed_deployment() -> None:
+    """Historical settlements keep both mode keys when shared payment mode changes."""
+    config = _load("deploy/backend.cloudbuild.yaml")
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    packed = next(e for e in step["env"] if e.startswith("_DRIVE_SECRET_SETTINGS="))
+    names = [
+        f"_PKM_ANSWER_STRIPE_{mode}_{kind}_SECRET"
+        for mode in ("TEST", "LIVE")
+        for kind in ("SECRET_KEY", "WEBHOOK_SECRET")
+    ]
+    values = {
+        **config["substitutions"],
+        **{name: f"synthetic-secret-{index}" for index, name in enumerate(names)},
+    }
+    rendered = re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda m: values[m[1]], packed)
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    start = script.index("IFS=',' read -r -a _drive_secret_pairs")
+    parser = script[start : script.index("# UAT's Drive work-drain", start)]
+    # Capture the actual four bindings; no cloud command or secret value is read.
+    bindings = "\n".join(
+        line
+        for line in script.splitlines()
+        if line.startswith("append_optional_secret") and any(name in line for name in names)
+    )
+    capture = 'append_optional_secret() { printf "%s=%s\\n" "$2" "$1"; }\n'
+    for suffix in ("", ",answer_test_secret=duplicate"):
+        result = subprocess.run(  # noqa: S603 - fixed repository parser and synthetic substitutions only
+            ["bash", "-euc", capture + parser + bindings],
+            env={"_DRIVE_SECRET_SETTINGS": rendered.split("=", 1)[1] + suffix},
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if suffix:
+            assert result.returncode != 0, "duplicate packed key bypassed the shape guard"
+        else:
+            assert result.returncode == 0, result.stderr
+            assert result.stdout.splitlines() == [f"{name[1:-7]}={values[name]}" for name in names]

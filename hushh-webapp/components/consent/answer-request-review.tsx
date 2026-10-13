@@ -145,8 +145,9 @@ export function AnswerRequestReview({
           here instead, so the old sentences described a flow that no longer
           runs. Google Vertex AI writing it is a real disclosure and stays. */}
       <HelperText as="p">
-        Your device writes the answer now from what you tick, encrypts it for
-        them, and holds it until they pay. Google Vertex AI writes it, so the
+        After you approve, Google Gemini on Vertex AI writes the answer from
+        what you tick. Your device encrypts it for them and holds it until
+        verified payment. The
         ticked information reaches that provider under its retention and
         caching policies. Nothing is sent if nothing you tick answers them.
       </HelperText>
@@ -158,8 +159,8 @@ export function AnswerRequestReview({
           disabled={busy}
           onChange={(event) => setConsented(event.target.checked)}
         />
-        I agree to this question and the ticked information being used to
-        write the answer.
+        I agree to this question and the ticked information being used by
+        Google Gemini to write the answer.
       </Label>
 
       {error ? (
@@ -206,7 +207,7 @@ export function AnswerRequestReview({
         purpose={request.question}
         // This lane delivers one written answer, not files. The sheet's own
         // sentence described a Drive search the owner is not authorizing.
-        description="They pay this price before the answer is written. Nothing from your memory is used until they pay."
+        description="After you approve, your unlocked device prepares and encrypts one answer from the selected memory. They pay this price only when it is ready, and verified payment releases it."
         deliveryDescription="One written answer"
         periodStart={request.periodStart}
         periodEnd={request.periodEnd}
