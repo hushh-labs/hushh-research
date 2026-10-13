@@ -102,6 +102,17 @@ describe("back leaves a destination by its origin", () => {
     });
   });
 
+  it("returns from a standalone screen to where it was opened, not One home", () => {
+    // To-dos/Feed/Career/Referrals had no destination identity, so Back
+    // always dumped the person on the One dashboard.
+    recordDestinationEntry(LOCATION_PEOPLE);
+    recordDestinationEntry("/one/todos");
+
+    expect(resolveTopShellBackAction({ pathname: "/one/todos" })?.href).toBe(
+      LOCATION_PEOPLE,
+    );
+  });
+
   it("climbs inside a destination, ignoring the origin", () => {
     recordDestinationEntry(LOCATION);
     recordDestinationEntry(KAI);
