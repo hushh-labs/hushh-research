@@ -8553,7 +8553,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.people.person_profile",
-          "purpose": "Help the signed-in viewer understand relationship, requestable information, grants, and request history without exposing private values.",
+          "purpose": "Review a person, request information, browse permitted document packets, and manage existing access.",
           "screen": "one_person_profile",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -8563,7 +8563,8 @@
             "people.profile.review_information_request",
             "people.profile.cancel_connection_request",
             "people.profile.remove_connection",
-            "people.profile.manage_consent"
+            "people.profile.manage_consent",
+            "people.profile.browse_packets"
           ],
           "required_inputs": [],
           "recoveries": {
@@ -8603,6 +8604,7 @@
       },
       "voice_action_contract_file": "app/people/[personRef]/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "people.profile.browse_packets",
         "people.profile.cancel_connection_request",
         "people.profile.connect",
         "people.profile.manage_consent",
@@ -10126,5 +10128,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "df66e0f25acee984777f7e884407dc24a3c70e4ceb7c7b4c67c8e00706d8a572"
+  "content_sha256": "c259f63a86286f99496a97b452409fbee7c7d3105cd4653928fcaa5111de6150"
 }
