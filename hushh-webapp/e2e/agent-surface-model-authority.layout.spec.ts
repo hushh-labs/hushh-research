@@ -581,6 +581,10 @@ test.describe("Agent Chat: which agent is answering", () => {
 
       const tile = await box(page, "agent-brand-tile");
       const header = await box(page, "agent-header");
+      if (width < 640) {
+        const identity = await box(page, "agent-identity");
+        expect(tile.x).toBeCloseTo(identity.x, 0);
+      }
       expect(tile.width).toBeGreaterThan(0);
       expect(tile.height).toBeGreaterThan(0);
       expect(tile.x).toBeGreaterThanOrEqual(header.x - 0.5);

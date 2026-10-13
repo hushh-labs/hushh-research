@@ -31,6 +31,8 @@ final class NativeSupportTests: XCTestCase {
         let tablet = CGRect(x: 0, y: 0, width: 1194, height: 834)
         let frame = NativeDrawerLayout.frame(family: "profile", in: tablet, phone: false)
         XCTAssertEqual(frame.width, 430)
+        XCTAssertEqual(frame.minY, tablet.minY)
+        XCTAssertEqual(frame.maxY, tablet.maxY)
         XCTAssertEqual(tablet.maxX - frame.maxX, 18)
         XCTAssertTrue(tablet.contains(frame))
         let travel = NativeDrawerLayout.travel(family: "profile", frame: frame, in: tablet)

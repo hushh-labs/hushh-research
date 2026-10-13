@@ -10,9 +10,8 @@ enum NativeDrawerLayout {
         if family == "profile" {
             let gutter: CGFloat = 18
             let width = min(430, max(0, bounds.width - 2 * gutter))
-            let height = min(820, max(0, bounds.height - 2 * gutter))
-            return CGRect(x: bounds.maxX - gutter - width, y: bounds.midY - height / 2,
-                          width: width, height: height)
+            return CGRect(x: bounds.maxX - gutter - width, y: bounds.minY,
+                          width: width, height: bounds.height)
         }
         return CGRect(x: bounds.minX, y: bounds.minY,
                       width: min(360, bounds.width * 0.88), height: bounds.height)
@@ -482,9 +481,11 @@ struct NativeDrawerContent: View {
                 UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                     bottomTrailingRadius: model.panelCornerRadius, topTrailingRadius: model.panelCornerRadius, style: .continuous)
                     .fill(Color(uiColor: .systemBackground))
+                    .ignoresSafeArea()
             } else {
                 RoundedRectangle(cornerRadius: model.panelCornerRadius, style: .continuous)
                     .fill(Color(uiColor: .systemGroupedBackground))
+                    .ignoresSafeArea()
             }
         }
     }

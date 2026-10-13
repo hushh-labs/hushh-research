@@ -285,10 +285,10 @@ test.describe("Profile pane custom close layout", () => {
     }
   });
 
-  test("keeps mobile Profile edge-to-edge and the desktop card inset", async ({
+  test("keeps touch Profile full-height and the desktop card inset", async ({
     browser,
   }) => {
-    const context = await browser.newContext({ hasTouch: true });
+    const context = await browser.newContext();
     const page = await context.newPage();
     try {
     const css = fs.readFileSync(GLOBAL_CSS_SOURCE, "utf8");
@@ -318,7 +318,6 @@ test.describe("Profile pane custom close layout", () => {
     for (const size of [
       { width: 390, height: 844, gutter: 0, cardHeight: 844 },
       { width: 1280, height: 900, gutter: 18, cardHeight: 820 },
-      { width: 844, height: 390, gutter: 0, cardHeight: 390 },
     ]) {
       await page.setViewportSize({ width: size.width, height: size.height });
       const geometry = await page.locator(".profile-pane-sheet").evaluate((panel) => {
@@ -352,6 +351,23 @@ test.describe("Profile pane custom close layout", () => {
     const broken = await page.locator(".profile-pane-sheet").boundingBox();
     expect(broken?.height).toBeLessThan(844);
     expect(broken?.width).toBeLessThan(390);
+    const touchContext = await browser.newContext({ hasTouch: true });
+    try {
+      const touchPage = await touchContext.newPage();
+      await touchPage.setContent(await page.content());
+      await touchPage.addStyleTag({ content: mobileRules });
+      for (const size of [
+        { width: 844, height: 390, gutter: 0 },
+        { width: 1194, height: 834, gutter: 18 },
+      ]) {
+        await touchPage.setViewportSize(size);
+        const bounds = await touchPage.locator(".profile-pane-sheet").boundingBox();
+        expect(bounds?.y).toBeCloseTo(0, 0);
+        expect(bounds?.height).toBeCloseTo(size.height, 0);
+        expect(bounds?.width).toBeCloseTo(size.gutter === 0 ? size.width : 430, 0);
+        expect(size.width - (bounds!.x + bounds!.width)).toBeCloseTo(size.gutter, 0);
+      }
+    } finally { await touchContext.close(); }
     } finally { await context.close(); }
   });
 

@@ -7914,8 +7914,18 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
 }
 
 /* Profile is a full mobile surface, including its opening preview. History
-   shares that mobile boundary; desktop/tablet cards stay bounded. Match a
+   shares that mobile boundary; desktop cards stay bounded. Match a
    landscape phone by its coarse pointer and short side, not width alone. */
+@media (pointer: coarse) {
+  html:not(.native-reserved-chrome) :is(.profile-pane-sheet[data-slot="sheet-content"], [data-profile-preview]) {
+    --app-side-pane-top-inset: 0px;
+    --app-side-pane-bottom-inset: 0px;
+    --app-side-pane-height: 100dvh;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: 100dvh !important;
+  }
+}
 @media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
   html:not(.native-reserved-chrome) .profile-pane-sheet[data-slot="sheet-content"],
   html:not(.native-reserved-chrome) [data-profile-preview],
@@ -7939,6 +7949,8 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-agent-history-drawer] {
     left: 0 !important;
   }
+}
+@media (max-width: 639px), (pointer: coarse) {
   html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-header,
   html.native-full-window-overlays .profile-pane-sheet .profile-pane-header {
     padding-top: calc(16px + env(safe-area-inset-top, 0px)) !important;
@@ -7954,6 +7966,8 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
     top: calc(17px + env(safe-area-inset-top, 0px)) !important;
     right: max(16px, env(safe-area-inset-right, 0px)) !important;
   }
+}
+@media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
   html:not(.native-reserved-chrome) [data-agent-history-sidebar="drawer"],
   html.native-full-window-overlays [data-agent-history-sidebar="drawer"] {
     padding-top: env(safe-area-inset-top, 0px);
@@ -9456,6 +9470,12 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 }
 .agent-chat-header [data-agent-chat-header-region="identity"] p {
   justify-content: flex-start;
+}
+
+@media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
+  .agent-chat-header [data-agent-chat-header-region="identity"] {
+    justify-content: flex-start;
+  }
 }
 
 @media (min-width: 1280px) {
