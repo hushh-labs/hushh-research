@@ -520,5 +520,93 @@
       "Processing-region commitments do not resolve the implicit DURABLE cache storage lifetime/deletion/residency.",
       "Existing global/us/eu routing preserved; no project-wide cache or endpoint policy changed."
     ]
+  },
+  "syntheticRealGeminiAdapterProbe": {
+    "observedAt": "2026-10-13T00:30:39.828414+00:00",
+    "status": "passed",
+    "scope": "Local production AnswerComposer / managed ADK single-turn with real Vertex transport and strictly synthetic facts",
+    "deploymentBindingSource": {
+      "revision": "consent-protocol-02071-zap",
+      "deploymentSha": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139"
+    },
+    "project": "hushh-vertex-personal54",
+    "model": "gemini-3.6-flash",
+    "configuredLocations": [
+      "global",
+      "us",
+      "eu"
+    ],
+    "calls": [
+      {
+        "number": 1,
+        "measurement": "first_local_process_call",
+        "status": "success",
+        "nonemptyAnswer": true,
+        "answerLengthChars": 122,
+        "coversCount": 3,
+        "gapsCount": 0,
+        "boundedJsonContractAccepted": true,
+        "elapsedMs": 3922.01
+      },
+      {
+        "number": 2,
+        "measurement": "second_same_process_call",
+        "status": "success",
+        "nonemptyAnswer": true,
+        "answerLengthChars": 120,
+        "coversCount": 3,
+        "gapsCount": 0,
+        "boundedJsonContractAccepted": true,
+        "elapsedMs": 1354.65
+      }
+    ],
+    "httpCalls": [
+      {
+        "method": "post",
+        "project": "hushh-vertex-personal54",
+        "location": "global",
+        "model": "gemini-3.6-flash",
+        "operation": "generateContent",
+        "status": 200,
+        "elapsedMs": 1744.85
+      },
+      {
+        "method": "post",
+        "project": "hushh-vertex-personal54",
+        "location": "global",
+        "model": "gemini-3.6-flash",
+        "operation": "generateContent",
+        "status": 200,
+        "elapsedMs": 1324.93
+      }
+    ],
+    "noPrivateFacts": true,
+    "promptAndReplyPersisted": false,
+    "runtimeOrProviderSettingsChanged": false,
+    "databaseOrPaymentOperations": false,
+    "providerReviewSatisfied": false,
+    "limitations": [
+      "Two individual samples measure first and second composer calls in one local process; they are not a latency distribution or SLA.",
+      "The first call includes local manifest/client/auth initialization; it is not a measured Cloud Run cold start.",
+      "The second call reuses the local shared regional transport; provider cache-hit behavior is not asserted.",
+      "CLI OAuth uses the already authorised local identity, not the deployed Cloud Run service identity.",
+      "No consent-gated UAT route, owner profile, projection/decryption browser, receipt/staging, payment or readable delivery is exercised.",
+      "DURABLE caching, applicable terms/abuse retention and owner disclosure prerequisites remain unresolved; review flags stay false."
+    ],
+    "authentication": {
+      "mode": "vertex_adc",
+      "localCredentialSource": "existing_active_gcloud_identity",
+      "identityType": "authorized_user",
+      "identityAndCredentialValuesOmitted": true
+    },
+    "privateTelemetryNoContent": true,
+    "dependencies": {
+      "google-adk": "2.9.0",
+      "google-genai": "2.23.0",
+      "google-auth": "2.58.0"
+    },
+    "localSourceHead": "8aac6a05ee6d5f735005d3fd73ab6a39d114b8bc",
+    "localHarnessOverrides": "Only ephemeral process environment for exact verified project/model and existing CLI OAuth; no deployed runtime or provider configuration mutation",
+    "twoVertexCallsVerified": true
   }
 }
