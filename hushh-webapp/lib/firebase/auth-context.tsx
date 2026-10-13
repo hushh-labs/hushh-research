@@ -1674,7 +1674,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // linked successfully while its backend persistence was unavailable.
       const linkedUser = await AuthService.restoreNativeSession({ nativeOnly: true });
       requirePhoneVerificationOwner(expectedUid, expectedEpoch);
-      if (linkedUser?.uid !== expectedUid) {
+      if (!linkedUser || linkedUser.uid !== expectedUid) {
         throw new Error("The verified account changed. Start phone verification again.");
       }
       if (linkedUser.phoneNumber !== phone) return null;
