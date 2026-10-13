@@ -956,8 +956,10 @@ test("Wallet sharp onboarding and stacked detail links", async ({ page }) => {
   await scrollRoot.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await expect.poll(() => page.locator('[data-stack-details]').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).visibility !== "hidden"))).toBe(true);
   await page.getByRole("tab", { name: "Sharing", exact: true }).click();
-  await expect(page.getByTestId("wallet-sharing-content").locator('figure [data-agent-card="profile"]')).toBeVisible();
-  await expect(page.getByTestId("wallet-sharing-content").locator("figure")).toBeInViewport();
+  const sharing = page.getByTestId("wallet-sharing-content");
+  await expect(sharing.locator("figure")).toHaveCount(0);
+  await expect(sharing.getByRole("button", { name: "Sent cards", exact: true })).toBeInViewport();
+  await expect(sharing.getByRole("button", { name: "Received cards", exact: true })).toBeInViewport();
 });
 
 for (const width of [320, 393, 1024]) {

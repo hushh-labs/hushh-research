@@ -805,10 +805,10 @@ export function WalletWorkspace() {
             actionsInlineMobile
             titleRole="agent"
             className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-            actions={headerAction ?
+            actions={
               <span className="flex h-11 items-center sm:h-[53px]" data-slot="wallet-header-action">
                 {headerAction}
-              </span> : undefined
+              </span>
             }
           />
           : null}
