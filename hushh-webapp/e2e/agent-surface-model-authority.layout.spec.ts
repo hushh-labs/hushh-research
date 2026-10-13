@@ -222,10 +222,7 @@ function renderScreen(mode: Mode, variant: Variant): string {
     ? `<div class="${SRC.header.centered.historyClass}"><div><span class="relative inline-flex shrink-0">${historyButton}</span></div></div>`
     : historyButton;
   const artwork = SRC.header.centered.artwork;
-  const artworkMarkup =
-    artwork.kind === "canvas"
-      ? `<canvas data-testid="one-artwork" width="128" height="128" class="${artwork.className}"></canvas>`
-      : `<div class="${artwork.containerClass}"><img data-testid="one-artwork" alt="" width="64" height="64" class="${artwork.className}"></div>`;
+  const artworkMarkup = `<div class="${artwork.containerClass}"><img data-testid="one-artwork" alt="" width="64" height="64" class="${artwork.className}"></div>`;
   const brand = variant.centeredHeader
     ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle"><button data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="inline-flex items-center justify-center rounded-full ${SRC.header.centered.profileTriggerClass}"><span class="inline-flex items-center justify-center">${artworkMarkup}</span></button></span>`
     : "";
