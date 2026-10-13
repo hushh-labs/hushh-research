@@ -143,6 +143,12 @@ zero new regressions. The inherited Gmail workflow helper baseline is qualified
 against exact incoming source/AST; budgets and unrelated entries are unchanged.
 The final full core, hosted CI and Dev promotion remain required.
 
+Candidate `590de3153e` passes governance and web-core, but protocol preflight
+rejects an interpolated SQL identifier in the new attribution adapter. That
+query is replaced with fixed, authored SQL statements and bound values;
+the focused security scan passes without an exception or weakened gate.
+Full core is rerun against the corrected exact candidate before any push.
+
 The latest legal/proxy selection passes all 41 cases, preserving the published
 October 12 Terms/Privacy versions, private-route indexing and strict hosted
 returns. The 447 Back cases pass on the combined source. Exact action retirement

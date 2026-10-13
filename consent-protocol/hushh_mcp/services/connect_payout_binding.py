@@ -38,18 +38,25 @@ async def document_account_ids(
     """Read mode-bound and historical document mappings in the current transaction."""
     await connection.execute("SET LOCAL row_security=off")
     result: set[str] = set()
-    for table, mode_bound in (
-        ("stripe_owner_payout_accounts", True),
-        ("pkm_owner_payout_accounts", False),
+    for table, mode_bound, owner_query, account_query in (
+        (
+            "stripe_owner_payout_accounts",
+            True,
+            "SELECT stripe_account_id FROM stripe_owner_payout_accounts WHERE user_id=$1 AND stripe_mode=$2",
+            "SELECT stripe_account_id FROM stripe_owner_payout_accounts WHERE stripe_account_id=$1 AND stripe_mode=$2",
+        ),
+        (
+            "pkm_owner_payout_accounts",
+            False,
+            "SELECT stripe_account_id FROM pkm_owner_payout_accounts WHERE user_id=$1",
+            "SELECT stripe_account_id FROM pkm_owner_payout_accounts WHERE stripe_account_id=$1",
+        ),
     ):
         if not await connection.fetchval("SELECT to_regclass($1) IS NOT NULL", table):
             continue
-        # Both table identifiers are authored constants; owner/mode stay bound.
-        column = "stripe_account_id" if account else "user_id"
-        query = f"SELECT stripe_account_id FROM {table} WHERE {column}=$1"  # noqa: S608
+        query = account_query if account else owner_query
         arguments = [account or owner]
         if mode_bound:
-            query += " AND stripe_mode=$2"
             arguments.append("live" if livemode else "test")
         rows = await connection.fetch(query, *arguments)
         result.update(row["stripe_account_id"] for row in rows)
