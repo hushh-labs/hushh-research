@@ -441,8 +441,8 @@ export class PkmDomainResourceService {
    * created) bumped the revision again before the re-read landed, and this
    * recursed with no cap and no backoff: one page load produced well over a
    * hundred identical network fetches for an address that was never there.
-   * MAX_REFRESH_RETRY_ATTEMPTS bounds that; the final attempt's own result
-   * (snapshot or null) is returned rather than recursing past it.
+   * MAX_REFRESH_RETRY_ATTEMPTS bounds that. Exhausted invalidated reads
+   * reject: neither absence nor an obsolete snapshot is authoritative.
    */
   private static async refreshAttempt(
     params: PkmDomainResourceParams,
@@ -489,8 +489,11 @@ export class PkmDomainResourceService {
           if (inflightRefreshes.get(inflightKey) === request) {
             inflightRefreshes.delete(inflightKey);
           }
-          if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) return null;
+          if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) {
+            throw new Error("Memory changed repeatedly while loading. Try again.");
+          }
           await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_BACKOFF_MS * (attempt + 1)));
+          if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
           return await this.refreshAttempt(params, attempt + 1);
         }
         if (!data) {
@@ -552,8 +555,11 @@ export class PkmDomainResourceService {
             if (inflightRefreshes.get(inflightKey) === request) {
               inflightRefreshes.delete(inflightKey);
             }
-            if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) return snapshot;
+            if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) {
+              throw new Error("Memory changed repeatedly while loading. Try again.");
+            }
             await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_BACKOFF_MS * (attempt + 1)));
+            if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
             return await this.refreshAttempt(params, attempt + 1);
           }
         }
