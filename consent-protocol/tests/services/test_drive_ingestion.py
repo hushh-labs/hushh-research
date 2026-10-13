@@ -603,9 +603,7 @@ async def seed_collection(collection, *, files=None):
     )
 
 
-async def test_live_collection_requires_new_disclosure_and_resume_fences_old_work(
-    collection, ingestion
-):
+async def test_live_collection_resume_fences_old_work(collection, ingestion):
     from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
 
     with pytest.raises(DriveReadError, match="collection_processing_required"):
@@ -762,8 +760,93 @@ async def test_collection_disconnect_purges_checkpoint_and_extraction(collection
     await ingestion.publish_pages(current, metadata=source(), batch=collection_pages())
     await drive.lifecycle.disconnect(user_id="owner", connector_id="google_drive")
     with collection.db.engine.connect() as conn:
-        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 0
+        row = conn.execute(text("SELECT * FROM drive_collection_sync")).mappings().one()
+        assert row["checkpoint_envelope"] is None and row["phase"] == "start"
+        assert row["lease_id"] is None and row["initial_completed_at"] is None
         assert conn.execute(text("SELECT count(*) FROM drive_document_pages")).scalar_one() == 0
+    assert await collection.due_owners() == []
+
+
+async def test_verified_live_default_is_idempotent_and_saved_pause_survives_reconnect(collection):
+    from pathlib import Path
+
+    await asyncio.gather(*(collection.ensure_default(user_id="owner") for _ in range(3)))
+    assert await collection.due_owners() == ["owner"]
+    initial = await collection.status(user_id="owner")
+    assert initial["enabled"] is True and initial["revision"] == 1
+    old = await collection.claim(user_id="owner")
+    await collection.set_processing(user_id="owner", enabled=False)
+    with collection.db.engine.begin() as conn:
+        conn.execute(
+            text("""UPDATE user_external_connector_connections
+          SET connection_generation=connection_generation+1
+          WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    await collection.ensure_default(user_id="owner")
+    assert await collection.due_owners() == []
+    paused = await collection.status(user_id="owner")
+    assert paused["enabled"] is False and paused["state"] == "paused"
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await collection.require_current(old)
+    with collection.db.engine.connect() as conn:
+        row = conn.execute(text("SELECT * FROM drive_collection_sync")).mappings().one()
+        assert row["connection_generation"] == 2 and row["checkpoint_envelope"] is None
+        assert row["lease_id"] is None and row["revision"] > initial["revision"]
+        # The down path restores the old invalidation function without dropping
+        # existing preference/evidence rows; its next invalidation deletes them.
+        migration = Path(__file__).resolve().parents[2] / "db/migrations"
+        conn.exec_driver_sql((migration / "335_drive_collection_defaults.sql").read_text())
+        conn.exec_driver_sql(
+            (migration / "rollback/335_drive_collection_defaults.rollback.sql").read_text()
+        )
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 1
+        conn.execute(
+            text("""UPDATE user_external_connector_connections
+          SET connection_generation=connection_generation+1
+          WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 0
+
+
+async def test_default_adoption_preserves_background_off_and_rejects_unverified_scope(collection):
+    with collection.db.engine.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO drive_live_preferences
+          (user_id,connection_generation,background_enabled) VALUES ('owner',1,FALSE)""")
+        )
+    await collection.ensure_default(user_id="owner")
+    assert await collection.due_owners() == []
+    with collection.db.engine.begin() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 0
+        conn.execute(text("UPDATE drive_live_preferences SET background_enabled=TRUE"))
+        conn.execute(
+            text("""UPDATE user_external_connector_connections SET verified_policy_hash='selected-only'
+          WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    assert await collection.due_owners() == []
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await collection.ensure_default(user_id="owner")
+    with collection.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 0
+
+
+async def test_default_worker_adoption_is_bounded_and_does_not_need_a_settings_visit(collection):
+    with collection.db.engine.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO user_external_connector_connections
+          (user_id,connector_id,connection_generation,status,validation_state,verified_policy_hash)
+          SELECT 'connected-' || n,'google_drive',1,'connected','verified',verified_policy_hash
+          FROM user_external_connector_connections CROSS JOIN generate_series(1,25) n
+          WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    # Other verified accounts can have the normal preference while staged
+    # admission still excludes them; they must not occupy the due-owner limit.
+    assert await collection.due_owners(limit=4) == []
+    with collection.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 20
+    assert await collection.due_owners(limit=1) == ["owner"]
+    with collection.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 26
 
 
 async def test_live_ingestion_resumes_pages_and_reuses_finalized_evidence(collection, ingestion):
@@ -817,3 +900,86 @@ async def test_live_ingestion_pause_during_metadata_prevents_download(collection
     )
     assert await service.run_one(user_id="owner") == {"status": "superseded"}
     adapter.read_live_bytes.assert_not_awaited()
+
+
+async def test_live_render_policy_upgrade_retries_only_legacy_render_gap(collection, ingestion):
+    from pathlib import Path
+
+    from hushh_mcp.services.drive_document_pages import RENDER_POLICY_VERSION
+
+    # This ingestion fixture predates semantic facts. Apply their authoritative
+    # table DDL so the recovery invalidation is exercised against real storage.
+    migration = (
+        Path(__file__).resolve().parents[2] / "db/migrations/334_drive_reusable_packets.sql"
+    ).read_text()
+    with ingestion.db.engine.begin() as conn:
+        conn.exec_driver_sql(
+            migration[
+                migration.index(
+                    "CREATE TABLE IF NOT EXISTS drive_document_facts"
+                ) : migration.index("CREATE TABLE IF NOT EXISTS drive_document_fact_pages")
+            ]
+        )
+    await seed_collection(collection, files=[source("render-gap"), source("good")])
+    old = await ingestion.claim(user_id="owner", generation=1)
+    original = source(ingestion.cipher.open(old)["file_id"])
+    gap = replace(
+        collection_pages(),
+        has_gaps=True,
+        pages=(
+            replace(
+                collection_pages().pages[0],
+                status="partial",
+                error_code="page_render_budget_exceeded",
+            ),
+        ),
+    )
+    await ingestion.publish_pages(old, metadata=original, batch=gap)
+    good = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(
+        good, metadata=source(ingestion.cipher.open(good)["file_id"]), batch=collection_pages()
+    )
+    await ingestion.resync(user_id="owner", generation=1, document_id=str(old["document_id"]))
+    upgrade = await ingestion.claim(user_id="owner", generation=1)
+    restarted = await ingestion.page_progress(upgrade, source_version="1")
+    assert restarted["next_page"] == 1 and not restarted["complete"]
+    with ingestion.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_document_pages")).scalar_one() == 1
+        assert (
+            conn.execute(
+                text("SELECT active_version FROM connected_documents WHERE document_id=:id"),
+                {"id": good["document_id"]},
+            ).scalar_one()
+            is not None
+        )
+    # A failure under the new policy stays a gap and cannot trigger the same
+    # expensive upgrade again on unchanged bytes.
+    upgraded_gap = replace(
+        gap, engine_versions={"test": "1", "render_policy": RENDER_POLICY_VERSION}
+    )
+    await ingestion.publish_pages(upgrade, metadata=original, batch=upgraded_gap)
+    await ingestion.resync(user_id="owner", generation=1, document_id=str(old["document_id"]))
+    same_policy = await ingestion.claim(user_id="owner", generation=1)
+    retained = await ingestion.page_progress(same_policy, source_version="1")
+    assert retained["complete"] and retained["has_gaps"]
+    assert retained["engine_versions"]["render_policy"] == RENDER_POLICY_VERSION
+
+
+async def test_live_partial_evidence_resumes_across_render_policy_upgrade(collection, ingestion):
+    from hushh_mcp.services.drive_document_pages import RENDER_POLICY_VERSION
+
+    await seed_collection(collection)
+    old = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(old, metadata=source(), batch=collection_pages(complete=False))
+    current = await ingestion.claim(user_id="owner", generation=1)
+    assert (await ingestion.page_progress(current, source_version="1"))["next_page"] == 2
+    assert await ingestion.publish_pages(
+        current,
+        metadata=source(),
+        batch=replace(
+            collection_pages(start=2),
+            engine_versions={"test": "1", "render_policy": RENDER_POLICY_VERSION},
+        ),
+    )
+    with ingestion.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_document_pages")).scalar_one() == 2

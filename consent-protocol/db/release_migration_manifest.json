@@ -299,7 +299,8 @@
     "331_feed_dismissal.sql",
     "332_drive_collection_sync.sql",
     "333_drive_document_pages.sql",
-    "334_drive_reusable_packets.sql"
+    "334_drive_reusable_packets.sql",
+    "335_drive_collection_defaults.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -632,6 +633,7 @@
     "331_feed_dismissal.sql": "rollback/331_feed_dismissal.rollback.sql",
     "332_drive_collection_sync.sql": "rollback/332_drive_collection_sync.rollback.sql",
     "333_drive_document_pages.sql": "rollback/333_drive_document_pages.rollback.sql",
-    "334_drive_reusable_packets.sql": "rollback/334_drive_reusable_packets.rollback.sql"
+    "334_drive_reusable_packets.sql": "rollback/334_drive_reusable_packets.rollback.sql",
+    "335_drive_collection_defaults.sql": "rollback/335_drive_collection_defaults.rollback.sql"
   }
 }

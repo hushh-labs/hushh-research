@@ -366,6 +366,48 @@ async def test_verified_packet_scope_can_be_ready_with_other_unreadable_sources(
     assert not index["complete"] and index["discovered"] == 2 and index["indexed"] == 1
 
 
+@pytest.mark.parametrize("discovering", [False, True])
+async def test_progressive_packets_do_not_wait_for_unrelated_indexing(reusable, discovering):
+    await originals(reusable, 2)
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    if discovering:
+        with reusable.facts.db.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE drive_collection_sync SET phase='bootstrap',
+                  initial_completed_at=NULL,last_synced_at=NULL""")
+            )
+
+    # One current document can produce a packet while another still lacks facts.
+    # The old collection-settled gate returned idle for every attempt here.
+    for _ in range(3):
+        result = await reusable.worker.run_packet_one(user_id="owner")
+    assert result == "ready"
+    view = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+    assert view["state"] == "ready" and view["documentCount"] == 1
+    assert view["canList"] is not discovering
+    assert not view["listingEnabled"]
+    assert view["freshness"] == ("stale" if discovering else "current")
+    with reusable.facts.db.engine.connect() as connection:
+        row = connection.execute(text("SELECT * FROM drive_packet_versions")).mappings().one()
+        manifest = reusable.packets._manifest(row)
+    assert not manifest["collection_complete"]
+    assert manifest["coverage_scope"] == "verified_observed_span"
+    assert len(manifest["sources"]) == 1
+
+    if discovering:
+        with pytest.raises(DriveReadError, match="packet_unavailable"):
+            await reusable.packets.current_packet_manifest(
+                owner_user_id="owner", packet_id=view["packetId"], version=1
+            )
+        with reusable.facts.db.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE drive_collection_sync SET phase='changes',
+                  initial_completed_at=clock_timestamp(),last_synced_at=clock_timestamp()""")
+            )
+        recovered = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+        assert recovered["canList"] and recovered["version"] == 1
+
+
 async def test_all_46_members_construct_and_verify_before_ready(reusable):
     packet = await ready_packet(reusable, 46)
     assert packet["documentCount"] == 46 and packet["state"] == "ready"
@@ -566,3 +608,175 @@ async def test_catalog_collection_rejects_facts_for_prior_extraction_version(reu
         connection.execute(text("UPDATE connected_documents SET active_version='new-extraction'"))
         assert not reusable.packets._collection_complete(connection, "owner", 1, POLICY)
         assert not reusable.packets._collection_settled(connection, "owner", 1, POLICY)
+
+
+async def test_semantic_worker_uses_default_on_preference_but_preserves_explicit_off(reusable):
+    await originals(reusable)
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(text("DELETE FROM drive_live_preferences WHERE user_id='owner'"))
+    assert await reusable.facts.due_owners() == ["owner"]
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO drive_live_preferences(user_id,connection_generation,background_enabled) VALUES('owner',1,false)"
+            )
+        )
+    assert await reusable.facts.due_owners() == []
+
+
+async def test_rejected_model_evidence_retains_safe_failure_code_without_publishing(reusable):
+    from hushh_mcp.services.drive_packet_intelligence import EvidenceValidationError
+
+    await originals(reusable)
+    reusable.worker.page_assessor = AsyncMock(
+        side_effect=EvidenceValidationError("model_citation_invalid")
+    )
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_unavailable"
+    with reusable.facts.db.engine.connect() as connection:
+        failure = connection.execute(
+            text("SELECT status,error_code,facts_envelope FROM drive_document_facts")
+        ).one()
+        assert failure.status == "failed"
+        assert failure.error_code == "model_citation_invalid"
+        assert failure.facts_envelope is None
+        assert connection.execute(text("SELECT count(*) FROM drive_packet_heads")).scalar_one() == 0
+
+
+async def test_canonical_key_context_is_current_bounded_and_owner_private(reusable):
+    from uuid import uuid4
+
+    from hushh_mcp.services.drive_document_facts_store import seal_evidence
+
+    await ready_packet(reusable)
+    context = await reusable.packets.canonical_key_context(user_id="owner", policy_version=POLICY)
+    assert len(context["packets"]) == 1 and not context["truncated"]
+    assert context["representative_only"] and not context["collection_complete"]
+    item = context["packets"][0]
+    assert item["key"] == "synthetic-statement-account"
+    assert item["representative_document"]["document_type"] == "statement"
+    assert "citations" not in json.dumps(item)
+    assert (
+        await reusable.packets.canonical_key_context(user_id="owner", policy_version="new-policy")
+    )["packets"] == []
+    with pytest.raises(DriveReadError):
+        await reusable.packets.canonical_key_context(user_id="unrelated", policy_version=POLICY)
+
+    with reusable.facts.db.engine.begin() as connection:
+        head = connection.execute(text("SELECT * FROM drive_packet_heads")).mappings().one()
+        member = connection.execute(text("SELECT * FROM drive_packet_members")).mappings().one()
+        for n in range(65):
+            candidate = {**head, "packet_id": uuid4()}
+            key = {"key": f"bounded-{n}", "title": "Synthetic", "description": "Bounded reference"}
+            connection.execute(
+                text("""INSERT INTO drive_packet_heads
+                    (packet_id,user_id,connection_generation,key_fingerprint,key_envelope)
+                    VALUES(:id,'owner',1,:fingerprint,CAST(:envelope AS jsonb))"""),
+                {
+                    "id": candidate["packet_id"],
+                    "fingerprint": str(uuid4()),
+                    "envelope": seal_evidence(
+                        reusable.packets.cipher,
+                        reusable.packets._packet_identity(candidate, "key"),
+                        key,
+                    ),
+                },
+            )
+            connection.execute(
+                text("""INSERT INTO drive_packet_members(packet_id,document_id,facts_version)
+                    VALUES(:packet,:document,:facts)"""),
+                {
+                    "packet": candidate["packet_id"],
+                    "document": member["document_id"],
+                    "facts": member["facts_version"],
+                },
+            )
+    bounded = await reusable.packets.canonical_key_context(user_id="owner", policy_version=POLICY)
+    assert len(bounded["packets"]) == 64 and bounded["truncated"]
+    assert len(json.dumps(bounded).encode()) <= 48 * 1024
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(text("UPDATE connected_documents SET active_version='replaced'"))
+    assert (await reusable.packets.canonical_key_context(user_id="owner", policy_version=POLICY))[
+        "packets"
+    ] == []
+
+
+async def test_completed_document_fold_receives_owner_canonical_context(reusable):
+    await originals(reusable)
+    capture = AsyncMock(side_effect=fold)
+    reusable.worker.consolidator = capture
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    context = capture.await_args.kwargs["canonical_context"]
+    assert context == {
+        "packets": [],
+        "truncated": False,
+        "representative_only": True,
+        "collection_complete": False,
+    }
+
+
+async def test_same_owner_fact_folds_serialize_and_expired_lease_recovers(reusable):
+    await originals(reusable, count=2)
+    assert await reusable.facts.enqueue(user_id="owner", policy_version=POLICY) == 2
+    claims = await asyncio.gather(
+        reusable.facts.claim(user_id="owner", policy_version=POLICY),
+        reusable.facts.claim(user_id="owner", policy_version=POLICY),
+    )
+    assert sum(job is not None for job in claims) == 1
+    leased = next(job for job in claims if job)
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_document_facts
+                SET lease_expires_at=clock_timestamp()-interval '1 second'
+                WHERE document_id=:id AND facts_version=:version"""),
+            {"id": leased["document_id"], "version": leased["facts_version"]},
+        )
+    recovered = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    assert recovered is not None and recovered["lease_id"] != leased["lease_id"]
+    with pytest.raises(DriveReadError, match="facts_superseded"):
+        await reusable.facts.require_current(leased)
+
+
+async def test_packet_claim_skips_older_policy_head_without_burning_attempts(reusable):
+    await originals(reusable, count=2)
+    seen = []
+
+    async def separate_fold(**kwargs):
+        result = await fold(**kwargs)
+        result["canonical_packets"][0]["key"] += str(len(seen))
+        seen.append(result)
+        return result
+
+    reusable.worker.consolidator = separate_fold
+    for _ in range(2):
+        assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    with reusable.facts.db.engine.begin() as connection:
+        heads = (
+            connection.execute(
+                text("""SELECT h.packet_id,m.document_id FROM drive_packet_heads h
+                JOIN drive_packet_members m ON m.packet_id=h.packet_id ORDER BY h.created_at""")
+            )
+            .mappings()
+            .all()
+        )
+        old, current = heads
+        connection.execute(
+            text("DELETE FROM drive_document_fact_pages WHERE document_id=:id"),
+            {"id": old["document_id"]},
+        )
+        connection.execute(
+            text(
+                "UPDATE drive_document_facts SET facts_profile='older-policy' WHERE document_id=:id"
+            ),
+            {"id": old["document_id"]},
+        )
+    claimed = await reusable.packets.claim_packet(user_id="owner", policy_version=POLICY)
+    assert claimed["packet_id"] == current["packet_id"]
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT attempts FROM drive_packet_heads WHERE packet_id=:id"),
+                {"id": old["packet_id"]},
+            ).scalar_one()
+            == 0
+        )

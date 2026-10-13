@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import time
 from collections import Counter
 
 from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
 from hushh_mcp.services.drive_packet_contract import PacketVerification
 from hushh_mcp.services.drive_packet_intelligence import (
+    EvidenceValidationError,
     consolidate_facts,
     construct_packet,
     extract_page_facts,
@@ -22,6 +25,8 @@ from hushh_mcp.services.drive_packet_intelligence import (
 from hushh_mcp.services.drive_packet_store import DrivePacketStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+logger = logging.getLogger(__name__)
 
 CHECKS = (
     "correct_subject_and_account",
@@ -82,6 +87,7 @@ class DrivePacketWorker:
         job = await self.facts_store.claim(user_id=user_id, policy_version=policy)
         if not job:
             return "idle"
+        stage, started = "page_facts", time.monotonic()
         try:
             async with asyncio.timeout(165):
                 pages, size = [], 0
@@ -106,14 +112,24 @@ class DrivePacketWorker:
                 observed = await self.page_assessor(user_id=user_id, pages=pages)
                 await self.facts_store.require_current(job)
                 self._policy_current(policy)
+                stage = "document_facts"
+                canonical_context = (
+                    await self.packet_store.canonical_key_context(
+                        user_id=user_id, policy_version=policy
+                    )
+                    if complete
+                    else None
+                )
                 folded = await self.consolidator(
                     user_id=user_id,
                     previous=job["previous"],
                     page_facts=[_payload(observed)],
                     complete=complete,
+                    canonical_context=canonical_context,
                 )
                 await self.facts_store.require_current(job)
                 self._policy_current(policy)
+                stage = "persist_facts"
                 result = await self.facts_store.commit_batch(
                     job, page_facts=_payload(observed), document_facts=_payload(folded)
                 )
@@ -123,7 +139,23 @@ class DrivePacketWorker:
             await self.facts_store.release(job)
             raise
         except Exception as error:
-            code = str(error) if isinstance(error, DriveReadError) else "facts_unavailable"
+            if isinstance(error, EvidenceValidationError):
+                code = error.code
+            elif isinstance(error, DriveReadError):
+                code = str(error)
+            elif isinstance(error, TimeoutError):
+                code = "model_timeout"
+            elif isinstance(error, ValueError):
+                code = "facts_integrity_invalid"
+            else:
+                code = "facts_unavailable"
+            logger.warning(
+                "drive_document_facts_failed stage=%s code=%s attempt=%d elapsed_ms=%d",
+                stage,
+                code,
+                job.get("attempts", 0) + 1,
+                round((time.monotonic() - started) * 1000),
+            )
             await self.facts_store.release(
                 job, code=code, retryable=not isinstance(error, ValueError)
             )

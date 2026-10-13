@@ -16,15 +16,76 @@ from uuid import uuid4
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
 
-from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.connector_feature_admission import (
+    connector_feature_enabled,
+    connector_feature_owner_cohort,
+)
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
-from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.google_drive_adapter import (
+    DRIVE_BASE,
+    DRIVE_POLICY,
+    LIVE_POLICY_HASH,
+    DriveReadError,
+)
 
 COLLECTION_DISCLOSURE = "live-drive-collection-v1"
 COLLECTION_LEASE_SECONDS = 120
 
 
 class DriveCollectionStore(DriveLivePreferences):
+    def _default_locked(self, connection, current):
+        # This is a product default, not a fabricated permission click. A saved
+        # owner choice wins forever; execution still checks background, rollout,
+        # connection generation and source permissions before every stage.
+        connection.execute(
+            text("""INSERT INTO drive_collection_sync
+              (user_id,connection_generation,processing_enabled,disclosure_version)
+              SELECT :user,:generation,TRUE,:disclosure
+              WHERE NOT EXISTS (SELECT 1 FROM drive_live_preferences p
+                WHERE p.user_id=:user AND NOT p.background_enabled)
+              ON CONFLICT (user_id) DO NOTHING"""),
+            {
+                "user": current["user_id"],
+                "generation": current["connection_generation"],
+                "disclosure": COLLECTION_DISCLOSURE,
+            },
+        )
+
+    async def ensure_default(self, *, user_id):
+        def operation(connection):
+            current = self.live_active(connection, user_id=user_id, management=True)
+            self._default_locked(connection, current)
+
+        await self._transaction(operation)
+
+    def _adopt_defaults(self, connection, limit=20):
+        # Bounded recovery covers already connected accounts without a settings
+        # visit. Lock connection first, matching OAuth and all processing paths.
+        # PostgreSQL remains the owner of this setting; a future queue adapter
+        # can wake work but must not duplicate preference authority.
+        candidates = connection.execute(
+            text("""SELECT c.user_id,c.connection_generation
+              FROM user_external_connector_connections c
+              JOIN external_mcp_connectors r ON r.connector_id=c.connector_id
+              WHERE c.connector_id='google_drive' AND c.status='connected'
+                AND c.connection_generation>0
+                AND c.validation_state='verified' AND c.verified_policy_hash=:hash
+                AND r.is_active AND r.transport_kind='google_drive_rest'
+                AND r.mcp_endpoint=:endpoint AND r.capability_policy=CAST(:policy AS jsonb)
+                AND NOT EXISTS (SELECT 1 FROM drive_collection_sync s WHERE s.user_id=c.user_id)
+                AND NOT EXISTS (SELECT 1 FROM drive_live_preferences p
+                  WHERE p.user_id=c.user_id AND NOT p.background_enabled)
+              ORDER BY c.user_id LIMIT :limit FOR UPDATE OF c SKIP LOCKED"""),
+            {
+                "hash": LIVE_POLICY_HASH,
+                "endpoint": DRIVE_BASE,
+                "policy": json.dumps(DRIVE_POLICY),
+                "limit": max(1, min(20, limit)),
+            },
+        ).mappings()
+        for current in candidates:
+            self._default_locked(connection, current)
+
     def _processing(self, connection, user_id, generation, revision=None):
         preference = self.background_current(connection, user_id=user_id, generation=generation)
         if not connector_feature_enabled("drive_document_indexing", user_id):
@@ -234,7 +295,8 @@ class DriveCollectionStore(DriveLivePreferences):
         policy = facts_policy_version()
 
         def operation(connection):
-            current = self.live_active(connection, user_id=user_id, management=True, read_only=True)
+            current = self.live_active(connection, user_id=user_id, management=True)
+            self._default_locked(connection, current)
             row = self._row(
                 connection,
                 "SELECT * FROM drive_collection_sync WHERE user_id=:user",
@@ -335,6 +397,10 @@ class DriveCollectionStore(DriveLivePreferences):
 
     async def due_owners(self, limit=4):
         def operation(connection):
+            self._adopt_defaults(connection)
+            cohort = connector_feature_owner_cohort("google_drive_live", "drive_document_indexing")
+            if cohort == ():
+                return []
             return list(
                 connection.execute(
                     text("""
@@ -346,9 +412,14 @@ class DriveCollectionStore(DriveLivePreferences):
                   AND (s.lease_expires_at IS NULL OR s.lease_expires_at<=clock_timestamp())
                   AND c.status='connected' AND c.validation_state='verified'
                   AND (p.user_id IS NULL OR p.background_enabled)
+                  AND (:all_owners OR c.user_id=ANY(CAST(:owners AS text[])))
                 ORDER BY s.next_at,s.user_id LIMIT :limit
             """),
-                    {"limit": max(1, min(20, limit))},
+                    {
+                        "limit": max(1, min(20, limit)),
+                        "all_owners": cohort is None,
+                        "owners": list(cohort or ()),
+                    },
                 ).scalars()
             )
 

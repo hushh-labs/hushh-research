@@ -6,6 +6,7 @@ request or create a payment. Immutable versions retain their exact source terms.
 
 from __future__ import annotations
 
+import json
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -61,6 +62,79 @@ class DrivePacketStore(DriveDocumentFactsStore):
             self._packet_identity(row, "manifest", row["version"]),
             row["manifest_envelope"],
         )
+
+    async def canonical_key_context(self, *, user_id, policy_version):
+        """Bounded identity references; the agent decides semantic equivalence.
+
+        A recent representative is context for naming, never evidence about the
+        document being assessed or a claim that the whole collection was read.
+        """
+
+        def operation(connection):
+            active, _, _ = self._authority(connection, user_id=user_id)
+            rows = list(
+                connection.execute(
+                    text("""
+                    SELECT h.*, representative.facts_row
+                    FROM drive_packet_heads h
+                    JOIN LATERAL (
+                      SELECT row_to_json(f) AS facts_row
+                      FROM drive_packet_members m
+                      JOIN drive_document_facts f ON f.document_id=m.document_id
+                        AND f.facts_version=m.facts_version
+                      JOIN connected_documents d ON d.document_id=f.document_id
+                        AND d.user_id=f.user_id
+                      WHERE m.packet_id=h.packet_id AND f.user_id=h.user_id
+                        AND f.connection_generation=h.connection_generation
+                        AND d.connection_generation=h.connection_generation
+                        AND d.source_profile='live' AND d.processing_enabled
+                        AND d.status='ready' AND d.active_version=f.extraction_version
+                        AND d.source_version=f.source_version
+                        AND f.status='complete' AND f.facts_profile=:policy
+                        AND f.extraction_profile=:profile
+                      ORDER BY f.updated_at DESC, f.document_id LIMIT 1
+                    ) representative ON TRUE
+                    WHERE h.user_id=:user AND h.connection_generation=:generation
+                    ORDER BY h.updated_at DESC,h.packet_id LIMIT 65
+                    """),
+                    {
+                        "user": user_id,
+                        "generation": active["connection_generation"],
+                        "policy": policy_version,
+                        "profile": EXTRACTION_PROFILE,
+                    },
+                ).mappings()
+            )
+            context = {
+                "packets": [],
+                "truncated": len(rows) > 64,
+                "representative_only": True,
+                "collection_complete": False,
+            }
+            for row in rows[:64]:
+                evidence = row["facts_row"]
+                facts = self.facts(evidence)
+                representative = {
+                    key: facts[key]["value"] if facts.get(key) else None
+                    for key in ("document_type", "issuer", "subject", "account")
+                }
+                representative.update(
+                    periods=[{"start": p["start"], "end": p["end"]} for p in facts["periods"]],
+                    topics=[fact["value"] for fact in facts["topics"]],
+                    facts=[fact["value"] for fact in facts["facts"]],
+                    missing_information=facts["missing_information"],
+                    ambiguous=facts["ambiguous"],
+                    has_gaps=evidence["has_gaps"],
+                )
+                item = {**self._key(row), "representative_document": representative}
+                context["packets"].append(item)
+                if len(json.dumps(context, ensure_ascii=False).encode()) > 48 * 1024:
+                    context["packets"].pop()
+                    context["truncated"] = True
+                    break
+            return context
+
+        return await self._transaction(operation)
 
     def update_membership_locked(self, connection, facts_row, facts: DocumentFacts):
         old = set(
@@ -268,10 +342,10 @@ class DrivePacketStore(DriveDocumentFactsStore):
     async def claim_packet(self, *, user_id, policy_version):
         def operation(connection):
             active, collection, preference = self._authority(connection, user_id=user_id)
-            if not self._collection_settled(
-                connection, user_id, active["connection_generation"], policy_version
-            ):
-                return None
+            # Build from the current canonical members while unrelated Drive
+            # documents continue indexing. Membership revisions fence concurrent
+            # changes; finalization still checks every exact source. Waiting for
+            # the entire collection starves useful packets on large Drives.
             # A packet that was incomplete only because the collection had gaps
             # becomes eligible once those dependencies recover, without touching
             # previously complete immutable packet versions.
@@ -287,11 +361,24 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 )
             row = self._row(
                 connection,
-                """SELECT * FROM drive_packet_heads WHERE user_id=:user
+                """SELECT h.* FROM drive_packet_heads h WHERE user_id=:user
               AND connection_generation=:generation AND dirty AND next_at<=clock_timestamp()
               AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())
-              ORDER BY next_at,packet_id LIMIT 1 FOR UPDATE SKIP LOCKED""",
-                {"user": user_id, "generation": active["connection_generation"]},
+              AND NOT EXISTS(SELECT 1 FROM drive_packet_members m
+                JOIN drive_document_facts f ON f.document_id=m.document_id AND f.facts_version=m.facts_version
+                JOIN connected_documents d ON d.document_id=f.document_id AND d.user_id=f.user_id
+                WHERE m.packet_id=h.packet_id AND (f.facts_profile<>:policy
+                  OR f.status<>'complete' OR f.extraction_profile<>:profile
+                  OR d.status<>'ready' OR d.active_version IS DISTINCT FROM f.extraction_version
+                  OR d.source_version<>f.source_version OR NOT d.processing_enabled
+                  OR d.connection_generation<>h.connection_generation))
+              ORDER BY next_at,packet_id LIMIT 1 FOR UPDATE OF h SKIP LOCKED""",
+                {
+                    "user": user_id,
+                    "generation": active["connection_generation"],
+                    "policy": policy_version,
+                    "profile": EXTRACTION_PROFILE,
+                },
             )
             if not row:
                 return None
@@ -402,9 +489,11 @@ class DrivePacketStore(DriveDocumentFactsStore):
             )
             ready = (
                 packet.state == checked.state == "ready"
-                and self._collection_fresh(connection, row["user_id"], row["connection_generation"])
                 and build.get("batch_checks_passed") is True
             )
+            # Content readiness describes this exact verified member snapshot.
+            # Serving/listing it separately requires _available(), which retains
+            # the provider-sync freshness fence even during initial discovery.
             state = (
                 "ready"
                 if ready

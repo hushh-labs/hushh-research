@@ -158,6 +158,7 @@ def lifecycle(connector_postgres_url):
                 "236_drive_native_picker_attempts.sql",
                 "332_drive_collection_sync.sql",
                 "333_drive_document_pages.sql",
+                "335_drive_collection_defaults.sql",
             ):
                 connection.exec_driver_sql(
                     (MIGRATIONS / filename).read_text(), execution_options={"no_parameters": True}

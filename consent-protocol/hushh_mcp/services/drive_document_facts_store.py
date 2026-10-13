@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
 
+from hushh_mcp.services.connector_feature_admission import connector_feature_owner_cohort
 from hushh_mcp.services.drive_collection_store import DriveCollectionStore
 from hushh_mcp.services.drive_document_page_store import DriveDocumentPageStore
 from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
@@ -146,13 +147,17 @@ class DriveDocumentFactsStore(DriveCollectionStore):
         from hushh_mcp.services.drive_packet_intelligence import facts_policy_version
 
         def operation(connection):
+            cohort = connector_feature_owner_cohort("google_drive_live", "drive_document_indexing")
+            if cohort == ():
+                return []
             return list(
                 connection.execute(
                     text("""
               SELECT s.user_id FROM drive_collection_sync s
               JOIN user_external_connector_connections c ON c.user_id=s.user_id AND c.connector_id='google_drive'
-              JOIN drive_live_preferences p ON p.user_id=s.user_id
-              WHERE s.processing_enabled AND p.background_enabled
+              LEFT JOIN drive_live_preferences p ON p.user_id=s.user_id
+              WHERE s.processing_enabled AND COALESCE(p.background_enabled, true)
+                AND (:all_owners OR s.user_id=ANY(CAST(:owners AS text[])))
                 AND c.connection_generation=s.connection_generation AND c.status='connected' AND c.validation_state='verified'
                 AND (EXISTS(SELECT 1 FROM connected_documents d LEFT JOIN drive_document_facts f
                   ON f.document_id=d.document_id AND f.user_id=d.user_id AND f.source_version=d.source_version
@@ -178,6 +183,8 @@ class DriveDocumentFactsStore(DriveCollectionStore):
             """),
                     {
                         "limit": max(1, min(20, limit)),
+                        "all_owners": cohort is None,
+                        "owners": list(cohort or ()),
                         "policy": facts_policy_version(),
                         "profile": EXTRACTION_PROFILE,
                     },
@@ -242,6 +249,10 @@ class DriveDocumentFactsStore(DriveCollectionStore):
               SELECT f.*,d.source_fingerprint,d.processing_revision FROM drive_document_facts f
               JOIN connected_documents d ON d.document_id=f.document_id AND d.user_id=f.user_id
               WHERE f.user_id=:user AND f.connection_generation=:generation AND f.facts_profile=:policy
+                AND NOT EXISTS(SELECT 1 FROM drive_document_facts busy
+                  WHERE busy.user_id=:user AND busy.connection_generation=:generation
+                    AND busy.facts_profile=:policy AND busy.status='running'
+                    AND busy.lease_expires_at>clock_timestamp())
                 AND f.status IN ('pending','running') AND f.next_at<=clock_timestamp()
                 AND (f.lease_expires_at IS NULL OR f.lease_expires_at<=clock_timestamp())
                 AND d.source_version=f.source_version AND d.status='ready' AND d.active_version IS NOT NULL
@@ -364,7 +375,20 @@ class DriveDocumentFactsStore(DriveCollectionStore):
     async def release(self, job, *, retryable=True, code="facts_unavailable"):
         safe = (
             code
-            if code in {"facts_unavailable", "evidence_budget_exceeded", "source_changed"}
+            if code
+            in {
+                "facts_unavailable",
+                "evidence_budget_exceeded",
+                "source_changed",
+                "model_schema_invalid",
+                "model_period_invalid",
+                "model_citation_invalid",
+                "model_pages_unaccounted",
+                "model_readiness_invalid",
+                "model_membership_invalid",
+                "model_timeout",
+                "facts_integrity_invalid",
+            }
             else "facts_unavailable"
         )
 

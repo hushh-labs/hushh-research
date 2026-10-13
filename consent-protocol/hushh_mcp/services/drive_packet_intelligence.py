@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import time
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.drive_packet_contract import (
@@ -22,7 +26,42 @@ from hushh_mcp.services.drive_packet_contract import (
 from hushh_mcp.services.drive_request_package_assessment import _interpret
 
 MAX_INPUT_BYTES = 160 * 1024
-FACTS_SCHEMA_VERSION = "document-facts-v2"
+FACTS_SCHEMA_VERSION = "document-facts-v3"
+logger = logging.getLogger(__name__)
+MAX_VALIDATION_ATTEMPTS = 2
+
+
+class EvidenceValidationError(ValueError):
+    """Privacy-safe model failure; rejected evidence is never persisted as facts."""
+
+    def __init__(self, code, *, issues=None):
+        self.code = code
+        self.issues = issues or []
+        super().__init__(code)
+
+
+def _validation_code(error):
+    if isinstance(error, EvidenceValidationError):
+        return error.code
+    if isinstance(error, ValidationError):
+        if any(
+            item["loc"] and item["loc"][0] == "periods"
+            for item in error.errors(include_input=False, include_context=False)
+        ):
+            return "model_period_invalid"
+        return "model_schema_invalid"
+    return {
+        "unsupported fact citation": "model_citation_invalid",
+        "unsupported consolidated evidence": "model_citation_invalid",
+        "citation location kind differs from extraction": "model_citation_invalid",
+        "unaccounted extraction pages": "model_pages_unaccounted",
+        "unprocessed pages cannot establish canonical packets": "model_readiness_invalid",
+        "invented packet member": "model_membership_invalid",
+        "unfinished assembly cannot be ready": "model_readiness_invalid",
+        "incomplete evidence cannot verify ready": "model_readiness_invalid",
+        "nonready proposal cannot verify ready": "model_readiness_invalid",
+        "invented packet match": "model_membership_invalid",
+    }.get(str(error))
 
 
 def facts_policy_version() -> str:
@@ -44,29 +83,139 @@ def facts_policy_version() -> str:
     )
 
 
-async def _ask(mode, payload, schema, *, user_id, interpret=_interpret):
-    prompt = json.dumps({"package_mode": mode, **payload}, ensure_ascii=False)
-    if len(prompt.encode()) > MAX_INPUT_BYTES:
-        raise ValueError("evidence_batch_budget_exceeded")
-    result = await interpret(prompt=prompt, user_id=user_id, output_schema=schema)
-    return schema.model_validate(result)
+def _schema_issues(error, schema):
+    """Return schema coordinates and numeric bounds, never rejected values."""
+    names = set()
+
+    def collect(node):
+        if isinstance(node, dict):
+            names.update(node.get("properties", {}))
+            for child in node.values():
+                collect(child)
+        elif isinstance(node, list):
+            for child in node:
+                collect(child)
+
+    collect(schema.model_json_schema())
+    issues = []
+    for item in error.errors(include_input=False, include_context=True)[:8]:
+        issue = {
+            "path": [
+                part if isinstance(part, int) or part in names else "unknown_field"
+                for part in item["loc"]
+            ],
+            "type": item["type"],
+        }
+        bounds = {
+            key: value
+            for key, value in (item.get("ctx") or {}).items()
+            if key in {"min_length", "max_length", "ge", "gt", "le", "lt", "actual_length"}
+            and type(value) in {int, float}
+        }
+        if bounds:
+            issue["bounds"] = bounds
+        issues.append(issue)
+    return issues
+
+
+async def _ask(mode, payload, schema, *, user_id, interpret=_interpret, validate=None):
+    # A malformed first answer is recoverable. Regenerate once from the same
+    # evidence with a host-owned code; never repair citations by guessing text.
+    feedback = None
+    rejected_answer = None
+    for attempt in range(1, MAX_VALIDATION_ATTEMPTS + 1):
+        request = {"package_mode": mode, **payload}
+        if feedback:
+            request["validation_feedback"] = {**feedback, "attempt": attempt}
+            request["untrusted_rejected_answer"] = rejected_answer
+        prompt = json.dumps(request, ensure_ascii=False)
+        if len(prompt.encode()) > MAX_INPUT_BYTES and rejected_answer is not None:
+            # Keep all original evidence. The optional failed proposal must not
+            # crowd it out, and an omitted proposal is explicit in the retry.
+            request.pop("untrusted_rejected_answer")
+            request["validation_feedback"]["previous_answer_omitted"] = "input_budget"
+            prompt = json.dumps(request, ensure_ascii=False)
+        if len(prompt.encode()) > MAX_INPUT_BYTES:
+            raise ValueError("evidence_batch_budget_exceeded")
+        started = time.monotonic()
+        answer = None
+        try:
+            answer = await interpret(prompt=prompt, user_id=user_id, output_schema=schema)
+            result = schema.model_validate(answer)
+            if validate:
+                validate(result)
+            return result
+        except ValueError as error:
+            code = _validation_code(error)
+            if code is None:
+                raise
+            logger.warning(
+                "drive_packet_model_validation mode=%s code=%s attempt=%d elapsed_ms=%d",
+                mode,
+                code,
+                attempt,
+                round((time.monotonic() - started) * 1000),
+            )
+            issues = (
+                _schema_issues(error, schema)
+                if isinstance(error, ValidationError)
+                else getattr(error, "issues", [])
+            )
+            if attempt == MAX_VALIDATION_ATTEMPTS:
+                raise EvidenceValidationError(code, issues=issues) from None
+            feedback = {"code": code}
+            rejected_answer = answer
+            if issues:
+                feedback["issues"] = issues
+
+
+def _citation_issues(facts, accepted):
+    """Locate rejected citations without returning document or model text."""
+    issues = []
+    for field in ("document_type", "issuer", "subject", "account", "periods", "topics", "facts"):
+        value = getattr(facts, field)
+        records = value if isinstance(value, list) else [value]
+        for item, record in enumerate(records):
+            if record is None:
+                continue
+            for index, citation in enumerate(record.citations):
+                if not accepted(citation):
+                    issues.append(
+                        {"field": field, "item": item, "citation": index, "page": citation.page}
+                    )
+                    if len(issues) == 8:
+                        return issues
+    return issues
 
 
 async def extract_page_facts(*, user_id, pages, interpret=_interpret):
     page_text = {int(page["page"]): page["text"] for page in pages}
     if len(page_text) != len(pages) or not page_text:
         raise ValueError("invalid extraction pages")
-    result = await _ask(
+    unit_kinds = {int(p["page"]): p.get("unit_kind", "page") for p in pages}
+
+    def validate(result):
+        try:
+            validate_page_citations(result, page_text, unit_kinds)
+        except ValueError as error:
+            issues = _citation_issues(
+                result,
+                lambda c: (
+                    c.page in page_text
+                    and c.quote in page_text[c.page]
+                    and c.unit_kind == unit_kinds[c.page]
+                ),
+            )
+            raise EvidenceValidationError(_validation_code(error), issues=issues) from None
+
+    return await _ask(
         "page_facts",
         {"untrusted_pages": pages},
         DocumentPageFacts,
         user_id=user_id,
         interpret=interpret,
+        validate=validate,
     )
-    validate_page_citations(
-        result, page_text, {int(p["page"]): p.get("unit_kind", "page") for p in pages}
-    )
-    return result
 
 
 def _citations(facts):
@@ -82,29 +231,40 @@ def _citations(facts):
     return {(c.page, c.unit_kind, c.quote) for fact in records if fact for c in fact.citations}
 
 
-async def consolidate_facts(*, user_id, previous, page_facts, complete, interpret=_interpret):
+async def consolidate_facts(
+    *, user_id, previous, page_facts, complete, canonical_context=None, interpret=_interpret
+):
     """Bounded fold of observed facts. Original pages remain separately persisted."""
     previous = DocumentFacts.model_validate(previous) if previous is not None else None
     observations = [DocumentPageFacts.model_validate(x) for x in page_facts]
     allowed = set().union(*(_citations(item) for item in observations))
     if previous:
         allowed |= _citations(previous)
-    result = await _ask(
+
+    def validate(result):
+        if not _citations(result) <= allowed:
+            raise EvidenceValidationError(
+                "model_citation_invalid",
+                issues=_citation_issues(
+                    result, lambda c: (c.page, c.unit_kind, c.quote) in allowed
+                ),
+            )
+        if not complete and result.canonical_packets:
+            raise ValueError("unprocessed pages cannot establish canonical packets")
+
+    return await _ask(
         "document_facts",
         {
             "previous_facts": previous.model_dump() if previous else None,
             "page_observations": [item.model_dump() for item in observations],
             "all_pages_observed": complete,
+            "existing_canonical_packets": canonical_context,
         },
         DocumentFacts,
         user_id=user_id,
         interpret=interpret,
+        validate=validate,
     )
-    if not _citations(result) <= allowed:
-        raise ValueError("unsupported consolidated evidence")
-    if not complete and result.canonical_packets:
-        raise ValueError("unprocessed pages cannot establish canonical packets")
-    return result
 
 
 async def construct_packet(
@@ -117,7 +277,45 @@ async def construct_packet(
     owner_preferences=None,
     interpret=_interpret,
 ):
-    result = await _ask(
+    allowed = {item["document_id"] for item in documents}
+    previous_ids = set(previous["selected_document_ids"]) if previous else set()
+    if previous:
+        allowed |= previous_ids
+
+    def validate(result):
+        selected = set(result.selected_document_ids)
+        if not selected <= allowed:
+            raise ValueError("invented packet member")
+        # Source periods have already passed page and consolidation validation.
+        # Prior period citations lack document identities, so reuse them only
+        # while every prior selected member remains selected. A later batch may
+        # replace an earlier copy using its own selected source evidence.
+        # This checks provenance; the model still decides what each period means.
+        periods = [
+            period
+            for item in documents
+            if item["document_id"] in selected
+            for period in item["facts"].get("periods", [])
+        ]
+        if previous and previous_ids <= selected:
+            periods.extend(previous.get("periods", []))
+        citations = {
+            (citation["page"], citation.get("unit_kind", "page"), citation["quote"])
+            for period in periods
+            for citation in period["citations"]
+        }
+        issues = [
+            {"field": "periods", "item": item, "citation": index, "page": citation.page}
+            for item, period in enumerate(result.periods)
+            for index, citation in enumerate(period.citations)
+            if (citation.page, citation.unit_kind, citation.quote) not in citations
+        ]
+        if issues:
+            raise EvidenceValidationError("model_citation_invalid", issues=issues[:8])
+        if result.state == "ready" and not complete:
+            raise ValueError("unfinished assembly cannot be ready")
+
+    return await _ask(
         "canonical_packet",
         {
             "canonical_key": key,
@@ -129,21 +327,22 @@ async def construct_packet(
         PacketAssessment,
         user_id=user_id,
         interpret=interpret,
+        validate=validate,
     )
-    allowed = {item["document_id"] for item in documents}
-    if previous:
-        allowed |= set(previous["selected_document_ids"])
-    if not set(result.selected_document_ids) <= allowed:
-        raise ValueError("invented packet member")
-    if result.state == "ready" and not complete:
-        raise ValueError("unfinished assembly cannot be ready")
-    return result
 
 
 async def verify_packet(
     *, user_id, packet, documents, complete, batch_scope=None, interpret=_interpret
 ):
-    result = await _ask(
+    def validate(result):
+        if result.state == "ready" and not complete:
+            raise ValueError("incomplete evidence cannot verify ready")
+        selected = packet.get("selected_document_ids", packet.get("selected_document_refs"))
+        proposed_state = packet.get("state", packet.get("decision"))
+        if result.state == "ready" and (not selected or proposed_state != "ready"):
+            raise ValueError("nonready proposal cannot verify ready")
+
+    return await _ask(
         "packet_verification",
         {
             "proposed_packet": packet,
@@ -154,26 +353,22 @@ async def verify_packet(
         PacketVerification,
         user_id=user_id,
         interpret=interpret,
+        validate=validate,
     )
-    if result.state == "ready" and not complete:
-        raise ValueError("incomplete evidence cannot verify ready")
-    selected = packet.get("selected_document_ids", packet.get("selected_document_refs"))
-    proposed_state = packet.get("state", packet.get("decision"))
-    if result.state == "ready" and (not selected or proposed_state != "ready"):
-        raise ValueError("nonready proposal cannot verify ready")
-    return result
 
 
 async def match_request_packet(*, user_id, request, packets, interpret=_interpret):
-    result = await _ask(
+    allowed = {(item["packet_id"], item["version"]) for item in packets}
+
+    def validate(result):
+        if result.packet_id is not None and (result.packet_id, result.version) not in allowed:
+            raise ValueError("invented packet match")
+
+    return await _ask(
         "packet_request_match",
         {"document_request": request, "packets": packets},
         PacketRequestMatch,
         user_id=user_id,
         interpret=interpret,
+        validate=validate,
     )
-    if result.packet_id is not None and (result.packet_id, result.version) not in {
-        (item["packet_id"], item["version"]) for item in packets
-    }:
-        raise ValueError("invented packet match")
-    return result
