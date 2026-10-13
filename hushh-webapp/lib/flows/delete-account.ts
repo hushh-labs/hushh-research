@@ -490,7 +490,7 @@ async function executeAccountDeletion(params: {
     });
   }
   CacheSyncService.onAccountDeleted(params.userId);
-  await UserLocalStateService.clearForUser(params.userId);
+  await UserLocalStateService.clearForUser(params.userId, { deleteDurableReceipts: true });
   // Bounded: the deletion has committed, so a stalled Keychain or IndexedDB
   // bridge must not hold the success state open. The cleanup continues.
   await withDeadline(

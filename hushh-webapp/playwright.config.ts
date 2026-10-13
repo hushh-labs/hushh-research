@@ -191,6 +191,7 @@ export default defineConfig({
         // inside the iOS WKWebView and the fixture is self-contained.
         /receipt-sync-hero\.layout\.spec\.ts/,
         /receipt-pagination\.layout\.spec\.ts/,
+        /receipt-storage\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
         /profile-legal-connectors\.layout\.spec\.ts/,
         /profile-pane-close\.layout\.spec\.ts/,

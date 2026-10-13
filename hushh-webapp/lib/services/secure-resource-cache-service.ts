@@ -13,20 +13,23 @@ interface SecureResourceCacheRecord {
 }
 
 const DB_NAME = "hushh-secure-resource-cache";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "resource_cache";
+export const DURABLE_RESOURCE_STORE = "durable_resources";
+export const DURABLE_GENERATION_STORE = "owner_generations";
 
 function buildStorageKey(userId: string, resourceKey: string): string {
   return `${userId}:${resourceKey}`;
 }
 
-async function openDb(): Promise<IDBDatabase | null> {
+export async function openSecureResourceDb(): Promise<IDBDatabase | null> {
   if (typeof window === "undefined" || typeof window.indexedDB === "undefined") {
     return null;
   }
 
   return await new Promise((resolve, reject) => {
     const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    let blocked = false;
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -34,13 +37,26 @@ async function openDb(): Promise<IDBDatabase | null> {
         const store = db.createObjectStore(STORE_NAME, { keyPath: "key" });
         store.createIndex("userId", "userId", { unique: false });
       }
+      if (!db.objectStoreNames.contains(DURABLE_RESOURCE_STORE)) {
+        const store = db.createObjectStore(DURABLE_RESOURCE_STORE, { keyPath: "key" });
+        store.createIndex("userId", "userId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(DURABLE_GENERATION_STORE))
+        db.createObjectStore(DURABLE_GENERATION_STORE);
     };
 
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      if (blocked) { request.result.close(); return; }
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
     request.onerror = () =>
       reject(request.error ?? new Error("Failed to open secure resource cache"));
+    request.onblocked = () => { blocked = true; reject(new Error("Encrypted storage upgrade is blocked. Close older app tabs and try again.")); };
   });
 }
+
+const openDb = openSecureResourceDb;
 
 function readRecord<T>(
   database: IDBDatabase,
@@ -75,13 +91,16 @@ function takeRecord<T>(database: IDBDatabase, key: string): Promise<T | null> {
   });
 }
 
-function writeRecord<T>(database: IDBDatabase, value: T): Promise<void> {
+function writeRecord<T>(database: IDBDatabase, value: T, generation?: { userId: string; expected: number }): Promise<void> {
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
+    const transaction = database.transaction(generation ? [STORE_NAME, DURABLE_GENERATION_STORE] : STORE_NAME, "readwrite");
     const store = transaction.objectStore(STORE_NAME);
-    store.put(value);
+    if (generation) {
+      const request = transaction.objectStore(DURABLE_GENERATION_STORE).get(generation.userId);
+      request.onsuccess = () => { if ((request.result ?? 0) !== generation.expected) transaction.abort(); else store.put(value); };
+    } else store.put(value);
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
+    transaction.onerror = transaction.onabort = () =>
       reject(transaction.error ?? new Error("Failed to write secure cache record"));
   });
 }
@@ -221,6 +240,7 @@ export class SecureResourceCacheService {
     value: T;
     ttlMs: number;
     vaultKey: string;
+    ownerGeneration?: number;
   }): Promise<void> {
     const database = await openDb();
     if (!database) {
@@ -236,7 +256,7 @@ export class SecureResourceCacheService {
       cachedAt: new Date().toISOString(),
       ttlMs: params.ttlMs,
       payload,
-    });
+    }, params.ownerGeneration === undefined ? undefined : { userId: params.userId, expected: params.ownerGeneration });
   }
 
   static async invalidateResource(userId: string, resourceKey: string): Promise<void> {

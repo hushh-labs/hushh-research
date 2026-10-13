@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { saveReceiptCanonicalIndexToMemory } from "@/lib/profile/gmail-receipt-memory-save";
+import { receiptStoreVersion } from "@/lib/mail/receipt-store";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -23,7 +24,8 @@ export const RECEIPT_MEMORY_AUTO_SAVE_RETRY_DELAYS_MS: readonly number[] = [2_00
  * renders nothing: the owner is never asked to save.
  *
  * It writes only when `syncCompletion` has moved past `savedCompletionRef`
- * (never on mount, on a partly loaded list, or for an empty list). The ref is
+ * (never on mount or on a partly loaded list). An empty completed scan needs
+ * an explicit verified snapshot fence before it can clear old summaries. The ref is
  * owned by the page, so a remount saves a finished sync once and never again.
  * A failed save is retried quietly a bounded number of times, then reported
  * once; the next finished sync saves again.
@@ -35,6 +37,8 @@ export function GmailReceiptMemorySave({
   savedCompletionRef,
   autoSave = RECEIPT_MEMORY_AUTO_SAVE_DEFAULT,
   partialScan = true,
+  ownerGeneration,
+  snapshotRevision,
 }: {
   receipts: readonly ReceiptListItem[];
   accountKey: string | null | undefined;
@@ -42,6 +46,8 @@ export function GmailReceiptMemorySave({
   savedCompletionRef?: MutableRefObject<number>;
   autoSave?: boolean;
   partialScan?: boolean;
+  ownerGeneration?: number;
+  snapshotRevision?: number;
 }): null {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
@@ -62,10 +68,12 @@ export function GmailReceiptMemorySave({
 
   useEffect(() => {
     if (!savedCompletionRef || syncCompletion <= savedCompletionRef.current) return;
-    if (!autoSave || receiptsRef.current.length === 0) { savedCompletionRef.current = syncCompletion; return; }
+    if (!autoSave) { savedCompletionRef.current = syncCompletion; return; }
     const origin = { ...authorityRef.current, accountKey: accountKeyRef.current,
       receipts: [...receiptsRef.current], now: new Date() };
     if (!origin.userId || !origin.vaultKey || !origin.vaultOwnerToken || !origin.isVaultUnlocked) return;
+    if (!origin.receipts.length && (ownerGeneration === undefined || snapshotRevision === undefined ||
+      ownerGeneration < 0 || snapshotRevision < 1)) return;
     const run = (runRef.current += 1);
     const isCurrent = () => runRef.current === run && authorityRef.current.userId === origin.userId &&
       authorityRef.current.vaultKey === origin.vaultKey && authorityRef.current.vaultOwnerToken === origin.vaultOwnerToken &&
@@ -75,7 +83,7 @@ export function GmailReceiptMemorySave({
       try {
         await saveReceiptCanonicalIndexToMemory({
           userId: origin.userId!, vaultKey: origin.vaultKey!, vaultOwnerToken: origin.vaultOwnerToken!,
-          receipts: origin.receipts, accountKey: origin.accountKey, now: origin.now, partialScan, isCurrent,
+          receipts: origin.receipts, accountKey: origin.accountKey, now: origin.now, partialScan, isCurrent, ownerGeneration: generation, snapshotRevision: revision,
         });
         if (isCurrent()) savedCompletionRef.current = syncCompletion;
         return "saved";
@@ -85,7 +93,16 @@ export function GmailReceiptMemorySave({
         return "failed";
       }
     };
+    let generation = ownerGeneration;
+    let revision = snapshotRevision;
     void (async () => {
+      try {
+        // Capture once for this origin; retries may never adopt a Reset fence.
+        if (generation === undefined || revision === undefined) {
+          const version = await receiptStoreVersion(origin.userId!, String(origin.accountKey));
+          generation ??= version.generation; revision ??= version.revision;
+        }
+      } catch { generation = -1; revision = -1; }
       for (let attempt = 0; ; attempt += 1) {
         const outcome = await saveOnce();
         if (outcome !== "failed" || runRef.current !== run) return;
@@ -99,7 +116,7 @@ export function GmailReceiptMemorySave({
       }
     })();
     return () => { runRef.current += 1; };
-  }, [autoSave, savedCompletionRef, syncCompletion, user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked, accountKey, partialScan]);
+  }, [autoSave, savedCompletionRef, syncCompletion, user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked, accountKey, partialScan, ownerGeneration, snapshotRevision]);
 
   return null;
 }

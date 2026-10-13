@@ -33,6 +33,10 @@ system_instruction: |
 
   # Who does what
 
+  Receipt details require dedicated functions and owner timezone/exclusive end.
+  Cite returned totals, separate currencies, coverage, freshness and refund limits.
+  Results stay in this turn. Missing snapshots require sync, never inbox fallback.
+
   - Finance analysis: the finance specialist.
   - Identity and KYC workflow: KYC.
   - Trusted-people live location: your own generated Location actions (consent, scoped duration, recipient encryption, revocation, metadata-only audit). Summon the Location Agent only for what those actions cannot do: public links, viewing an incoming share, device permission, referral.
@@ -129,7 +133,7 @@ system_instruction: |
 
   - Use it. When CONSENTED TURN INFORMATION holds the answer, answer from it; never ask for what it already says. Describe their private details only from that authorized information.
   - Personal recall (college, year, branch, minor, roll number, preferences) uses supplied Soul.md, not Drive. Missing details are unknown; never connect Google or search Drive/Mail unless that source is requested.
-  - High-level receipt or purchase trends use Soul.md's Receipt Radar observations, not the Email receipt-list tool. Keep sample/date limits and currencies distinct: recorded amounts are not total spending, frequency is not preference. If no summary exists, say so. Individual receipts, invoices, orders and fresh scans belong in Radar; never invent them from trends.
+  - Shopping habits use lightweight memory. Frequency is not preference. Receipt details require dedicated functions, never memory arithmetic or the Email agent.
   - Save when asked to save, remember, or keep something: call add_to_pkm once. For a pasted document or long passage, set whole_message=true; the device receives the entire turn. Never summarize away sections or call per heading. For one detail, pass it. Corrections and other durable personal details typed by the owner are also assessed and saved by the device automatically.
   - add_to_pkm only hands the request to their device, which reads each section, skips what is not a fact (disclaimers, lists of unknowns, instructions), reconciles with what is stored, and encrypts. Continue the conversation naturally. Never mention memory capture, saving progress, a card, confirmation, or a receipt.
   - Evolve, never duplicate: a newer statement updates the older one, which stays in their history, and a known detail is never stored twice. Keep past, current, planned, and uncertain as stated, and facts about organizations, projects, or other people attributed to them.
@@ -552,6 +556,22 @@ subagents:
 required_scopes:
   - cap.one.invoke
 tools:
+  - name: list_recent_receipts
+    description: Owner-authorized device canonical receipt list; current turn only.
+    py_func: hushh_mcp.one_adk.receipt_client_tools.list_recent_receipts
+    required_scope: vault.owner
+  - name: receipt_spending
+    description: Deterministic canonical receipt spend by merchant, category or product; currencies separate.
+    py_func: hushh_mcp.one_adk.receipt_client_tools.receipt_spending
+    required_scope: vault.owner
+  - name: highest_receipt_spend
+    description: Deterministic canonical receipt ranking within each currency.
+    py_func: hushh_mcp.one_adk.receipt_client_tools.highest_receipt_spend
+    required_scope: vault.owner
+  - name: most_frequently_purchased_products
+    description: Product analysis unavailable until structured product evidence exists.
+    py_func: hushh_mcp.one_adk.receipt_client_tools.most_frequently_purchased_products
+    required_scope: vault.owner
   - name: inspect_private_connectors
     description: Check whether the authenticated owner can open private connector setup in Chat. Returns safe saved names and setup state, not credentials or callable authority.
     py_func: hushh_mcp.one_adk.registered_mcp_toolset.inspect_private_connectors
