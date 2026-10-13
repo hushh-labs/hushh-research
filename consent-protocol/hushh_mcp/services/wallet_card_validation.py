@@ -205,9 +205,9 @@ def classify_card_network(
         selected = normalize_card_network(selected_network)
         if selected == "other" and str(selected_network).strip().lower() != "other":
             raise ValueError("card_network_request_invalid")
-        if pan_length not in NETWORK_PAN_LENGTHS[selected]:
-            raise ValueError("card_network_request_invalid")
         # Preserve the owner's explicit choice for newer and co-badged ranges.
+        # As with prefix detection, keep the network at an invalid length so
+        # local credential validation can explain the mismatch without losing it.
         return {"network": selected, "source": "owner_selected", "candidates": []}
     matches = []
     for network, low, high in NETWORK_PREFIX_RANGES:

@@ -42,8 +42,13 @@ def test_existing_network_rules_are_backend_owned(prefix, length, brand):
         ("353111", 15, "rupay"),
     ],
 )
-def test_invalid_network_lengths_keep_the_network_for_local_rejection(prefix, length, brand):
-    assert classify_card_network(prefix, length)["network"] == brand
+@pytest.mark.parametrize("owner_selected", [False, True])
+def test_invalid_network_lengths_keep_the_network_for_local_rejection(
+    prefix, length, brand, owner_selected
+):
+    result = classify_card_network(prefix, length, brand if owner_selected else None)
+    assert result["network"] == brand
+    assert result["source"] == ("owner_selected" if owner_selected else "prefix")
 
 
 def test_length_can_disambiguate_an_overlapping_network():
@@ -85,6 +90,4 @@ def test_selected_network_validation_and_normalization():
     assert normalize_card_network("UNSUPPORTED") == "other"
     with pytest.raises(ValueError):
         classify_card_network("411111", 16, "bad")
-    with pytest.raises(ValueError):
-        classify_card_network("371111", 16, "amex")
     assert set(NETWORK_ORDER) == CARD_BRANDS

@@ -28,7 +28,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Label } from "@/components/ui/label";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { cn } from "@/lib/utils";
-import { normalizePan, validateCardForRegion, type CardBrand } from "@/lib/wallet/card-validation";
+import { isCardPanLengthValid, normalizePan, validateCardForRegion, type CardBrand } from "@/lib/wallet/card-validation";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import { WalletService, type WalletNetworkContext, type WalletNetworkResult, type WalletCardInput } from "@/lib/services/wallet-service";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -105,7 +105,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const lookupKey = JSON.stringify([epoch, context?.userId, prefix, length, network]);
   const currentReply = networkReply?.key === lookupKey && networkReply.vaultOwnerToken === context?.vaultOwnerToken ? networkReply : null;
   const brand = currentReply?.result?.network ?? "other";
-  const networkHint = networkLoading || !currentReply ? null : !currentReply.result
+  const networkLengthMismatch = length >= 13 && length <= 19 && !isCardPanLengthValid(length, network || brand);
+  const networkHint = networkLengthMismatch ? ERROR_COPY.pan_length_invalid_for_brand : networkLoading || !currentReply ? null : !currentReply.result
     ? "Network identification is unavailable. Your card will use a neutral Card label."
     : currentReply.result.source === "ambiguous"
       ? "This number matches more than one network. Choose the network printed on your card."
