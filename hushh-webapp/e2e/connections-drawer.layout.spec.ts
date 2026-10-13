@@ -140,6 +140,12 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:(?:connected|thinking|working|answering)\.riv|rive\.wasm)$/, route =>
+    route.fulfill({
+      contentType: route.request().url().endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
   await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
@@ -1406,6 +1412,7 @@ async function presencePixels(artwork: Locator) {
     // rendered image instead of only the former fixed 128px corner.
     const sample = document.createElement("canvas");
     sample.width = 128; sample.height = 128;
+    const { width, height } = sample;
     const context = sample.getContext("2d")!;
     context.drawImage(canvas, 0, 0, 128, 128);
     const pixels = context.getImageData(0, 0, 128, 128).data;
@@ -1414,11 +1421,11 @@ async function presencePixels(artwork: Locator) {
       hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
       if (i % 4 === 3 && pixels[i]! > 0) opaque += 1;
     }
-    return { hash, opaque, cornerAlpha: [3, (128 - 1) * 4 + 3, (128 * 127) * 4 + 3, pixels.length - 1].map(i => pixels[i]) };
+    return { hash, opaque, cornerAlpha: [3, (width - 1) * 4 + 3, (width * (height - 1)) * 4 + 3, pixels.length - 1].map(i => pixels[i]) };
   });
 }
 
-test.describe("One profile artwork and mapped work frames", () => {
+test.describe("One profile artwork and animated presence", () => {
   test.use({ deviceScaleFactor: 3 });
   test("keeps header and profile presence in sync through drafting, answering and idle", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1472,7 +1479,7 @@ test.describe("One profile artwork and mapped work frames", () => {
       await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
     }
   });
-  test("keeps HD reduced-motion artwork and pauses mapped frames for app lifecycle changes", async ({ page }) => {
+  test("keeps HD reduced-motion artwork and pauses rendering for app lifecycle changes", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.goto("http://localhost/connections-fixture?one-profile=1");

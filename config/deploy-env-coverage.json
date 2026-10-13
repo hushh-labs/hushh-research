@@ -50,7 +50,8 @@
         "_STRIPE_CONNECT_SECRET_KEY_SECRET",
         "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET",
         "_REVIEWER_COUNTERPART_UID_SECRET",
-        "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET"
+        "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET",
+        "_PWM_TAVILY_API_KEY_SECRET"
       ],
       "reasons": {
         "_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET": "Direct messaging is currently provisioned and enabled in UAT only; production must receive distinct encryption material before this binding is enabled.",
@@ -78,7 +79,8 @@
         "_STRIPE_CONNECT_SECRET_KEY_SECRET": "The independent UAT Connect binding may select test or live mode; production retains its existing payment-mode Connect key and has Hussh Coins enrollment disabled.",
         "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "UAT-only sandbox connected-account endpoint secret; must not cross environment boundaries. This lane retains its existing Connect webhook.",
         "_REVIEWER_COUNTERPART_UID_SECRET": "UAT-only counterpart reviewer credential; this lane requires independently provisioned identities and must not inherit UAT vault credentials.",
-        "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET": "UAT-only counterpart reviewer credential; this lane requires independently provisioned identities and must not inherit UAT vault credentials."
+        "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET": "UAT-only counterpart reviewer credential; this lane requires independently provisioned identities and must not inherit UAT vault credentials.",
+        "_PWM_TAVILY_API_KEY_SECRET": "Optional PWM search adapter is provisioned independently per environment; no borrowed UAT key or paid fallback."
       }
     },
     "deploy-dev.yml": {
@@ -114,7 +116,8 @@
         "_STRIPE_CONNECT_SECRET_KEY_SECRET",
         "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET",
         "_REVIEWER_COUNTERPART_UID_SECRET",
-        "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET"
+        "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET",
+        "_PWM_TAVILY_API_KEY_SECRET"
       ],
       "reasons": {
         "_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET": "Direct-message ciphertext must use environment-specific key material; dev must not borrow the UAT secret.",
@@ -148,7 +151,8 @@
         "_STRIPE_CONNECT_SECRET_KEY_SECRET": "The independent UAT Connect binding may select test or live mode; dev retains its existing payment-mode Connect key and has Hussh Coins enrollment disabled.",
         "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "UAT-only sandbox connected-account endpoint secret; must not cross environment boundaries. This lane retains its existing Connect webhook.",
         "_REVIEWER_COUNTERPART_UID_SECRET": "UAT-only counterpart reviewer credential; this lane requires independently provisioned identities and must not inherit UAT vault credentials.",
-        "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET": "UAT-only counterpart reviewer credential; this lane requires independently provisioned identities and must not inherit UAT vault credentials."
+        "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET": "UAT-only counterpart reviewer credential; this lane requires independently provisioned identities and must not inherit UAT vault credentials.",
+        "_PWM_TAVILY_API_KEY_SECRET": "Optional PWM search adapter is provisioned independently per environment; no borrowed UAT key or paid fallback."
       }
     }
   }

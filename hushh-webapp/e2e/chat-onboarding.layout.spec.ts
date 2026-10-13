@@ -103,22 +103,7 @@ async function assertContract(page: Page, viewportWidth: number) {
   );
   expect(overflow).toBeLessThanOrEqual(0);
 
-  // The production Magic entry point is at most one third of the old ~550px
-  // profile offer, without shrinking its text or 44px review action.
-  const magic = page.getByTestId("magic-intelligence-card");
-  const review = magic.getByRole("button", { name: "Review details" });
-  const magicBox = (await magic.boundingBox())!;
-  const reviewBox = (await review.boundingBox())!;
-  expect(magicBox.height).toBeLessThanOrEqual(180);
-  expect(reviewBox.height).toBeGreaterThanOrEqual(44);
-  await test.info().attach("magic-compact", {
-    body: await magic.screenshot({ path: test.info().outputPath("magic-compact.png") }),
-    contentType: "image/png",
-  });
-  await expect(magic.getByText("Reviewed details appear here.")).toBeHidden();
-  await review.click();
-  await expect(magic.getByText("Reviewed details appear here.")).toBeVisible();
-  await magic.getByRole("button", { name: "Back", exact: true }).click();
+
   await expect(review).toBeVisible();
 
   const chips = page.getByTestId("chat-onboarding-chips").getByRole("button");

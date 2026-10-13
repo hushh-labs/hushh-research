@@ -53,7 +53,28 @@ class ProfileFact(BaseModel, Generic[SourceT]):
 
 class ProfileSection(BaseModel, Generic[SourceT]):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["business", "career", "education", "personal"]
+    kind: Literal[
+        "business",
+        "career",
+        "education",
+        "personal",
+        "projects",
+        "publications",
+        "achievements",
+        "community",
+        "interests",
+        "preferences",
+        "dislikes",
+        "style",
+        "food",
+        "travel",
+        "entertainment",
+        "shopping",
+        "communication",
+        "digital_presence",
+        "public_records",
+        "security",
+    ]
     facts: list[ProfileFact[SourceT]] = Field(min_length=1, max_length=8)
 
 
@@ -62,7 +83,7 @@ class ProfileReport(BaseModel, Generic[SourceT]):
     match_status: Literal["matched", "uncertain", "no_match"]
     name: str = Field(min_length=1, max_length=160)
     summary: str = Field(min_length=1, max_length=500)
-    sections: list[ProfileSection[SourceT]] = Field(max_length=4)
+    sections: list[ProfileSection[SourceT]] = Field(max_length=20)
 
     @model_validator(mode="after")
     def coherent_report(self) -> Self:

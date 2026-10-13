@@ -99,6 +99,7 @@ export const SEARCH_CATALOG: readonly SearchCatalogEntry[] = [
   { actionId: "route.one_pkm", label: "Open Memory", icon: "memory", keywords: ["open personal data", "open my personal data", "go to personal data", "show personal data", "open saved knowledge"] },
   { actionId: "route.one_feed", label: "Open Feed", icon: "feed", keywords: ["open my feed", "open feed", "go to my feed", "show my feed", "what's waiting for me"] },
   { actionId: "route.profile_my_data", label: "Open Memory", icon: "memory", keywords: ["open my saved details", "my saved details"] },
+  { actionId: "route.profile_world_model", label: "Open Personal World Model", icon: "profile", keywords: ["personal world model", "pwm", "my public profile", "build my model"] },
   { actionId: "route.profile_request_pricing", label: "Open Request pricing", icon: "generic", keywords: ["set my Drive price", "document price", "request pricing"] },
   { actionId: "route.profile_payouts", label: "Open Payouts", icon: "wallet", keywords: ["link my bank", "set up payouts", "document earnings"] },
   { actionId: "route.profile_access_panel", label: "Open Access And Discoverability Panel", icon: "profile", keywords: ["open access settings", "who can find me", "discoverability settings", "open access panel"] },

@@ -335,6 +335,7 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath.startsWith(ROUTES.MARKETPLACE)) {
     return { screen: "marketplace", subview: query.get("tab") || null };
   }
+  if (normalizedPath === ROUTES.PROFILE_WORLD_MODEL) return { screen: "profile_world_model", subview: null };
   if (normalizedPath === ROUTES.PROFILE_PKM) {
     return {
       screen: "pkm",

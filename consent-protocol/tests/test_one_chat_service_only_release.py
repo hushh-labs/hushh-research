@@ -144,7 +144,7 @@ def test_candidate_must_be_zero_traffic_and_have_its_own_tag() -> None:
     ("key", "drifted"),
     [
         ("HUSSH_GEMINI_TEXT_MODEL", "gemini-3.7-flash"),
-        ("HUSHH_VERTEX_LOCATIONS", "global"),
+        ("ENVIRONMENT", "production"),
     ],
 )
 def test_candidate_rejects_readiness_probe_runtime_drift(
@@ -371,3 +371,31 @@ def test_interrupted_promotion_refuses_unknown_traffic(
     report = json.loads((tmp_path / "uat-one-chat-recovery.json").read_text())
     assert report["status"] == "blocked"
     assert "Unknown or split backend traffic" in report["error"]
+
+
+def test_preflight_requires_canonical_fleet_before_build_or_mutation(monkeypatch):
+    module = load_release_script()
+    target_sha = "b" * 40
+    env = {**module.PROBE_RUNTIME_ENV, "HUSHH_DEPLOY_ENV": "uat"}
+    revision = {
+        "metadata": {"labels": {"deploy-sha": "a" * 40, "account-deletion-contract": "v201"}},
+        "spec": {"serviceAccountName": module.RUNTIME_SA, "containers": [{"env": []}]},
+    }
+    service = {"spec": {"template": {"spec": {"serviceAccountName": module.RUNTIME_SA}}}}
+    command = Mock()
+    release_paths = Mock()
+    monkeypatch.setattr(module, "command", command)
+    monkeypatch.setattr(module, "output", lambda *_args: target_sha)
+    monkeypatch.setattr(module, "service_state", lambda: service)
+    monkeypatch.setattr(module, "serving_revision", lambda _service: "old")
+    monkeypatch.setattr(module, "revision_state", lambda _name: revision)
+    monkeypatch.setattr(module, "release_paths", release_paths)
+    with pytest.raises(RuntimeError, match="run the full UAT workflow first"):
+        module.preflight(target_sha)
+    command.assert_not_called()
+    release_paths.assert_not_called()
+    revision["spec"]["containers"][0]["env"] = [
+        {"name": key, "value": value} for key, value in env.items()
+    ]
+    assert module.preflight(target_sha) == ("old", "a" * 40)
+    release_paths.assert_called_once_with("a" * 40, target_sha)

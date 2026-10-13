@@ -34,6 +34,7 @@ from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
     summarize,
 )
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name  # noqa: E402
+from hushh_mcp.runtime_settings import managed_ai_settings  # noqa: E402
 
 PROBE_TIMEOUT_SECONDS = 25
 
@@ -105,7 +106,7 @@ async def _probe_adk_response(adk_model: Any, model: str) -> None:
 
 
 def _one_chat_target() -> tuple[str, str, ManagedGeminiRuntimeBinding]:
-    project = (os.getenv("HUSHH_ONE_CHAT_VERTEX_PROJECT") or "").strip()
+    project = managed_ai_settings().project
     if not project:
         raise RuntimeError("One chat Vertex project is required for its readiness probe")
     binding = ManagedGeminiRuntimeBinding.from_environment(vertex_project=project)
@@ -119,15 +120,13 @@ async def _probe_scoped_projects() -> dict[str, object]:
     from hushh_mcp.one_voice.config import OneVoiceLiveConfig
     from hushh_mcp.runtime_providers.factory import build_managed_live_client
 
-    chat_project = (os.getenv("HUSHH_ONE_CHAT_VERTEX_PROJECT") or "").strip()
-    voice_project = (os.getenv("HUSHH_ONE_VOICE_VERTEX_PROJECT") or "").strip()
+    chat_project = managed_ai_settings().project
+    voice_project = managed_ai_settings().project
     if not chat_project and not voice_project:
         raise RuntimeError("A scoped managed Vertex project is required")
-    live_config = OneVoiceLiveConfig.from_environment() if voice_project else None
-    if live_config is not None and (
-        not live_config.enabled or live_config.vertex_project != voice_project
-    ):
-        raise RuntimeError("One voice Vertex project requires an enabled, pinned Live model")
+    configured_live = OneVoiceLiveConfig.from_environment()
+    live_config = configured_live if configured_live.enabled else None
+    voice_project = live_config.vertex_project if live_config else None
 
     labelled: list[tuple[str, object]] = []
     model = ""
@@ -181,6 +180,7 @@ async def _probe_scoped_projects() -> dict[str, object]:
         (bool(p["ok"]) for p in probes if str(p["probe"]).startswith("one_voice_live:")), None
     )
     return {
+        "config_hash": managed_ai_settings().config_hash,
         "check": "managed_vertex_runtime",
         "ok": not failed,
         "classification": classification,
@@ -205,7 +205,7 @@ async def main() -> dict[str, object]:
         raise RuntimeError("Managed Vertex probe mode is invalid")
     binding = ManagedGeminiRuntimeBinding.from_environment()
     models = _managed_manifest_models()
-    chat_project = (os.getenv("HUSHH_ONE_CHAT_VERTEX_PROJECT") or "").strip()
+    chat_project = managed_ai_settings().project
     chat_binding = (
         ManagedGeminiRuntimeBinding.from_environment(vertex_project=chat_project)
         if chat_project
@@ -387,6 +387,7 @@ async def main() -> dict[str, object]:
         else None
     )
     return {
+        "config_hash": managed_ai_settings().config_hash,
         "check": "managed_vertex_runtime",
         "ok": not failed,
         "classification": classification,

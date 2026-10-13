@@ -96,3 +96,12 @@ it("keeps private responses out of the index without redirecting registered call
   vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
   expect(proxy(request("/welcome?tab=research")).headers.get("x-robots-tag")).toBe("noindex, nofollow");
 });
+
+it.each(["/one/profile/world-model", "/one/profile/world-model/"])(
+  "keeps PWM and contact-bound claim links on their dedicated route: %s",
+  (path) => {
+    const response = proxy(request(`${path}?claim=synthetic-opaque-token`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+  },
+);
