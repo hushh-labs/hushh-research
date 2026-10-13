@@ -115,6 +115,12 @@ test.beforeEach(async ({ page }) => {
     return route.continue();
   });
   await page.route(`**${HUSHH_MARK_PATH}`, route => route.fulfill({ contentType: "image/png", body: mark }));
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
+    route.fulfill({
+      contentType: "image/webp",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
   await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
@@ -1402,7 +1408,14 @@ for (const viewport of [
     // Geometry is measured after the sheet's entrance motion settles.
     await expect.poll(() => panel.evaluate(element =>
       new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
-    await expect.poll(() => panel.locator("[data-hushh-mark] img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    const avatar = panel.locator("canvas");
+    await expect(avatar).toBeVisible();
+    // Exercise the production player with its real sheet, not a mock mark.
+    // A mounted canvas alone would pass even when the asset never loaded.
+    await expect.poll(() => avatar.evaluate((canvas: HTMLCanvasElement) => {
+      const pixels = canvas.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height).data;
+      return pixels?.some((channel, index) => index % 4 === 3 && channel > 0) ?? false;
+    })).toBe(true);
     const rail = panel.getByRole("tablist", { name: "One profile sections" });
     const initial = (await rail.boundingBox())!;
     const frame = (await panel.boundingBox())!;

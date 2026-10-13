@@ -16,7 +16,7 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
+import { OnePresenceAvatar } from "@/components/agent/one-presence-avatar";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
@@ -66,6 +66,7 @@ import {
   Check,
   ChevronDown,
   Cloud,
+  Cpu,
   Copy,
   FileText,
   KeyRound,
@@ -8573,8 +8574,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
-            {/* One centers its stacked identity between balanced controls;
-                narrow phones reserve a separate control row. Puppy keeps
+            {/* One keeps its centered identity and a smaller phone avatar with
+                the name beneath it. Puppy keeps
                 the compact history / clipped identity / actions row. */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
@@ -8587,7 +8588,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // rather than swap materials or bypass overlay isolation.
               eligible={false}
               onActivate={toggleHistoryDrawer} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
-              className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
+              className="agent-chat-history-control relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
             <ShellActionSurface
               variant="icon"
               ref={historyDrawerFallbackRef}
@@ -8610,7 +8611,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
             >
-              {/* One stacks this identity above a separate control row;
+              {/* One uses the same identity at a smaller phone size;
                   Puppy keeps its compact inline identity. */}
               <div
                 data-agent-chat-brand-tile
@@ -8624,18 +8625,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 ) : (
                   <ShellActionSurface
                     variant="icon"
+                    data-agent-chat-one-profile-trigger
                     aria-label="Open One profile"
                     aria-haspopup="dialog"
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                    className="!size-11 md:!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
-                    <HushhMark
-                      aria-hidden="true"
-                      className="size-[72px] items-center justify-center overflow-visible"
-                      imageClassName="!size-16"
-                    />
+                    <OnePresenceAvatar state={activeToolCalls.length > 0 || isPkmMemoryWorking ? "working" : isStreaming ? "answering" : isChatLoading ? "thinking" : "connected"} />
                   </ShellActionSurface>
                 )}
               </div>
@@ -8654,7 +8652,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div data-agent-chat-header-region="actions" className="flex shrink-0 items-center gap-2">
               {/*
                 Order is picker, toggle, profile, and it is load-bearing. The
                 toggle is anchored to the profile button at the right edge, so
@@ -8705,6 +8703,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         Gemini, so the shared word is the one thing a narrow
                         header cannot afford. The full label stays in the menu
                         and in the tooltip. */}
+                    <Cpu aria-hidden="true" className="agent-chat-model-icon hidden" />
                     <span className="truncate">
                       {(
                         modelPreference.choices.find(
@@ -8751,7 +8750,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   if (next === "puppy") enterPuppySurface();
                   else setAgentSurface(next);
                 }} focusRef={agentSurfaceFocusRef}
-                className="flex h-11 w-[88px] shrink-0 items-center justify-center sm:w-[116px]">
+                className="agent-chat-surface-control flex h-11 w-[88px] shrink-0 items-center justify-center sm:w-[116px]">
               <SegmentedControl
                 selectedButtonRef={agentSurfaceFocusRef}
                 variant="compact"
@@ -8813,7 +8812,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <OneAgentProfileSheet open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
+          <OneAgentProfileSheet presenceState={activeToolCalls.length > 0 || isPkmMemoryWorking ? "working" : isStreaming ? "answering" : isChatLoading ? "thinking" : "connected"} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface

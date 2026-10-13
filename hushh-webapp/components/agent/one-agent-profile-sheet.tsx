@@ -41,7 +41,7 @@ import { isFeedIdAtOrBefore } from "@/lib/feed/feed-pagination";
 import { readFeedClearedThroughId } from "@/lib/feed/feed-clear-watermark";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ROUTES } from "@/lib/navigation/routes";
-import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
+import { OnePresenceAvatar, type OnePresenceState } from "@/components/agent/one-presence-avatar";
 
 import styles from "./one-agent-profile-sheet.module.css";
 
@@ -173,7 +173,9 @@ export function OneAgentProfileSheet({
   open,
   onOpenChange,
   triggerRef,
+  presenceState = "connected",
 }: {
+  presenceState?: OnePresenceState;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
@@ -221,11 +223,7 @@ export function OneAgentProfileSheet({
         </SheetClose>
         <div className={styles.hero}>
           <div className={styles.avatar}>
-            <HushhMark
-              aria-hidden
-              className="size-24 items-center justify-center"
-              imageClassName="!size-20"
-            />
+            <OnePresenceAvatar state={presenceState} />
           </div>
           <SheetTitle className={styles.title}>One</SheetTitle>
           <SheetDescription className="sr-only">
