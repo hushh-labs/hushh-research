@@ -8,8 +8,18 @@ const STREAM_PROXY_HEADER = "X-Hussh-Stream-Via";
 const STREAM_PROXY_VALUE = "next-proxy";
 const FEED_PROTOCOL_VERSIONS = new Set(["1", "2"]);
 
-function failure(status: number, error: string, headers: Record<string, string> = {}): Response {
-  return Response.json({ error }, { status, headers: { ...PRIVATE_HEADERS, ...headers } });
+function failure(
+  status: number,
+  error: string,
+  headers: Record<string, string> = {},
+  errorCode?: string | null,
+): Response {
+  const body: { error: string; detail?: { error_code: string } } = { error };
+  // The client's permanent-vs-transient reconnect decision keys on this one
+  // contract value (events/route.ts -> notification-provider.tsx), never on
+  // the upstream's free-text message, so only the enum code crosses the proxy.
+  if (errorCode) body.detail = { error_code: errorCode };
+  return Response.json(body, { status, headers: { ...PRIVATE_HEADERS, ...headers } });
 }
 
 /** Only these two authenticated backend streams may be reached by this proxy. */
@@ -56,13 +66,29 @@ export async function proxyConsentStream(
       },
     );
     if (!upstream.ok) {
-      await upstream.body?.cancel().catch(() => {});
       // A busy backend says when to come back; pass on only a plain delay.
       const retryAfter = upstream.status === 503 ? upstream.headers.get("retry-after") : null;
+      // A 410 on the legacy consent stream is permanent-by-design (SSE is off
+      // in production; FCM is primary) and the client only keeps retrying
+      // when it CANNOT tell that apart from an expired stream. Read the one
+      // enum field that distinguishes them instead of cancelling the body
+      // unseen, or every reconnect attempt repeats the same 93s backoff.
+      let errorCode: string | null = null;
+      if (upstream.status === 410) {
+        errorCode = await upstream
+          .json()
+          .then((body) =>
+            typeof body?.detail?.error_code === "string" ? body.detail.error_code : null,
+          )
+          .catch(() => null);
+      } else {
+        await upstream.body?.cancel().catch(() => {});
+      }
       return failure(
         upstream.status >= 400 ? upstream.status : 502,
         "Could not connect to consent events stream",
         retryAfter && /^\d{1,4}$/.test(retryAfter) ? { "Retry-After": retryAfter } : {},
+        errorCode,
       );
     }
     if (!upstream.body) return failure(502, "No stream body from backend");
