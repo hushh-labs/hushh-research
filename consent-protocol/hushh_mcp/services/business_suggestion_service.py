@@ -19,11 +19,6 @@ from hushh_mcp.services.business_directory_suggestions import (
     verified_contacts,
 )
 from hushh_mcp.services.business_profile_completion import business_profile_saved
-from hushh_mcp.services.magic_intelligence_admission import (
-    magic_intelligence_owner_admitted,
-    magic_intelligence_rollout_enabled,
-)
-from hushh_mcp.services.magic_intelligence_completion import magic_intelligence_saved
 from hushh_mcp.services.one_owner_admission import (
     OwnerIdentityUnavailable,
     lookup_fresh_owner_identity,
@@ -58,11 +53,11 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
     # Gate BEFORE provider access. A conflicting deployment label always wins.
     real_enabled = one_business_directory_enabled()
     local_rehearsal = one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)
-    if not (local_rehearsal or (real_enabled and magic_intelligence_rollout_enabled())):
+    # Business discovery has its own rollout gate; Magic Intelligence admission
+    # and completion never grant, withdraw or suppress it.
+    if not (real_enabled or local_rehearsal):
         return result
     try:
-        if await asyncio.wait_for(magic_intelligence_saved(user_id), timeout=5):
-            return result  # The optional subsection cannot re-offer completed Magic.
         if await asyncio.wait_for(business_profile_saved(user_id), timeout=5):
             result["status"] = "no_match"
             return result
@@ -75,8 +70,6 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
     # A fresh primary Firebase email, not token claims, aliases or request input.
     if getattr(record, "uid", None) != user_id or getattr(record, "disabled", True):
         raise BusinessSuggestionUnavailable()
-    if not local_rehearsal and not magic_intelligence_owner_admitted(user_id, record):
-        return result
     admitted_email = getattr(record, "email", None)
     admitted_verified = getattr(record, "email_verified", False)
     try:
@@ -111,12 +104,12 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
         offered = await lookup_directory(*contacts, local=local_rehearsal)
     except DirectoryUnavailable:
         raise BusinessSuggestionUnavailable() from None
-    # Both identity and revision policy can change while the provider is running.
+    # Both identity and rollout policy can change while the provider is running.
     # Withdrawing the localhost exception must not fall through to a hosted grant.
     if local_rehearsal:
         active = one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)
     else:
-        active = one_business_directory_enabled() and magic_intelligence_rollout_enabled()
+        active = one_business_directory_enabled()
     if not active:
         return result
     try:
@@ -125,23 +118,9 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
         raise BusinessSuggestionUnavailable() from None
     if getattr(current_record, "uid", None) != user_id or getattr(current_record, "disabled", True):
         raise BusinessSuggestionUnavailable()
-    try:
-        if await asyncio.wait_for(magic_intelligence_saved(user_id), timeout=5):
-            return result
-    except Exception:
-        raise BusinessSuggestionUnavailable() from None
-    if local_rehearsal:
-        active = (
-            one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)
-            and getattr(current_record, "email", None) == admitted_email
-            and getattr(current_record, "email_verified", False) == admitted_verified
-        )
-    else:
-        active = (
-            one_business_directory_enabled()
-            and magic_intelligence_owner_admitted(user_id, current_record)
-            and getattr(current_record, "email", None) == admitted_email
-        )
-    if active:
+    if (
+        getattr(current_record, "email", None) == admitted_email
+        and getattr(current_record, "email_verified", False) == admitted_verified
+    ):
         result.update(offered)
     return result
