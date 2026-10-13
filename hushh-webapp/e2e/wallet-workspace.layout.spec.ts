@@ -506,6 +506,11 @@ for (const width of [320, 390, 1024]) {
     const next = detail.getByRole("button", { name: "Next card", exact: true });
     await next.scrollIntoViewIfNeeded();
     await expect(next).toBeInViewport();
+    await next.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await expect(next).toBeFocused();
+    await expect(next).not.toHaveCSS("box-shadow", "none");
     await next.click();
     await expect(page.getByRole("region", { name: "Referral card details" })).toBeVisible();
     await expect(page.getByTestId("wallet-demo-activity")).toHaveCount(0);

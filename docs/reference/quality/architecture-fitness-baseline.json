@@ -20255,7 +20255,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1085
+      "value": 1090
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -40687,5 +40687,19 @@
       }
     ],
     "verification": "34 packet/retention cases pass; immutable predecessor retains a packet head and fails the reset negative control, while connector-deletion control passes."
+  },
+  "scope_commerce_wallet_keyboard_merge_20261013": {
+    "source_revision": "19aec8b2ccca4bb0357d7419c2cd14932a36a3dc",
+    "incoming_main": "7b44f586f8e4abcbd18d7ae494e3224165c9e3d8",
+    "reason": "Independent review qualifies five lines in the nearest existing layout case protecting visible keyboard focus for SVG-only navigation; ordinary plain navigation and ripple removal are preserved. Browser execution remains a hosted CI gate.",
+    "qualified_updates": [
+      {
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1085,
+        "value": 1090,
+        "source_sha256": "7fb17d630f1fcd346be1e40821e31d3f6ed8ef397b35bd19d1c43972463e2a81"
+      }
+    ]
   }
 }

@@ -309,6 +309,7 @@ it("normalizes existing stored casing without modifying a saved record", async (
  expect(mockStoreWalletDomain).not.toHaveBeenCalled();
 });
 
+describe.each([false, true])("invalid network length (owner-selected: %s)", (ownerSelected) => {
 it.each([
   ["41111111111114", "visa"],
   ["3711111111111117", "amex"],
@@ -316,8 +317,9 @@ it.each([
 ])("rejects a checksum-valid %s with an invalid backend-resolved network length", async (pan, network) => {
   expect(luhnValid(pan)).toBe(true);
   networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ network, source: "prefix", candidates: [] })));
-  await expect(WalletService.addCard({ ...CONTEXT, card: { pan, cardholderName: "Test Owner", cvv: "123", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "test" })).rejects.toThrow("pan_length_invalid_for_brand");
+  await expect(WalletService.addCard({ ...CONTEXT, card: { pan, brand: ownerSelected ? network : undefined, cardholderName: "Test Owner", cvv: "123", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "test" })).rejects.toThrow("pan_length_invalid_for_brand");
   expect(mockStoreWalletDomain).not.toHaveBeenCalled();
+});
 });
 
 it.each(["owner", "vault", "validated owner"])("refuses a delayed lookup after the %s session changes", async (change) => {

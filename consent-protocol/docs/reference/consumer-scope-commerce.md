@@ -28,7 +28,7 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Main integration verification — 2026-10-13 UTC
 
-The current continuation integrates frozen main `6543414a2128` on the same
+The current continuation integrates main `7b44f586f8e4` on the same
 infrastructure branch. Main Drive migrations 332–334 remain intact; the seven
 unaccepted task registrations move from 332–338 to 335–341 with identical
 forward and rollback SQL. Schema contracts use head 341. The read-only Dev
@@ -52,7 +52,13 @@ The erasure inventory now proves seven existing Drive FK cascades. A separate
 reset gap is corrected in the existing cleanup transaction: sealed packet keys,
 versions and listings are erased after financial fences; 34 packet/retention
 checks pass, and the immutable predecessor fails the reset negative control.
-Full core, hosted CI, Dev release and financial/OAuth acceptance remain required.
+Candidate `19aec8b2ccca` passes the complete core bundle: 18,991 protocol cases,
+1,122 PostgreSQL cases, web-core, MCP package and integration/PKM gates. The four
+newer main commits add Wallet fixes without migration or Stripe changes; their
+merged validation passes 43 frontend and 73 backend cases. A keyboard-only
+focus bar preserves the icon-only Next control's visible focus while ordinary
+navigation remains plain. The final merged core, hosted layout/full CI, Dev
+release and financial/OAuth acceptance remain required.
 
 The preceding continuation integrated main `460a68d4b908` through normal merge
 `49d29b86ac99` on the preserved infrastructure branch. Main migrations 327–331
