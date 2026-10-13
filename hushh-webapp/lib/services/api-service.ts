@@ -1969,9 +1969,19 @@ export class ApiService {
       };
     }
 
+    if (
+      payload.success !== true ||
+      typeof payload.eligible !== "boolean" ||
+      (payload.eligible && (
+        typeof payload.verification_id !== "string" ||
+        !AuthService.isUatPhoneTestVerificationId(payload.verification_id)
+      ))
+    ) {
+      return { success: false, eligible: false, reason: "uat_phone_test_start_invalid_response" };
+    }
     return {
-      success: payload.success === true,
-      eligible: payload.eligible === true,
+      success: true,
+      eligible: payload.eligible,
       verification_id:
         typeof payload.verification_id === "string"
           ? payload.verification_id

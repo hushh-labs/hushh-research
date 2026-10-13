@@ -2050,6 +2050,15 @@ this forces current provider/persistence success and returns 503 on failure
 instead of falling back to a prior identity. Background refresh keeps its
 existing cache fallback.
 
+If a native OTP links the provider phone but persistence is unavailable, retry
+reads the native provider directly (without substituting the cached Firebase JS
+user) and reruns only strict identity synchronization for the same owner and
+requested phone. It does not send another OTP or repeat link/unlink. Same-number
+submit and linked-phone Continue wait for this synchronization before completion;
+account/attempt fences still apply. Native test-start failures or malformed
+responses stop before linking. Only a successful explicit nonallowlisted response
+falls through to normal native OTP.
+
 Web verification's app-level phone need not be linked to the primary social
 Firebase user. Auth state publishes a fresh verified identity-cache phone after
 the backend claim commits, including same-user Firebase republication, and never

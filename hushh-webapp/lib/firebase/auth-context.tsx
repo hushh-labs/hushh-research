@@ -1663,6 +1663,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [],
   );
 
+  const finalizeLinkedNativePhone = useCallback(
+    async (
+      phone: string | null | undefined,
+      expectedUid: string | null | undefined,
+      expectedEpoch: number,
+    ): Promise<User | null> => {
+      if (!Capacitor.isNativePlatform() || !phone) return null;
+      // Read the provider without publishing it: a previous OTP can have
+      // linked successfully while its backend persistence was unavailable.
+      const linkedUser = await AuthService.restoreNativeSession({ nativeOnly: true });
+      requirePhoneVerificationOwner(expectedUid, expectedEpoch);
+      if (linkedUser?.uid !== expectedUid) {
+        throw new Error("The verified account changed. Start phone verification again.");
+      }
+      if (linkedUser.phoneNumber !== phone) return null;
+      await AccountIdentityService.finalizeNativePhoneVerification(linkedUser, phone);
+      requirePhoneVerificationOwner(expectedUid, expectedEpoch);
+      return linkedUser;
+    },
+    [requirePhoneVerificationOwner],
+  );
+
   const startPhoneVerification = useCallback(
     async (
       phone: string,
@@ -1699,6 +1721,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
             if (isNative && uatPhoneTest?.reason === "phone_test_number_in_use") {
               throw new Error("This test phone number is already linked to another account. Use a different phone number.");
             }
+            if (isNative && (
+              !uatPhoneTest?.success ||
+              (uatPhoneTest.eligible && !uatPhoneTest.verification_id) ||
+              (!uatPhoneTest.eligible && uatPhoneTest.reason !== "uat_phone_test_not_configured_or_not_allowlisted")
+            )) {
+              throw new Error("Phone verification is temporarily unavailable. Please try again.");
+            }
             if (uatPhoneTest?.eligible && uatPhoneTest.verification_id) {
               result = {
                 autoVerified: false,
@@ -1708,6 +1737,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
 
           if (!result) {
+            const linkedUser = await finalizeLinkedNativePhone(phone, expectedUid, expectedPhoneEpoch);
+            if (linkedUser) {
+              applyAuthUser(linkedUser);
+              phoneVerificationOwnerRef.current = null;
+              return { autoVerified: true, user: linkedUser };
+            }
             result = await AuthService.startPhoneLinkVerification(phone, {
               resendCode: options?.resendCode,
               recaptchaVerifier:
@@ -1728,6 +1763,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
         requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
         setPhoneVerificationAttempt({ userId: expectedUid, epoch: expectedPhoneEpoch });
+        setPhoneVerificationPhoneNumber(phone);
 
         if (result.confirmationResult) {
           setConfirmationResult(result.confirmationResult);
@@ -1742,7 +1778,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (!isNative) {
             resetRecaptcha();
           }
-          const refreshedUser = result.user ?? (await refreshUser());
+          const refreshedUser = result.user ?? (isNative
+            ? await AuthService.restoreNativeSession({ nativeOnly: true })
+            : await refreshUser());
           requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
           if (refreshedUser?.uid !== expectedUid) throw new Error("The verified account changed. Start phone verification again.");
           if (isNative) {
@@ -1760,7 +1798,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { autoVerified: false };
       })();
     },
-    [applyAuthUser, refreshUser, requirePhoneVerificationOwner],
+    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone],
   );
 
   const startPhoneReplacement = useCallback(
@@ -1782,6 +1820,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
         ReturnType<typeof AuthService.startPhoneReplacementVerification>
       >;
       try {
+        const linkedUser = await finalizeLinkedNativePhone(phone, expectedUid, expectedPhoneEpoch);
+        if (linkedUser) {
+          applyAuthUser(linkedUser);
+          phoneVerificationOwnerRef.current = null;
+          return { autoVerified: true, user: linkedUser };
+        }
         result = await AuthService.startPhoneReplacementVerification(phone, {
           resendCode: options?.resendCode,
           recaptchaVerifier: isNative
@@ -1797,6 +1841,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
       setPhoneVerificationAttempt({ userId: expectedUid, epoch: expectedPhoneEpoch });
+      setPhoneVerificationPhoneNumber(phone);
       if (result.confirmationResult) {
         setConfirmationResult(result.confirmationResult);
       }
@@ -1810,7 +1855,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (!isNative) {
           resetRecaptcha();
         }
-        const refreshedUser = result.user ?? (await refreshUser());
+        const refreshedUser = result.user ?? (isNative
+          ? await AuthService.restoreNativeSession({ nativeOnly: true })
+          : await refreshUser());
         requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
         if (refreshedUser?.uid !== expectedUid) throw new Error("The verified account changed. Start phone verification again.");
         if (isNative) {
@@ -1827,7 +1874,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       return { autoVerified: false };
     },
-    [applyAuthUser, refreshUser, requirePhoneVerificationOwner],
+    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone],
   );
 
   const confirmPhoneVerification = useCallback(
@@ -1843,7 +1890,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const useNativeFirebaseConfirm =
           Capacitor.isNativePlatform() &&
           !AuthService.isUatPhoneTestVerificationId(nativeVerificationId);
-        const verifiedUser = useNativeFirebaseConfirm
+        const linkedUser = useNativeFirebaseConfirm
+          ? await finalizeLinkedNativePhone(phoneVerificationPhoneNumber, verificationUser.uid, expectedPhoneEpoch)
+          : null;
+        const verifiedUser = linkedUser ?? (useNativeFirebaseConfirm
           ? await AuthService.confirmPhoneLinkVerification({
               verificationCode: otp,
               confirmationResult,
@@ -1897,10 +1947,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
                     );
                   }
                   return verificationUser;
-                })();
+                })());
         requirePhoneVerificationOwner(verificationUser.uid, expectedPhoneEpoch);
         if (verifiedUser?.uid !== verificationUser.uid) throw new Error("The verified account changed. Start phone verification again.");
-        if (useNativeFirebaseConfirm) {
+        if (useNativeFirebaseConfirm && !linkedUser) {
           await AccountIdentityService.finalizeNativePhoneVerification(
             verifiedUser, phoneVerificationPhoneNumber,
           );
@@ -1932,6 +1982,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       phoneVerificationAttempt,
       refreshUser,
       requirePhoneVerificationOwner,
+      finalizeLinkedNativePhone,
     ],
   );
 
@@ -1940,7 +1991,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const expectedUid = phoneVerificationAttempt?.userId;
       const expectedPhoneEpoch = phoneVerificationAttempt?.epoch ?? -1;
       requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
-      const verifiedUser =
+      const linkedUser = await finalizeLinkedNativePhone(phoneVerificationPhoneNumber, expectedUid, expectedPhoneEpoch);
+      const verifiedUser = linkedUser ??
         await AuthService.confirmPhoneReplacementVerification({
           verificationCode: otp,
           confirmationResult,
@@ -1948,7 +2000,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         });
       requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
       if (verifiedUser?.uid !== expectedUid) throw new Error("The verified account changed. Start phone verification again.");
-      if (Capacitor.isNativePlatform()) {
+      if (Capacitor.isNativePlatform() && !linkedUser) {
         await AccountIdentityService.finalizeNativePhoneVerification(
           verifiedUser, phoneVerificationPhoneNumber,
         );
@@ -1974,7 +2026,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [
       applyAuthUser, confirmationResult, nativeVerificationId,
       phoneVerificationAttempt, phoneVerificationPhoneNumber,
-      refreshUser, requirePhoneVerificationOwner,
+      refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone,
     ],
   );
 

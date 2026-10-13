@@ -110,7 +110,7 @@ vi.mock("@/lib/services/account-identity-service", () => ({
     claimCurrentUserPhone: mocks.identityClaim,
     hasVerifiedPhone: (identity: { phone_verified?: boolean } | null) =>
       identity?.phone_verified === true,
-    startUatTestPhoneVerification: vi.fn().mockResolvedValue({ eligible: false }),
+    startUatTestPhoneVerification: vi.fn().mockResolvedValue({ success: true, eligible: false, reason: "uat_phone_test_not_configured_or_not_allowlisted" }),
   },
 }));
 
