@@ -1,4 +1,5 @@
 import type { ReactNode, SVGProps } from "react";
+import { RotateCcw } from "@/components/icons";
 
 type AccountIconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
@@ -89,15 +90,13 @@ export function ProfileAccountWalletIcon(props: AccountIconProps) {
   );
 }
 
-export function ProfileAccountResetIcon(props: AccountIconProps) {
+export function ProfileAccountResetIcon({ size = 24, ...props }: AccountIconProps) {
   return (
-    <AccountIcon {...props}>
-      <path d="M4.5 12a7.5 7.5 0 1 1 2.2 5.3" />
-      <path
-        className="profile-account-icon-accent"
-        d="M6.8 15.5 4.5 17.8 7 19.4"
-      />
-    </AccountIcon>
+    <RotateCcw
+      size={size}
+      aria-hidden="true"
+      {...props}
+    />
   );
 }
 
