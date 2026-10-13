@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 325,
+  "expected_migration_version": 326,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2321,7 +2321,9 @@
       "updated_at",
       "composer_consent_at",
       "composer_consent_version",
-      "composer_consent_digest"
+      "composer_consent_digest",
+      "resolution_lease_until",
+      "resolution_attempts"
     ],
     "pkm_blobs": [
       "user_id",

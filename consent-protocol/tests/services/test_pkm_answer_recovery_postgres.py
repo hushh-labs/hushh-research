@@ -642,9 +642,9 @@ async def test_answer_center_role_status_isolation_and_single_row_per_request(an
     service, request, _ = await _approved(answer_engine)
     center = PkmAnswerCenterContributor(requests=service)
     expected = {
-        "pending_resolution": ("outgoing_requests", "outgoing_requests"),
+        "pending_resolution": ("incoming_requests", "outgoing_requests"),
         "awaiting_owner": ("incoming_requests", "outgoing_requests"),
-        "approved": ("outgoing_requests", "incoming_requests"),
+        "approved": ("incoming_requests", "incoming_requests"),
         "answering": ("incoming_requests", "outgoing_requests"),
         "answered": ("history", "history"),
         "declined": ("history", "history"),
@@ -686,6 +686,7 @@ async def test_answer_center_role_status_isolation_and_single_row_per_request(an
                 "amount_cents",
                 "proposed_scope_count",
                 "answer_staged",
+                "preparation_overdue",
                 "answer_has_content",
             }
             # The Feed names the price and the question before the tap, so it
@@ -808,3 +809,54 @@ async def test_old_test_timeout_still_files_refund_after_live_switch(answer_engi
     assert (await worker.run_timeouts())["refunds_filed"] == 1
     assert (await worker.run_refunds())["succeeded"] == 1
     assert api.Refund.create.call_args.kwargs["api_key"].startswith("sk_test_")
+
+
+async def test_staging_publishes_payable_price_without_order_and_updates_feed(answer_engine):
+    from hushh_mcp.services.pkm_answer_center_contributor import PkmAnswerCenterContributor
+
+    service, request, _ = await _approved(answer_engine)
+    center = PkmAnswerCenterContributor(requests=service)
+    before = (await center.collect(REQUESTER))["incoming_requests"][0]["metadata"]
+    assert before["amount_cents"] == 1000
+    assert before["answer_staged"] is False
+    with answer_engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE pkm_answer_requests SET approved_at=now()-interval '3 minutes' WHERE request_id=:r"
+            ),
+            {"r": request},
+        )
+        connection.execute(
+            text("UPDATE feed_events SET read_at=now() WHERE source_row_id=:r"),
+            {"r": f"answer_request:{request}"},
+        )
+    pending = await PkmAnswerPaymentService(_db(answer_engine)).get_payment(
+        requester_user_id=REQUESTER, request_id=request
+    )
+    assert pending["preparationStatus"] == "retry_required"
+    await _deliver_composed(
+        service, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
+    )
+    after = (await center.collect(REQUESTER))["incoming_requests"][0]["metadata"]
+    assert after["answer_staged"] is True
+    assert after["amount_cents"] == 1000
+    with answer_engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM pkm_answer_payment_orders WHERE request_id=:r"),
+                {"r": request},
+            ).scalar_one()
+            == 0
+        )
+        feed = (
+            connection.execute(
+                text(
+                    "SELECT metadata, read_at FROM feed_events WHERE event_type='answer_request_payment_ready' AND source_row_id=:r"
+                ),
+                {"r": f"answer_request:{request}"},
+            )
+            .mappings()
+            .one()
+        )
+        assert feed["metadata"]["status"] == "staged"
+        assert feed["read_at"] is None

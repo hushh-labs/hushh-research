@@ -12,6 +12,7 @@
  * the whole gate, matching the existing request lanes.
  */
 
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useEffect, useState, type RefObject } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +57,13 @@ export function RequestScopeButton({
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [takingLonger, setTakingLonger] = useState(false);
+  useEffect(() => {
+    setTakingLonger(false);
+    if (!busy) return;
+    const timer = window.setTimeout(() => setTakingLonger(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
   // Every active connection can open this, exactly like Request files. A
@@ -135,6 +143,7 @@ export function RequestScopeButton({
           question,
         },
       );
+      if (user?.uid) CacheSyncService.onConsentMutated(user.uid);
       setCreated(requestId);
       reset();
     } catch (cause) {
@@ -284,7 +293,7 @@ export function RequestScopeButton({
                   size="prominent"
                   disabled={!canRequest || !valid || busy}
                 >
-                  {busy ? "Sending…" : "Send request"}
+                  {busy ? takingLonger ? "Still sending—please wait…" : "Sending…" : "Send request"}
                 </Button>
               }
               secondary={

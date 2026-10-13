@@ -102,7 +102,13 @@ export async function persistMemoryScopeSlices(params: MemoryProjectionSession &
     if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
     await params.beforeEffect();
   };
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(params.slices)));
+  // Build time is diagnostic, not a source revision. Identical refreshes
+  // share a receipt even when their browser clocks differ.
+  const content = (slice: unknown) => {
+    const { builtAt: _builtAt, ...facts } = record(slice);
+    return JSON.stringify(facts);
+  };
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(params.slices.map(content))));
   const signature = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
   const result = await PkmWriteCoordinator.saveMergedDomain({
     userId: params.userId, domain: "one_living_sources", vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
@@ -115,8 +121,9 @@ export async function persistMemoryScopeSlices(params: MemoryProjectionSession &
       const privateData = record(current._private);
       const projection = record(privateData.memory_document);
       const slices = { ...record(projection.scopeSlices) };
+      const unchanged = params.slices.every(slice => content(slices[slice.scope]) === content(slice));
       for (const slice of params.slices) slices[slice.scope] = slice;
-      return { domainData: { ...current, _private: { ...privateData, memory_document: {
+      return { unchanged, domainData: { ...current, _private: { ...privateData, memory_document: {
         ...projection, schemaVersion: "source_linked_memory.v1", name: "memory.md", scopeSlices: slices,
       } } }, summary: { source_projection_complete: true } };
     },

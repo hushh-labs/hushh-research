@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -120,7 +121,25 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                         "label": label,
                     }
                 )
-        return safe
+        # Keep canonical identity facts visible even for large finance catalogs.
+        canonical = {
+            f"attr.identity.identity_profile.{path}": label
+            for path, label in (
+                ("full_name", "Name (current saved legal name or canonical account name)"),
+                (
+                    "declared_age",
+                    "Age (current age in years derived from validated date of birth; never date of birth)",
+                ),
+                ("sex", "Sex (explicitly saved only)"),
+                ("profile_photo_url", "Profile photo (authorised canonical photo)"),
+            )
+        }
+        return [
+            {**entry, "label": canonical.get(entry["scope"], entry.get("label", ""))}
+            for entry in sorted(
+                safe, key=lambda entry: (entry["scope"] not in canonical, entry["scope"])
+            )
+        ]
 
     # ------------------------------------------------------------------ gate
 
@@ -168,13 +187,16 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         `feed_events.metadata` is server-readable and this lane's content is
         not.
         """
+        started = time.monotonic()
         connection.execute(
             text(
                 """INSERT INTO feed_events
                    (user_id, source_domain, event_type, metadata, source_row_id)
                    VALUES (:user, 'consent', :event, CAST(:meta AS JSONB), :row)
                    ON CONFLICT (user_id, source_domain, event_type, source_row_id)
-                   WHERE source_row_id IS NOT NULL DO NOTHING"""
+                   WHERE source_row_id IS NOT NULL DO UPDATE
+                   SET metadata=EXCLUDED.metadata, created_at=clock_timestamp(), read_at=NULL
+                   WHERE feed_events.metadata IS DISTINCT FROM EXCLUDED.metadata"""
             ),
             {
                 "user": user_id,
@@ -188,6 +210,12 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 ),
                 "row": f"answer_request:{request_id}",
             },
+        )
+
+        logger.info(
+            "answer.lifecycle request=%s stage=feed_publish duration_ms=%.2f",
+            request_id,
+            (time.monotonic() - started) * 1000,
         )
 
     # --------------------------------------------------------------- create
@@ -211,8 +239,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         if period_start and period_end and period_start > period_end:
             raise AnswerRequestError("invalid_period")
 
-        # Catalog failure must leave no hidden request that a retry duplicates.
-        catalog = await self._catalog(requester_user_id, owner_user_id)
+        started = time.monotonic()
 
         def insert(connection):
             self._require_active_connection(connection, owner_user_id, requester_user_id)
@@ -241,13 +268,88 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 user_id=owner_user_id,
                 event_type="answer_request_received",
                 request_id=request_id,
-                status="awaiting_owner",
+                status="pending_resolution",
             )
             return request_id
 
         request_id = await self._transaction(insert)
-        await self.resolve_scopes(request_id=request_id, catalog=catalog)
+        logger.info(
+            "answer.lifecycle request=%s stage=request_create duration_ms=%.2f",
+            request_id,
+            (time.monotonic() - started) * 1000,
+        )
         return {"requestId": request_id}
+
+    async def resolve_pending(self, *, request_id: str | None = None, max_jobs: int = 1) -> None:
+        """Claim durable pending rows. Fast wakeups and the existing drain share leases."""
+
+        def claim(connection):
+            connection.execute(
+                text("""UPDATE pkm_answer_requests
+                SET status='awaiting_owner', resolution_mode='skipped',
+                    resolution_skipped_reason='resolver_failed', resolution_lease_until=NULL,
+                    updated_at=clock_timestamp()
+                WHERE status='pending_resolution' AND resolution_attempts>=3
+                  AND resolution_lease_until<clock_timestamp()""")
+            )
+            return [
+                str(row[0])
+                for row in connection.execute(
+                    text("""
+                UPDATE pkm_answer_requests SET resolution_lease_until=clock_timestamp()+interval '45 seconds',
+                    resolution_attempts=resolution_attempts+1
+                WHERE request_id IN (SELECT request_id FROM pkm_answer_requests
+                    WHERE status='pending_resolution' AND expires_at>clock_timestamp()
+                    AND (:request IS NULL OR request_id=CAST(:request AS uuid))
+                    AND (resolution_lease_until IS NULL OR resolution_lease_until<clock_timestamp())
+                    ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT :limit)
+                RETURNING request_id"""),
+                    {"request": request_id, "limit": max_jobs},
+                )
+            ]
+
+        for identifier in await self._transaction(claim):
+            try:
+                async with asyncio.timeout(30):
+                    await self.resolve_scopes(request_id=identifier)
+            except Exception:
+                # Bounded failure remains visible and explicitly retryable. A
+                # killed process is recovered by the next drain after its lease.
+                await self._transaction(
+                    lambda connection, identifier=identifier: connection.execute(
+                        text("""
+                    UPDATE pkm_answer_requests SET status='awaiting_owner', resolution_mode='skipped',
+                      resolution_skipped_reason='resolver_failed', resolution_lease_until=NULL,
+                      updated_at=clock_timestamp() WHERE request_id=:request AND status='pending_resolution'
+                """),
+                        {"request": identifier},
+                    )
+                )
+                logger.warning("answer.scope_resolution.failed request=%s", identifier)
+
+    async def retry_resolution(self, *, request_id: str, owner_user_id: str) -> None:
+        def retry(connection):
+            row = self._row(
+                connection,
+                """SELECT * FROM pkm_answer_requests
+                WHERE request_id=:request AND owner_user_id=:owner FOR UPDATE""",
+                {"request": request_id, "owner": owner_user_id},
+            )
+            if row is None or row["status"] != "awaiting_owner" or row["amount_cents"] is not None:
+                raise AnswerRequestError("request_not_resolvable")
+            self._require_active_connection(connection, owner_user_id, row["requester_user_id"])
+            connection.execute(
+                text("""UPDATE pkm_answer_requests SET status='pending_resolution',
+                resolution_mode=NULL, resolution_skipped_reason=NULL, resolution_lease_until=NULL, resolution_attempts=0,
+                updated_at=clock_timestamp() WHERE request_id=:request"""),
+                {"request": request_id},
+            )
+            connection.execute(
+                text("DELETE FROM pkm_answer_request_scopes WHERE request_id=:request"),
+                {"request": request_id},
+            )
+
+        await self._transaction(retry)
 
     # -------------------------------------------------------------- resolve
 
@@ -257,7 +359,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         """Run the semantic resolver, then narrow its proposal deterministically.
 
         A missing or failing resolver is recorded, not worked around. The owner
-        still sees the question and can approve scopes by hand; what must never
+        can retry or decline but cannot price unresolved scopes; what must never
         happen is a keyword guess presented as if the agent had judged it.
         """
 
@@ -272,6 +374,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 raise AnswerRequestError("request_unavailable")
             return request
 
+        started = time.monotonic()
         request = await self._transaction(read)
         if request["status"] != "pending_resolution":
             raise AnswerRequestError("request_not_resolvable")
@@ -307,14 +410,11 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                     type(error).__name__,
                 )
 
-        # An explicit failed/skipped stage offers the safe catalog for manual
-        # selection, initially unchecked in the review card. A successful empty
-        # model proposal stays empty: never substitute for semantic success.
+        # Failure never widens consent: no scopes means retry or decline only.
         resolution = validate_resolved_scopes(
-            handles if mode == "skipped" else proposed,
+            proposed,
             owner_catalog=handles,
             catalog_labels=labels,
-            **({"max_scopes": len(handles)} if mode == "skipped" else {}),
         )
         if resolution.dropped:
             logger.info(
@@ -356,13 +456,19 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 text(
                     """UPDATE pkm_answer_requests
                        SET status = 'awaiting_owner', resolution_mode = :mode,
-                           resolution_skipped_reason = :reason, updated_at = clock_timestamp()
+                           resolution_skipped_reason = :reason, resolution_lease_until = NULL, updated_at = clock_timestamp()
                        WHERE request_id = :request"""
                 ),
                 {"request": request_id, "mode": mode, "reason": skipped_reason},
             )
 
         await self._transaction(persist)
+        logger.info(
+            "answer.lifecycle request=%s stage=scope_resolve duration_ms=%.2f outcome=%s",
+            request_id,
+            (time.monotonic() - started) * 1000,
+            mode,
+        )
         return {
             "resolutionMode": mode,
             "skippedReason": skipped_reason,
@@ -373,9 +479,8 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
     async def pending_for_owner(self, *, owner_user_id: str) -> list[dict[str, Any]]:
         """Questions awaiting this owner's review, with the resolved scopes.
 
-        Carries `resolutionMode` so the reviewer can see when the semantic
-        stage did not run: an owner approving a hand-picked set after a skip is
-        a different act from approving what the resolver judged.
+        Carries `resolutionMode` so unresolved questions offer retry or decline.
+        Pricing requires the exact scopes accepted from the semantic resolver.
         """
 
         def read(connection):
@@ -386,7 +491,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                               period_end, resolution_mode, resolution_skipped_reason,
                               created_at
                        FROM pkm_answer_requests
-                       WHERE owner_user_id = :owner AND status = 'awaiting_owner'
+                       WHERE owner_user_id = :owner AND status IN ('awaiting_owner', 'pending_resolution')
                        ORDER BY created_at"""
                     ),
                     {"owner": owner_user_id},
@@ -474,7 +579,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             )
             if request is None or request["owner_user_id"] != owner_user_id:
                 raise AnswerRequestError("request_unavailable")
-            if request["status"] != "awaiting_owner":
+            if request["status"] != "awaiting_owner" or request["resolution_mode"] != "agent":
                 raise AnswerRequestError("request_not_approvable")
             self._require_active_connection(connection, owner_user_id, request["requester_user_id"])
 
@@ -916,7 +1021,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                         else "answer_request_declined"
                     ),
                     request_id=request_id,
-                    status="approved" if stored_has_content else "empty",
+                    status="staged" if stored_has_content else "empty",
                 )
                 return stored_has_content
             connection.execute(
