@@ -23,6 +23,14 @@ const receipt = (id: number, extra: Partial<ReceiptListItem> = {}): ReceiptListI
 beforeEach(() => { vi.restoreAllMocks(); publishValidatedAuthSessionOwner("owner"); Object.defineProperty(window, "indexedDB", { value: new IDBFactory(), configurable: true }); Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true }); });
 
 describe("canonical receipt storage boundary", () => {
+  it("retains the shortest sealed locator and rejects truncated locator payloads", async () => {
+    const locator = "grs1_" + "a".repeat(39);
+    const snapshot = await captureReceiptSnapshot([receipt(1, { durable_source_ref: locator })], "account", coverage);
+    expect(validateReceiptSnapshot(snapshot).rows[0].events[0].locator).toBe(locator);
+    const truncated = structuredClone(snapshot);
+    truncated.rows[0].events[0].locator = locator.slice(0, -1);
+    expect(() => validateReceiptSnapshot(truncated)).toThrow("Invalid receipt event.");
+  });
   it("roundtrips every reviewed merchant using only stable brand keys without URLs", async () => {
     const brands = [
       ["Myntra", "myntra.com", "myntra"], ["Amazon", "amazon.in", "amazon"],

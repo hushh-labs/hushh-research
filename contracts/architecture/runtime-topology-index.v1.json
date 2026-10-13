@@ -6295,7 +6295,7 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
-    "action_gateway": "b2f2b1bab0193cc53c5955b2e705b8f4e03f30eb2467c774bf4705525bcb01ae",
+    "action_gateway": "1e41b85c4e6e1b002ee118f27bd9481f329d9f6a65c04a0f5bf382403cb26419",
     "agent_registry": "a2b445f705c315479d1a066954c09bfbcd4e1fac59f756f7c6c34e3b1bf7cd96",
     "cache_manifest": "7d51e72dedd470a6129e4d61e606803bbfd4c320989c64db46614c1928f7a400",
     "data_plane": "51516c4df95e042fbc9ad11304721414a89a75d55a482756e1d5fd2ad414ee6a",
