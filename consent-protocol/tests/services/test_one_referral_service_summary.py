@@ -50,7 +50,12 @@ def _policy_row():
 
 
 def _code_row():
-    return SimpleNamespace(id="11111111-1111-4111-8111-111111111111", slug="ada-1234", normalized_slug="ada-1234", created_at=NOW)
+    return SimpleNamespace(
+        id="11111111-1111-4111-8111-111111111111",
+        slug="ada-1234",
+        normalized_slug="ada-1234",
+        created_at=NOW,
+    )
 
 
 def _relationship_row(status: str):

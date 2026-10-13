@@ -58,6 +58,27 @@ def _selection_ready(row, checkpoint):
     )
 
 
+def validate_reusable_packet(manifest, binding, user_id, *, approved_terms=False):
+    if (
+        not isinstance(binding, dict)
+        or binding.get("ownerUserId") != user_id
+        or manifest.get("owner_user_id") != user_id
+        or manifest.get("state") != "ready"
+        or binding.get("packetId") != manifest.get("packet_id")
+        or type(binding.get("version")) is not int
+        or binding["version"] != manifest.get("version")
+        or binding.get("manifestDigest") != manifest.get("digest")
+        or not approved_terms
+        and (
+            binding.get("listingRevision") != manifest.get("listing_revision")
+            or binding.get("priceCents") != manifest.get("price_cents")
+        )
+        or not 0 < len(manifest.get("sources", [])) <= 120
+    ):
+        raise DriveReadError("packet_unavailable")
+    return manifest
+
+
 def view(row: dict) -> dict:
     return {
         "jobId": str(row["job_id"]),
@@ -124,6 +145,10 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "ownerReviewRequired",
                         "contentPeriodVerified",
                         "folderDiscovery",
+                        "retrievalSource",
+                        "retrievalCompleteness",
+                        "fallbackReason",
+                        "lastIndexedAt",
                     )
                     if key in manifest
                 },
@@ -132,6 +157,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     for key in (
                         "providerRowsScanned",
                         "providerFilePages",
+                        "indexedDocumentsReused",
                         "excludedByDateCount",
                         "excludedByKindCount",
                         "excludedByFilenameCount",
@@ -152,7 +178,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 ),
                 "providerPagesExhausted": row["status"] == "completed"
                 and not row["incomplete_search"]
-                and not checkpoint.get("request_rank_pruned", False),
+                and not checkpoint.get("request_rank_pruned", False)
+                and checkpoint.get("evidence_route") not in {"index", "packet"},
             }
         if checkpoint.get("request_origin_id"):
             # This owner-only bit lets an old completed request search be
@@ -755,8 +782,55 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
+    def _evidence_current(self, connection, checkpoint, user_id, *, approved_terms=False):
+        route = checkpoint.get("evidence_route")
+        if route == "packet":
+            if checkpoint.get("matched_packet"):
+                from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
+                from hushh_mcp.services.drive_packet_contract import PacketVerification
+
+                checked = PacketVerification.model_validate(
+                    checkpoint.get("request_packet_verification")
+                )
+                if checked.state != "ready":
+                    raise DriveReadError("packet_unavailable")
+
+                current = DriveDocumentFactsStore(db=self.db)._current_index_status(
+                    connection, owner_user_id=user_id
+                )
+                if not current["complete"] or current["signature"] != checkpoint.get(
+                    "index_snapshot", {}
+                ).get("signature"):
+                    raise DriveReadError("source_changed")
+            from hushh_mcp.services.drive_packet_store import DrivePacketStore
+
+            binding = checkpoint.get("reusable_packet") or checkpoint["matched_packet"]
+            manifest = DrivePacketStore(db=self.db)._current_packet_manifest(
+                connection,
+                owner_user_id=user_id,
+                packet_id=binding["packetId"],
+                version=binding["version"],
+            )
+            return validate_reusable_packet(
+                manifest, binding, user_id, approved_terms=approved_terms
+            )
+        if route in {"index", "hybrid"}:
+            from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
+
+            current = DriveDocumentFactsStore(db=self.db)._current_index_status(
+                connection, owner_user_id=user_id
+            )
+            if (
+                route == "index"
+                and not current["complete"]
+                or current["signature"] != checkpoint.get("index_snapshot", {}).get("signature")
+            ):
+                raise DriveReadError("source_changed")
+        return None
+
     def _current(self, connection, job):
         self._access(connection, job["user_id"], job["generation"])
+        self._evidence_current(connection, job["checkpoint"], job["user_id"])
         row = self._owned(connection, job["user_id"], job["job_id"], locked=True)
         current_mode = self._checkpoint(row).get("authority_mode", "owner")
         claimed_mode = job["checkpoint"].get("authority_mode", "owner")

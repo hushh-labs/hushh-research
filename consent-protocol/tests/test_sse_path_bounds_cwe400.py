@@ -64,7 +64,9 @@ def test_consent_events_web_fallback_flag_can_disable_uat(monkeypatch):
 
 
 @pytest.mark.parametrize("enabled", [True, False])
-def test_consent_delivery_discovery_returns_runtime_flag_without_opening_stream(monkeypatch, enabled):
+def test_consent_delivery_discovery_returns_runtime_flag_without_opening_stream(
+    monkeypatch, enabled
+):
     monkeypatch.setenv("CONSENT_WEB_FALLBACK_ENABLED", str(enabled).lower())
     monkeypatch.setattr(sse, "verify_firebase_bearer", lambda _authorization: "user-1")
     generator = MagicMock()

@@ -477,3 +477,69 @@ async def test_live_metadata_accepts_sheets_without_selected_parser_limit(adapte
         require_genai_eligibility=False,
     )
     assert result.mime_type == "application/vnd.google-apps.spreadsheet"
+
+
+async def test_collection_change_transport_is_fixed_bounded_and_redacted(
+    adapter, monkeypatch, caplog
+):
+    original = httpx.AsyncClient
+    calls = []
+    caplog.set_level("INFO", logger=drive.__name__)
+
+    def response(request):
+        calls.append(request)
+        data = (
+            {"startPageToken": "private-cursor"}
+            if request.url.path.endswith("startPageToken")
+            else {"changes": [], "newStartPageToken": "private-next"}
+        )
+        return httpx.Response(200, stream=httpx.ByteStream(json.dumps(data).encode()))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(response))
+    )
+    assert await adapter.collection_start_token(access_token="synthetic") == "private-cursor"
+    await adapter.collection_changes(access_token="synthetic", page_token="private-cursor")
+    assert calls[1].url.params["includeRemoved"] == "true"
+    assert calls[1].url.params["includeItemsFromAllDrives"] == "true"
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter._get(
+            "/changes",
+            access_token="synthetic",
+            params={"pageToken": "private-cursor", "fields": "*"},
+            limit=drive.METADATA_LIMIT,
+        )
+    assert len(calls) == 2
+    assert all("private-" not in r.getMessage() for r in caplog.records if r.name == drive.__name__)
+
+
+async def test_collection_download_admits_32mb_without_expanding_preview(adapter, monkeypatch):
+    original = httpx.AsyncClient
+    body = b"x" * (drive.CONTENT_LIMIT + 1)
+
+    def response(request):
+        return httpx.Response(
+            200, headers={"Content-Length": str(len(body))}, stream=httpx.ByteStream(body)
+        )
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(response))
+    )
+    with pytest.raises(drive.DriveReadError, match="file_too_large"):
+        await adapter.read_live_bytes(
+            file_id="synthetic", mime_type="application/pdf", access_token="synthetic"
+        )
+    mime, result = await adapter.read_live_bytes(
+        file_id="synthetic",
+        mime_type="application/pdf",
+        access_token="synthetic",
+        max_bytes=drive.LIVE_COLLECTION_CONTENT_LIMIT,
+    )
+    assert mime == "application/pdf" and result == body
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.read_live_bytes(
+            file_id="synthetic",
+            mime_type="application/pdf",
+            access_token="synthetic",
+            max_bytes=drive.LIVE_COLLECTION_CONTENT_LIMIT + 1,
+        )

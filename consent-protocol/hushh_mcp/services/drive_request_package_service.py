@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from hushh_mcp.services.drive_live_reader import UNREADABLE, DriveLiveReader
 from hushh_mcp.services.drive_request_package_assessment import (
     MAX_PACKAGE_DOCUMENTS,
     BoundDocumentAssessment,
+    PackageAssessment,
     assess_document_batch,
     assess_package,
 )
@@ -41,6 +43,48 @@ def _excerpt(text):
     return raw[:MAX_DOCUMENT_BYTES].decode("utf-8", errors="ignore"), len(raw) > MAX_DOCUMENT_BYTES
 
 
+def indexed_evidence_source(*, document_ref, document):
+    """Adapt complete, request-independent cited facts without cutting content.
+
+    This pure boundary is shared with original-byte evaluation. Facts remain
+    untrusted observations; the existing semantic assessor decides relevance.
+    The caller must validate current source/permission versions before use.
+    """
+    from hushh_mcp.services.drive_packet_contract import DocumentFacts
+
+    facts = DocumentFacts.model_validate(document["facts"])
+    records = [
+        facts.document_type,
+        facts.issuer,
+        facts.subject,
+        facts.account,
+        *facts.periods,
+        *facts.topics,
+        *facts.facts,
+    ]
+    quotations = [
+        f"{citation.unit_kind} {citation.page}:\n{citation.quote}"
+        for record in records
+        if record is not None
+        for citation in record.citations
+    ]
+    body = json.dumps(facts.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
+    body += "\nExact document quotations:\n" + "\n".join(dict.fromkeys(quotations))
+    if len(body.encode()) > 128 * 1024:
+        raise DriveReadError("evidence_budget_exceeded")
+    metadata = document["metadata"]
+    return {
+        "document_ref": document_ref,
+        "source_ref": document_ref + ":facts",
+        "source_version": document["source_version"],
+        "text": body,
+        "name": metadata["name"],
+        "truncated": document.get("complete") is not True,
+        "evidence_kind": "versioned_document_facts",
+        "facts_version": document["facts_version"],
+    }
+
+
 class DriveRequestPackageService:
     def __init__(
         self,
@@ -50,12 +94,40 @@ class DriveRequestPackageService:
         document_assessor=assess_document_batch,
         package_assessor=assess_package,
         wake=None,
+        facts=None,
+        packets=None,
     ):
         self.store = store or DriveRequestPackageStore()
         self.reader_factory = reader_factory or DriveLiveReader
         self.document_assessor = document_assessor
         self.package_assessor = package_assessor
         self.wake = wake or wake_drive_work
+        self.facts = facts
+        self.packets = packets
+
+    def _facts_store(self):
+        if self.facts is None:
+            from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
+
+            self.facts = DriveDocumentFactsStore(db=self.store.db)
+        return self.facts
+
+    async def _reusable_manifest(self, job):
+        binding = job.get("checkpoint", {}).get("reusable_packet") or job.get("checkpoint", {}).get(
+            "matched_packet"
+        )
+        if binding is None:
+            return None
+        if self.packets is None:
+            from hushh_mcp.services.drive_packet_store import DrivePacketStore
+
+            self.packets = DrivePacketStore(db=self.store.db)
+        from hushh_mcp.services.drive_owner_search_store import validate_reusable_packet
+
+        manifest = await self.packets.current_packet_manifest(
+            owner_user_id=job["user_id"], packet_id=binding["packetId"], version=binding["version"]
+        )
+        return validate_reusable_packet(manifest, binding, job["user_id"])
 
     async def _read_batch(self, job):
         async def current():
@@ -63,6 +135,7 @@ class DriveRequestPackageService:
 
         semaphore = asyncio.Semaphore(3)
         policy_version = assessment_policy_version()
+        reusable = await self._reusable_manifest(job)
 
         async def read(candidate):
             async with semaphore:
@@ -79,6 +152,57 @@ class DriveRequestPackageService:
                 metadata = candidate["metadata"]
                 if metadata.get("shareable") is not True:
                     return result | {"unreadable_reason": "source_unavailable"}, None
+                indexed = metadata.get("indexedEvidence")
+                if indexed is not None:
+                    document = await self._facts_store().current_document(
+                        owner_user_id=job["user_id"], **indexed
+                    )
+                    source = indexed_evidence_source(
+                        document_ref=candidate["document_ref"], document=document
+                    )
+                    await current()
+                    result.update(
+                        source_version=source["source_version"],
+                        content_fingerprint=hashlib.sha256(source["text"].encode()).hexdigest(),
+                        truncated=source["truncated"],
+                        indexed_evidence=indexed,
+                    )
+                    if reusable is not None:
+                        if not document["complete"] or indexed["document_id"] not in {
+                            item["document_id"] for item in reusable["sources"]
+                        }:
+                            raise DriveReadError("source_changed")
+                        facts = document["facts"]
+                        records = [
+                            facts.get("document_type"),
+                            facts.get("issuer"),
+                            facts.get("subject"),
+                            facts.get("account"),
+                            *facts.get("periods", []),
+                            *facts.get("topics", []),
+                            *facts.get("facts", []),
+                        ]
+                        quotes = [
+                            citation["quote"]
+                            for record in records
+                            if record
+                            for citation in record.get("citations", [])
+                        ]
+                        if not quotes:
+                            raise DriveReadError("package_incomplete")
+                        result["assessment"] = BoundDocumentAssessment(
+                            document_ref=candidate["document_ref"],
+                            source_version=source["source_version"],
+                            decision="include",
+                            confidence=reusable["assessment"]["assessment_score"],
+                            reason="Included in the exact verified packet matched to this request.",
+                            citations=[
+                                {"source_ref": source["source_ref"], "quote": quotes[0][:500]}
+                            ],
+                            covered_periods=[],
+                        ).model_dump(mode="json")
+                        return result, None
+                    return result, source
                 reader = self.reader_factory(user_id=job["user_id"], require_access=current)
                 try:
                     async with asyncio.timeout(READ_SECONDS):
@@ -146,7 +270,7 @@ class DriveRequestPackageService:
                 item.document_ref: item.model_dump(mode="json") for item in assessed.documents
             }
             for item in observations:
-                if item["unreadable_reason"] is None:
+                if item["unreadable_reason"] is None and item["assessment"] is None:
                     item["assessment"] = by_ref[f"p{item['position']}"]
         await current()
         await self.store.commit_evaluations(job, observations=observations)
@@ -179,16 +303,66 @@ class DriveRequestPackageService:
         if counts.get("candidates") != counts.get("evaluated"):
             raise DriveReadError("package_incomplete")
         await self.store.require_evaluation_current(job)
-        answer = await self.package_assessor(
-            request=job["purpose"],
-            user_id=job["user_id"],
-            assessments=assessments,
-            truncated=truncated,
-            unreadable=[
-                {"reason": reason, "count": count} for reason, count in Counter(unreadable).items()
-            ],
-            retrieval_counts={**counts, "excluded": excluded, "unreadable": len(unreadable)},
-        )
+        reusable = await self._reusable_manifest(job)
+        if reusable is not None:
+            if (
+                unreadable
+                or truncated
+                or len(assessments) != len(reusable["sources"])
+                or any(item.decision != "include" for item in assessments)
+            ):
+                raise DriveReadError("package_incomplete")
+            canonical = reusable["assessment"]
+            answer = PackageAssessment(
+                decision="ready",
+                coverage_status="complete",
+                selected_document_refs=[item.document_ref for item in assessments],
+                confidence=canonical["assessment_score"],
+                importance=canonical["importance"],
+                suggested_price_cents=reusable["price_cents"],
+                rationale=canonical["pricing"]["rationale"],
+                coverage_summary=canonical["coverage_summary"],
+                gaps=[],
+            )
+        else:
+            answer = await self.package_assessor(
+                request=job["purpose"],
+                user_id=job["user_id"],
+                assessments=assessments,
+                truncated=truncated,
+                unreadable=[
+                    {"reason": reason, "count": count}
+                    for reason, count in Counter(unreadable).items()
+                ],
+                retrieval_counts={
+                    **counts,
+                    "excluded": excluded,
+                    "unreadable": len(unreadable),
+                    **(
+                        {
+                            "retrieval_source": job["checkpoint"]["evidence_route"],
+                            "retrieval_complete": job["checkpoint"]["evidence_route"] == "index",
+                        }
+                        if job.get("checkpoint", {}).get("evidence_route")
+                        else {}
+                    ),
+                },
+            )
+            # A provider fallback cannot prove complete collection recall. Keep
+            # useful partial selections visible, but never label them ready.
+            if (
+                job.get("checkpoint", {}).get("coverage_manifest", {}).get("fallbackReason")
+                and answer.decision == "ready"
+            ):
+                answer = answer.model_copy(
+                    update={
+                        "decision": "partial",
+                        "coverage_status": "partial",
+                        "gaps": [
+                            "The collection index is incomplete; additional relevant documents may exist."
+                        ],
+                    }
+                )
         await self.store.require_evaluation_current(job)
         return await self.store.finalize_package(
             job, assessment=answer.model_dump(mode="json"), policy_version=policy_version

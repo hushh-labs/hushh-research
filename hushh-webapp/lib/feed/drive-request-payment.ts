@@ -22,6 +22,7 @@ export type FeedDrivePaymentStatus = "ready" | "waiting_owner_setup" | "link_exp
 
 export interface FeedDrivePayment {
   requestId: string;
+  packageDisclosureRequired?: boolean;
   status: FeedDrivePaymentStatus;
   title: string;
   description: string;
@@ -332,6 +333,10 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
     // A current server also projects the shared payment view: the same state
     // and deadline the request details show. Older servers keep the legacy read.
     const view = parseRequesterPaymentView(metadata.paymentView);
+    const rawPayment = metadata.paymentView && typeof metadata.paymentView === "object"
+      ? metadata.paymentView as Record<string, unknown> : null;
+    const packageDisclosureRequired = rawPayment?.packageDisclosureRequired === true ||
+      metadata.packageDisclosureRequired === true || metadata.agentPackageRequired === true;
     let status: FeedDrivePaymentStatus | null;
     if (view) {
       const fromView = viewPaymentState(view, now);
@@ -389,6 +394,7 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
     ) continue;
     byRequest.set(requestId, {
       requestId,
+      packageDisclosureRequired,
       status: effectiveStatus,
       ...copy,
       requestedAt,

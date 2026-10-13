@@ -456,7 +456,7 @@ function UnlockedDocumentReview({
   // The requester's terms never change once sent: read them once per sheet. A
   // definitive "none" (older free requests) is remembered too; a transient
   // failure is asked again on the next load.
-  const requesterTerms = useRef<{ value: SharingRequestContext | null } | null>(null);
+  const requesterTerms = useRef<{ revision: number; value: SharingRequestContext | null } | null>(null);
   const serial = useRef(0);
   const alive = useRef(false);
   // A decision is never overlapped; it may supersede a load, a search included.
@@ -511,17 +511,20 @@ function UnlockedDocumentReview({
       };
       // Optional: a request without requester terms (or an older server) still loads.
       const requesterContext = async (): Promise<SharingRequestContext | null> => {
-        if (requesterTerms.current) return requesterTerms.current.value;
+        if (requesterTerms.current?.revision === status.revision &&
+            (!status.payment?.packageDisclosureRequired || (requesterTerms.current.value?.packageDisclosure &&
+              requesterTerms.current.value.requestRevision === status.revision)))
+          return requesterTerms.current.value;
         try {
           const value = await DriveSharingService.requesterContext(token, requestId, guard);
           guard();
-          requesterTerms.current = { value };
+          requesterTerms.current = { revision: status.revision, value };
           return value;
         } catch (cause) {
           guard();
           if (cause instanceof DriveSharingError && cause.code === "session_changed") throw cause;
           if (cause instanceof DriveSharingError && cause.code === "request_unavailable")
-            requesterTerms.current = { value: null };
+            requesterTerms.current = { revision: status.revision, value: null };
           return null;
         }
       };
@@ -1149,7 +1152,8 @@ function UnlockedDocumentReview({
             : agentPackage && review?.preparationError === "background_preparation_required"
               ? "Background Drive access needed"
             : agentPackage && UNDECIDED.has(snapshot.status.status)
-              ? ({ preparing: "Preparing your file package", ready: "Package ready for your decision",
+              ? ({ preparing: "Preparing your file package", ready: agentPackage.coverageStatus === "partial" ? "Incomplete package"
+                  : agentPackage.coverageStatus === "unknown" ? "Unable to verify" : "Package ready for your decision",
                   no_match: "No matching package found", unavailable: "Package preparation unavailable",
                   stale: "Package needs a fresh assessment", allowed: "Package allowed" } as const)[agentPackage.status]
             : setup && !ownerDecision
@@ -1318,20 +1322,28 @@ function UnlockedDocumentReview({
           {review.purpose.periodStart ? <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
           <Fact label="Access" value="Viewer, until removed" />
           <Fact label="Package" value={`${agentPackage.selectedCount.toLocaleString()} ${agentPackage.selectedCount === 1 ? "file" : "files"}`} />
-          <Fact label="Evaluated" value={`${agentPackage.evaluatedCount.toLocaleString()} of ${agentPackage.candidateCount.toLocaleString()} candidates`} />
           <Fact label="Coverage" value={{ complete: "Complete", partial: "Partial", unknown: "Not established" }[agentPackage.coverageStatus]} />
-          {agentPackage.confidenceScore !== null ? <Fact label="Agent assessment" value={`${agentPackage.confidenceScore}/100`} /> : null}
-          {agentPackage.importanceScore !== null ? <Fact label="Importance" value={`${agentPackage.importanceScore}/500`} /> : null}
           {agentPackage.suggestedPriceCents !== null ? <Fact label="Suggested price" value={formatDocumentRequestPrice(agentPackage.suggestedPriceCents)} /> : null}
           {agentPackage.status === "allowed" && review.priceCents != null ? <Fact label="Agreed price" value={formatDocumentRequestPrice(review.priceCents)} /> : null}
         </dl>
-        {agentPackage.summary ? <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">{agentPackage.summary}</BodyText> : null}
+        <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">View details</summary>
+          <dl className={HAIRLINES}>
+          <Fact label="Evaluated" value={`${agentPackage.evaluatedCount.toLocaleString()} of ${agentPackage.candidateCount.toLocaleString()} candidates`} />
+          {agentPackage.confidenceScore !== null ? <Fact label="Agent assessment" value={`${agentPackage.confidenceScore}/100`} /> : null}
+          {agentPackage.importanceScore !== null ? <Fact label="Importance" value={`${agentPackage.importanceScore}/500`} /> : null}
+          </dl>
         {agentPackage.confidenceScore !== null ? <HelperText>The score is your private agent&apos;s assessment, not a measured probability of correctness.</HelperText> : null}
         {agentPackage.priceReason ? <HelperText className="[overflow-wrap:anywhere]">{agentPackage.priceReason}</HelperText> : null}
+        </details>
+        {agentPackage.summary ? <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">{agentPackage.summary}</BodyText> : null}
         {agentPackage.gaps.length ? <ul aria-label="Package coverage gaps" className="divide-y divide-border/60">
           {agentPackage.gaps.map((gap, index) => <li key={index} className="py-2"><HelperText className="[overflow-wrap:anywhere]">{gap}</HelperText></li>)}
         </ul> : null}
-        {review.preparationError === "background_preparation_required" ? <div className="space-y-3">
+        {review.preparationError === "package_existing_access_requires_review" ?
+          <BodyText>The requester already has access to part of this packet. Checkout is paused.</BodyText>
+        : review.preparationError === "payment_not_ready" ?
+          <BodyText>Current access could not be verified. Checkout is paused.</BodyText>
+        : review.preparationError === "background_preparation_required" ? <div className="space-y-3">
           <BodyText>Background Drive access is off. Enable it so your private agent can prepare this package.</BodyText>
           <HelperText>One may read relevant files and send excerpts to Gemini while you&apos;re away. You can turn this off again in Connections. The requester sees an original file only after you allow the package, any required payment completes, and Google Drive confirms access.</HelperText>
           <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
@@ -1347,12 +1359,14 @@ function UnlockedDocumentReview({
             ? "The files or request changed. A fresh assessment is needed before you can allow this package."
             : "Your private agent could not finish evaluating this request. Nothing has been shared."}</HelperText>}
         {snapshot && UNDECIDED.has(snapshot.status.status) && agentPackage.status !== "allowed" ? <FlowActionGroup
-          primary={<Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked || !ownerDecision} onClick={openPriceSheet}>Allow</Button>}
+          primary={<Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked || !ownerDecision} onClick={() => allow(review.paymentRequired ? agentPackage.suggestedPriceCents ?? review.priceCents ?? null : null)}>Allow</Button>}
           secondary={<Button size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
             className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
             disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
             onClick={() => denyConfirm.activate(() => decide("decline"))}>{denyConfirm.label("Deny")}</Button>}
         /> : null}
+        {ownerDecision && review.paymentRequired ? <Button size="standard" variant="none" disabled={locked} onClick={openPriceSheet}>Edit price</Button> : null}
+        {allowError && !priceOpen ? <HelperText role="alert">{allowError}</HelperText> : null}
         <DocumentRequestPriceSheet
           moneyPolicy="drive_cents"
           open={priceOpen && ownerDecision}

@@ -3383,8 +3383,8 @@ async def test_changed_package_source_cannot_create_or_reveal_checkout(monkeypat
     """Provider version drift blocks both first checkout and an old link refresh."""
     from unittest.mock import AsyncMock
 
+    from hushh_mcp.services import drive_package_access_preflight as access_module
     from hushh_mcp.services import drive_request_payment_service as payment_module
-    from hushh_mcp.services import drive_trusted_auto_service as auto_module
 
     monkeypatch.setattr(
         payment_module,
@@ -3393,9 +3393,9 @@ async def test_changed_package_source_cannot_create_or_reveal_checkout(monkeypat
     )
     preflight = AsyncMock(side_effect=DriveSharingError("source_changed"))
     monkeypatch.setattr(
-        auto_module,
-        "DriveTrustedAutoService",
-        lambda **kw: SimpleNamespace(preflight_package=preflight),
+        access_module,
+        "DrivePackageAccessPreflight",
+        lambda **kw: SimpleNamespace(inspect=preflight),
     )
     monkeypatch.setattr(payment_module, "DriveSharingStore", lambda **kw: SimpleNamespace())
     create = Mock()
@@ -3404,11 +3404,14 @@ async def test_changed_package_source_cannot_create_or_reveal_checkout(monkeypat
     service.stripe_api = SimpleNamespace(
         checkout=SimpleNamespace(Session=SimpleNamespace(create=create))
     )
-    service.payment_state = AsyncMock(return_value={"status": "awaiting_payment"})
+    service.payment_state = AsyncMock(
+        return_value={"status": "awaiting_payment", "_package_owner_user_id": "owner"}
+    )
     service._transaction = AsyncMock(
         return_value={"_package_owner_user_id": "owner", "stripe_checkout_url": existing_url}
     )
     with pytest.raises(DriveSharingError, match="payment_not_ready"):
         await service.checkout(requester_user_id="recipient", request_id=str(uuid4()))
     preflight.assert_awaited_once()
+    service._transaction.assert_not_awaited()
     create.assert_not_called()
