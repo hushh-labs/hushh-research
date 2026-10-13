@@ -138,6 +138,12 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:rive\.wasm|(?:working|thinking)\.riv)$/, route =>
+    route.fulfill({
+      contentType: new URL(route.request().url()).pathname.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
   await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
@@ -1399,7 +1405,12 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
 
 async function presencePixels(artwork: Locator) {
   return artwork.evaluate((canvas: HTMLCanvasElement) => {
-    const pixels = canvas.getContext("2d")!.getImageData(0, 0, 128, 128).data;
+    // Sample the whole DPR-sized Rive surface without changing its live buffer.
+    const probe = document.createElement("canvas");
+    probe.width = probe.height = 128;
+    const context = probe.getContext("2d")!;
+    context.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, 128, 128);
+    const pixels = context.getImageData(0, 0, 128, 128).data;
     let hash = 0, opaque = 0;
     for (let i = 0; i < pixels.length; i += 1) {
       hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
@@ -1450,10 +1461,12 @@ test.describe("One profile artwork and mapped work frames", () => {
         await expect.poll(() => profile.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
       } else {
         for (const artwork of [header, profile]) {
-          await expect.poll(async () => (await presencePixels(artwork)).opaque).toBeGreaterThan(0);
-          expect((await presencePixels(artwork)).cornerAlpha).toEqual([0, 0, 0, 0]);
-          const first = (await presencePixels(artwork)).hash;
-          await expect.poll(async () => (await presencePixels(artwork)).hash).not.toBe(first);
+          const canvas = artwork.locator("canvas");
+          await expect(canvas).toBeVisible();
+          await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
+          expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
+          const first = (await presencePixels(canvas)).hash;
+          await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(first);
         }
       }
       await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
@@ -1468,19 +1481,33 @@ test.describe("One profile artwork and mapped work frames", () => {
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
-    const profile = panel.locator("canvas[data-one-presence-state]");
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
+    const artwork = panel.locator("[data-one-presence-state]");
+    const canvas = artwork.locator("canvas");
+    const poster = artwork.locator("img");
+    await expect(canvas).toBeVisible();
+    await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect(profile).toHaveCSS("background-image", /drafting-hd\.png/);
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBe(0);
-    await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
-    await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
-    const paused = (await presencePixels(profile)).hash;
+    await expect(canvas).toBeHidden();
+    await expect(poster).toBeVisible();
+    await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
+    await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
+    const reduced = (await presencePixels(canvas)).hash;
     await page.waitForTimeout(200);
-    expect((await presencePixels(profile)).hash).toBe(paused);
+    expect((await presencePixels(canvas)).hash).toBe(reduced);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect(canvas).toBeVisible();
+    await expect(poster).toBeHidden();
+    await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(reduced);
+    await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
+    await expect(canvas).toBeHidden();
+    await expect(poster).toBeVisible();
+    const paused = (await presencePixels(canvas)).hash;
+    await page.waitForTimeout(200);
+    expect((await presencePixels(canvas)).hash).toBe(paused);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("active"));
-    await expect.poll(async () => (await presencePixels(profile)).hash).not.toBe(paused);
+    await expect(canvas).toBeVisible();
+    await expect(poster).toBeHidden();
+    await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(paused);
     await page.getByRole("button", { name: "Close One profile", exact: true }).click();
     await expect(panel).toBeHidden();
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false }));

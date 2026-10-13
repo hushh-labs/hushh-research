@@ -67,8 +67,32 @@ panel assertions; Feed markup is regenerated from the real component. Main's
 subsequent recipient-view privacy fix is included, with 27 nearest cases passing.
 The affected browser checks pass 34 cases, followed by all six Wallet cases
 against the final named selector. Back remains 450 passing cases; architecture
-reports zero new or worsened findings without baseline changes. Fresh combined
-core, hosted CI, Dev release and financial/OAuth acceptance remain required.
+reports zero new or worsened findings without baseline changes. Candidate
+`7bb280ddcdd2` passes the complete local core bundle in 555 seconds: 19,007
+protocol cases, 1,122 PostgreSQL cases, web-core, MCP and integration. Hosted
+full Vitest shards, protocol, web-core, Android, MCP and integration pass. Both
+failed browser shards expose the same stale sprite-renderer assumptions after main's native Rive
+integration: its test passes a wrapper to canvas APIs and its fixture omits
+the committed RIV/WASM assets. All four affected Chromium/WebKit cases fail
+on the unchanged candidate. The bounded fixture correction serves exact local
+assets and samples the entire DPR-sized canvas without changing its buffer;
+it retains state, geometry, transparency, animation, HD fallback and lifecycle
+pause/resume checks. All four corrected cases pass in 7.6 seconds. Fresh
+exact-candidate core/CI and Dev/financial/OAuth acceptance remain required.
+
+Read-only observations at `2026-10-13T22:37:23.750278+00:00` retain all 59
+private migration receipts and zero baselines. All 56 active private manifest
+entries match their applied hashes; the extra 937–939 rows remain historical
+consumer-MCP receipts. Shared Dev uses release replay, which validates shape
+without writing canonical migration receipts. Monitoring at
+`2026-10-13T22:37:20.971659+00:00` verifies the enabled reconciliation scheduler
+and fresh provider observations, with zero journal imbalance, backing shortfall
+or receipt failures. Primary Azure setup still reports
+`PROVIDER_REGISTRATION_PENDING` with no vault; provider registration now reads
+Registered, but a fresh owner OAuth return remains necessary. The counterpart's
+private Azure runtime is verified at installed source `e04b76c61433`.
+Its authenticated Stripe catalog remains documentation-only and unverified;
+SDK account receipts do not establish One's OAuth or account-tool acceptance.
 
 The preceding continuation integrated main `460a68d4b908` through normal merge
 `49d29b86ac99` on the preserved infrastructure branch. Main migrations 327–331

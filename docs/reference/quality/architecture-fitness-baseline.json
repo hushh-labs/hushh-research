@@ -20174,7 +20174,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1625
+      "value": 1652
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -40701,5 +40701,19 @@
         "source_sha256": "7fb17d630f1fcd346be1e40821e31d3f6ed8ef397b35bd19d1c43972463e2a81"
       }
     ]
+  },
+  "scope_commerce_rive_browser_fixture_20261013": {
+    "source_revision": "7bb280ddcdd295e03554d44302dc71fc92ed4be1",
+    "reason": "Independent review qualifies one existing module-size slot for correcting stale sprite-era browser fixtures to the committed native Rive renderer. Product renderer and assets are unchanged; exact original assertions retain geometry, transparency, actual animation, HD fallback, pause and resume.",
+    "qualified_updates": [
+      {
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1625,
+        "value": 1652,
+        "source_sha256": "b1b31e2a607ef0f6e1930e8adc185642ff443ddfd1b6cae064bef21f88b87015"
+      }
+    ],
+    "verification": "Original four cases fail on the unchanged candidate; corrected Chromium and WebKit cases pass, four total, in 7.6 seconds. Core and hosted layout gates remain required."
   }
 }
