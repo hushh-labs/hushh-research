@@ -19,10 +19,10 @@ export function MagicIntelligenceOffer(props: {
     <Card
       preset="compact"
       data-testid="magic-intelligence-card"
-      className="min-w-0 w-full gap-1 p-3 sm:p-4"
+      className="min-w-0 w-full gap-0.5 p-2.5 sm:p-3"
     >
       <div className="flex items-center justify-between gap-3">
-        <h3 className="ui-text-row-label">Magic Intelligence</h3>
+        <h3 className="text-sm font-semibold text-foreground">Magic Intelligence</h3>
         {props.expanded && (
           <Button variant="none" size="compact" onClick={props.onBack}>
             Back
@@ -49,7 +49,7 @@ export function MagicIntelligenceOffer(props: {
       )}
       <div
         hidden={!props.expanded}
-        className={props.expanded ? "mt-3 space-y-4" : undefined}
+        className={props.expanded ? "mt-2 space-y-3" : undefined}
       >
         {props.children}
       </div>

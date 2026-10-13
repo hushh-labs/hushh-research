@@ -375,7 +375,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
   const renderReviewItem = (item: BusinessReviewItem) => {
     const selectedCount = item.fields.filter(field => review.selected.includes(field.cardId) && review.fields?.[field.cardId]?.includes(field.fieldId)).length;
     const mixed = selectedCount > 0 && selectedCount < item.fields.length;
-    return <label key={item.id} className="flex min-h-11 cursor-pointer items-start gap-3 py-3">
+    return <label key={item.id} className="flex min-h-11 cursor-pointer items-start gap-3 py-2">
       <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-[var(--app-accent)]"
         checked={selectedCount === item.fields.length} aria-checked={mixed ? "mixed" : selectedCount === item.fields.length}
         ref={node => { if (node) node.indeterminate = mixed; }}
@@ -391,7 +391,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
           update({ ...review, fields, selected: review.cards.filter(item => fields[item.card_id]?.length).map(item => item.card_id) });
         }} />
       <span className="min-w-0 flex-1"><span className="block text-xs text-muted-foreground">{item.label}</span>
-        <span className="block whitespace-pre-wrap break-words text-sm leading-6 text-foreground [overflow-wrap:anywhere]">{item.text}</span>
+        <span className="block whitespace-pre-wrap break-words text-[13px] leading-5 text-foreground [overflow-wrap:anywhere]">{item.text}</span>
         {new Set(reviewItems.map(detail => detail.destination)).size > 1 && <span className="block text-xs text-muted-foreground">{item.destination}</span>}
       </span>
     </label>;
@@ -399,7 +399,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
   const card = <section aria-label={props.embedded ? "Business details" : "Is this your business?"}
     className="min-w-0 space-y-[var(--app-form-section-gap)]">
     {!open && <Button variant="muted" size="standard" onClick={() => setOpen(true)}>Review business details</Button>}
-    {open && <div className={props.embedded ? "min-w-0 space-y-3" : "min-w-0 space-y-5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] p-4 sm:p-5"}>
+    {open && <div className={props.embedded ? "min-w-0 space-y-3" : "min-w-0 space-y-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] p-3 sm:p-4"}>
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
           <h3 className="ui-text-row-title break-words text-foreground">{review.name || review.candidate.draft.name}</h3>
