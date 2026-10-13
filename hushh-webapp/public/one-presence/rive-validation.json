@@ -1,0 +1,74 @@
+[
+  {
+    "file": "connected.riv",
+    "artboards": [
+      {
+        "name": "Connected",
+        "fps": 24,
+        "duration_seconds": 3,
+        "loop": true,
+        "frames_rendered": 72,
+        "max_pixel_channel_difference": 0,
+        "nonidentical_frames": 0,
+        "motion_changes": 2,
+        "state_machine_frames_tested": 74,
+        "state_machine_mismatches": 0
+      }
+    ],
+    "runtime": "@rive-app/canvas-advanced 2.44.2"
+  },
+  {
+    "file": "thinking.riv",
+    "artboards": [
+      {
+        "name": "Thinking",
+        "fps": 24,
+        "duration_seconds": 3,
+        "loop": true,
+        "frames_rendered": 72,
+        "max_pixel_channel_difference": 0,
+        "nonidentical_frames": 0,
+        "motion_changes": 66,
+        "state_machine_frames_tested": 74,
+        "state_machine_mismatches": 0
+      }
+    ],
+    "runtime": "@rive-app/canvas-advanced 2.44.2"
+  },
+  {
+    "file": "working.riv",
+    "artboards": [
+      {
+        "name": "Working",
+        "fps": 24,
+        "duration_seconds": 3,
+        "loop": true,
+        "frames_rendered": 72,
+        "max_pixel_channel_difference": 0,
+        "nonidentical_frames": 0,
+        "motion_changes": 69,
+        "state_machine_frames_tested": 74,
+        "state_machine_mismatches": 0
+      }
+    ],
+    "runtime": "@rive-app/canvas-advanced 2.44.2"
+  },
+  {
+    "file": "answering.riv",
+    "artboards": [
+      {
+        "name": "Answering",
+        "fps": 24,
+        "duration_seconds": 3,
+        "loop": true,
+        "frames_rendered": 72,
+        "max_pixel_channel_difference": 0,
+        "nonidentical_frames": 0,
+        "motion_changes": 69,
+        "state_machine_frames_tested": 74,
+        "state_machine_mismatches": 0
+      }
+    ],
+    "runtime": "@rive-app/canvas-advanced 2.44.2"
+  }
+]
