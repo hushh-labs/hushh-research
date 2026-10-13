@@ -1262,6 +1262,56 @@ describe("exact-file document review", () => {
   });
 
   describe("durable request search and bulk sharing", () => {
+    it.each([false, true])("reviews exact content-period candidates before sharing or payment (paid: %s)", async paymentRequired => {
+      let phase: "searching" | "review_ready" | "queued" = "searching";
+      const search = durableSearch({ status: "completed", matched: 46 });
+      search.coverage = { ...search.coverage!, dateBasis: "content_period_unverified",
+        timeIntent: "document_coverage", ownerReviewRequired: true,
+        requestedPeriod: { start: "2026-01-01", end: "2026-06-30", timezone: "Asia/Kolkata" } };
+      const batch = durableBulk({ fileCount: 2, positions: [1, 3],
+        counts: { ...durableBulk().counts, total: 2, pending: 2 } });
+      state.status.mockResolvedValue(pending());
+      state.review.mockImplementation(async () => partial({ durableAvailable: true,
+        // A stale automatic bit must not hide a current required owner review.
+        trustedAuto: paymentRequired, ownerAllowed: true, paymentRequired,
+        preparationError: null, progressiveAllowed: true, search,
+        bulkShare: phase === "searching" ? null : { ...batch,
+          status: phase === "queued" ? "queued" : "review_ready", canApprove: phase === "review_ready" },
+        batches: phase === "searching" ? [] : [batch], batchCount: phase === "searching" ? 0 : 1,
+        claimedPositions: phase === "searching" ? [] : [1, 3],
+      }));
+      state.requestSearchFiles.mockResolvedValue({ jobId: searchJobId, revision: 3, matched: 46,
+        files: [1, 2, 3].map(position => ({ ...searchFile(position), shareable: true })), nextCursor: null });
+      state.prepareRequestBatch.mockImplementation(async () => { phase = "review_ready"; return batch; });
+      state.approveBulkShare.mockImplementation(async () => { phase = "queued"; return { ...batch, status: "queued", canApprove: false }; });
+
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByRole("status")).toHaveTextContent("46 files to review");
+      expect(screen.getByText("Dates inside files haven't been checked; review before sharing.")).toBeVisible();
+      expect(screen.queryByText(/Matching files are found and shared automatically/)).toBeNull();
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
+      fireEvent.click(await screen.findByRole("checkbox", { name: "Standup 2" }));
+      expect(state.prepareRequestBatch).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Review 2 files" }));
+      await waitFor(() => expect(state.prepareRequestBatch).toHaveBeenCalledWith(
+        "owner-a", requestId, expect.objectContaining({ matched: 46 }), [1, 3], expect.any(Function),
+      ));
+      const share = await screen.findByRole("button", { name: "Share 2 files" });
+      await waitFor(() => expect(share).toBeEnabled());
+      expect(state.approveBulkShare).not.toHaveBeenCalled();
+      if (paymentRequired) {
+        expect(screen.getByText("The requester pays after you approve these files.")).toBeVisible();
+      } else {
+        expect(screen.queryByText("The requester pays after you approve these files.")).toBeNull();
+      }
+      fireEvent.click(share);
+      await waitFor(() => expect(state.approveBulkShare).toHaveBeenCalledWith(
+        "owner-a", expect.objectContaining({ shareId: bulkShareId, fileCount: 2 }), expect.any(Function),
+      ));
+      if (paymentRequired) expect(await screen.findByText("Files are shared after payment.")).toBeVisible();
+      else expect(await screen.findByText("Sharing continues after you leave.")).toBeVisible();
+    });
+
     it("offers one-time background Drive setup for an automatic Trusted-circle request without manual approval", async () => {
       state.status.mockResolvedValue(pending());
       state.review.mockResolvedValueOnce(partial({ durableAvailable: true, trustedAuto: true,
@@ -1485,9 +1535,12 @@ describe("exact-file document review", () => {
       expect(screen.getByRole("button", { name: "Share files" })).toBeDisabled();
     });
 
-    it("replaces a legacy completed search before its files can be reviewed", async () => {
+    it.each([
+      { shareabilityVerified: false },
+      { shareabilityVerified: true, ownerReviewRequired: true },
+    ])("replaces a legacy completed search before review: %j", async (legacyCoverage) => {
       const complete = durableSearch({ status: "completed", matched: 2 });
-      const legacy = { ...complete, coverage: { ...complete.coverage!, shareabilityVerified: false } };
+      const legacy = { ...complete, coverage: { ...complete.coverage!, ...legacyCoverage } };
       const refreshed = durableSearch({ jobId: "55555555-5555-4555-8555-555555555555",
         status: "queued", matched: 0, coverage: { ...complete.coverage!, shareabilityVerified: true } });
       const start = deferred<void>();
@@ -1513,6 +1566,19 @@ describe("exact-file document review", () => {
       await poll();
       expect(state.startRequestSearch).toHaveBeenCalledOnce();
       expect(state.prepareRequestBulk).not.toHaveBeenCalled();
+    });
+
+    it("preserves a frozen batch when older selection metadata lacks time intent", async () => {
+      const complete = durableSearch({ status: "completed", matched: 2 });
+      const legacy = { ...complete, coverage: { ...complete.coverage!, ownerReviewRequired: true } };
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(partial({ durableAvailable: true, search: legacy,
+        bulkShare: durableBulk({ status: "review_ready", fileCount: 2, canApprove: true }) }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("button", { name: "Share 2 files" })).toBeEnabled());
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
+      expect(state.prepareRequestBulk).not.toHaveBeenCalled();
+      expect(state.approveBulkShare).not.toHaveBeenCalled();
     });
 
     it("does not approve a frozen selection from a legacy search", async () => {

@@ -30,6 +30,7 @@ from hushh_mcp.services.drive_request_payment_store import (
     _payer_ref,
     _request_id,
 )
+from hushh_mcp.services.drive_request_review_policy import request_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
@@ -226,7 +227,13 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             purpose.get("periodStart") and purpose.get("periodEnd")
         ):
             raise DriveSharingError("date_range_required")
-        if private.get("trusted_auto") is True:
+        if private.get("trusted_auto") is True and not request_requires_owner_review(
+            connection,
+            user_id=owner,
+            request_id=request["request_id"],
+            revision=request["revision"],
+            cipher=sharing.sharing_cipher,
+        ):
             preferences = DriveLivePreferences(db=self.db)
             current = preferences.live_active(connection, user_id=owner)
             preferences.background_current(
@@ -245,9 +252,9 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 )
             )
         else:
-            # Without the automatic marker (no Trusted creation, no owner
-            # Allow), requests retain per-batch owner consent. Payment is
-            # available only after that consent has queued an immutable batch.
+            # A manual request or candidate-only search needs exact owner
+            # consent, including one with a historical Trusted/Allow marker.
+            # Payment follows the immutable owner-approved batch.
             # Progressive requests intentionally remain pending so later
             # batches can still be reviewed and paid by the same order.
             trusted_valid = connector_feature_enabled("google_drive_chat_reads", owner) and (

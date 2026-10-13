@@ -613,6 +613,8 @@ class DriveChatService:
                         "shared_with_me": plan.shared_with_me,
                         "recent": plan.sort == "recent",
                     }
+                    if plan.term_groups:
+                        search_kwargs["term_groups"] = plan.search_term_groups()
                     if plan.exact_title:
                         search_kwargs["exact_title"] = plan.exact_title
                     if exact_presence is not None:

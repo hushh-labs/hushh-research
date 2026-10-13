@@ -53,6 +53,19 @@ checks pass in Chromium and WebKit. Full core, terminal hosted CI, Dev promotion
 reviewer purchase/payout receipts and One's authenticated Stripe reads remain
 required before issue #7587 can close.
 
+The continuation also integrates main `b2e22e286b08` through a normal merge,
+preserving Drive's explicit owner-review requirement before automatic sharing or
+new Checkout. No migration registration or SQL changed between the two incoming
+main revisions. All 447 Back cases, UI contract verification and 108 affected
+web cases pass. The bounded Drive run passed 585 cases and exposed one synthetic
+fixture without a hosting selection; the corrected fixture and nearest migration
+suite pass all 35 cases without changing production placement enforcement.
+Existing trigger and constraint replay assertions moved intact into the existing
+migration test owner. Independent review qualifies 52 inherited Drive size spans;
+all unrelated measurements, duplicate occurrences, budgets and future-growth
+checks remain enforced. The combined candidate still requires full core and
+terminal hosted CI before Dev promotion and financial acceptance.
+
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
