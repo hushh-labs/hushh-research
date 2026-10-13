@@ -167,6 +167,14 @@ final class AppUITests: XCTestCase {
         }
     }
 
+    private func historyTapCount(_ app: XCUIApplication) -> Int? {
+        let probe = app.buttons["native-profile-back-admission"].firstMatch
+        guard probe.exists, let raw = probe.value as? String, raw.utf8.count <= 1024,
+              let field = raw.split(separator: ";").first(where: { $0.hasPrefix("historyTaps=") }),
+              let count = Int(field.dropFirst("historyTaps=".count)), (0...1_000_000).contains(count) else { return nil }
+        return count
+    }
+
     private func waitForAdmittedControl(_ control: XCUIElement) -> Bool {
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             control.exists && control.isHittable && control.isEnabled
@@ -911,12 +919,17 @@ final class AppUITests: XCTestCase {
         }
         for cycle in 0..<10 {
             if !agentSwitchOnly {
+                guard waitForAdmittedControl(history) else { XCTFail("COHERENT_HISTORY_OPENER_NOT_READMITTED"); return }
                 let openerFrame = history.frame
+                let beforeTap = historyTapCount(app)
                 history.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.5 : 0.2, dy: 0.5)).tap()
                 let close = app.buttons["Close chat history"].firstMatch
                 guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
                     printCoherentPresentationAdmission(app)
                     printNativeControlStatuses(web)
+                    if let beforeTap, let afterTap = historyTapCount(app), afterTap >= beforeTap {
+                        print("COHERENT_HISTORY_ATTEMPT native_tap_delta=\(afterTap - beforeTap)")
+                    }
                     let search = app.textFields["native-history-search"].firstMatch
                     print("COHERENT_HISTORY_ADMISSION search_present=\(search.exists) search_hittable=\(search.exists && search.isHittable) opener_hittable=\(history.exists && history.isHittable)")
                     XCTFail("COHERENT_HISTORY_NOT_ADMITTED"); return

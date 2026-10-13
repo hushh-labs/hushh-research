@@ -433,6 +433,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private var profileBackAdmissionTimer: Timer?
     private var profileBackAdmissionInFlight = false
     private var historyChoiceStage = "none"
+    private var historyTapCount = 0
     #endif
 
     override func load() {
@@ -566,7 +567,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             let historyCode = choice("historyCode", ["none", "other", "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_RETIRE_STALE", "NATIVE_CHROME_RETIRE_UNCONFIRMED", "NATIVE_CHROME_SUSPEND_REFUSED", "NATIVE_CHROME_SUSPEND_UNCONFIRMED"])
             let historyChoice = choice("historyChoice", ["applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
                 "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"])
-            self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));historyStage=\(historyStage);historyOutcome=\(historyOutcome);historyCode=\(historyCode);historyChoice=\(historyChoice);historyAllowed=\(packet["historyAllowed"] as? Bool == true);historyPresent=\(packet["historyPresent"] as? Bool == true);historyInert=\(packet["historyInert"] as? Bool == true);historyNative=\(self.historyChoiceStage)")
+            self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));historyStage=\(historyStage);historyOutcome=\(historyOutcome);historyCode=\(historyCode);historyChoice=\(historyChoice);historyAllowed=\(packet["historyAllowed"] as? Bool == true);historyPresent=\(packet["historyPresent"] as? Bool == true);historyInert=\(packet["historyInert"] as? Bool == true);historyNative=\(self.historyChoiceStage);historyTaps=\(self.historyTapCount)")
         }
     }
     #endif
@@ -1347,7 +1348,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func activateControl(_ controlId: String) {
         #if DEBUG
-        if controlId == "chat-history-toggle" { historyChoiceStage = "tap" }
+        if controlId == "chat-history-toggle" { historyChoiceStage = "tap"; historyTapCount = min(1_000_000, historyTapCount + 1) }
         #endif
         guard let slot = slots[controlId], let identity = slot.state.identity, let presentation = slot.presentation,
               slot.state.phase == "active", presentation.enabled, canPresent, compositor?.interactionIsolated != true,
