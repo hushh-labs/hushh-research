@@ -200,9 +200,13 @@ for (const width of [320, 390, 1440]) {
         heroBounds.x + heroBounds.width + 1,
       );
     }
-    const expectedTitleFontSize =
-      width >= 640 ? 44 : Math.min(34, Math.max(28, width * 0.082));
+    // "Your receipts" is defined as 0.8x the page title's own
+    // --foundation-title1-size token (clamp(28px, 23.36px + 1.2vw, 40px)), so
+    // it stays smaller than "Mail" at every width by construction.
+    const pageTitleFontSize = Math.min(40, Math.max(28, 23.36 + 0.012 * width));
+    const expectedTitleFontSize = pageTitleFontSize * 0.8;
     expect(titleFontSize).toBeCloseTo(expectedTitleFontSize, 1);
+    expect(titleFontSize).toBeLessThan(pageTitleFontSize);
     expect(ctaBounds.height).toBe(50);
     expect(ctaBounds.width).toBeLessThanOrEqual(244);
     expect(ctaLabelBounds.x).toBeGreaterThanOrEqual(ctaBounds.x);
