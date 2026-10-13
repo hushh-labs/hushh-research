@@ -3501,6 +3501,15 @@ final class AppUITests: XCTestCase {
         }
         let menu = app.scrollViews["native-profile-menu-scroll"].firstMatch
         guard menu.waitForExistence(timeout: 10) else { XCTFail("PROFILE_SHARED_MENU_UNAVAILABLE"); return }
+        let panel = app.otherElements["native-profile-drawer-body"].firstMatch
+        guard panel.waitForExistence(timeout: 5) else { XCTFail("PROFILE_OUTER_FRAME_UNAVAILABLE"); return }
+        // Safe areas belong to content, not the full-height mobile panel.
+        XCTAssertEqual(panel.frame.minY, app.frame.minY, accuracy: 1, "PROFILE_TOP_FRAME_GAP")
+        XCTAssertEqual(panel.frame.maxY, app.frame.maxY, accuracy: 1, "PROFILE_BOTTOM_FRAME_GAP")
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCTAssertEqual(panel.frame.width, app.frame.width, accuracy: 1, "PROFILE_PHONE_FRAME_INSET")
+        }
+        print("PROFILE_OUTER_FRAME full_height=true phone=\(UIDevice.current.userInterfaceIdiom == .phone)")
         for group in ["settings", "legal", "account-access"] {
             XCTAssertTrue(app.staticTexts["native-profile-group-\(group)"].firstMatch.exists,
                 "PROFILE_SHARED_GROUP_MISSING")
