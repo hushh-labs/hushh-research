@@ -33,9 +33,32 @@ for real dismissal and captured identity/privacy/update fences reject late
 choices. Device tests cancel these actions without mutating reviewer records.
 
 Source tests cover retained visibility, owner changes and the web connector
-round trip. Physical acceptance is pending for this exact candidate. This does
-not enable ordinary custom-native admission, qualify iPad material composition
-or waive visual/accessibility/Release performance gates.
+round trip: 201 focused cases and 443 Back behavior cases passed. The local core
+mirror passed in 421 seconds at the `d26071b40a` follow-up, before the later
+runner-only secure-field targeting correction. Exact-head CI is not established.
+
+Product implementation `f7890fae39` is installed as Debug 1.4.0 (69) on iPhone
+16e, UAT-backed. Its installed executable SHA-256 is
+`216ae9fd6fa6efece5175590392fb0fceb68bbfbef29ebcae4bf05abb231f61a`.
+All 69 physical native support cases passed; integrated action/navigation
+acceptance has not passed. The footer AX-role query was corrected, and guarded
+action stages now distinguish Rename, Delete cancellation and Connectors handoff.
+A public synthetic input check reproduced app-wide typing loss; the named
+secure-field path passed both fixtures. A later reviewer run acknowledged whole
+entry but failed before submission; an independent device-service probe then
+reported a wireless tunnel reset. That probe does not establish the earlier
+failure's cause. No reviewer record was renamed/deleted or authentication guard
+bypassed. Private result bundles were removed.
+
+A subsequent wake/reconnect check still reported the paired iPhone unavailable:
+the lock-state service returned CoreDevice 4016 and the existing-pair reconnect
+returned 4000. Bonjour announcements appeared and disappeared, without a
+successful trusted service probe. This is a transport blocker, not a vault
+rejection or a product acceptance result. The final runner-only build passed.
+
+Physical acceptance remains pending. This does not enable ordinary custom-native
+admission, qualify iPad material composition or waive visual/accessibility/Release
+performance gates. No push, deployment or distribution occurred.
 
 ### Compact header and owned Profile content plane — 2026-10-12
 
