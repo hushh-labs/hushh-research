@@ -41,6 +41,14 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - name: Preserve current capacity tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/capacity-tools"
+          cp scripts/ci/runtime-capacity-budget.py "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"
+          cp config/runtime-capacity.json "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"
+
       - name: Validate exact main SHA and actor
         shell: bash
         env:
@@ -55,6 +63,8 @@ jobs:
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
           bash scripts/ci/require-deploy-sha-on-main.sh "$TARGET_SHA"
           git checkout --detach "$TARGET_SHA"
+          cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py" scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json" config/runtime-capacity.json
 
       - name: Validate UAT identity configuration
         shell: bash
@@ -83,7 +93,7 @@ jobs:
 
       - name: Enforce UAT database connection budget
         shell: bash
-        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat --candidate-service consent-protocol
 
       - name: Deploy and verify only the backend service
         id: deploy-backend

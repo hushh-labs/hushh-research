@@ -179,6 +179,10 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
+          cp scripts/ci/runtime-capacity-budget.py \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
+          cp config/runtime-capacity.json \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
           cp scripts/ops/verify_uat_release.py \
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
 
@@ -190,6 +194,10 @@ jobs:
           # Keep the current opt-in contract when verifying an older approved build.
           cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
             scripts/ops/verify_uat_release.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
+            scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
+            config/runtime-capacity.json
 
       - name: Validate Google Cloud workload identity configuration
         shell: bash
@@ -226,10 +234,6 @@ jobs:
             echo "Refusing deploy: expected project '${{ env.GCP_PROJECT_ID }}' but got '$ACTIVE_PROJECT'."
             exit 1
           fi
-
-      - name: Enforce UAT database connection budget before deployment
-        shell: bash
-        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat
 
       - name: Set up Python + uv runtime
         uses: ./consent-protocol/.github/actions/setup-python-uv
@@ -301,6 +305,24 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Enforce UAT database connection budget before deployment
+        shell: bash
+        env:
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
+          DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_BACKEND" = true ]; then
+            python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+              --candidate-service consent-protocol \
+              --candidate-service consent-protocol-drive-worker
+          elif [ "$DEPLOY_FRONTEND" = true ]; then
+            python3 scripts/ci/runtime-capacity-budget.py --environment uat --no-candidates
+          else
+            echo "No resolved UAT deploy scope; refusing capacity admission." >&2
+            exit 1
+          fi
 
       - name: Verify prompt UAT Drive worker wake grant
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -1646,10 +1668,19 @@ jobs:
           set -euo pipefail
           # Validate UAT OAuth app links and retain shared production RP credentials.
           # Production OAuth routes are verified by its own deployment.
-          python3 scripts/ops/verify_passkey_domain_associations.py \
-            --project "${{ env.GCP_PROJECT_ID }}" \
-            --origin "${{ env.APP_FRONTEND_ORIGIN }}" \
-            --credentials-only-origin "https://one.hushh.ai"
+          for attempt in 1 2; do
+            if python3 scripts/ops/verify_passkey_domain_associations.py \
+              --project "${{ env.GCP_PROJECT_ID }}" \
+              --origin "${{ env.APP_FRONTEND_ORIGIN }}" \
+              --credentials-only-origin "https://one.hushh.ai"; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "UAT passkey association verification failed after two attempts." >&2
+              exit 1
+            fi
+            sleep 3
+          done
 
       - name: Post-deploy UAT schema contract gate
         id: postdeploy-db-gate

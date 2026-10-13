@@ -195,6 +195,21 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         self.assertEqual(current["projected_connections"], 3 * 80 + 16 + 30)
         self.assertEqual(len(current["services"]), 3)
         self.assertTrue(current["admitted"])
+        frontend_only = budget.evaluate(
+            profile,
+            "production",
+            inventory,
+            candidate_services=frozenset(),
+        )
+        self.assertEqual(frontend_only["projected_connections"], current["projected_connections"])
+        self.assertTrue(frontend_only["admitted"])
+        with self.assertRaisesRegex(budget.BudgetError, "candidate service"):
+            budget.evaluate(
+                profile,
+                "production",
+                inventory,
+                candidate_services=frozenset({"unprofiled-service"}),
+            )
         with self.assertRaisesRegex(budget.BudgetError, "unsupported capacity phase"):
             budget.evaluate(profile, "production", inventory, phase="unknown")
 
@@ -211,6 +226,7 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
 
         self.assertEqual(cli([])[0], 1)
         self.assertEqual(cli(["--phase", "post-release"])[0], 0)
+        self.assertEqual(cli(["--no-candidates"])[0], 0)
         # A larger pool on a draining revision remains a real capacity violation.
         revisions[-1]["spec"]["containers"][0]["env"][2]["value"] = "2"
         code, excess = cli(["--phase", "post-release"])

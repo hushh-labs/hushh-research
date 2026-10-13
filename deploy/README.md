@@ -76,12 +76,18 @@ production.
 
 UAT and production deployments complete after release verification, artifact publication, quick
 zero-traffic tag retirement, and the final health assertion. Old revision deletion runs in **Capacity Maintenance**,
-triggered after a verified healthy deployment and checked by the existing 15-minute timer. Maintenance
+woken by completed deployments and checked by the existing 15-minute timer. Maintenance
 uses the matching environment without creating a deployment record. Its failure does
 not change the release result.
 
 The authority job verifies the source repository, workflow, governed actor and
-healthy release artifact before cloud authentication. No-op runs skip cleanup.
+release artifact before cloud authentication. A failed UAT deployment only wakes
+maintenance; it does not authorize deletion. The narrow passkey-association
+failure case may use its proven serving backend and the immediately preceding
+healthy UAT release's frontend after verifying both against live revision
+provenance. A UAT run that passed every release gate and failed solely while
+retiring old tags may use its healthy artifact after job and live revision
+provenance checks. Other failed deployments and no-op runs grant no cleanup authority.
 Each mutation pass verifies that release against live traffic, removes unused tags, and saves drain evidence in the
 `uat-retention-state` or `production-retention-state` artifact. A later pass deletes only eligible revisions after
 the maximum request timeout plus 60 seconds has elapsed. The backend still
@@ -109,6 +115,11 @@ readiness. Failed maintenance artifacts still cannot restore drain authority.
 This reuses the existing workflow and timer, with no new cron runs.
 
 The default capacity phase reserves the next deployment's candidate revisions.
+UAT resolves deployment scope before admission: a frontend-only release reserves
+no new database service revisions, while a backend release reserves both the
+backend and Drive worker candidates. All retained database revisions and jobs
+remain counted in either case.
+The exceptional One chat backend-only lane reserves only its backend candidate.
 Post-release reporting uses `--phase post-release`, which counts current retained
 revisions, jobs and the administrative reserve without adding another hypothetical
 deployment. Actual over-budget capacity remains blocking in both phases.

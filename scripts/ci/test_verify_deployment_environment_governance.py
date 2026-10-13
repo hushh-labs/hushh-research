@@ -221,6 +221,11 @@ def test_capacity_cleanup_accepts_trusted_upstream_and_manual_modes() -> None:
     result = _validate_capacity_trigger("workflow_run", _capacity_upstream_run())
     assert result.returncode == 0, result.stderr
     assert result.stdout == "environment=uat\nrelease_run_id=42\nactor=release-maintainer\napply=true\n"
+    failed = _capacity_upstream_run()
+    failed["workflow_run"]["conclusion"] = "failure"
+    result = _validate_capacity_trigger("workflow_run", failed)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "environment=uat\nrelease_run_id=\nactor=release-maintainer\napply=true\n"
     event = _capacity_upstream_run()
     event["workflow"] = {"path": event["workflow_run"].pop("path")}
     result = _validate_capacity_trigger("workflow_run", event)
@@ -239,7 +244,7 @@ def test_capacity_cleanup_rejects_untrusted_upstream_before_outputs() -> None:
         ("path", ".github/workflows/untrusted.yml"),
         ("event", "pull_request"),
         ("status", "in_progress"),
-        ("conclusion", "failure"),
+        ("conclusion", "cancelled"),
         ("head_branch", "contributor-branch"),
         ("repository", {"full_name": "other/repo"}),
         ("head_repository", {"full_name": "fork/repo"}),

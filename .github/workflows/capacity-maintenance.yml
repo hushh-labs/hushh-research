@@ -17,7 +17,7 @@ on:
           - uat
           - production
       healthy_release_run_id:
-        description: Verified healthy deploy run whose release artifact matches live traffic
+        description: Verified healthy or passkey-partial deploy run whose artifact matches live traffic
         required: true
         type: string
       apply:
@@ -38,8 +38,8 @@ concurrency:
 
 jobs:
   select-release:
-    name: Verify cleanup authority and healthy release
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' || (github.event.workflow_run.name == 'Deploy to Production' && github.event.workflow_run.conclusion == 'failure')
+    name: Verify cleanup authority and release evidence
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' || (github.event.workflow_run.name == 'Deploy to Production' && github.event.workflow_run.conclusion == 'failure') || (github.event.workflow_run.name == 'Deploy to UAT' && github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -79,14 +79,17 @@ jobs:
                   and workflow_path == lane[1]
                   and run.get("event") == "workflow_dispatch"
                   and run.get("status") == "completed"
-                  and (run.get("conclusion") == "success" or (lane[0] == "production" and run.get("conclusion") == "failure"))
+                  and run.get("conclusion") in {"success", "failure"}
                   and run.get("head_branch") == "main"
                   and (run.get("repository") or {}).get("full_name") == repository
                   and (run.get("head_repository") or {}).get("full_name") == repository
               ):
                   raise SystemExit("Upstream run does not authorize hosted cleanup")
               environment = lane[0]
-              release_run_id = str(run.get("id") or "")
+              # A failed UAT deploy only wakes maintenance. Its own artifact
+              # may be absent (for example, when the budget gate blocked it).
+              # The helper independently selects and verifies a source.
+              release_run_id = "" if environment == "uat" and run.get("conclusion") == "failure" else str(run.get("id") or "")
               actor = (run.get("actor") or {}).get("login") or ""
               apply = "true"
           elif event_name == "workflow_dispatch":
@@ -104,7 +107,8 @@ jobs:
               raise SystemExit("Unsupported cleanup trigger")
           if environment not in {"uat", "production"} or apply not in {"true", "false"}:
               raise SystemExit("Invalid cleanup environment or apply mode")
-          if event_name != "schedule" and not re.fullmatch(r"[1-9][0-9]*", release_run_id):
+          observation_only = event_name == "workflow_run" and environment == "uat" and release_run_id == ""
+          if event_name != "schedule" and not observation_only and not re.fullmatch(r"[1-9][0-9]*", release_run_id):
               raise SystemExit("Invalid release run ID")
           if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", actor):
               raise SystemExit("Invalid cleanup actor")
@@ -158,8 +162,9 @@ jobs:
           set -euo pipefail
           # The canonical helper verifies repository, workflow, actor and artifact
           # before either maintenance job can enter an environment or mint credentials.
-          # Production hygiene-only failures additionally require all release gates
-          # to have passed. A deployment failure cannot authorize cleanup.
+          # Failed UAT deployments are observations only. The helper chooses
+          # an independently verified source; production hygiene-only failures
+          # additionally require all release gates to have passed.
           python3 scripts/ci/uat-retention-maintenance.py --environment "$RELEASE_ENV" \
             --release-run-id "$RELEASE_RUN_ID" --verify-source-only \
             --state-dir "$RUNNER_TEMP/$RELEASE_ENV-retention-source"

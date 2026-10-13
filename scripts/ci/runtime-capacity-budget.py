@@ -3,6 +3,7 @@
 
 This command is read only. The default pre-deploy phase reserves one new
 revision of each configured database-using service during deployment overlap.
+Scoped releases may name only the services that will create a new revision.
 Use --phase post-release to check retained capacity without another hypothetical
 candidate. Both phases include retained revisions, jobs and administrative reserve.
 """
@@ -319,11 +320,16 @@ def evaluate(
     inventory: dict[str, Any],
     *,
     phase: CapacityPhase = "pre-deploy",
+    candidate_services: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     if phase not in CAPACITY_PHASES:
         raise BudgetError(f"unsupported capacity phase: {phase}")
     policy = connection_policy(profile, environment)
     config = profile["environments"][environment]
+    if candidate_services is None:
+        candidate_services = frozenset(config["services"])
+    if candidate_services - config["services"].keys():
+        raise BudgetError("candidate service is not in the capacity profile")
     maximum = policy["database_max_connections"]
     limit = policy["admission_limit"]
     reserve = policy["administrative_reserve"]
@@ -359,7 +365,7 @@ def evaluate(
                     connection_name,
                 )
             )
-        if phase == "pre-deploy":
+        if phase == "pre-deploy" and name in candidate_services:
             service_rows.append(candidate_connections(name, settings))
     if set(inventory["jobs"]) != set(config["jobs"]):
         extra = set(inventory["jobs"]) - set(config["jobs"])
@@ -496,6 +502,17 @@ def main() -> int:
         help="Reserve the next deployment candidate, or check only retained capacity",
     )
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
+    candidates = parser.add_mutually_exclusive_group()
+    candidates.add_argument(
+        "--candidate-service",
+        action="append",
+        help="Reserve a new revision of this service (repeat for each deployed service)",
+    )
+    candidates.add_argument(
+        "--no-candidates",
+        action="store_true",
+        help="Reserve no new database service revisions for a frontend-only deploy",
+    )
     parser.add_argument(
         "--report-only",
         action="store_true",
@@ -505,8 +522,19 @@ def main() -> int:
     args = parser.parse_args()
     try:
         profile = json.loads(args.profile.read_text())
+        candidate_services = (
+            frozenset()
+            if args.no_candidates
+            else frozenset(args.candidate_service)
+            if args.candidate_service is not None
+            else None
+        )
         report = evaluate(
-            profile, args.environment, collect(profile, args.environment), phase=args.phase
+            profile,
+            args.environment,
+            collect(profile, args.environment),
+            phase=args.phase,
+            candidate_services=candidate_services,
         )
     except (OSError, KeyError, TypeError, json.JSONDecodeError, BudgetError) as exc:
         print(f"capacity budget blocked: {exc}", file=sys.stderr)
