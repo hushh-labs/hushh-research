@@ -3,7 +3,7 @@
 
 PR Validation runs two web lanes as matrices to shorten the critical path:
 
-* ``Web Targeted Contracts`` as a ``node`` leg and a ``browser`` leg
+* ``Web Targeted Contracts`` as ``node``, ``browser`` and ``browser-layout`` legs
   (``WEB_TARGETED_PART``), and
 * ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
 * 100 KB editor latency as a required macOS browser job, outside Linux's
@@ -123,14 +123,16 @@ def _reaches_playwright(script: str, scripts: dict[str, str], seen: set[str]) ->
 def test_targeted_legs_partition_the_matched_packs() -> None:
     changed = _one_matching_file_per_pack()
     runs: dict[str, list[str]] = {}
-    for part in ("all", "node", "browser"):
+    for part in ("all", "node", "browser", "browser-layout"):
         code, calls, output = _run(
             TARGETED, {"WEB_TARGETED_PART": part, "WEB_TARGETED_CHANGED_FILES": changed}
         )
         assert code == 0, f"web-targeted-check.sh ({part}) exited {code}:\n{output[-2000:]}"
         runs[part] = calls
 
-    all_calls, node, browser = runs["all"], runs["node"], runs["browser"]
+    all_calls, node, browser = runs["all"], runs["node"], runs["browser"] + runs["browser-layout"]
+    assert runs["browser-layout"] == ["run test:layout-contracts"]
+    assert "run test:layout-contracts" not in runs["browser"]
     assert node and browser, "the fixture must schedule packs in both legs"
     assert not set(node) & set(browser), f"packs ran in both legs: {set(node) & set(browser)}"
     assert sorted(node + browser) == sorted(all_calls), (
@@ -166,7 +168,7 @@ def test_paid_answer_photo_inputs_schedule_browser_pack() -> None:
     ):
         code, calls, output = _run(
             TARGETED,
-            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed},
+            {"WEB_TARGETED_PART": "browser-layout", "WEB_TARGETED_CHANGED_FILES": changed},
         )
         assert code == 0, output[-2000:]
         assert calls.count("run test:layout-contracts") == 1, (changed, calls)
@@ -202,7 +204,7 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     targeted = _job_block(workflow, "web-targeted-check", "web-full-suite-check")
-    assert "part: [node, browser]" in targeted
+    assert "part: [node, browser, browser-layout]" in targeted
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
     assert "fail-fast: false" in targeted
 

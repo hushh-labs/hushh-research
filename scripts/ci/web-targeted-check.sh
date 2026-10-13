@@ -11,19 +11,18 @@ source "$REPO_ROOT/scripts/ci/web-common.sh"
 #
 #   all      every matched pack (the default, and what a local run does)
 #   node     only packs that never start a browser
-#   browser  only packs whose npm script reaches `playwright`
+#   browser  mounted browser packs except the broad layout contracts
+#   browser-layout  the broad Chromium/WebKit/mobile layout contracts
 #
-# PR Validation runs `node` and `browser` as two parallel legs of Web Targeted
-# Contracts. The browser packs were ~11 of the lane's ~13 minutes, and the node
-# leg needs neither the Playwright download nor its apt dependencies. Each pack
-# is classified by one pure rule, so the two legs partition the matched set:
-# every pack runs in exactly one leg, and together they run what `all` runs.
+# PR Validation runs node, browser and browser-layout as independent legs.
+# The broad layout pack cannot share a 30-minute runner with mounted packs.
+# Each matched pack runs in exactly one leg; together they run what all runs.
 # Guarded by scripts/ci/test_web_ci_lane_partition.py.
 WEB_TARGETED_PART="${WEB_TARGETED_PART:-all}"
 case "$WEB_TARGETED_PART" in
-  all|node|browser) ;;
+  all|node|browser|browser-layout) ;;
   *)
-    echo "Unknown WEB_TARGETED_PART '$WEB_TARGETED_PART' (expected all, node or browser)." >&2
+    echo "Unknown WEB_TARGETED_PART '$WEB_TARGETED_PART' (expected all, node, browser or browser-layout)." >&2
     exit 2
     ;;
 esac
@@ -33,6 +32,10 @@ esac
 check_part() {
   if [ "${1:-}" != "npm" ] || [ "${2:-}" != "run" ] || [ -z "${3:-}" ]; then
     echo node
+    return 0
+  fi
+  if [ "$3" = "test:layout-contracts" ]; then
+    echo browser-layout
     return 0
   fi
   node -e '

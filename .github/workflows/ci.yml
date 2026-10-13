@@ -409,17 +409,14 @@ jobs:
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
-    # Two legs that partition the matched packs (scripts/ci/web-targeted-check.sh,
-    # WEB_TARGETED_PART): `node` runs the Vitest and verifier packs and never
-    # downloads a browser; `browser` runs the Playwright packs, several at once.
-    # On one runner the browser packs ran one test at a time and were ~11 of
-    # the lane's ~13 minutes (run 36346187928). ci-status reads the aggregate
-    # result, which is `success` only when every leg succeeded. fail-fast is
-    # off so a red leg never hides the other leg's verdict.
+    # Node verifiers, mounted browser packs and broad layout contracts run on
+    # independent runners. The broad Chromium/WebKit/mobile pack plus mounted
+    # packs exceeded 30 minutes even with warm browser caches (run 38456654211).
+    # Keep coverage and the 30-minute budget; the aggregate requires every leg.
     strategy:
       fail-fast: false
       matrix:
-        part: [node, browser]
+        part: [node, browser, browser-layout]
     # Was 15, which the job could not fit. Downloading Chromium and WebKit
     # took 13-15 minutes on its own, so the lane either died mid-download or
     # reached the checks with ~100 seconds left and was cancelled part-way
@@ -454,7 +451,7 @@ jobs:
       # PR restores them instead of re-downloading ~400MB per run.
       - name: Cache Playwright browsers
         id: playwright-cache
-        if: matrix.part == 'browser'
+        if: matrix.part != 'node'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -465,7 +462,7 @@ jobs:
       # ignores an author border-radius that Chromium honours, so a
       # Chromium-only run passes controls that are visibly broken on an iPhone.
       - name: Install Playwright browsers
-        if: matrix.part == 'browser'
+        if: matrix.part != 'node'
         run: |
           set -euo pipefail
           # The one dependency install for this job. It is the same
@@ -487,9 +484,9 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
           WEB_TARGETED_PART: ${{ matrix.part }}
-          # Only the browser leg ran npm ci in the step above; the node leg
+          # Both browser legs ran npm ci in the step above; the node leg
           # installs inside the script.
-          WEB_CI_DEPS_INSTALLED: ${{ matrix.part == 'browser' && '1' || '0' }}
+          WEB_CI_DEPS_INSTALLED: ${{ matrix.part != 'node' && '1' || '0' }}
           # 3 of the runner's 4 vCPUs run tests; the fourth keeps the Node test
           # runner and fixture builds from starving a browser. Only the Playwright
           # config reads it, so it is inert in the node leg.
