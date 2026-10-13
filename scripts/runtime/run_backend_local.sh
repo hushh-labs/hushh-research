@@ -372,11 +372,12 @@ fi
 # Keep one local backend well below the instance connection budget: asyncpg can
 # otherwise open 20 connections and SQLAlchemy another 15 by default. Four
 # async connections still leave ample headroom on the shared UAT instance, but
-# allow One's concurrent vault/bootstrap requests to complete without waiting
-# behind a three-connection ceiling.
+# allow One's concurrent vault/bootstrap requests to complete. Five synchronous
+# connections accommodate the shell's parallel reads over the local proxy;
+# overflow remains disabled, keeping the total local budget at nine.
 export DB_POOL_MIN_SIZE="${DB_POOL_MIN_SIZE:-0}"
 export DB_POOL_MAX_SIZE="${DB_POOL_MAX_SIZE:-4}"
-export DB_SQLALCHEMY_POOL_SIZE="${DB_SQLALCHEMY_POOL_SIZE:-2}"
+export DB_SQLALCHEMY_POOL_SIZE="${DB_SQLALCHEMY_POOL_SIZE:-5}"
 export DB_SQLALCHEMY_MAX_OVERFLOW="${DB_SQLALCHEMY_MAX_OVERFLOW:-0}"
 echo "Local Cloud SQL connection budget: async=${DB_POOL_MIN_SIZE}-${DB_POOL_MAX_SIZE}, sql=${DB_SQLALCHEMY_POOL_SIZE}+${DB_SQLALCHEMY_MAX_OVERFLOW}."
 

@@ -33,6 +33,7 @@ from psycopg2.extras import Json as PsycopgJson
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
+from sqlalchemy.exc import TimeoutError as SqlalchemyPoolTimeoutError
 from sqlalchemy.pool import NullPool, QueuePool
 
 from db.connection import database_unavailable_hint, format_database_unavailable_details
@@ -162,6 +163,10 @@ def _iter_exception_chain(exc: BaseException):
 
 
 def _is_transient_connection_error(exc: Exception) -> bool:
+    # A saturated pool still owns healthy connections. Disposing it creates a
+    # second pool while checked-out connections remain alive, amplifying load.
+    if any(isinstance(item, SqlalchemyPoolTimeoutError) for item in _iter_exception_chain(exc)):
+        return False
     for current in _iter_exception_chain(exc):
         if isinstance(
             current, (SqlalchemyOperationalError, ConnectionError, OSError, TimeoutError)

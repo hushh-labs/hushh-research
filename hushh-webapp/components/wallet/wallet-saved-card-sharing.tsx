@@ -78,7 +78,10 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
     return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
   }, [open, query, card.cardId, getContext, recipientRevision, close]);
   useEffect(() => {
-    const hide = () => { if (document.visibilityState === "hidden") close(); };
+    const hide = () => {
+      if (document.visibilityState === "hidden") close();
+      else setRevision(value => value + 1);
+    };
     document.addEventListener("visibilitychange", hide);
     return () => { generation.current += 1; document.removeEventListener("visibilitychange", hide); };
   }, [close]);
