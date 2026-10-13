@@ -101,8 +101,8 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
     catch { /* Toast owns action feedback; confirmed history stays visible. */ }
     finally { if (context.isCurrent()) setBusy(null); }
   };
-  return <SettingsPresentationProvider density="compact"><section aria-label="Card sharing history" className={`space-y-4 ${styles.history}`}>
-    <div className="flex gap-2" role="group" aria-label="Share direction">
+  return <SettingsPresentationProvider density="compact"><section aria-label="Card sharing history" className={`space-y-3.5 ${styles.history}`}>
+    <div className={`${styles.directionActions} flex min-h-11 flex-wrap items-center gap-2`} role="group" aria-label="Share direction">
       <Button size="compact" className="ui-text-compact-button-label" variant={direction === "outgoing" ? "default" : "secondary"} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Sent cards</Button>
       <Button size="compact" className="ui-text-compact-button-label" variant={direction === "received" ? "default" : "secondary"} aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Received cards</Button>
     </div>

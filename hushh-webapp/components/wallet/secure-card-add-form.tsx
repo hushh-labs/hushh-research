@@ -193,7 +193,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     }
   };
 
-  const scanner = scanEnabled ? <WalletCardScanner active={active} disabled={submitting} onBusyChange={setScanning} onRead={(fields) => {
+  const scanner = scanEnabled ? <WalletCardScanner active={active} disabled={submitting} featured={scanInToolbar} onBusyChange={setScanning} onRead={(fields) => {
         setPan(fields.pan);
         setExpiry(fields.expiry ?? "");
         setCardholderName(fields.cardholderName ?? "");

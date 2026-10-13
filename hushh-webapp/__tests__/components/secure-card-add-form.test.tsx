@@ -11,8 +11,9 @@ vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS:
 const networkContext = () => ({ userId: "owner", vaultOwnerToken: "consent" });
 const SecureCardAddForm = (props: React.ComponentProps<typeof CardForm>) => <CardForm getNetworkContext={networkContext} {...props} />;
 
-const scan = vi.hoisted(() => ({ read: vi.fn() }));
-vi.mock("@/lib/services/wallet-card-scan", () => ({ scanWalletCard: scan.read, pickNativeWalletCard: vi.fn() }));
+const scan = vi.hoisted(() => ({ read: vi.fn(), pick: vi.fn(), native: vi.fn() }));
+vi.mock("@/lib/services/wallet-card-scan", () => ({ scanWalletCard: scan.read, pickNativeWalletCard: scan.pick, CardScanError: class extends Error {} }));
+vi.mock("@/lib/capacitor/platform", () => ({ isNative: scan.native }));
 const notify = vi.hoisted(() => ({ error: vi.fn() }));
 vi.mock("sonner", () => ({ toast: notify }));
 
@@ -29,6 +30,9 @@ function submit() {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    scan.read.mockReset();
+    scan.pick.mockReset();
+    scan.native.mockReturnValue(false);
     networkApi.resolve.mockReset();
     networkApi.supported.mockReset();
     networkApi.supported.mockResolvedValue(["visa", "mastercard", "amex", "discover", "rupay", "other"]);
@@ -141,21 +145,23 @@ it("reviews scanned fields without saving and clears old security codes", async 
   networkApi.resolve.mockResolvedValue({ network: "mastercard", source: "prefix", candidates: [] });
   scan.read.mockResolvedValue({ pan: "5555555555554444", expiry: "11/99", cardholderName: "Scanned Owner" });
   const save = vi.fn();
-  render(<SecureCardAddForm onSubmit={save} />);
+  render(<SecureCardAddForm scanInToolbar onSubmit={save} />);
   fillRequired();
-  const stop = vi.fn();
-  Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] }) } });
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
-  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["test"], { type: "image/jpeg" })));
+  const trigger = screen.getByRole("button", { name: "Scan card", exact: true });
+  expect(trigger.querySelector("img")).not.toBeNull();
+  expect(trigger).toHaveTextContent(/^$/);
+  expect(screen.queryByText("Add your card with a photo")).toBeNull();
+  const capture = screen.getByLabelText("Take a card photo");
+  const openCamera = vi.spyOn(capture as HTMLInputElement, "click");
   fireEvent.click(screen.getByRole("button", { name: "Scan card", exact: true }));
-  const preview = screen.getByLabelText("Card camera preview");
-  Object.defineProperties(preview, { videoWidth: { value: 1280 }, videoHeight: { value: 720 } });
-  await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce());
-  fireEvent.loadedData(preview);
-  fireEvent.click(screen.getByRole("button", { name: "Capture card" }));
-  await waitFor(() => expect(stop).toHaveBeenCalled());
+  expect(openCamera).toHaveBeenCalledOnce();
+  expect(capture).toHaveAttribute("capture", "environment");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  const photo = new File(["synthetic"], "card.jpg", { type: "image/jpeg" });
+  fireEvent.change(capture, { target: { files: [photo] } });
   await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555555555554444"));
+  expect(scan.read).toHaveBeenCalledWith(photo, expect.any(AbortSignal));
+  expect(capture).toHaveValue("");
   expect(screen.getByLabelText("Name on card")).toHaveValue("Scanned Owner");
   expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99");
   expect(screen.getByLabelText("CVV")).toHaveValue("");
@@ -164,6 +170,59 @@ it("reviews scanned fields without saving and clears old security codes", async 
   await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
   submit();
   await waitFor(() => expect(save).toHaveBeenCalledOnce());
+});
+
+it("leaves the draft intact on camera cancellation and scan failure, then allows retry", async () => {
+  scan.read.mockRejectedValueOnce(new Error("private image diagnostic"))
+    .mockResolvedValueOnce({ pan: "5555555555554444", expiry: "11/99" });
+  render(<SecureCardAddForm onSubmit={vi.fn()} />);
+  fillRequired();
+  const capture = screen.getByLabelText("Take a card photo");
+  fireEvent.change(capture, { target: { files: [] } });
+  expect(scan.read).not.toHaveBeenCalled();
+  const photo = new File(["synthetic"], "card.jpg", { type: "image/jpeg" });
+  fireEvent.change(capture, { target: { files: [photo] } });
+  expect(await screen.findByText(/Card scanning is unavailable right now/)).toBeVisible();
+  expect(screen.queryByText("private image diagnostic")).toBeNull();
+  expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+  expect(screen.getByLabelText("CVV")).toHaveValue("123");
+  fireEvent.change(capture, { target: { files: [photo] } });
+  await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555555555554444"));
+});
+
+it.each(["cancel", "inactive", "unmount"])("discards late photo recognition after %s", async (exit) => {
+  let finish!: (value: { pan: string }) => void;
+  scan.read.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const save = vi.fn();
+  const view = render(<SecureCardAddForm onSubmit={save} />);
+  fillRequired();
+  fireEvent.change(screen.getByLabelText("Take a card photo"), { target: { files: [new File(["synthetic"], "card.jpg", { type: "image/jpeg" })] } });
+  await waitFor(() => expect(scan.read).toHaveBeenCalledOnce());
+  const signal = scan.read.mock.calls[0][1] as AbortSignal;
+  if (exit === "cancel") fireEvent.click(screen.getByRole("button", { name: "Cancel scan" }));
+  else if (exit === "inactive") view.rerender(<SecureCardAddForm active={false} onSubmit={save} />);
+  else view.unmount();
+  expect(signal.aborted).toBe(true);
+  await act(async () => finish({ pan: "5555555555554444" }));
+  if (exit !== "unmount") expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+  expect(save).not.toHaveBeenCalled();
+});
+
+it("uses the native camera plugin and handles cancellation without changing the draft", async () => {
+  scan.native.mockReturnValue(true);
+  scan.pick.mockResolvedValueOnce(null).mockResolvedValueOnce(new Blob(["synthetic"], { type: "image/jpeg" }));
+  scan.read.mockResolvedValue({ pan: "5555555555554444" });
+  render(<SecureCardAddForm onSubmit={vi.fn()} />);
+  fillRequired();
+  const capture = vi.spyOn(screen.getByLabelText("Take a card photo") as HTMLInputElement, "click");
+  fireEvent.click(screen.getByRole("button", { name: "Scan card", exact: true }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Scan card", exact: true })).not.toBeDisabled());
+  expect(scan.pick).toHaveBeenCalledWith("camera");
+  expect(scan.read).not.toHaveBeenCalled();
+  expect(capture).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+  fireEvent.click(screen.getByRole("button", { name: "Scan card", exact: true }));
+  await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555555555554444"));
 });
 
 it("shows a neutral label and explains a failed backend lookup", async () => {
