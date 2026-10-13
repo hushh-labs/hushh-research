@@ -96,8 +96,8 @@ export function LivingMemoryBridge() {
       void build();
     };
     const stopChanges = subscribeToPkmDomainChanges((detail) => {
-      if (detail.userId === userId) {
-        if (detail.domain !== LIVING_SOURCE_DOMAIN) pending = true;
+      if (detail.userId === userId && (detail.domain !== LIVING_SOURCE_DOMAIN || detail.operation !== "stored")) {
+        pending = true;
         void build();
       }
     });

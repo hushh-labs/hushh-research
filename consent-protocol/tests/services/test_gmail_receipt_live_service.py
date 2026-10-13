@@ -1452,3 +1452,48 @@ async def test_detail_is_account_bound_and_returns_only_labelled_bounded_excerpt
             require_access=_allowed,
         )
     assert caught.value.code == "GMAIL_RECEIPT_NOT_FOUND"
+
+
+async def test_durable_source_locator_is_sealed_owner_account_and_connection_bound():
+    message = _message(
+        "private-provider-id",
+        subject="Your receipt",
+        sender="Apple <orders@apple.com>",
+        body="Grand Total USD 42.10",
+    )
+    service = _service([message])
+    item = (await _scan(service))["items"][0]
+    assert item["amount_decimal"] == "42.1"
+    locator = item["durable_source_ref"]
+    assert locator.startswith("grs1_") and "private-provider-id" not in locator
+    assert "private-provider-id".encode() not in base64.urlsafe_b64decode(
+        locator[5:] + "=" * (-len(locator[5:]) % 4)
+    )
+    detail = await service.detail(
+        user_id="owner",
+        source_id=locator,
+        consent_token=TEST_CONSENT_TOKEN,
+        require_access=_allowed,
+    )
+    assert detail["item"]["source_id"] == locator and detail["item"]["amount"] == 42.1
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    from dataclasses import replace
+
+    assert service._open_locator(replace(authority, user_id="other-owner"), locator) is None
+    for owner, handle, connection in [
+        (
+            "owner",
+            locator[:-2] + ("aa" if locator[-2:] != "aa" else "bb"),
+            "2026-10-04T00:00:00+00:00",
+        ),
+        ("owner", locator, "2026-10-13T00:00:00+00:00"),
+    ]:
+        service._gmail.row["connected_at"] = connection
+        with pytest.raises(GmailApiError) as rejected:
+            await service.detail(
+                user_id=owner,
+                source_id=handle,
+                consent_token=TEST_CONSENT_TOKEN,
+                require_access=_allowed,
+            )
+        assert rejected.value.code == "GMAIL_RECEIPT_NOT_FOUND"

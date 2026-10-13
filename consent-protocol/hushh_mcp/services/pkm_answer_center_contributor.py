@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
 from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
 
 BUCKETS = ("incoming_requests", "outgoing_requests", "active_grants", "history", "invites")
@@ -20,8 +21,10 @@ class PkmAnswerCenterContributor:
             rows = (
                 connection.execute(
                     text("""SELECT r.request_id,r.owner_user_id,r.requester_user_id,
-                r.status,r.created_at,r.question,o.status AS payment_status,
-                o.amount_cents,
+                r.status,r.created_at,r.question,r.terms_digest,r.composer_consent_digest,
+                d.source_revisions, o.status AS payment_status,
+                COALESCE(o.amount_cents, r.amount_cents) AS amount_cents,
+                r.approved_at < now() - interval '2 minutes' AS preparation_overdue,
                 -- The resolver's proposal. Zero means nothing of the owner's
                 -- matched the question, so the requester is told the answer is
                 -- not there instead of being shown a price that cannot exist.
@@ -55,8 +58,18 @@ class PkmAnswerCenterContributor:
                     status in {"answered", "declined", "cancelled", "expired"}
                     or not row["connected"]
                 )
+                staged = bool(row["answer_staged"]) and (
+                    not row["answer_has_content"]
+                    or PkmAnswerPaymentService._has_composed_answer(row, row)
+                )
                 needs = not terminal and (
-                    (owner and status in {"awaiting_owner", "answering"})
+                    (
+                        owner
+                        and (
+                            status in {"pending_resolution", "awaiting_owner", "answering"}
+                            or (status == "approved" and not staged)
+                        )
+                    )
                     or (not owner and status == "approved")
                 )
                 bucket = (
@@ -99,7 +112,8 @@ class PkmAnswerCenterContributor:
                             "question": row["question"],
                             "amount_cents": row["amount_cents"],
                             "proposed_scope_count": int(row["proposed_scope_count"] or 0),
-                            "answer_staged": bool(row["answer_staged"]),
+                            "answer_staged": staged,
+                            "preparation_overdue": bool(row["preparation_overdue"]),
                             "answer_has_content": (
                                 None
                                 if row["answer_has_content"] is None

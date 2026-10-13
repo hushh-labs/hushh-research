@@ -1,6 +1,7 @@
 "use client";
 
 import { Capacitor } from "@capacitor/core";
+import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import {
   Fragment,
   FormEvent,
@@ -15,7 +16,7 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
+import { OnePresenceAvatar } from "@/components/agent/one-presence-avatar";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
@@ -65,6 +66,7 @@ import {
   Check,
   ChevronDown,
   Cloud,
+  Cpu,
   Copy,
   FileText,
   KeyRound,
@@ -474,6 +476,8 @@ type AgentMessage = {
   sentAtMs?: number;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
+  receiptPrivate?: { ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number };
+  receiptRedacted?: boolean;
   kind?: "selection";
   /** Sent while One was working and taken into that reply at its next step. */
   queuedPlacement?: "joined";
@@ -2604,6 +2608,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
   ]);
+  const clearReceiptAnswers = useCallback(() => setMessages(current => current.map(message => message.receiptPrivate ? {
+    ...message, receiptPrivate: undefined, receiptRedacted: true, status: "done",
+    text: "Receipt analysis was shown for that turn. Ask again for a fresh analysis.",
+    structuredExperience: null, structuredExperiences: [], streamEvents: [], sources: [], followUps: [],
+  } : message)), []);
+  useEffect(() => {
+    const privateMessages = messages.filter(message => message.receiptPrivate);
+    if (!privateMessages.length) return;
+    if (privateMessages.some(message => {
+      const scope = message.receiptPrivate!;
+      return scope.ownerId !== user?.uid || !isVaultUnlocked || !vaultKey || scope.vaultEpoch !== vaultSessionEpoch || scope.conversationId !== conversationId || scope.expiresAt <= Date.now();
+    })) { clearReceiptAnswers(); return; }
+    const expiresAt = Math.min(...privateMessages.map(message => message.receiptPrivate!.expiresAt));
+    const timer = window.setTimeout(clearReceiptAnswers, Math.max(1, expiresAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [messages, user?.uid, isVaultUnlocked, vaultKey, vaultSessionEpoch, conversationId, clearReceiptAnswers]);
+  useEffect(() => subscribeDurableOwnerReset(owner => {
+    if (owner !== user?.uid) return;
+    clearReceiptAnswers();
+    clearAgentPkmContext(owner);
+  }), [user?.uid, clearReceiptAnswers]);
   const compiledDriveMarkdownRef = useRef(new Map<string, string>());
   const driveCompilationAbortRef = useRef<AbortController | null>(null);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
@@ -3715,7 +3740,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ) => {
     setMessages((current) =>
       current.map((message) =>
-        message.id === messageId ? update(message) : message,
+        message.id === messageId && !message.receiptRedacted ? update(message) : message,
       ),
     );
   };
@@ -5325,6 +5350,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // A person starting a new turn owns the workspace. Invalidate any ambient
     // initial-history restoration so a late warmup cannot replace this turn.
     historyRestoreEpochRef.current += 1;
+    clearReceiptAnswers();
     // A new user turn supersedes any unconfirmed proposal. Never let a stale
     // action card remain armed after the person asks for something else.
     setPendingAppAction(null);
@@ -5984,6 +6010,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
+          onReceiptPrivate: () => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, message => ({ ...message, receiptPrivate: {
+              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              expiresAt: Date.now() + 5 * 60 * 1000,
+            } }));
+          },
           // No onThinkingSummary: the model's reasoning is never shown in
           // chat, live or restored. Only the answer and Activity render.
           onStreamHealth: (signal) => {
@@ -6346,6 +6379,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       addErrorMessage("Vault access expired. Unlock again to continue.");
       return "failed";
     }
+    clearReceiptAnswers();
     const consentBundleId = extra.consentContinuation?.bundleId.toLowerCase();
     // A consent follow-up another device already continued is refused by the
     // server (409). That is a settled answer, not an error: the reply from the
@@ -6455,6 +6489,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // onPkmResults are intentionally omitted; only the events a delegated
         // confirmation turn can actually emit are wired here.
         handlers: {
+          onReceiptPrivate: () => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, current => ({ ...current, receiptPrivate: {
+              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              expiresAt: Date.now() + 5 * 60 * 1000,
+            } }));
+          },
           onStreamHealth: (signal) => {
             if (streamAbortController.signal.aborted) return;
             slowNotice.signal(signal);
@@ -7805,7 +7846,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     (message) => message.id !== "agent-greeting",
   );
   const visibleMessages = dedupeAdjacentAgentMessages(
-    messages.filter((message) => {
+    messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== user?.uid || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? {
+      ...message, receiptRedacted: true, text: "Receipt analysis was shown for that turn. Ask again for a fresh analysis.",
+      structuredExperience: null, structuredExperiences: [], streamEvents: [], sources: [], followUps: [],
+    } : message).filter((message) => {
       if (message.id === "agent-greeting") return false;
       if (
         pendingSpecialistDirective &&
@@ -8437,7 +8481,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const renderDriveMemoryReview = (message: AgentMessage) => {
     const experiences = [...(message.structuredExperiences || []).map(item => item.experience),
       ...(message.structuredExperience ? [message.structuredExperience] : [])];
-    if (!hasChatAccess || !user?.uid || !vaultKey || !vaultOwnerToken || message.role !== "assistant" ||
+    if (message.receiptPrivate || !hasChatAccess || !user?.uid || !vaultKey || !vaultOwnerToken || message.role !== "assistant" ||
       !canReviewDriveMemory(message.status, message.text, experiences)) return undefined;
     const ownerId = user.uid;
     const threadId = conversationId;
@@ -8530,8 +8574,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
-            {/* One centers its stacked identity between balanced controls;
-                narrow phones reserve a separate control row. Puppy keeps
+            {/* One keeps its centered identity and a smaller phone avatar with
+                the name beneath it. Puppy keeps
                 the compact history / clipped identity / actions row. */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
@@ -8544,7 +8588,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // rather than swap materials or bypass overlay isolation.
               eligible={false}
               onActivate={toggleHistoryDrawer} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
-              className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
+              className="agent-chat-history-control relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
             <ShellActionSurface
               variant="icon"
               ref={historyDrawerFallbackRef}
@@ -8567,7 +8611,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
             >
-              {/* One stacks this identity above a separate control row;
+              {/* One uses the same identity at a smaller phone size;
                   Puppy keeps its compact inline identity. */}
               <div
                 data-agent-chat-brand-tile
@@ -8581,18 +8625,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 ) : (
                   <ShellActionSurface
                     variant="icon"
+                    data-agent-chat-one-profile-trigger
                     aria-label="Open One profile"
                     aria-haspopup="dialog"
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                    className="!size-11 md:!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
-                    <HushhMark
-                      aria-hidden="true"
-                      className="size-[72px] items-center justify-center overflow-visible"
-                      imageClassName="!size-16"
-                    />
+                    <OnePresenceAvatar state={activeToolCalls.length > 0 || isPkmMemoryWorking ? "working" : isStreaming ? "answering" : isChatLoading ? "thinking" : "connected"} />
                   </ShellActionSurface>
                 )}
               </div>
@@ -8611,7 +8652,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div data-agent-chat-header-region="actions" className="flex shrink-0 items-center gap-2">
               {/*
                 Order is picker, toggle, profile, and it is load-bearing. The
                 toggle is anchored to the profile button at the right edge, so
@@ -8662,6 +8703,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         Gemini, so the shared word is the one thing a narrow
                         header cannot afford. The full label stays in the menu
                         and in the tooltip. */}
+                    <Cpu aria-hidden="true" className="agent-chat-model-icon hidden" />
                     <span className="truncate">
                       {(
                         modelPreference.choices.find(
@@ -8708,7 +8750,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   if (next === "puppy") enterPuppySurface();
                   else setAgentSurface(next);
                 }} focusRef={agentSurfaceFocusRef}
-                className="flex h-11 w-[88px] shrink-0 items-center justify-center sm:w-[116px]">
+                className="agent-chat-surface-control flex h-11 w-[88px] shrink-0 items-center justify-center sm:w-[116px]">
               <SegmentedControl
                 selectedButtonRef={agentSurfaceFocusRef}
                 variant="compact"
@@ -8770,7 +8812,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <OneAgentProfileSheet open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
+          <OneAgentProfileSheet presenceState={activeToolCalls.length > 0 || isPkmMemoryWorking ? "working" : isStreaming ? "answering" : isChatLoading ? "thinking" : "connected"} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface

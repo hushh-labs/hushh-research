@@ -12,6 +12,7 @@
  * payment.
  */
 
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { ApiService } from "@/lib/services/api-service";
 
 const REQUEST_UUID =
@@ -65,7 +66,7 @@ export interface AnswerPaymentView {
   paidAt: string | null;
   refundedAt: string | null;
   refundReason: string | null;
-  preparationStatus: "preparing" | "ready" | "empty";
+  preparationStatus: "preparing" | "ready" | "empty" | "retry_required";
   reconciliationRequired: boolean;
   /** Quoted BEFORE checkout: the answer is produced on the owner's device. */
   fulfilment: "owner_device";
@@ -292,6 +293,13 @@ export class AnswerRequestService {
     return await response.json();
   }
 
+  static async retryResolution(token: string, requestId: string): Promise<void> {
+    const response = await ApiService.apiFetch(`${requestPath(requestId)}/resolve`, {
+      method: "POST", cache: "no-store", headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error("This question could not be matched. Try again.");
+  }
+
   /** Approve the exact question, the exact scopes and a whole-dollar price. */
   static async approve(
     firebaseIdToken: string,
@@ -320,6 +328,7 @@ export class AnswerRequestService {
     );
     if (!response.ok) throw new Error("This request could not be approved");
     const value = await readJson(response);
+    dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
     return { termsDigest: String(value.termsDigest || "") };
   }
 
@@ -455,6 +464,7 @@ export class AnswerRequestService {
       },
     );
     if (!response.ok) throw new Error("This answer could not be delivered");
+    dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
   }
 
   /** Submit a question. Returns the new request id; resolution happens server-side. */
@@ -490,6 +500,7 @@ export class AnswerRequestService {
     const value = await readJson(response);
     const requestId = String(value.requestId || "");
     if (!REQUEST_UUID.test(requestId)) throw new Error("Invalid response");
+    dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
     return { requestId };
   }
 
@@ -525,7 +536,7 @@ export class AnswerRequestService {
       throw new Error("Invalid payment response");
     }
     // Older deployments cannot prove preparation; never offer checkout from an absent field.
-    value.preparationStatus = ["preparing", "ready", "empty"].includes(String(value.preparationStatus))
+    value.preparationStatus = ["preparing", "ready", "empty", "retry_required"].includes(String(value.preparationStatus))
       ? value.preparationStatus : "preparing";
     value.reconciliationRequired = value.reconciliationRequired !== false;
     if (["paid", "refunded"].includes(String(value.orderStatus)) &&

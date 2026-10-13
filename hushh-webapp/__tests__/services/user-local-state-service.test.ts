@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   clearDeviceVaultSecrets: vi.fn(),
 }));
 
+vi.mock("@/lib/services/secure-durable-resource-service", () => ({ SecureDurableResourceService: { purgeUser: vi.fn().mockResolvedValue(undefined) } }));
+
 vi.mock("@/lib/one-location/encryption", () => ({
   forgetLocationRecipientKey: mocks.forgetLocationRecipientKey,
 }));
@@ -65,6 +67,7 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
+import { SecureDurableResourceService } from "@/lib/services/secure-durable-resource-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 describe("UserLocalStateService", () => {
@@ -135,6 +138,15 @@ describe("UserLocalStateService", () => {
 
     expect(mocks.forgetLocationRecipientKey).not.toHaveBeenCalled();
     expect(mocks.clearDeviceVaultSecrets).not.toHaveBeenCalled();
+    expect(SecureDurableResourceService.purgeUser).not.toHaveBeenCalled();
+  });
+
+  it("removes durable receipt ciphertext only for confirmed Reset/delete and surfaces failed removal", async () => {
+    await UserLocalStateService.clearForUser("uid-1", { deleteDurableReceipts: true });
+    expect(SecureDurableResourceService.purgeUser).toHaveBeenCalledWith("uid-1");
+    vi.mocked(SecureDurableResourceService.purgeUser).mockRejectedValueOnce(new Error("device storage blocked"));
+    await expect(UserLocalStateService.clearForUser("uid-1", { deleteDurableReceipts: true })).rejects.toThrow("encrypted device receipts");
+    expect(mocks.forgetLocationMemory).toHaveBeenCalledTimes(2);
   });
 
   it("removes device key material for a deleted account, even if one store fails", async () => {

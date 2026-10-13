@@ -1,5 +1,7 @@
 "use client";
 
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
@@ -40,6 +42,27 @@ import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-loca
 
 const MAX_CONFLICT_RETRIES = 2;
 
+// Both projection writers and owner edits share one merge lane. Cross-tab
+// writers use Web Locks; remote devices still race through revision CAS.
+const domainWrites = new Map<string, Promise<unknown>>();
+async function serializeDomainWrite<T>(userId: string, domain: string, run: () => Promise<T>): Promise<T> {
+  const key = `${userId}:${domain}`;
+  const epoch = snapshotVaultSessionEpoch();
+  const previous = domainWrites.get(key) ?? Promise.resolve();
+  const write = previous.catch(() => undefined).then(async () => {
+    const guarded = async () => {
+      if (!isVaultSessionEpochCurrent(epoch)) throw new DOMException("Session changed", "AbortError");
+      return run();
+    };
+    return typeof navigator !== "undefined" && navigator.locks
+      ? navigator.locks.request(`pkm-write:${key}`, guarded) : guarded();
+  });
+  domainWrites.set(key, write);
+  try { return await write; }
+  finally { if (domainWrites.get(key) === write) domainWrites.delete(key); }
+}
+
+
 export type PkmWriteCoordinatorSaveState =
   | "saved"
   | "upgraded_and_saved"
@@ -64,6 +87,8 @@ type BaseContext = {
 };
 
 type MergedWritePlan = {
+  /** The source projection is already current; no encrypted write is needed. */
+  unchanged?: boolean;
   domainData: Record<string, unknown>;
   summary: Record<string, unknown>;
   mergeDecision?: PkmMergeDecision;
@@ -458,7 +483,12 @@ async function ensureWritableVersion(params: {
 }
 
 export class PkmWriteCoordinator {
-  static async saveMergedDomain(params: {
+  static saveMergedDomain(params: Parameters<typeof PkmWriteCoordinator.saveMergedDomainNow>[0]): Promise<PkmWriteCoordinatorResult> {
+    return serializeDomainWrite(params.userId, params.domain, () => this.saveMergedDomainNow(params))
+      .catch(error => pkmWriteFailureResult(error, params.userId));
+  }
+
+  private static async saveMergedDomainNow(params: {
     userId: string;
     domain: string;
     vaultKey?: string | null;
@@ -485,6 +515,7 @@ export class PkmWriteCoordinator {
 
     try {
       for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt += 1) {
+        await params.beforeEffect?.();
         if (!upgradedInSession) {
           const upgrade = await ensureWritableVersion({
             userId: params.userId,
@@ -511,6 +542,10 @@ export class PkmWriteCoordinator {
           upgradedInSession,
         });
         const plan = await params.build(context);
+        if (plan.unchanged) {
+          await params.beforeEffect?.();
+          return { success: true, saveState: "saved", idempotentReplay: true, fullBlob: context.baseFullBlob, dataVersion: context.currentEncryptedDomain?.dataVersion };
+        }
         const mutationPlan = await buildConfirmedPkmMutationPlanV2({
           userId: params.userId,
           domain: params.domain,
@@ -608,6 +643,7 @@ export class PkmWriteCoordinator {
           };
         }
         retryingAfterConflict = true;
+        await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt + Math.random() * 100));
       }
     } catch (error) {
       return pkmWriteFailureResult(error, params.userId);
@@ -616,7 +652,12 @@ export class PkmWriteCoordinator {
     return emptyResult("failed", "Failed to save PKM domain.");
   }
 
-  static async savePreparedDomain(params: {
+  static savePreparedDomain(params: Parameters<typeof PkmWriteCoordinator.savePreparedDomainNow>[0]): Promise<PkmWriteCoordinatorResult> {
+    return serializeDomainWrite(params.userId, params.domain, () => this.savePreparedDomainNow(params))
+      .catch(error => pkmWriteFailureResult(error, params.userId));
+  }
+
+  private static async savePreparedDomainNow(params: {
     userId: string;
     domain: string;
     vaultKey?: string | null;
@@ -777,6 +818,7 @@ export class PkmWriteCoordinator {
           };
         }
         retryingAfterConflict = true;
+        await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt + Math.random() * 100));
       }
     } catch (error) {
       return pkmWriteFailureResult(error, params.userId);

@@ -50,7 +50,8 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
 });
 
-async function mount(page: Page, paid: boolean) {
+async function mount(page: Page, paid: boolean, prepared = true) {
+  let isPrepared = prepared;
   const errors: string[] = [];
   const outsideRequests: string[] = [];
   let answerReads = 0;
@@ -69,7 +70,7 @@ async function mount(page: Page, paid: boolean) {
     else if (pathname === `/api/one/answer-requests/${REQUEST_ID}/payment`) body = {
       requestStatus: paid ? "answered" : "approved", orderStatus: paid ? "paid" : "checkout_open",
       amountCents: 1000, currency: "usd", checkoutUrl: null, paidAt: paid ? "2026-10-13T12:00:00Z" : null,
-      refundedAt: null, refundReason: null, preparationStatus: "ready", reconciliationRequired: false,
+      refundedAt: null, refundReason: null, preparationStatus: isPrepared ? "ready" : "preparing", reconciliationRequired: false,
       fulfilment: "owner_device", answerDeadlineAt: null, answerDeadlineHours: 72,
     };
     else if (pathname === `/api/one/answer-requests/${REQUEST_ID}/answer`) {
@@ -88,7 +89,7 @@ async function mount(page: Page, paid: boolean) {
   await awaitProductFont(page);
   await expect(page).toHaveTitle("Paid answer profile photo fixture");
   await expect(page.getByRole("heading", { name: "Paid answer profile photo" })).toBeVisible();
-  return { errors, outsideRequests, answerReads: () => answerReads };
+  return { errors, outsideRequests, answerReads: () => answerReads, stage: () => { isPrepared = true; } };
 }
 
 test("paid approved photo decodes natively, then lock and account switch isolate it", async ({ page }) => {
@@ -151,4 +152,18 @@ test("unpaid prepared answer never fetches or renders the approved photo", async
   expect(evidence.answerReads()).toBe(0);
   expect(evidence.outsideRequests).toEqual([]);
   expect(evidence.errors).toEqual([]);
+});
+
+test("staging becomes payable through bounded card polling without an event stream", async ({ page }) => {
+  await page.clock.install();
+  const evidence = await mount(page, false, false);
+  const card = page.getByRole("region", { name: "Paid answer" });
+  await expect(card.getByRole("button", { name: "Pay $10", exact: true })).toHaveCount(0);
+  await expect(card.getByText(/Their answer is being prepared/)).toBeVisible();
+  evidence.stage();
+  await page.clock.runFor(3100);
+  await expect(card.getByRole("button", { name: "Pay $10", exact: true })).toBeVisible();
+  expect(evidence.answerReads()).toBe(0);
+  expect(evidence.errors).toEqual([]);
+  expect(evidence.outsideRequests).toEqual([]);
 });

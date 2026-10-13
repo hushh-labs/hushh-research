@@ -181,7 +181,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(
       mockPublishAccountDeletionToSiblingTabs.mock.invocationCallOrder[0],
     ).toBeLessThan(mockOnAccountDeleted.mock.invocationCallOrder[0]!);
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     expect(mockClearDeviceSecrets).toHaveBeenCalledWith("user_123");
     expect(mockSetOnboardingRequiredCookie).toHaveBeenCalledWith(false);
     expect(mockSetOnboardingFlowActiveCookie).toHaveBeenCalledWith(false);
@@ -231,7 +231,7 @@ describe("executeVerifiedAccountDeletion", () => {
     ).resolves.toBeUndefined();
 
     expect(mockOnAccountDeleted).toHaveBeenCalledWith("user_123");
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
       code: "account_deleted",
       path: "account_delete_confirmed",
@@ -306,7 +306,7 @@ describe("executeVerifiedAccountDeletion", () => {
         path: "account_delete_uncertain_outcome",
         userId: "user_123",
       });
-      expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+      expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     },
   );
 
@@ -341,7 +341,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(mockPublishAccountDeletionToSiblingTabs).toHaveBeenCalledWith(
       "user_123",
     );
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
   });
 
   it("fails closed when a lost-response probe sees a pre-commit active snapshot", async () => {
@@ -431,7 +431,7 @@ describe("executeVerifiedAccountDeletion", () => {
       path: "account_delete_uncertain_outcome",
       userId: "user_123",
     });
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     expect(mockClearDeviceSecrets).toHaveBeenCalledWith("user_123");
   });
 
@@ -557,7 +557,7 @@ describe("executeVerifiedAccountDeletion", () => {
       path: "account_delete_uncertain_outcome",
       userId: "user_123",
     });
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
   });
 
   it("refuses to delete when the supplied Firebase identity changed", async () => {

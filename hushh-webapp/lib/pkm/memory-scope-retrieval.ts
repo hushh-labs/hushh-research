@@ -1,7 +1,7 @@
 "use client";
 
 import { buildConsentExportForScope, createConsentExportReadSession } from "@/lib/consent/export-builder";
-import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { currentPkmSourceEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { answerProfilePhotoUrl, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
 import { approvedScopesBackedBySoul, isOwnProfileNameScope, projectApprovedSoulFacts, SCOPE_PATH_TO_LABEL } from "@/lib/pkm/identity-memory-facts";
 import { loadMarkdownMemory, peekMarkdownMemory } from "@/lib/pkm/markdown-memory";
@@ -35,6 +35,8 @@ export interface ApprovedMemoryRetrievalParams extends MemoryProjectionSession {
   /** Fresh canonical account read used only when account facts contribute to a staged answer. */
   readOwnerIdentity?: () => Promise<{ displayName?: string | null; photoUrl?: string | null } | null>;
   now?: Date;
+  assertActive?: () => void;
+  onRefreshTiming?: (started: number) => void;
 }
 
 const CANONICAL_DOB = "attr.identity.identity_profile.date_of_birth";
@@ -127,10 +129,13 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
   const unavailable = (failed: readonly string[] = scopes): ApprovedMemoryRetrieval => ({ projections: [], unavailableScopes: [...failed], sourceManifestRevisions: {}, builtAt, complete: false, sourceFreshness: {}, assertCurrent: async () => { throw new Error("Memory sources unavailable"); } });
   if (!params.vaultKey || !params.vaultOwnerToken || scopes.some(scope => !/^attr\.[a-z0-9_]+(?:\.[a-z0-9_*]+)+$/.test(scope))) return unavailable();
   const epoch = snapshotVaultSessionEpoch();
-  const sourceEpoch = currentPkmInvalidationEpoch(params.userId);
+  const domains = [...new Set(scopes.flatMap(scope => dependencies(scope)))].sort();
+  const fencedDomains = scopes.includes("attr.professional.profile.*") ? [...domains, "identity"] : domains;
+  const sourceEpoch = currentPkmSourceEpoch(params.userId, fencedDomains);
   const valid = () => {
+    params.assertActive?.();
     if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
-    if (currentPkmInvalidationEpoch(params.userId) !== sourceEpoch) throw new Error("Memory sources changed during retrieval");
+    if (currentPkmSourceEpoch(params.userId, fencedDomains) !== sourceEpoch) throw new Error("Memory sources changed during retrieval");
     if (!params.now && scopes.some(isAgeScope) && new Date().toISOString().slice(0, 10) !== date) throw new Error("Age changed during retrieval");
   };
   try {
@@ -141,7 +146,6 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       return [scope, Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")] as const;
     })));
     valid();
-    const domains = [...new Set(scopes.flatMap(scope => dependencies(scope)))].sort();
     const [stored, sources] = await Promise.all([
       readMemoryDocumentProjection(params), readMemoryScopeSourceRevisions({ ...params, domains }),
     ]);
@@ -161,10 +165,10 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       // The encrypted projection's own save bumps the PKM epoch. Capture the
       // epoch only after its final source verification, then retain the exact
       // source snapshots for remote-change checks after asynchronous model work.
-      const verifiedEpoch = currentPkmInvalidationEpoch(params.userId);
+      const verifiedEpoch = currentPkmSourceEpoch(params.userId, domains);
       const captured = new Map([...slices].map(([scope, slice]) => [scope, structuredClone(slice)]));
       const checkSession = () => {
-        if (!complete || !isVaultSessionEpochCurrent(epoch) || currentPkmInvalidationEpoch(params.userId) !== verifiedEpoch)
+        if (!complete || !isVaultSessionEpochCurrent(epoch) || currentPkmSourceEpoch(params.userId, domains) !== verifiedEpoch)
           throw new Error("Memory sources changed before staging");
         if (!params.now && scopes.some(isAgeScope) && new Date().toISOString().slice(0, 10) !== date)
           throw new Error("Age changed before staging");
@@ -212,6 +216,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       else rebuild.push(scope);
     }
     if (rebuild.length) {
+      const refreshStarted = performance.now();
       const includeDob = rebuild.some(scope => requiresAgeDerivation(scope, sources)) && sources.identity?.hasCanonicalDob === true;
       const materializedScopes = rebuild.filter(scope => hasStructuredCounterpart(scope, sources[scopeDomain(scope)]!) && !isAnswerProfilePhotoScope(scope));
       const sessionScopes = [...new Set([...materializedScopes, ...(includeDob ? [CANONICAL_DOB] : [])])];
@@ -319,11 +324,13 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       const replacements = rebuild.map(scope => slices.get(scope)).filter((slice): slice is MemoryScopeSlice => Boolean(slice));
       if (replacements.length) {
         await persistMemoryScopeSlices({ ...params, slices: replacements, beforeEffect: async () => { valid(); } });
+        params.onRefreshTiming?.(refreshStarted);
+        // Recheck authoritative revisions after persisting the derived slice.
         // The derived write changes the global PKM epoch itself. Fence a fresh
         // revision check after that write rather than rejecting our own save.
-        const verificationEpoch = currentPkmInvalidationEpoch(params.userId);
+        const verificationEpoch = currentPkmSourceEpoch(params.userId, domains);
         const verified = await readMemoryScopeSourceRevisions({ ...params, domains });
-        if (!isVaultSessionEpochCurrent(epoch) || currentPkmInvalidationEpoch(params.userId) !== verificationEpoch ||
+        if (!isVaultSessionEpochCurrent(epoch) || currentPkmSourceEpoch(params.userId, domains) !== verificationEpoch ||
             [...slices].some(([scope, slice]) => !sameSources(slice.sources, dependencies(scope, verified).map(domain => verified[domain]!)))) return unavailable();
       }
       if (!isVaultSessionEpochCurrent(epoch) || !params.now && scopes.some(isAgeScope) && new Date().toISOString().slice(0, 10) !== date) return unavailable();

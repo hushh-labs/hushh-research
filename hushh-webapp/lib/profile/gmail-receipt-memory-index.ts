@@ -1,21 +1,9 @@
 /**
- * The bounded canonical transaction index saved in `shopping.receipts_memory`.
+ * Read-only compatibility parser for the retired detailed PKM receipt index.
  *
- * Receipts canonical data -> encrypted PKM -> Email Agent -> One Chat response.
- *
- * The index is derived on the device from the SAME canonical rows Mail >
- * Receipts shows (`buildRecentReceiptRows`), never from the retired server
- * receipt table. It carries only what an answer needs, and nothing a mailbox
- * would: no subject, preview, body, sender address, provider message or thread
- * id, signed source handle, attachment, or link. The Python reader
- * (`consent-protocol/hushh_mcp/services/receipt_memory_read.py`) validates the
- * same closed shape and refuses anything else, so a field added here without
- * a matching change there is dropped as "not ready", never half-read.
- *
- * It is stored under a leading-underscore branch. The PKM treats that spelling
- * as plumbing (`lib/pkm/internal-path-keys.ts`): it never becomes a shareable
- * path, never appears as a Memory card, and never enters the always-on prompt
- * packet. Only the owner's device reads it, to send it with a typed chat turn.
+ * This shape exists only to validate historical encrypted revisions and move
+ * permitted facts into an unattributed Mail archive. New saves use the Mail
+ * snapshot and lightweight PKM projection. Chat never receives this index.
  */
 
 import type {
@@ -24,6 +12,7 @@ import type {
 } from "@/lib/services/gmail-receipts-service";
 import type { RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
 import { sha256Hex } from "@/lib/personal-knowledge-model/mutation-plan";
+import { safeAffinityLabel } from "@/lib/mail/receipt-lightweight-memory";
 
 export const RECEIPT_INDEX_SCHEMA = "receipt_canonical_index.v1" as const;
 /** Leading underscore = private plumbing branch; see the module note. */
@@ -359,7 +348,7 @@ type ReceiptsMemoryRecord = Record<string, unknown>;
 function topMerchants(index: ReceiptCanonicalIndex, limit: number): string[] {
   const counts = new Map<string, number>();
   for (const item of index.transactions) {
-    if (item.merchant) counts.set(item.merchant, (counts.get(item.merchant) ?? 0) + 1);
+    if (safeAffinityLabel(item.merchant)) counts.set(item.merchant, (counts.get(item.merchant) ?? 0) + 1);
   }
   return [...counts.entries()]
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
@@ -368,9 +357,8 @@ function topMerchants(index: ReceiptCanonicalIndex, limit: number): string[] {
 }
 
 /**
- * The `receipts_memory` branch after saving: every existing summary field is
- * kept as it is for compatibility, a minimal one is written only where none
- * exists, and the canonical index and its provenance are added.
+ * Read-only legacy index compatibility: return only lightweight counts.
+ * Real removal of a durable index also requires verified Mail migration.
  */
 export function mergeReceiptsMemoryWithIndex(params: {
   existing: unknown;
@@ -379,40 +367,27 @@ export function mergeReceiptsMemoryWithIndex(params: {
   now: Date;
 }): ReceiptsMemoryRecord {
   const nowIso = params.now.toISOString().replace(/\.\d{3}Z$/, "Z");
-  const existing: ReceiptsMemoryRecord = isRecord(params.existing)
-    ? { ...params.existing }
-    : {};
   const merchants = topMerchants(params.index, 3);
-  const existingSummary = isRecord(existing.readable_summary) ? existing.readable_summary : null;
-  const readableSummary =
-    existingSummary && isString(existingSummary.text) && existingSummary.text.trim()
-      ? existingSummary
-      : {
+  const counts = new Map<string, number>();
+  for (const row of params.index.transactions) if (safeAffinityLabel(row.merchant))
+    counts.set(row.merchant, (counts.get(row.merchant) ?? 0) + 1);
+  return {
+    schema_version: 2,
+    readable_summary: {
           text: `Saved ${params.index.total_transactions} ${
             params.index.total_transactions === 1 ? "receipt" : "receipts"
           } from your Mail.`,
           highlights: merchants.length ? [`Top merchants: ${merchants.join(", ")}`] : [],
           updated_at: nowIso,
           source_label: "Gmail receipts",
-        };
-  const provenance = isRecord(existing.provenance) ? existing.provenance : {};
-  return {
-    ...existing,
-    schema_version: typeof existing.schema_version === "number" ? existing.schema_version : 1,
-    readable_summary: readableSummary,
-    observed_facts: isRecord(existing.observed_facts)
-      ? existing.observed_facts
-      : { merchant_affinity: [], purchase_patterns: [], recent_highlights: [] },
-    inferred_preferences: isRecord(existing.inferred_preferences)
-      ? existing.inferred_preferences
-      : { preference_signals: [] },
-    provenance: {
-      ...provenance,
-      source_kind: "gmail_receipts",
-      canonical_index_digest: params.digest,
-      receipt_count_used: params.index.total_transactions,
-      imported_at: nowIso,
     },
-    [RECEIPT_INDEX_BRANCH]: params.index,
+    observed_facts: { merchant_affinity: [...counts].slice(0, 20).map(([merchant_label, purchase_count]) => ({ merchant_label, purchase_count })), category_affinity: [], purchase_patterns: [] },
+    inferred_preferences: { preference_signals: [] },
+    confidence: null,
+    coverage: { canonical_count: params.index.total_transactions, partial: true, truncated: params.index.truncated },
+    provenance: {
+      source_kind: "mail_receipt_snapshot",
+      updated_at: nowIso,
+    },
   };
 }

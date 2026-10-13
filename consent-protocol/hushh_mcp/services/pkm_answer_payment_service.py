@@ -133,7 +133,9 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 connection,
                 """SELECT r.status AS request_status, r.amount_cents, r.currency,
                           r.request_id, r.owner_user_id, r.terms_digest, r.composer_consent_digest,
-                          r.answer_deadline_at, r.question, o.status AS order_status,
+                          r.answer_deadline_at, r.question,
+                          (r.approved_at < clock_timestamp() - interval '2 minutes') AS preparation_overdue,
+                          o.status AS order_status,
                           o.stripe_checkout_url, o.paid_at, o.refunded_at, o.refund_reason,
                           o.reconciliation_required, d.has_content AS staged_has_content,
                           d.source_revisions AS staged_revisions
@@ -168,11 +170,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             "refundReason": row["refund_reason"],
             "reconciliationRequired": bool(row["reconciliation_required"]),
             "preparationStatus": (
-                "preparing"
+                ("retry_required" if row.get("preparation_overdue") else "preparing")
                 if row["staged_has_content"] is None
                 else "ready"
                 if prepared
-                else "preparing"
+                else ("retry_required" if row.get("preparation_overdue") else "preparing")
                 if row["staged_has_content"]
                 else "empty"
             ),

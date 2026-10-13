@@ -290,7 +290,8 @@
     "322_wallet_universal_sharing.sql",
     "323_wallet_sharing_owner_index.sql",
     "324_wallet_sharing_recipient_index.sql",
-    "325_wallet_sharing_audit_index.sql"
+    "325_wallet_sharing_audit_index.sql",
+    "326_answer_scope_resolution_lease.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -483,7 +484,8 @@
       "226_pkm_manifest_path_repair.sql",
       "300_pkm_answer_requests.sql",
       "301_pkm_answer_refunds_payouts.sql",
-      "305_pkm_answer_payment_recovery.sql"
+      "305_pkm_answer_payment_recovery.sql",
+      "326_answer_scope_resolution_lease.sql"
     ],
     "developer": [
       "070_developer_registry.sql",
@@ -613,6 +615,7 @@
     "322_wallet_universal_sharing.sql": "rollback/322_wallet_universal_sharing.rollback.sql",
     "323_wallet_sharing_owner_index.sql": "rollback/323_wallet_sharing_owner_index.rollback.sql",
     "324_wallet_sharing_recipient_index.sql": "rollback/324_wallet_sharing_recipient_index.rollback.sql",
-    "325_wallet_sharing_audit_index.sql": "rollback/325_wallet_sharing_audit_index.rollback.sql"
+    "325_wallet_sharing_audit_index.sql": "rollback/325_wallet_sharing_audit_index.rollback.sql",
+    "326_answer_scope_resolution_lease.sql": "rollback/326_answer_scope_resolution_lease.rollback.sql"
   }
 }
