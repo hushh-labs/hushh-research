@@ -456,7 +456,7 @@ function UnlockedDocumentReview({
   // The requester's terms never change once sent: read them once per sheet. A
   // definitive "none" (older free requests) is remembered too; a transient
   // failure is asked again on the next load.
-  const requesterTerms = useRef<{ value: SharingRequestContext | null } | null>(null);
+  const requesterTerms = useRef<{ revision: number; value: SharingRequestContext | null } | null>(null);
   const serial = useRef(0);
   const alive = useRef(false);
   // A decision is never overlapped; it may supersede a load, a search included.
@@ -511,17 +511,20 @@ function UnlockedDocumentReview({
       };
       // Optional: a request without requester terms (or an older server) still loads.
       const requesterContext = async (): Promise<SharingRequestContext | null> => {
-        if (requesterTerms.current) return requesterTerms.current.value;
+        if (requesterTerms.current?.revision === status.revision &&
+            (!status.payment?.packageDisclosureRequired || (requesterTerms.current.value?.packageDisclosure &&
+              requesterTerms.current.value.requestRevision === status.revision)))
+          return requesterTerms.current.value;
         try {
           const value = await DriveSharingService.requesterContext(token, requestId, guard);
           guard();
-          requesterTerms.current = { value };
+          requesterTerms.current = { revision: status.revision, value };
           return value;
         } catch (cause) {
           guard();
           if (cause instanceof DriveSharingError && cause.code === "session_changed") throw cause;
           if (cause instanceof DriveSharingError && cause.code === "request_unavailable")
-            requesterTerms.current = { value: null };
+            requesterTerms.current = { revision: status.revision, value: null };
           return null;
         }
       };
@@ -1149,7 +1152,8 @@ function UnlockedDocumentReview({
             : agentPackage && review?.preparationError === "background_preparation_required"
               ? "Background Drive access needed"
             : agentPackage && UNDECIDED.has(snapshot.status.status)
-              ? ({ preparing: "Preparing your file package", ready: "Package ready for your decision",
+              ? ({ preparing: "Preparing your file package", ready: agentPackage.coverageStatus === "partial" ? "Incomplete package"
+                  : agentPackage.coverageStatus === "unknown" ? "Unable to verify" : "Package ready for your decision",
                   no_match: "No matching package found", unavailable: "Package preparation unavailable",
                   stale: "Package needs a fresh assessment", allowed: "Package allowed" } as const)[agentPackage.status]
             : setup && !ownerDecision

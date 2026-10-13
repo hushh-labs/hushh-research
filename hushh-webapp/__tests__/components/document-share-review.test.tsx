@@ -273,7 +273,7 @@ describe("exact-file document review", () => {
     state.review.mockResolvedValue(partial({ revision: 3, paymentRequired: true,
       ownerPriceRequired: true, priceCents: 2000, agentPackage: agentPackage() }));
     await poll();
-    expect(await screen.findByText("Package ready for your decision")).toBeVisible();
+    expect(await screen.findByText("Incomplete package")).toBeVisible();
     fireEvent.click(screen.getByText("View details"));
     expect(screen.getByText("82/100")).toBeVisible();
     expect(screen.getByText("175/500")).toBeVisible();
@@ -304,6 +304,14 @@ describe("exact-file document review", () => {
     await waitFor(() => expect(state.allow).toHaveBeenCalledWith("owner-a", requestId,
       { revision: 3, amountCents: 1050, packageRevision: 2, packageDigest: "b".repeat(64) }, expect.any(Function)));
     expect(screen.queryByRole("dialog", { name: "Set a price" })).toBeNull();
+  });
+
+  it("does not call unknown coverage a ready package", async () => {
+    state.status.mockResolvedValue(pending(3));
+    state.review.mockResolvedValue(partial({ revision: 3, agentPackage: agentPackage({ coverageStatus: "unknown" }) }));
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(await screen.findByText("Unable to verify")).toBeVisible();
+    expect(screen.queryByText("Package ready for your decision")).toBeNull();
   });
 
   it("reuses background Drive setup before polling package preparation", async () => {

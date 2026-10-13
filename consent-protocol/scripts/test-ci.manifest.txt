@@ -769,6 +769,7 @@ tests/services/test_drive_request_index_reuse.py
 tests/services/test_drive_request_index_reuse_postgres.py
 
 tests/services/test_drive_packet_payment_postgres.py
+tests/services/test_drive_request_package_disclosure.py
 
 tests/services/test_drive_package_access_preflight.py
 

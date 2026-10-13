@@ -601,6 +601,24 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     or request["status"] in {"approved", "partial", "completed"}
                     or self.owner_approved_progressive_batch(connection, request)
                 )
+            from hushh_mcp.services.drive_request_package_disclosure import buyer_package_disclosure
+
+            package_required = bool(private and private.get("agent_package_required") is True)
+            disclosure = (
+                buyer_package_disclosure(
+                    private or {},
+                    request_revision=request["revision"],
+                    owner_allowed_at=request.get("owner_allowed_at"),
+                )
+                if package_required
+                else None
+            )
+            if (
+                package_required
+                and disclosure is None
+                and (order is None or order["status"] not in {"paid", "refunded"})
+            ):
+                approved = False
             checkout_expired = bool(
                 order
                 and order["status"] not in {"paid", "refunded"}
@@ -643,6 +661,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
             view = requester_payment_view(
                 payment_required=True,
+                package_disclosure_required=package_required,
+                package_disclosure=disclosure,
                 request_status=request["status"],
                 request_expires_at=request.get("expires_at"),
                 now=datetime.now(UTC),
@@ -670,8 +690,14 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 ),
                 configured_mode=configured_stripe_mode(),
             )
+            if package_required:
+                # This authenticated read knows whether sealed terms are current.
+                # Null prevents clients from reusing a stale context disclosure.
+                view["packageDisclosure"] = disclosure
             return {
                 "paymentView": view,
+                **({"packageDisclosureRequired": True} if package_required else {}),
+                **({"packageDisclosure": disclosure} if disclosure is not None else {}),
                 "status": status,
                 "amountCents": None
                 if setup.get("ownerPriceRequired")

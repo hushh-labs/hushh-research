@@ -573,6 +573,7 @@ class DriveSharingStore(DriveDocumentStore):
                     r.status AS request_status,r.expires_at AS request_expires_at,
                     r.access_stop_requested_at,r.payment_required,r.preparation_error_code,
                     r.quoted_amount_cents,
+                    COALESCE((to_jsonb(r)->>'agent_package_required')::boolean,FALSE) AS agent_package,
                     f.status AS refund_status,f.amount_cents AS refund_amount_cents,
                     CASE WHEN p.request_id IS NOT NULL AND r.settlement_method<>'hashcoins'
                       THEN COALESCE(a.account_ready,FALSE) END AS owner_payout_ready
@@ -620,6 +621,7 @@ class DriveSharingStore(DriveDocumentStore):
             **legacy,
             "payment": requester_payment_view(
                 payment_required=True,
+                package_disclosure_required=row.get("agent_package") is True,
                 request_status=row["request_status"],
                 request_expires_at=row["request_expires_at"],
                 now=datetime.now(UTC),
@@ -2830,6 +2832,7 @@ class DriveSharingStore(DriveDocumentStore):
                         "selected_positions": package["selected_positions"],
                         "selected_sources": package["selected_sources"],
                         "package_selected_count": len(package["selected_positions"]),
+                        "buyer_disclosure": package["buyer_disclosure"],
                     }
                 )
             envelope = self.sharing_cipher.seal(

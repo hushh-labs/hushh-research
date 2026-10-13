@@ -1464,9 +1464,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
         paymentContexts[payment.requestId],
       );
       const paymentIsNonActionable = displayPayment.status !== "ready";
+      const packetReviewRequired = payment.packageDisclosureRequired === true || !!paymentContexts[payment.requestId]?.packageDisclosure;
       const paymentAction = paymentIsNonActionable
         ? []
-        : [
+        : packetReviewRequired ? [{ key: "review-packet", label: "Review packet", tone: "primary" as const,
+          run: () => router.push(buildConsentCenterHref("pending", {
+            requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/feed",
+          })),
+        }] : [
             {
               key: "pay",
               // The order's price: the owner's, or $10 in the Trusted circle.

@@ -118,13 +118,28 @@ not claimed as a universal market price or 99.9% accurate estimate.
 
 ### Observed development results (October 13, 2026)
 
-The actual worker model, `gemini-3.6-flash`, completed five original-PDF
-regression requests: 5/5 packet decisions, 5/5 coverage decisions, 5/5 checker
-decisions and 4/4 relevant selected documents; 18/19 extracted fact labels matched.
-Request latency was p50 13.943 seconds and p95 20.791 seconds. Model token cost was
-not observed. Provider/schema failures from earlier attempts were retained. These
-cases informed fixes and are now regression data, not an untouched holdout.
-They do not measure Google discovery recall or prove real buyer delivery.
+The actual worker model, `gemini-3.6-flash`, completed nine original-PDF
+regression requests over 13 unique synthetic PDFs. The original expanded run
+recorded 8/8 relevant selected-document observations, 5/5 correct Ready packets,
+9/9 checker decisions, and 73/75 matching fact labels. Overall packet and coverage
+grading was 8/9. Request latency was p50 13.309 seconds and p95 27.711 seconds.
+Model token cost was not observed.
+
+The one coverage grading failure compared a correct explanatory gap sentence
+with an ISO date-pair reference. A targeted replay correctly selected September's
+statement, reported Incomplete, and identified October 1–9 as missing. The adapter
+now serializes a single explicit, valid ISO gap range before exact comparison;
+unparseable or ambiguous claims and wrong dates still fail. That captured replay
+passes after offline regrading. The original nine grades remain unchanged;
+this correction is separate evidence, not a replacement 9/9 claim.
+
+The two original fact mismatches concern document-type labels on injected-note
+PDFs. Both documents were correctly excluded. Their original raw labels were not
+retained, so they are not dismissed as spelling differences; a targeted diagnostic
+returned "meeting notes" for one and no document type for the other. Earlier
+provider/schema failures and the original expanded failure report are retained.
+These cases informed fixes and are development regression data, not an untouched
+holdout. They do not measure Google discovery recall or prove real buyer delivery.
 
 A separate 110-page image-only PDF completed local OCR in 14.242 seconds,
 with 110/110 pages and no missing pages over 28 resumable batches. This excludes

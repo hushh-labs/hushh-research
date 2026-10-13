@@ -690,7 +690,27 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
         sources, _ = self._manifest(connection, search, package["selected_positions"])
         if not hmac.compare_digest(self._digest(search, current, package, sources), package_digest):
             raise DriveSharingError("package_changed")
+        from hushh_mcp.services.drive_request_package_disclosure import build_package_disclosure
+
+        observations = []
+        for item in connection.execute(
+            text("""SELECT position,evaluation_envelope FROM drive_owner_search_results
+                WHERE job_id=:job AND position=ANY(:positions) ORDER BY position"""),
+            {"job": search["job_id"], "positions": package["selected_positions"]},
+        ).mappings():
+            observations.append(
+                self.search_cipher.open(
+                    item["evaluation_envelope"],
+                    user_id=search["user_id"],
+                    resource_id=f"{search['job_id']}:{item['position']}",
+                    purpose="request-package-evidence",
+                )
+            )
+        disclosure = build_package_disclosure(
+            package=package, purpose=private["purpose"], observations=observations
+        )
         return {
+            "buyer_disclosure": disclosure,
             "summary": _public_package(package, status="ready"),
             "selected_positions": package["selected_positions"],
             "selected_sources": sources,

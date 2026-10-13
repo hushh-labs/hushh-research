@@ -1,3 +1,4 @@
+import { parseDrivePackageDisclosure, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 import type { DocumentRequestSetup } from "@/lib/consent/document-request-setup";
 import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 import {
@@ -55,6 +56,8 @@ export type DocumentRequestDraft = {
   };
 };
 export type SharingRequestContext = {
+  requestRevision?: number;
+  packageDisclosure?: DrivePackageDisclosure | null;
   requestId: string;
   purpose: DocumentRequestDraft["purpose"];
   /** The Google account files go to, as sealed when sent. Absent from older servers. */
@@ -1218,12 +1221,18 @@ export class DriveSharingService {
     };
     if (!purpose.purpose.trim() || !validDocumentRequestPeriod(purpose.periodStart, purpose.periodEnd))
       throw new DriveSharingError("invalid_response");
+    const packageDisclosure = result.packageDisclosure == null ? null : parseDrivePackageDisclosure(result.packageDisclosure);
+    if (result.packageDisclosure != null && !packageDisclosure) throw new DriveSharingError("invalid_response");
+    if (result.requestRevision !== undefined && (!Number.isSafeInteger(result.requestRevision) || Number(result.requestRevision) < 1))
+      throw new DriveSharingError("invalid_response");
     // Newer servers add the sealed Google account and when it was sent.
     const recipientEmail = result.recipientEmail == null ? null : string(result.recipientEmail, 320);
     if (recipientEmail !== null && !/^[^\s@]{1,64}@[^\s@]{1,254}$/.test(recipientEmail))
       throw new DriveSharingError("invalid_response");
     return {
       requestId,
+      ...(result.packageDisclosure === undefined ? {} : { packageDisclosure }),
+      ...(result.requestRevision === undefined ? {} : { requestRevision: Number(result.requestRevision) }),
       purpose,
       ...(result.recipientEmail === undefined ? {} : { recipientEmail }),
       ...(result.requestedAt === undefined

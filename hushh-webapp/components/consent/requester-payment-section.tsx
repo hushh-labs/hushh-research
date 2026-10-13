@@ -3,7 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { HelperText } from "@/components/app-ui/typography";
+import { BodyText, HelperText } from "@/components/app-ui/typography";
+import { parseDrivePackageDisclosure, packageCoverageLabel, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 import { useAuth } from "@/hooks/use-auth";
 import {
   formatPaymentMoney,
@@ -26,6 +27,7 @@ export type RequesterPaymentSectionProps = {
   revision: number;
   payment: RequesterPaymentView | null;
   price: RequesterPriceView | null;
+  packageDisclosure?: DrivePackageDisclosure | null;
   /** The owner's display name, for "Ask {owner} again" once the request can't be paid. */
   ownerName?: string | null;
   /** Called after Pay, Withdraw or a state change, so the panel reloads its snapshot. */
@@ -73,10 +75,11 @@ type PaymentBlockProps = {
   busy: "pay" | "withdraw" | null;
   withdrawConfirm: ReturnType<typeof useArmedAction>;
   onPay: () => void;
+  payBlocked: boolean;
   onWithdraw: () => void;
 };
 
-function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay, onWithdraw }: PaymentBlockProps) {
+function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay, onWithdraw, payBlocked }: PaymentBlockProps) {
   const locallyWithdrawn = withdrawn && !MONEY_STATES.has(view.state);
   const now = useRequesterPaymentNow(locallyWithdrawn ? null : requesterPaymentTickMs(view));
   const presented = locallyWithdrawn
@@ -100,7 +103,7 @@ function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay
           trailingInteractive={presented.action === "pay"}
           trailing={
             presented.action === "pay" && view.amountCents !== null ? (
-              <Button size="standard" disabled={busy !== null} onClick={onPay}>
+              <Button size="standard" disabled={busy !== null || payBlocked} onClick={onPay}>
                 {`Pay ${formatPaymentMoney(view.amountCents)}`}
               </Button>
             ) : undefined
@@ -129,7 +132,7 @@ function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay
  * while payable, a clear next step once expired, and Withdraw request (#23)
  * with an armed confirmation. Renders nothing when no payment applies.
  */
-export function RequesterPaymentSection({ requestId, revision, payment, ownerName = null, onChanged }: RequesterPaymentSectionProps) {
+export function RequesterPaymentSection({ requestId, revision, payment, packageDisclosure, ownerName = null, onChanged }: RequesterPaymentSectionProps) {
   const { user } = useAuth();
   const { getVaultOwnerToken } = useVault();
   const withdrawConfirm = useArmedAction();
@@ -150,13 +153,18 @@ export function RequesterPaymentSection({ requestId, revision, payment, ownerNam
     setReply(null);
     setWithdrawn(false);
     return () => { if (checkoutScope.current === scope) checkoutScope.current = null; };
-  }, [user?.uid, requestId, revision]);
+  }, [user?.uid, requestId, revision, packageDisclosure?.packageDigest, packageDisclosure?.packageRevision,
+    payment?.packageDisclosure?.packageDigest, payment?.packageDisclosure?.packageRevision]);
 
   const view = reply && !(payment && MONEY_STATES.has(payment.state)) ? reply : payment;
+  // An explicit null from the current payment view revokes any cached context.
+  const disclosure = parseDrivePackageDisclosure(view && "packageDisclosure" in view
+    ? view.packageDisclosure : packageDisclosure);
+  const payBlocked = view?.packageDisclosureRequired === true && !disclosure;
   if (!view || view.state === "none") return null;
 
   const pay = async () => {
-    if (busy) return;
+    if (busy || payBlocked) return;
     const scope = checkoutScope.current;
     const epoch = snapshotVaultSessionEpoch();
     const current = () => scope !== null && checkoutScope.current === scope &&
@@ -205,7 +213,18 @@ export function RequesterPaymentSection({ requestId, revision, payment, ownerNam
 
   return (
     <>
+      {disclosure ? <section aria-label="Approved packet" className="space-y-2 px-1 pb-3">
+        <BodyText className="font-medium">{packageCoverageLabel(disclosure.coverageStatus)}</BodyText>
+        <HelperText>{disclosure.selectedCount} {disclosure.selectedCount === 1 ? "document" : "documents"} · {{ complete: "Complete coverage", partial: "Partial coverage", unknown: "Coverage not verified" }[disclosure.coverageStatus]}</HelperText>
+        {disclosure.periods.length ? <ul aria-label="Document periods" className="space-y-1">
+          {disclosure.periods.map((period, index) => <li key={index}><HelperText>{period.start} – {period.end}</HelperText></li>)}
+        </ul> : <HelperText>Date coverage could not be verified.</HelperText>}
+        {disclosure.limitations.length ? <ul aria-label="Packet limitations" className="space-y-1">
+          {disclosure.limitations.map((limitation, index) => <li key={index}><BodyText className="[overflow-wrap:anywhere]">{limitation}</BodyText></li>)}
+        </ul> : null}
+      </section> : payBlocked ? <HelperText role="status">Packet details are unavailable. Refresh before paying.</HelperText> : null}
       <PaymentBlock
+        payBlocked={payBlocked}
         view={view}
         withdrawn={withdrawn}
         ownerName={ownerName}

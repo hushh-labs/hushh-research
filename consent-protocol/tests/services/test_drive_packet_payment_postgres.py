@@ -1,6 +1,7 @@
 """An exact undated catalog packet still requires Allow and one frozen payment."""
 
 # ruff: noqa: F401,F811 -- real PostgreSQL fixture graph, mocked external boundaries
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
@@ -79,6 +80,9 @@ async def test_undated_catalog_allow_freeze_and_checkout_is_idempotent(
             ).scalar_one()
             == 0
         )
+    assert "packageDisclosure" not in await sharing.requester_context(
+        user_id="recipient", request_id=request_id
+    )
     await sharing.allow_request(
         user_id="owner",
         request_id=request_id,
@@ -87,6 +91,14 @@ async def test_undated_catalog_allow_freeze_and_checkout_is_idempotent(
         package_revision=package["revision"],
         package_digest=package["digest"],
     )
+    buyer_context = await sharing.requester_context(user_id="recipient", request_id=request_id)
+    disclosure = buyer_context["packageDisclosure"]
+    assert buyer_context["requestRevision"] == row["revision"]
+    assert disclosure["packageDigest"] == package["digest"]
+    assert disclosure["selectedCount"] == 1 and disclosure["periods"] == []
+    for viewer in ["owner", "other"]:
+        with pytest.raises(DriveSharingError, match="request_unavailable"):
+            await sharing.requester_context(user_id=viewer, request_id=request_id)
     if listing_change:
         from hushh_mcp.services.drive_packet_store import LISTING_DISCLOSURE
 
@@ -132,6 +144,38 @@ async def test_undated_catalog_allow_freeze_and_checkout_is_idempotent(
             "owner", request_id, frozen["shareId"]
         )
         assert result["status"] == "awaiting_payment"
+    state = await payment.get_payment(requester_user_id="recipient", request_id=request_id)
+    assert state["packageDisclosureRequired"] is True and state["packageDisclosure"] == disclosure
+    # A removed/malformed sealed disclosure cannot create or reveal checkout.
+    with sharing.db.engine.begin() as connection:
+        row = sharing._request(connection, "owner", request_id)
+        original = sharing._open_request(row)
+        changed = {
+            **original,
+            "owner_allowed": {**original["owner_allowed"], "buyer_disclosure": None},
+        }
+        envelope = sharing.sharing_cipher.seal(
+            changed, user_id="owner", resource_id=request_id, purpose="request"
+        )
+        connection.execute(
+            text(
+                "UPDATE drive_share_requests SET request_envelope=CAST(:envelope AS jsonb) WHERE request_id=:id"
+            ),
+            {"id": request_id, "envelope": json.dumps(envelope)},
+        )
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await payment.checkout(requester_user_id="recipient", request_id=request_id)
+    create.assert_not_called()
+    with sharing.db.engine.begin() as connection:
+        envelope = sharing.sharing_cipher.seal(
+            original, user_id="owner", resource_id=request_id, purpose="request"
+        )
+        connection.execute(
+            text(
+                "UPDATE drive_share_requests SET request_envelope=CAST(:envelope AS jsonb) WHERE request_id=:id"
+            ),
+            {"id": request_id, "envelope": json.dumps(envelope)},
+        )
     first = await payment.checkout(requester_user_id="recipient", request_id=request_id)
     assert await payment.checkout(requester_user_id="recipient", request_id=request_id) == first
     create.assert_called_once()

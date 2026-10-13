@@ -22,7 +22,7 @@ export function useDrivePacketSession(scope: string) {
   const identity = useMemo(() => ({ key, token: vaultOwnerToken }), [key, vaultOwnerToken]);
   const current = useRef(identity);
   useLayoutEffect(() => { current.current = identity; }, [identity]);
-  const owner = useMemo(() => snapshotValidatedAuthSessionOwner(), [key, vaultOwnerToken]);
+  const owner = useMemo(() => identity.token ? snapshotValidatedAuthSessionOwner() : null, [identity]);
   const alive = useRef(true);
   useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const guard = useCallback(() => {

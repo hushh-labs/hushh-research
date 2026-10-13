@@ -1563,6 +1563,23 @@ describe("Checkout callbacks stay with their original feed scope", () => {
         paymentCurrency: "usd", checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString() } };
   }
 
+  it("opens approved packet review instead of bypassing disclosure with Feed Pay", async () => {
+    const entry = checkoutEntry("drive");
+    mocks.pendingCount = 1;
+    mocks.consentItems = [{ ...entry, metadata: { ...entry.metadata, paymentView: {
+      state: "payable", amountCents: 2000, currency: "usd", nextAction: "pay", refund: null,
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      packageDisclosureRequired: true,
+    } } }];
+    const mounted = renderHook(() => useFeedActionables());
+    const row = mounted.result.current.actionables.find(item => item.id.startsWith("drive-payment:"))!;
+    expect(row.actions.map(action => action.label)).toEqual(["Review packet"]);
+    await act(async () => { await row.actions[0].run(); });
+    expect(mocks.push).toHaveBeenCalledWith(expect.stringContaining("requestId=document_share_request%3A44444444-4444-4444-8444-444444444444"));
+    expect(mocks.driveCheckout).not.toHaveBeenCalled();
+    mounted.unmount();
+  });
+
   it.each(["drive", "answer"] as const)("fences %s checkout across account/session/request/unmount boundaries", async lane => {
     for (const boundary of ["account", "session", "request", "unmount"]) {
       mocks.userId = "user-1";

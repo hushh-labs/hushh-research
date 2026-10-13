@@ -1,3 +1,4 @@
+import { parseDrivePackageDisclosure, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 import { ApiService } from "@/lib/services/api-service";
@@ -17,6 +18,8 @@ export interface DriveRequestPayment {
   reconciliationRequired?: boolean;
   paymentLinkExpired?: boolean;
   checkoutExpiresAt?: string | null;
+  packageDisclosureRequired?: boolean;
+  packageDisclosure?: DrivePackageDisclosure | null;
 }
 
 export class DriveRequestPaymentError extends Error {
@@ -94,6 +97,13 @@ export class DriveRequestPaymentService {
         && typeof value.checkoutExpiresAt !== "string")
     ) {
       throw new Error("Invalid payment response");
+    }
+    if (value.packageDisclosureRequired !== undefined && typeof value.packageDisclosureRequired !== "boolean")
+      throw new Error("Invalid payment response");
+    if (value.packageDisclosure != null) {
+      const disclosure = parseDrivePackageDisclosure(value.packageDisclosure);
+      if (!disclosure) throw new Error("Invalid payment response");
+      value.packageDisclosure = disclosure;
     }
     return value as unknown as DriveRequestPayment;
   }

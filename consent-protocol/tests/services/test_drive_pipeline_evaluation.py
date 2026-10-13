@@ -210,3 +210,48 @@ async def test_extraction_only_runner_does_not_invent_semantic_success():
     assert report["all"]["packet_correctness_all_attempts"]["rate"] == 0
     assert report["all"]["extraction_completeness"]["rate"] == 0
     assert not report["acceptance"]["supports_target"]
+
+
+@pytest.mark.parametrize(
+    "claim,expected",
+    [
+        (
+            "Missing statement coverage for period 2026-10-01 to 2026-10-09.",
+            [["2026-10-01", "2026-10-09"]],
+        ),
+        ("2026-10-01 through 2026-10-09", [["2026-10-01", "2026-10-09"]]),
+        ("Missing 2026-10-01–2026-10-09", [["2026-10-01", "2026-10-09"]]),
+        ("Missing October coverage", None),
+        ("Missing 2026-10-01", None),
+        ("Missing 2026-10-09 to 2026-10-01", None),
+        ("Missing 2026-02-30 to 2026-03-01", None),
+        ("Missing 2026-10-01 to 2026-10-09 or 2026-11-01 to 2026-11-09", None),
+        ("Missing 2026-10-01 or 2026-10-09", None),
+    ],
+)
+def test_adapter_serializes_only_one_explicit_valid_gap_interval(claim, expected):
+    from scripts.drive_pipeline_model_adapter import normalize_coverage_gaps
+
+    assert normalize_coverage_gaps([claim]) == (expected if expected is not None else [claim])
+
+
+def test_gap_serialization_does_not_fix_wrong_dates_or_modify_reference():
+    from hushh_mcp.services.drive_pipeline_evaluation import grade_attempt
+    from scripts.drive_pipeline_model_adapter import normalize_coverage_gaps
+
+    dataset = load_dataset(MANIFEST.with_name("manifest-v2.json"))
+    case = next(case for case in dataset["cases"] if case["id"] == "dev-v2-002")
+    original = copy.deepcopy(case)
+    row = observed(case)
+    row["coverage"] = {
+        **row["coverage"],
+        "gaps": normalize_coverage_gaps(
+            ["Missing statement coverage for period 2026-10-01 to 2026-10-09."]
+        ),
+    }
+    assert grade_attempt(case, row)["coverage_correct"] is True
+    for claim in ["Missing October coverage", "Missing 2026-10-01 to 2026-10-08."]:
+        row["coverage"]["gaps"] = normalize_coverage_gaps([claim])
+        assert grade_attempt(case, row)["coverage_correct"] is False
+        assert grade_attempt(case, row)["packet_correct"] is False
+    assert case == original

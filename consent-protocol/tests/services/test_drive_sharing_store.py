@@ -390,7 +390,7 @@ def test_price_view_states(initial, quoted, allowed, order, expected):
         order_amount_cents=order,
     )
     assert (view["state"], view["currentCents"], view["finalCents"]) == expected
-    assert view["estimateCents"] == (initial if initial in {2500} else None)
+    assert view["estimateCents"] == initial
 
 
 @pytest.mark.asyncio
@@ -890,6 +890,7 @@ async def test_payment_context_is_only_the_requesters_own_text(sharing, monkeypa
     context = await sharing.requester_context(user_id="recipient", request_id=request_id)
     assert context == {
         "requestId": request_id,
+        "requestRevision": 0,
         "purpose": {
             "purpose": "Private six-month statements",
             "periodStart": "2026-01-01",

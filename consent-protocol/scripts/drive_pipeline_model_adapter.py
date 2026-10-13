@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import time
+from datetime import date
 from pathlib import Path
 
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
@@ -27,6 +29,33 @@ from hushh_mcp.services.drive_request_package_assessment import (
 from hushh_mcp.services.drive_request_package_service import indexed_evidence_source
 
 _FACTS_CACHE: dict[tuple, dict] = {}
+
+
+def normalize_coverage_gaps(gaps: list[str]) -> list:
+    """Serialize one explicit ISO date range per gap; never infer missing dates.
+
+    Production gaps are explanatory strings; this benchmark's range labels are
+    two-item arrays. Unparseable, ambiguous and invalid claims stay as strings
+    so exact grading still fails. This does not repair a wrong model interval.
+    """
+    result = []
+    iso_date_pattern = r"(?<![0-9])([0-9]{4}-[0-9]{2}-[0-9]{2})(?![0-9])"
+    interval = re.compile(iso_date_pattern + r"\s*(?:to|through|[–—])\s*" + iso_date_pattern)
+    for gap in gaps:
+        dates = re.findall(iso_date_pattern, gap)
+        match = interval.search(gap)
+        if len(dates) != 2 or match is None:
+            result.append(gap)
+            continue
+        start, end = match.groups()
+        try:
+            if date.fromisoformat(start) > date.fromisoformat(end):
+                raise ValueError("reversed interval")
+        except ValueError:
+            result.append(gap)
+            continue
+        result.append([start, end])
+    return result
 
 
 async def evaluate(*, case, extraction):
@@ -150,8 +179,11 @@ async def evaluate(*, case, extraction):
                 "status": packet.coverage_status,
                 "periods": [list(p) for p in periods],
                 # Unknown evidence makes no missing-period assertion.
-                "gaps": [] if packet.coverage_status == "unknown" else packet.gaps,
+                "gaps": []
+                if packet.coverage_status == "unknown"
+                else normalize_coverage_gaps(packet.gaps),
             },
+            "coverage_gap_claims": packet.gaps,
             "evaluator_accept": checker.state == "ready",
             "suggested_price_cents": packet.suggested_price_cents,
             "usage": {"input_tokens": None, "output_tokens": None, "cost_usd": None},

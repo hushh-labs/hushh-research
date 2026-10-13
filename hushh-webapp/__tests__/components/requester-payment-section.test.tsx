@@ -61,6 +61,7 @@ vi.mock("@/lib/services/drive-sharing-service", async (original) => ({
 
 import { RequesterPaymentSection } from "@/components/consent/requester-payment-section";
 import { DriveSharingError } from "@/lib/services/drive-sharing-service";
+import type { DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 
 const requestId = "11111111-1111-4111-8111-111111111111";
 const at = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
@@ -124,6 +125,44 @@ afterEach(() => {
 });
 
 describe("RequesterPaymentSection", () => {
+  it("shows the exact approved coverage and limitations before enabling Pay", async () => {
+    const disclosure: DrivePackageDisclosure = { schemaVersion: 1, packageDigest: "b".repeat(64), packageRevision: 2,
+      selectedCount: 2, coverageStatus: "partial", periods: [{ start: "2026-09-01", end: "2026-09-30" }],
+      limitations: ["Missing coverage: October 1–9, 2026."] };
+    const props = { requestId, revision: 3, payment: payment({ packageDisclosureRequired: true }), price: null, onChanged: vi.fn() };
+    const mounted = render(<RequesterPaymentSection {...props} />);
+    const pay = screen.getByRole("button", { name: "Pay $25" });
+    expect(pay).toBeDisabled();
+    fireEvent.click(pay);
+    expect(state.checkout).not.toHaveBeenCalled();
+    mounted.rerender(<RequesterPaymentSection {...props} packageDisclosure={disclosure} />);
+    expect(screen.getByText("Incomplete package")).toBeVisible();
+    expect(screen.getByText("2026-09-01 – 2026-09-30")).toBeVisible();
+    expect(screen.getByText("Missing coverage: October 1–9, 2026.")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Approved packet" }).compareDocumentPosition(pay) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pay).toBeEnabled();
+    state.checkout.mockResolvedValueOnce("https://checkout.stripe.com/c/pay/current");
+    fireEvent.click(pay);
+    await waitFor(() => expect(state.assign).toHaveBeenCalledOnce());
+  });
+
+  it("blocks Pay for malformed marked-packet details", () => {
+    render(<RequesterPaymentSection requestId={requestId} revision={3}
+      payment={payment({ packageDisclosureRequired: true })} price={null} onChanged={vi.fn()}
+      packageDisclosure={{ schemaVersion: 1 } as DrivePackageDisclosure} />);
+    expect(screen.getByRole("button", { name: "Pay $25" })).toBeDisabled();
+    expect(screen.getByText("Packet details are unavailable. Refresh before paying.")).toBeVisible();
+  });
+
+  it("does not reuse cached disclosure when the current payment explicitly has none", () => {
+    render(<RequesterPaymentSection requestId={requestId} revision={3}
+      payment={payment({ packageDisclosureRequired: true, packageDisclosure: null })} price={null} onChanged={vi.fn()}
+      packageDisclosure={{ schemaVersion: 1, packageDigest: "b".repeat(64), packageRevision: 2,
+        selectedCount: 1, coverageStatus: "complete", periods: [], limitations: [] }} />);
+    expect(screen.getByRole("button", { name: "Pay $25" })).toBeDisabled();
+    expect(screen.queryByRole("region", { name: "Approved packet" })).toBeNull();
+  });
+
   it.each(["account", "session", "request", "unmount"])("ignores late checkout after %s changes", async (boundary) => {
     let finish!: (url: string) => void;
     state.checkout.mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve; }));

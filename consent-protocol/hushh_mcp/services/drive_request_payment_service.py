@@ -196,7 +196,12 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             return "unknown"
 
     def _current_checkout_authority(
-        self, connection, *, request_id: str, requester_user_id: str
+        self,
+        connection,
+        *,
+        request_id: str,
+        requester_user_id: str,
+        require_package_disclosure: bool = False,
     ) -> dict:
         """Recheck the same automatic/background boundary under graph and request locks.
 
@@ -223,6 +228,18 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         ):
             raise DriveSharingError("payment_not_ready")
         private = sharing._open_request(request)
+        if require_package_disclosure and private.get("agent_package_required") is True:
+            from hushh_mcp.services.drive_request_package_disclosure import buyer_package_disclosure
+
+            if (
+                buyer_package_disclosure(
+                    private,
+                    request_revision=request["revision"],
+                    owner_allowed_at=request["owner_allowed_at"],
+                )
+                is None
+            ):
+                raise DriveSharingError("payment_not_ready")
         if request["status"] == "pending" and not request_has_document_scope(private):
             raise DriveSharingError("date_range_required")
         if private.get("trusted_auto") is True and not request_requires_owner_review(
@@ -350,7 +367,10 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
 
         def reserve(connection):
             request = self._current_checkout_authority(
-                connection, request_id=request_id, requester_user_id=requester_user_id
+                connection,
+                request_id=request_id,
+                requester_user_id=requester_user_id,
+                require_package_disclosure=True,
             )
             order = self._row(
                 connection,
@@ -547,7 +567,10 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
 
         def bind(connection):
             request = self._current_checkout_authority(
-                connection, request_id=request_id, requester_user_id=requester_user_id
+                connection,
+                request_id=request_id,
+                requester_user_id=requester_user_id,
+                require_package_disclosure=True,
             )
             current = self._row(
                 connection,
