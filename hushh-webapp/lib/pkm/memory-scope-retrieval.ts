@@ -46,9 +46,15 @@ export const PROFILE_MEMORY_SCOPE_IDS: readonly string[] = [
 function covers(scope: string, domain: string, path: string): boolean {
   return scope === `attr.${domain}.${path}` || scope === `attr.${domain}.${path.split(".").slice(0, -1).join(".")}.*`;
 }
-function isAgeScope(scope: string): boolean { return AGE_PATHS.some(path => covers(scope, "identity", path)); }
+function agePaths(scope: string): string[] {
+  return scope === "attr.professional.profile.age" ? ["profile.age"] : AGE_PATHS.filter(path => covers(scope, "identity", path));
+}
+function isAgeScope(scope: string): boolean { return agePaths(scope).length > 0; }
+function isLegacySexScope(scope: string): boolean {
+  return covers(scope, "identity", "profile.sex") || scope === "attr.professional.profile.sex";
+}
 function usesSoul(scope: string): boolean {
-  return approvedScopesBackedBySoul([scope]).length > 0 || isOwnProfileNameScope(scope) || isAgeScope(scope) || covers(scope, "identity", "profile.sex");
+  return approvedScopesBackedBySoul([scope]).length > 0 || isOwnProfileNameScope(scope) || isAgeScope(scope) || isLegacySexScope(scope);
 }
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -80,7 +86,7 @@ function accountFingerprint(scope: string, identity: ApprovedMemoryRetrievalPara
   return null;
 }
 function dependencies(scope: string): string[] {
-  return [...new Set([scopeDomain(scope), ...(usesSoul(scope) ? ["one_memory"] : [])])];
+  return [...new Set([scopeDomain(scope), ...(usesSoul(scope) ? ["one_memory"] : []), ...(isAgeScope(scope) ? ["identity"] : [])])];
 }
 function sameSources(before: readonly MemoryScopeSourceRevision[], after: readonly MemoryScopeSourceRevision[]): boolean {
   return JSON.stringify(before) === JSON.stringify(after);
@@ -252,7 +258,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
           const ownFacts = facts.filter(fact => fact.scope === scope);
           const settlesExactFact = !scope.endsWith(".*") && (ownFacts.length > 0 ||
             isOwnProfileNameScope(scope) && (labelled.has("legal name") || deleted.has("legal name")) ||
-            covers(scope, "identity", "profile.sex") && (labelled.has("sex") || deleted.has("sex")) ||
+            isLegacySexScope(scope) && (labelled.has("sex") || deleted.has("sex")) ||
             isAgeScope(scope));
           if (original || !hasStructuredCounterpart(scope, sources[domain]!) || settlesExactFact) failed.delete(scope);
           const removed = SCOPE_PATH_TO_LABEL.filter(([, label]) => deleted.has(soulFactKey(label))).map(([path]) => path);
@@ -266,10 +272,10 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
           if (isOwnProfileNameScope(scope) && labelled.has("legal name")) {
             setPath(payload, scopePath(scope), labelled.get("legal name")!.value); contentRevision = memory.dataVersion ?? null; manifestRevision = null;
           }
-          if (covers(scope, "identity", "profile.sex") && labelled.has("sex")) {
-            setPath(payload, "profile.sex", labelled.get("sex")!.value); contentRevision = memory.dataVersion ?? null; manifestRevision = null;
+          if (isLegacySexScope(scope) && (labelled.has("sex") || deleted.has("sex"))) {
+            setPath(payload, "profile.sex", deleted.has("sex") ? undefined : labelled.get("sex")!.value); contentRevision = memory.dataVersion ?? null; manifestRevision = null;
           }
-          for (const path of AGE_PATHS.filter(path => covers(scope, "identity", path))) {
+          for (const path of agePaths(scope)) {
             setPath(payload, path, age === null ? undefined : String(age));
             contentRevision = ageRevision; manifestRevision = ageManifestRevision;
           }

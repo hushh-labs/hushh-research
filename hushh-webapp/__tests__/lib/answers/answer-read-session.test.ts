@@ -19,7 +19,7 @@ import { CacheService } from "@/lib/services/cache-service";
 import { encryptData, type EncryptedPayload } from "@/lib/vault/encrypt";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
-import { AnswerRequestService, type AnswerableWork } from "@/lib/services/answer-request-service";
+import type { AnswerableWork } from "@/lib/services/answer-request-service";
 
 const OWNER = "answer-read-owner";
 const KEY = "ab".repeat(32);
@@ -225,7 +225,9 @@ function expectApprovedSourceMetadata(projection: Record<string, unknown>, scope
     expect(Object.keys(entry).sort()).toEqual(["builtAt", "derivedOn", "sources"]);
     for (const source of entry.sources) {
       expect(Object.keys(source).sort()).toEqual(["absent", "contentRevision", "domain", "manifestRevision"]);
-      const allowedDomains = scope.endsWith("profile_photo_url") ? ["identity"] : [scope.split(".")[1], "one_memory"];
+      const allowedDomains = scope.endsWith("profile_photo_url") ? ["identity"]
+        : scope === "attr.professional.profile.age" ? ["professional", "identity", "one_memory"]
+          : [scope.split(".")[1], "one_memory"];
       expect(allowedDomains).toContain(source.domain);
     }
   }
@@ -288,6 +290,53 @@ describe("actual application Gemini preparation and encrypted staging", () => {
     expect(state.staged).toHaveLength(1);
     expect(state.staged[0]!.hasContent).toBe(false);
     expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
+  });
+
+  it.each(["identity", "professional"])("refuses a stored %s profile age without validated DOB", async domain => {
+    const scope = `attr.${domain}.profile.age`;
+    const saved = await storedDomain({ domain, data: { profile: { age: 999 } }, approved: { "profile.age": "profile" } });
+    const work = await applicationWork([scope]);
+    const state = applicationTransport({ work, domains: [saved] });
+    expect(await sweep()).toMatchObject({ delivered: 0, empty: 1, retry: 0 });
+    expect(state.projections).toHaveLength(0);
+    expect(state.staged[0]!.hasContent).toBe(false);
+    expect(JSON.stringify(await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope }))).not.toContain("999");
+  });
+
+  it.each(["identity", "professional"])("derives the exact %s profile age alias internally from saved canonical DOB", async domain => {
+    const scope = `attr.${domain}.profile.age`;
+    const saved = await storedDomain({ domain, data: { profile: { age: 999 }, ...(domain === "identity" ? { identity_profile: { date_of_birth: "1998-03-14" } } : {}) },
+      approved: { "profile.age": "profile", ...(domain === "identity" ? { "identity_profile.date_of_birth": "identity_profile" } : {}) } });
+    const canonical = domain === "professional" ? [await storedDomain({ data: { identity_profile: { date_of_birth: "1998-03-14" } }, approved: { "identity_profile.date_of_birth": "identity_profile" } })] : [];
+    const work = await applicationWork([scope]);
+    const state = applicationTransport({ work, domains: [saved, ...canonical] });
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expectApprovedSourceMetadata(state.projections[0]!, [scope]);
+    expect(state.projections[0]!.values).toEqual({ [scope]: { profile: { age: "28" } } });
+    expect(JSON.stringify(state.projections[0])).not.toContain("1998-03-14");
+    expect(JSON.stringify(state.projections[0])).not.toContain("999");
+    const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+    expect(JSON.stringify(readable)).not.toContain("1998-03-14");
+    expect(JSON.stringify(readable)).not.toContain("999");
+  });
+
+  it.each(["identity", "professional"])("suppresses a deleted explicit sex on the exact %s profile alias after cold readback", async domain => {
+    const scope = `attr.${domain}.profile.sex`;
+    const saved = await storedDomain({ domain, data: { profile: { sex: "stale legacy sex" } }, approved: { "profile.sex": "profile" } });
+    const soul = await storedDomain({ domain: "one_memory", data: { root: { markdown: "- Sex: explicitly supplied\n" } }, approved: {}, revision: 12 });
+    const work = await applicationWork([scope]);
+    const state = applicationTransport({ work, domains: [saved, soul] });
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expect(state.projections[0]!.values).toEqual({ [scope]: { profile: { sex: "explicitly supplied" } } });
+    expect(JSON.stringify(state.projections[0])).not.toContain("stale legacy sex");
+    expect(await replaceMarkdownMemoryDocument({ ...PARAMS, expectedMarkdown: "- Sex: explicitly supplied\n", expectedPersisted: true, markdown: "", beforeEffect: async () => {} })).toMatchObject({ success: true });
+    clearMarkdownMemory(); CacheService.getInstance().clear();
+    expect(await sweep()).toMatchObject({ delivered: 0, empty: 1, retry: 0 });
+    expect(state.projections).toHaveLength(1);
+    expect(state.staged[1]!.hasContent).toBe(false);
+    const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[1]!.envelope });
+    expect(JSON.stringify(readable)).not.toContain("stale legacy sex");
+    expect(JSON.stringify(readable)).not.toContain("explicitly supplied");
   });
 
   it.each([PHOTO, "attr.preferences.favorite_food"])("does not sell an approved name when the other approved %s is missing", async missing => {

@@ -387,11 +387,19 @@ async def test_composer_refuses_unapproved_or_unbounded_freshness_before_model(
     writer.assert_not_called()
 
 
-async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receipt(monkeypatch):
+@pytest.mark.parametrize(
+    ("scope", "value"),
+    [
+        ("attr.identity.identity_profile.declared_age", {"identity_profile": {"declared_age": 29}}),
+        ("attr.professional.profile.age", {"profile": {"age": 29}}),
+    ],
+)
+async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receipt(
+    monkeypatch, scope, value
+):
     from hushh_mcp.services.answer_composer import AnswerComposer
     from hushh_mcp.services.answer_composition_receipt import verify_composition_receipt
 
-    scope = "attr.identity.identity_profile.declared_age"
     request = uuid4()
     service = Mock(
         assert_answerable=AsyncMock(
@@ -418,7 +426,7 @@ async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receip
         {
             "projection": {
                 "memory": "Age 29",
-                "values": {scope: {"identity_profile": {"declared_age": 29}}},
+                "values": {scope: value},
                 "sourceFreshness": {
                     scope: {
                         "sources": [

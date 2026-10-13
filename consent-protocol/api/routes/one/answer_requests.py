@@ -185,6 +185,10 @@ def _valid_source_freshness(value: object, approved_scopes: list[str]) -> bool:
             if not isinstance(sources, list) or not 1 <= len(sources) <= 5:
                 return False
             allowed_domains = {scope.split(".")[1], "one_memory", "account_profile"}
+            if scope == "attr.professional.profile.age":
+                # This exact legacy age selector derives from canonical DOB;
+                # only its source revisions travel, never the DOB value/path.
+                allowed_domains.add("identity")
             for source in sources:
                 if not isinstance(source, dict) or set(source) != {
                     "domain",
