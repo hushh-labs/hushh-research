@@ -7,7 +7,7 @@
   POST /api/one/answer-requests/{id}/cancel            requester: withdraw (refunds)
   GET  /api/one/answer-requests/{id}/payment           state + the wait, before checkout
   POST /api/one/answer-requests/{id}/payment/checkout  hosted Stripe Checkout
-  GET  /api/one/answer-requests/answerable             owner device: paid work to do
+  GET  /api/one/answer-requests/answerable             owner device: preparation and paid recovery
   POST /api/one/answer-requests/{id}/deliver           owner device: sealed answer
   GET  /api/one/answer-requests/{id}/answer            requester: sealed envelope
 
@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import date, datetime
 from typing import Any, cast
 from uuid import UUID
 
@@ -31,6 +32,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Response
 
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
 from hushh_mcp.services.answer_composer import AnswerComposer, AnswerComposerError
+from hushh_mcp.services.answer_composition_receipt import issue_composition_receipt
 from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
@@ -81,6 +83,7 @@ _STATUS = {
     "terms_changed": 409,
     "payment_not_ready": 409,
     "answer_not_ready": 409,
+    "composition_receipt_required": 409,
     "answer_not_found": 409,
     "payment_already_paid": 409,
     # The requester paid a session we were about to replace; the webhook
@@ -118,6 +121,101 @@ def _requests() -> PkmAnswerRequestService:
 
 def _payments() -> PkmAnswerPaymentService:
     return PkmAnswerPaymentService()
+
+
+def _scope_has_fact(scope: str, value: object) -> bool:
+    """Structural completeness only; this never invents or writes an answer."""
+
+    def substantive(item: object) -> bool:
+        if item is None:
+            return False
+        if isinstance(item, str):
+            return bool(item.strip())
+        if isinstance(item, dict):
+            return any(
+                substantive(inner) for key, inner in item.items() if not key.startswith("__")
+            )
+        if isinstance(item, list):
+            return any(substantive(inner) for inner in item)
+        return isinstance(item, (int, float, bool))
+
+    segments = scope.split(".")
+    if len(segments) < 3 or segments[0] != "attr":
+        return False
+    # Scalars/lists may already be a leaf projection. Objects must carry the
+    # approved attribute path; unrelated account context cannot fill a gap.
+    if isinstance(value, dict):
+        value = value.get(segments[1], value)
+        for segment in segments[2:]:
+            if segment == "*":
+                break
+            if not isinstance(value, dict) or segment not in value:
+                return False
+            value = value[segment]
+    return substantive(value)
+
+
+def _valid_source_freshness(
+    value: object, approved_scopes: list[str], approved_values: dict[str, Any]
+) -> bool:
+    """Bound revision/date metadata to the same exact scopes as the facts."""
+    if not isinstance(value, dict) or not set(value) <= set(approved_scopes):
+        return False
+    try:
+        for scope, freshness in value.items():
+            if not isinstance(freshness, dict) or set(freshness) != {
+                "sources",
+                "derivedOn",
+                "builtAt",
+            }:
+                return False
+            built = freshness["builtAt"]
+            if (
+                not isinstance(built, str)
+                or len(built) > 40
+                or datetime.fromisoformat(built.replace("Z", "+00:00")).tzinfo is None
+            ):
+                return False
+            derived = freshness["derivedOn"]
+            if derived is not None and (
+                not isinstance(derived, str)
+                or len(derived) != 10
+                or date.fromisoformat(derived).isoformat() != derived
+            ):
+                return False
+            sources = freshness["sources"]
+            if not isinstance(sources, list) or not 1 <= len(sources) <= 5:
+                return False
+            allowed_domains = {scope.split(".")[1], "one_memory", "account_profile"}
+            approved_value = approved_values.get(scope)
+            if scope == "attr.professional.profile.age" or (
+                scope == "attr.professional.profile.*"
+                and derived is not None
+                and isinstance(approved_value, dict)
+                and _scope_has_fact("attr.professional.profile.age", approved_value)
+            ):
+                # An approved legacy age selector derives from canonical DOB;
+                # only its source revisions travel, never the DOB value/path.
+                allowed_domains.add("identity")
+            for source in sources:
+                if not isinstance(source, dict) or set(source) != {
+                    "domain",
+                    "contentRevision",
+                    "manifestRevision",
+                    "absent",
+                }:
+                    return False
+                if source["domain"] not in allowed_domains or type(source["absent"]) is not bool:
+                    return False
+                if any(
+                    revision is not None
+                    and (type(revision) is not int or not 0 <= revision <= 2**53 - 1)
+                    for revision in (source["contentRevision"], source["manifestRevision"])
+                ):
+                    return False
+        return True
+    except (ValueError, TypeError, IndexError):
+        return False
 
 
 def _require_paid_lane_enabled() -> None:
@@ -463,7 +561,7 @@ async def compose_answer(
 ) -> dict[str, Any]:
     """Write the answer from the projection the owner's device just built.
 
-    Owner-only, and bound to a request that is actually paid and answerable:
+    Owner-only, and bound to approved preparation or historical paid recovery:
     the gate runs first, so this cannot be used as a free model endpoint.
 
     Nothing is persisted. The projection exists for this request only and the
@@ -492,12 +590,19 @@ async def compose_answer(
         raise HTTPException(status_code=409, detail="Owner model-processing consent is required.")
     values = projection.get("values")
     if (
-        set(projection) != {"memory", "values"}
+        not {"memory", "values"} <= set(projection) <= {"memory", "values", "sourceFreshness"}
         or not isinstance(values, dict)
         or not values
-        or not set(values) <= set(work["approvedScopes"])
+        or set(values) != set(work["approvedScopes"])
+        or any(not _scope_has_fact(scope, value) for scope, value in values.items())
         or not isinstance(projection.get("memory"), str)
         or len(str(projection)) > 200_000
+        or (
+            "sourceFreshness" in projection
+            and not _valid_source_freshness(
+                projection["sourceFreshness"], work["approvedScopes"], values
+            )
+        )
     ):
         raise HTTPException(status_code=422, detail="Check the approved information.")
     try:
@@ -511,7 +616,19 @@ async def compose_answer(
         # A model failure remains queued on the device for retry; the deadline
         # worker refunds it if a written answer cannot be delivered.
         return {"answerMode": "projection", "answer": None}
-    return {"answerMode": "agent", **written}
+    if written["gaps"]:
+        # Gemini reports incomplete coverage. There is no payable answer or
+        # receipt; preparation remains available for an explicit retry.
+        return {"answerMode": "projection", "answer": None, "gaps": written["gaps"]}
+    receipt = issue_composition_receipt(
+        request_id=str(request_id),
+        owner_user_id=owner_user_id,
+        terms_digest=work["termsDigest"],
+        answer=written["answer"],
+        projection=projection,
+        period=work.get("period"),
+    )
+    return {"answerMode": "agent", **written, "compositionReceipt": receipt}
 
 
 @router.post("/{request_id}/deliver")
@@ -534,6 +651,7 @@ async def deliver_answer(
                 envelope=envelope,
                 source_revisions=source_revisions if isinstance(source_revisions, dict) else None,
                 has_content=bool(body.get("hasContent", True)),
+                composition_receipt=body.get("compositionReceipt"),
             )
         )
     except Exception as error:

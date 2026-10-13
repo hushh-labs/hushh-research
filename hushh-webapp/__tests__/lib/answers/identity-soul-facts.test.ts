@@ -88,3 +88,12 @@ describe("approved identity facts come from the Soul bullets the product wrote",
     expect(projected).toEqual([]);
   });
 });
+
+
+it("never interprets another domain's same-named field as the owner's identity", () => {
+  expect(projectApprovedSoulFacts({ approvedScopes: ["attr.health.identity_profile.sex", "attr.travel.identity_profile.full_name", "attr.health.identity_profile.*"], markdown: SOUL })).toEqual([]);
+});
+
+it("does not satisfy a nested lookalike scope with a canonical identity fact", () => {
+  expect(projectApprovedSoulFacts({ approvedScopes: ["attr.identity.other.identity_profile.sex", "attr.identity.other.identity_profile.*"], markdown: "- Sex: female\n" })).toEqual([]);
+});

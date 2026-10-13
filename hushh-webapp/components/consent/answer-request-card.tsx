@@ -1,5 +1,8 @@
 "use client";
 
+import { isOwnProfileNameScope } from "@/lib/pkm/identity-memory-facts";
+import { answerProfilePhotoUrl, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
+
 /**
  * One paid-answer request inside the Consent Center, from either side.
  *
@@ -37,6 +40,7 @@ import {
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
 import { useAuth } from "@/hooks/use-auth";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 
@@ -74,6 +78,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     userId: string;
     epoch: number;
     value: string;
+    photo: { url: string; name: string } | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -223,11 +228,13 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       if (value?.version !== 1 || value.answerMode !== "agent" ||
           typeof value.answer !== "string" || !value.answer.trim())
         throw new Error("This answer could not be read. Refresh the question and try again.");
-      setAnswer({
-        userId: owner,
-        epoch,
-        value: value.answer,
-      });
+      const identity = value.ownerIdentity as { photoUrl?: unknown; displayName?: unknown } | undefined;
+      const scopes = Array.isArray(value.approvedScopes) ? value.approvedScopes : [];
+      const photoApproved = scopes.some(scope => typeof scope === "string" && isAnswerProfilePhotoScope(scope));
+      let photo: { url: string; name: string } | null = null;
+      const photoUrl = photoApproved ? answerProfilePhotoUrl(identity?.photoUrl) : null;
+      if (photoUrl) photo = { url: photoUrl, name: scopes.some(scope => typeof scope === "string" && isOwnProfileNameScope(scope)) && typeof identity?.displayName === "string" ? identity.displayName : "Profile" };
+      setAnswer({ userId: owner, epoch, value: value.answer, photo });
     }), [isVaultUnlocked, requestId, run, user?.uid]);
 
   useEffect(() => {
@@ -385,7 +392,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
               // unavailable. No Pay control, because checkout would 503.
               <HelperText as="p" role="status">
                 {payment.preparationStatus === "empty"
-                  ? "The approved information does not contain an answer. You have not been charged."
+                  ? "Answer not found. You have not been charged."
                   : payments === "on"
                     ? "Their answer is being prepared. Payment opens when it is ready."
                     : payments === "off"
@@ -411,7 +418,16 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
           isVaultUnlocked &&
           answer.userId === user?.uid &&
           isVaultSessionEpochCurrent(answer.epoch) ? (
-            <AgentMarkdown text={answer.value} />
+            <div className="space-y-3">
+              {answer.photo ? <figure aria-label="Approved profile photo" className="flex items-center gap-3">
+                <Avatar className="size-24">
+                  <AvatarImage src={answer.photo.url} alt={`${answer.photo.name}'s profile photo`} referrerPolicy="no-referrer" />
+                  <AvatarFallback>{Array.from(answer.photo.name)[0] ?? "P"}</AvatarFallback>
+                </Avatar>
+                <figcaption className="text-sm">{answer.photo.name}</figcaption>
+              </figure> : null}
+              <AgentMarkdown text={answer.value} />
+            </div>
           ) : (
             <Button
               type="button"

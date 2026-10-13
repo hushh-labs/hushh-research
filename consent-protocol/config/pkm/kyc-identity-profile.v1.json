@@ -2,6 +2,7 @@
   "version": "kyc_identity_v1",
   "description": "Canonical, user-provided KYC facts. Values stay encrypted in the owner vault; this file contains only field metadata and aliases.",
   "fields": [
+    { "id": "identity.identity_profile.profile_photo_url", "domain": "identity", "path": "identity_profile.profile_photo_url", "aliases": ["photo", "profile photo", "profile picture"] },
     { "id": "identity.identity_profile.full_name", "domain": "identity", "path": "identity_profile.full_name", "aliases": ["name", "full name", "legal name", "display name"] },
     { "id": "identity.identity_profile.declared_age", "domain": "identity", "path": "identity_profile.declared_age", "aliases": ["age", "current age", "years old"] },
     { "id": "identity.identity_profile.date_of_birth", "domain": "identity", "path": "identity_profile.date_of_birth", "aliases": ["date of birth", "birth date", "dob"] },

@@ -10,6 +10,7 @@ import { buildPkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { PROFILE_MEMORY_SCOPE_IDS, retrieveApprovedMemoryScopes } from "@/lib/pkm/memory-scope-retrieval";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
@@ -37,6 +38,7 @@ type Cached = {
   change: number;
   signature: string;
   networkVerified: boolean;
+  freshnessDate: string;
 };
 
 /** Owner-filtered, deduplicated freshness subscription; never holds a key. */
@@ -75,7 +77,7 @@ export function peekMemoryView(userId: string): MemoryView {
       ? "refresh_failed"
       : cached.change !== (changes.get(userId) ?? 0)
         ? "refresh_pending"
-        : !cached.networkVerified || entry?.isStale
+        : !cached.networkVerified || entry?.isStale || cached.freshnessDate !== new Date().toISOString().slice(0, 10)
           ? "stale"
           : "current",
   };
@@ -174,6 +176,7 @@ export async function refreshMemoryDocument(
   }
   if (!valid()) return stale();
   let builtAt = new Date().toISOString();
+  const checkedDate = builtAt.slice(0, 10);
   const livingPrivate = (fullBlob.one_living_sources as { _private?: Record<string, unknown> } | undefined)?._private;
   const records = (livingPrivate?.inventory as { records?: { kind: string; deletedAt: string | null; value: Record<string, unknown> }[] } | undefined)?.records;
   const profile = records?.find(record => record.kind === "profile" && !record.deletedAt)?.value;
@@ -215,17 +218,26 @@ export async function refreshMemoryDocument(
           // fresh read instead of saving a document over a changed source.
           if (JSON.stringify(privateData.inventory) !== JSON.stringify(livingPrivate.inventory)) throw new Error("Memory inventory changed");
           return { domainData: { ...current, _private: { ...privateData, memory_document: {
+            ...((privateData.memory_document ?? {}) as Record<string, unknown>),
             schemaVersion: "source_linked_memory.v1", name: "memory.md", signature: sourceSignature, document, builtAt,
           } } }, summary: { source_projection_complete: true } };
         },
       });
       if (!stored.success) throw new Error("Encrypted memory document could not be stored");
     }
+    // Rebuild the stable slices consumed by Request scope from the same
+    // encrypted projection after source changes, including birthday changes.
+    const requested = Object.keys((prior as { scopeSlices?: Record<string, unknown> } | undefined)?.scopeSlices ?? {});
+    const retrieval = await retrieveApprovedMemoryScopes({ userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
+      approvedScopes: [...new Set([...PROFILE_MEMORY_SCOPE_IDS, ...requested])], ownerIdentity: account });
+    if (!retrieval.complete) {
+      document = { ...document, complete: false };
+    }
   }
   if (!valid()) return stale();
   CacheService.getInstance().set(
     CACHE_KEY(params.userId),
-    { document, builtAt, change, signature, networkVerified },
+    { document, builtAt, change, signature, networkVerified, freshnessDate: checkedDate },
     CACHE_TTL.SESSION,
   );
   // Preserve the captured event revision: edits arriving during readback stay pending.

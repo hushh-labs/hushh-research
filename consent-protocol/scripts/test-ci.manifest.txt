@@ -742,3 +742,6 @@ tests/test_stripe_connect_balances_postgres.py
 tests/test_connect_bank_payout_snapshot_postgres.py
 tests/test_bank_payout_event_replay_postgres.py
 tests/test_drive_request_terms_migrations_postgres.py
+
+tests/test_pkm_answer_catalog.py
+tests/test_answer_center_surface_integration.py

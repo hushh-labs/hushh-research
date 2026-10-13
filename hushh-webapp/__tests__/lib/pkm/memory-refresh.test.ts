@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getStaleFirst = vi.fn();
 const saveMergedDomain = vi.hoisted(() => vi.fn());
+const retrieveApprovedMemoryScopes = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/pkm/memory-scope-retrieval", () => ({
+  PROFILE_MEMORY_SCOPE_IDS: ["attr.identity.identity_profile.full_name", "attr.identity.identity_profile.declared_age", "attr.identity.identity_profile.sex", "attr.identity.identity_profile.profile_photo_url"],
+  retrieveApprovedMemoryScopes,
+}));
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: { saveMergedDomain },
 }));
@@ -56,6 +61,7 @@ const domainSnapshot = (
 beforeEach(() => {
   getStaleFirst.mockReset();
   saveMergedDomain.mockReset();
+  retrieveApprovedMemoryScopes.mockReset().mockResolvedValue({ complete: true });
   clearMemoryDocument(USER);
 });
 
@@ -284,10 +290,13 @@ describe("persisted source-linked Profile memory.md", () => {
     expect(view.document?.markdown).toContain("Complete eligible fact");
     expect(view.document?.markdown).not.toContain("Owner-authored Soul fact");
     expect(view.document?.sourceLinks).toEqual(expect.arrayContaining([
-      { domain: "identity", path: "profile.age", contentRevision: 7, manifestRevision: 4 },
       { domain: "identity", path: "profile.sex", contentRevision: 7, manifestRevision: 4 },
       { domain: "account_profile", path: "photoUrl", contentRevision: null, manifestRevision: null },
     ]));
+    expect(retrieveApprovedMemoryScopes).toHaveBeenCalledWith(expect.objectContaining({
+      userId: USER, ownerIdentity: expect.objectContaining({ displayName: "Synthetic Ava", photoUrl: "https://example.test/avatar.png" }),
+      approvedScopes: expect.arrayContaining(["attr.identity.identity_profile.full_name", "attr.identity.identity_profile.declared_age"]),
+    }));
   });
 
   it("reuses the persisted document after session cache clear and does not loop on its own PKM write revision", async () => {
@@ -347,5 +356,30 @@ describe("persisted source-linked Profile memory.md", () => {
     await expect(refreshSources()).rejects.toThrow("Encrypted memory document could not be stored");
     expect((state.living._private as Record<string, unknown>).memory_document).toBeUndefined();
     expect(peekMemoryView(USER).document).toBeNull();
+  });
+
+  it("preserves previously requested scope slices while rebuilding the shared Profile document", async () => {
+    const state = sources();
+    const retained = { "attr.identity.profile.sex": { scope: "attr.identity.profile.sex", payload: { profile: { sex: "female" } } } };
+    (state.living._private as Record<string, unknown>).memory_document = { scopeSlices: retained };
+    mountSources(state);
+    await refreshSources(true);
+    expect(((state.living._private as Record<string, unknown>).memory_document as { scopeSlices: unknown }).scopeSlices).toEqual(retained);
+    expect(retrieveApprovedMemoryScopes).toHaveBeenCalledWith(expect.objectContaining({ approvedScopes: expect.arrayContaining(["attr.identity.profile.sex"]) }));
+  });
+
+  it("expires the Profile document at a UTC day boundary even while its revision cache is fresh", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-12T23:59:59Z"));
+      const state = sources(); mountSources(state);
+      await refreshSources();
+      expect(peekMemoryView(USER).status).toBe("current");
+      vi.setSystemTime(new Date("2026-10-13T00:00:00Z"));
+      expect(peekMemoryView(USER).status).toBe("stale");
+      await refreshSources();
+      expect(peekMemoryView(USER).status).toBe("current");
+      expect(retrieveApprovedMemoryScopes).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
   });
 });

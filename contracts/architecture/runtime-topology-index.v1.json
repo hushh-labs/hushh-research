@@ -1487,7 +1487,7 @@
       "id": "pkm_answer_deliveries",
       "lifecycle_status": "customer0",
       "owner": "security-audit",
-      "primary_access_path": "The owner's unlocked device produces the answer from decrypted PKM within the approved scopes, seals it to the requester's ECDH P-256 recipient key and posts the envelope; the requester fetches and decrypts it on their own device. The server is a blind relay, exactly as in the marketplace delivery sweep."
+      "primary_access_path": "The unlocked owner device retrieves exact approved scope slices from the shared encrypted source-linked memory.md, refreshing stale/missing slices from authoritative PKM/account facts before absence. Every successful answer is composed by consent-gated Gemini with approved values and freshness metadata only, then sealed to the requester ECDH P-256 key. New staging requires a request-bound composition receipt; requester access is released only after verified settlement. Historical immutable staged orders retain recovery and settlement eligibility."
     },
     {
       "data_class": "workflow_state",
@@ -1499,7 +1499,7 @@
       "id": "pkm_answer_payment_authority",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after the owner approves a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer."
+      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after a completed nonempty staged envelope and owner approval of a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer."
     },
     {
       "data_class": "personal_metadata",
@@ -1521,7 +1521,7 @@
       "id": "pkm_answer_settlement",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Durable settlement for the paid-answer lane, on the existing Drive work drain. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded."
+      "primary_access_path": "Durable settlement for the paid-answer lane, on its separately authenticated answer work drain, using each obligation's stored Stripe mode. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded."
     },
     {
       "data_class": "workflow_state",
@@ -6246,9 +6246,9 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "90aeb16b26130b20c40dbbaf6da7c013b6ec2bcd94ccc607d8f164dc5811abba",
-    "agent_registry": "378b53ef0abd359b24fbe0981caeaeba80fa34c97abf28dcc5788a72fef0e3c6",
+    "agent_registry": "5d0ad715c65b067418aff45fef0062f3804001998c8f820895f96d4ab3ebd956",
     "cache_manifest": "3edd997108a71695e9f867f56b34e9238ceb6fc47da0639236cd8b201ecbc647",
-    "data_plane": "73078e9faf172515135ad256a48898eae9554cc2a54823fa1719fcbbd87583c6",
+    "data_plane": "978e7c4afb3655e7a0949683c24c0086b4d2e7fa49a07f25f2414a0151746515",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "084c4287101963ac51c7c2e589ab3fe46be4294017dcfc093150a906de8bce24",
     "route_index": "966eced19cd6ec65c93c76c102ba4bdc3deb2db15635d45195081d9af2de6abd",

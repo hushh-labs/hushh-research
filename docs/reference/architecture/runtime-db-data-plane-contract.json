@@ -1704,7 +1704,7 @@
         "pkm_answer_payment_obligations",
         "pkm_answer_payment_webhook_events"
       ],
-      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after the owner approves a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer.",
+      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after a completed nonempty staged envelope and owner approval of a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer.",
       "retention_policy": "Retained while payment or refund is unsettled and for bounded financial and consent-audit review afterwards; the obligation mirror is identity-free and survives erasure so a late charge can still settle.",
       "deletion_behavior": "Orders delete with the request on account reset and deletion; the identity-free obligation row is retained to reconcile an outstanding charge or refund.",
       "trust_boundary": "Stores amounts, Stripe references and the terms digest. No question text, no answer content, no card data: the card is handled entirely by Stripe Checkout. The obligation mirror carries a salted request/payer hash instead of a user id.",
@@ -1719,10 +1719,10 @@
       "exact_tables": [
         "pkm_answer_deliveries"
       ],
-      "primary_access_path": "The owner's unlocked device produces the answer from decrypted PKM within the approved scopes, seals it to the requester's ECDH P-256 recipient key and posts the envelope; the requester fetches and decrypts it on their own device. The server is a blind relay, exactly as in the marketplace delivery sweep.",
+      "primary_access_path": "The unlocked owner device retrieves exact approved scope slices from the shared encrypted source-linked memory.md, refreshing stale/missing slices from authoritative PKM/account facts before absence. Every successful answer is composed by consent-gated Gemini with approved values and freshness metadata only, then sealed to the requester ECDH P-256 key. New staging requires a request-bound composition receipt; requester access is released only after verified settlement. Historical immutable staged orders retain recovery and settlement eligibility.",
       "retention_policy": "Retained while the requester may still read the delivered answer; removed with the request.",
       "deletion_behavior": "Hard-delete with the request on account reset and account deletion for either participant.",
-      "trust_boundary": "Ciphertext only. The backend holds no key that can read an answer, consistent with the vault-keys-client-side invariant. Alongside the envelope it stores only source revision numbers, never values.",
+      "trust_boundary": "Delivery persistence contains ciphertext, source revision numbers and reserved signed composition/terms metadata with keyed input/answer digests; the backend has no answer-decryption key. Approved plaintext transits the separately consented transient Gemini call with NO_CONTENT application telemetry. The receipt proves successful composition for approved terms, not plaintext equality inside client ciphertext. No vault key or general decryption authority is transferred. Reserved receipt metadata is excluded from requester DTOs.",
       "plaintext_posture": "ciphertext_or_hash_only",
       "expected_row_growth": "low_per_user"
     },
@@ -1735,7 +1735,7 @@
         "pkm_answer_payment_refunds",
         "pkm_answer_owner_payouts"
       ],
-      "primary_access_path": "Durable settlement for the paid-answer lane, on the existing Drive work drain. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded.",
+      "primary_access_path": "Durable settlement for the paid-answer lane, on its separately authenticated answer work drain, using each obligation's stored Stripe mode. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded.",
       "retention_policy": "Retained while a refund or transfer is unsettled and for bounded financial review afterwards; terminal rows stay as settlement evidence.",
       "deletion_behavior": "Keyed to pkm_answer_payment_obligations rather than the order, so a refund or transfer can still reconcile after the request and both accounts are erased.",
       "trust_boundary": "Amounts, Stripe references and a closed safe_error_code set only. No provider message is copied into the database, and no user id, question text or answer content is stored.",
