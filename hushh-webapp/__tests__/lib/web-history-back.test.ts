@@ -114,6 +114,23 @@ describe("decideWebHistoryBackCorrection (pure)", () => {
         navigate as unknown as typeof navigateTopShellBack,
       ),
     ).toBeNull();
+    // The current pane is query-owned over /one. Its header Back uses real
+    // history, and a shell correction here would close it instead of showing
+    // the Profile home entry revealed behind Payouts.
+    expect(
+      decideWebHistoryBackCorrection(
+        loc(ROUTES.ONE_HOME, "?profile_pane=1&profile_panel=payouts"),
+        loc(ROUTES.ONE_HOME, "?profile_pane=1"),
+        navigate as unknown as typeof navigateTopShellBack,
+      ),
+    ).toBeNull();
+    expect(
+      decideWebHistoryBackCorrection(
+        loc(ROUTES.ONE_HOME),
+        loc(ROUTES.ONE_HOME, "?profile_pane=1&profile_panel=payouts"),
+        navigate as unknown as typeof navigateTopShellBack,
+      ),
+    ).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
   });
 });
