@@ -278,7 +278,7 @@ export const FeedRow = memo(function FeedRow({
       data-testid="feed-row"
       data-no-route-swipe
       data-swipe-direction={removeDirection}
-      className="group/feed-row relative isolate overflow-hidden bg-transparent after:pointer-events-none after:absolute after:bottom-0 after:left-11 after:right-0 after:h-px after:bg-[color:var(--app-separator)] after:content-[''] last:after:hidden"
+      className="group/feed-row relative isolate overflow-hidden bg-transparent [--type-row-label-size:13px] [--type-row-label-line:1.25] max-[360px]:[--type-row-label-size:12.5px] after:pointer-events-none after:absolute after:bottom-0 after:left-11 after:right-0 after:h-px after:bg-[color:var(--app-separator)] after:content-[''] last:after:hidden"
     >
       {canRemove ? (
         <>
