@@ -63,7 +63,7 @@ These are stages of one manifest-backed specialist, not six independent services
 
 Identity states are `owner_linked`, `candidate_for_review`, `ambiguous`, and `no_match`. The report maps these to matched/uncertain/no-match. **Probability stays null:** no calibrated identity estimator has been validated. Each fact independently has supported, uncertain, or conflicting evidence. Strong fact support does not establish that its subject is the owner.
 
-The prompt limits identity searching to six queries; overall host-enforced bounds are 32 search attempts and 20 model calls. Python enforces authority, budgets, receipts, schema, and deadlines. Semantic linkage and interpretation belong to the LLM and owner review.
+The prompt limits identity searching to six queries; overall host-enforced bounds are 32 search attempts and 20 logical ADK model calls. Regional failover can make additional provider requests within a logical model call. Python enforces authority, budgets, receipts, schema, and deadlines. Semantic linkage and interpretation belong to the LLM and owner review.
 
 ## Twenty optional topic layers
 
@@ -125,7 +125,7 @@ Integration request:
 
 Name and at least one verified contact are required. Phone uses E.164. Every supplied field must match the freshly resolved owner's account. The UI normally calls `/jobs` without sending identifiers. Arbitrary submitted identities are rejected.
 
-A pending result uses HTTP 202. An offered result includes `draft_id`, `report`, `research.identity`, `checked_topics`, `gaps`, `searches_used`, and `pkm_written: false`. Provider absence/failure is unavailable, not proof that no information exists.
+A pending result uses HTTP 202. An offered result includes `draft_id`, `report`, `research.identity`, `research.checked_topics`, `research.gaps`, `research.searches_used`, and `pkm_written: false`. Missing configuration or failure before any successful search yields unavailable, not proof that no information exists. Later search failures may produce a partial cited draft with gaps.
 
 The specialist deadline is 240 seconds; the job deadline is 270 seconds. The existing derived key's lifetime remains bounded. Search calls currently execute serially. Attempt slots are charged durably before dispatch and survive retries and identity edits within the checkpoint budget window. The shared monthly Tavily ledger has a 900-credit ceiling; it cannot account for calls made by other applications using the same provider key. Use a dedicated free-tier key with paid overages disabled at the provider.
 
@@ -133,7 +133,7 @@ Without `PWM_TAVILY_API_KEY`, research returns unavailable. Page access, approve
 
 ## State, save, reset, and invitations
 
-Research uses encrypted checkpoints in namespace `one.personal_world_model.v1`, with identity/policy binding and durable attempts. A draft is not approved knowledge. Discard writes a content-free tombstone and changes the checkpoint fence, preventing an old worker from restoring it. A completion must identify the exact draft and prove every selected owner-review commit; the legacy saved flag cannot bypass those checks.
+Research uses encrypted checkpoints in namespace `one.personal_world_model.v1`, with identity/policy binding and durable attempts. A draft is not approved knowledge. Discard writes a content-free tombstone and changes the checkpoint fence, preventing an old worker from restoring it. Completion verifies every supplied owner-review commit receipt and dismisses only the specified draft generation; the legacy saved flag cannot bypass those checks. The UI supplies receipts for its selected review. Completion grants no new write authority.
 
 Approved content goes through the existing `profile_review_v1` confirmation contract and encrypted PKM mutation path. The saved page projects sourced facts from PKM, excludes reserved branches and deleted/retracted records, and clears with owner/key/session changes. There is no second plaintext biography store.
 
