@@ -290,6 +290,18 @@ subagents:
       visible; never silently repair an ambiguous account digit or date.
       Preserve explicit sample, synthetic, demonstration, draft, requested,
       pending, cancelled and completed qualifiers throughout facts and packets.
+      First return record_status with status draft, sample, requested, pending,
+      completed, cancelled or unknown, evidence_basis, explanation and cited
+      support. This is a separate decision from document_type and date roles.
+      documentary_form means the form/context establishes a draft, sample or
+      request; source_assertion means the text claims a state or event occurred;
+      completion_evidence means supplied primary evidence establishes that
+      completion, beyond a template or author's assertion. unknown records what
+      is not established. A completed status requires completion_evidence.
+      Cite both the apparent status claim and material qualifying/conflicting
+      context in the explanation, including drafting text on later pages.
+      Unknown status does not prevent useful notes or statements from being
+      classified; do not invent an executed/completed event where none is claimed.
       A sample statement is not evidence of an actual account or financial
       position. Record its qualification as a cited fact and material limitation;
       keep it separate from genuine statements in canonical packet keys/titles.
@@ -302,11 +314,27 @@ subagents:
       Establish ownership from an account-owner heading, explicit ownership
       statement or equivalent source evidence; a matching familiar name is
       insufficient. Keep a known account identifier even if its owner is unknown.
-      Distinguish an author's claim from verified execution. Typed signature
-      placeholders, witness labels, boilerplate saying "signed", projected
-      scenarios and assistant-authored draft text do not establish execution.
-      Preserve draft/unverified status when signature or execution evidence is
-      absent or conflicting; never call a document executed on boilerplate alone.
+      For each claim, distinguish what the document IS from what its text SAYS.
+      A will/conveyance/agreement draft can contain past-tense signing language
+      and an exact date; those are draft provisions, not evidence of execution.
+      Typed signature placeholders, witness labels, boilerplate saying "signed",
+      projected scenarios and assistant-authored drafting text support no upgrade
+      to completed. If execution evidence is absent or conflicting, preserve
+      draft or unknown status and explain the limitation. Date meaning must say
+      "draft's stated signing date; execution unverified" or its evidenced
+      equivalent, never simply "date executed". Apply the same distinction to
+      requested transfers versus posted/settled transactions.
+      Attribution belongs inside EACH fact.value and date_evidence.meaning that
+      needs it, not only in record_status or missing_information. A memory note
+      recording a founder-stated funding/board claim remains "the notes record
+      the founder's claim"; it does not establish funding or board membership.
+      A note saying another document confirms a fact is evidence of that note's
+      claim only when that other document is not supplied. Never treat a named
+      but unseen certificate, filing, receipt or attachment as primary evidence.
+      issuer identifies the evidenced originating institution/author, not an
+      organization merely discussed in notes. Without origin evidence use null;
+      preserve the mentioned company as an attributed topic/fact. A brand heading
+      can establish displayed branding, not independently authenticated authorship.
       Retain evidenced as-of, report, event and requested-execution dates as
       explicitly qualified facts. They are not automatically coverage periods;
       do not invent interval endpoints from an isolated timestamp or transaction.
@@ -322,6 +350,12 @@ subagents:
       citation reference IDs unchanged from citation_evidence. All page extraction
       errors, unreadable regions and missing information remain visible after
       consolidation; observing every page does not prove every page readable.
+      Consolidate record_status from ALL observations and previous context.
+      A page that says "signed" cannot erase a later draft instruction or typed
+      signature placeholder. Retain both cited contexts and the qualification;
+      choose unknown when a material contradiction remains. Completion requires
+      observed completion_evidence, never repeated source assertions. Preserve
+      source attribution inside consolidated fact values and date meanings.
       Preserve date_evidence roles and qualifications. Only observed periods
       can support consolidated periods, with their exact start/end bounds and
       citations; never promote an event, publication, action or snapshot date
@@ -364,6 +398,11 @@ subagents:
       pending or requested transaction similarly needs that status in the title
       and description; it is not an executed or settled transaction. Never hide
       these qualifications only in technical details, a score or a citation.
+      Read every selected source's typed record_status, explanation and citations.
+      Carry its qualifications through title, description, coverage_summary and
+      pricing.rationale. A correctly labeled draft packet may be ready and priced
+      for its useful draft content; verified packet quality does not mean the
+      underlying document was executed or its author's assertions proven true.
       Keep qualified material separate from genuine/final records. If the
       supplied key purports to represent genuine/final records and cannot be
       supported, return unable_to_verify with the material gap. Account for EVERY
@@ -432,7 +471,7 @@ subagents:
       completed campaign, or verified period when those are not evidenced.
       For package_mode="packet_verification", independently check the proposal
       against supplied evidence: correct subject/account, issuer/type, content
-      coverage, unrelated inclusions and unexplained omissions. Do not adopt the
+      coverage, record status, unrelated inclusions and unexplained omissions. Do not adopt the
       proposing model's score as proof. Return issues and ready, incomplete or
       unable_to_verify. Use batch_scope.canonical_key and ALL supplied documents
       to judge the original group's scope; the proposed title cannot redefine
@@ -457,7 +496,17 @@ subagents:
       rationale for unsupported temporal completeness. An undated draft packet
       can be Ready with no_period_claim and periods=[]; absence of a calendar
       window is not a gap unless the packet or buyer actually claims one.
-      Ready requires all five checks true, no material issues,
+      Independently return correct_record_status. Inspect record_status citations
+      AND all surrounding supplied facts for the distinction between documentary
+      form, source assertion and evidenced completion. The classifier's status
+      is a proposal, not truth. Draft/unknown execution described as completed in
+      ANY title, description, coverage_summary or pricing.rationale makes this
+      check false and the packet unable_to_verify. Check attributed claims too:
+      notes about claimed funding, ownership or an unseen supporting document
+      cannot become verified corporate facts or authenticated authorship. A
+      material dropped attribution also makes correct_record_status=false.
+      Do not reject a plainly qualified useful draft merely for being a draft.
+      Ready requires all six checks true, no material issues,
       and all_evidence_current_and_complete=true. Report conflicting evidence.
       First compare every source's authenticity and event status with the
       packet's visible title and description. Read all cited facts, not only

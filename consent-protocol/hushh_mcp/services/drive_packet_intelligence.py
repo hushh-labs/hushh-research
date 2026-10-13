@@ -27,13 +27,13 @@ from hushh_mcp.services.drive_packet_contract import (
     DocumentPageFacts,
     PacketProposal,
     PacketRequestMatch,
-    PacketVerification,
+    PacketVerificationProposal,
     validate_page_citations,
 )
 from hushh_mcp.services.drive_request_package_assessment import _interpret
 
 MAX_INPUT_BYTES = 160 * 1024
-FACTS_SCHEMA_VERSION = "document-facts-v5-date-roles"
+FACTS_SCHEMA_VERSION = "document-facts-v6-record-status"
 logger = logging.getLogger(__name__)
 MAX_VALIDATION_ATTEMPTS = 2
 
@@ -196,6 +196,7 @@ def _citation_issues(facts, accepted):
         "issuer",
         "subject",
         "account",
+        "record_status",
         "periods",
         "date_evidence",
         "topics",
@@ -254,6 +255,7 @@ def _citations(facts):
         facts.issuer,
         facts.subject,
         facts.account,
+        facts.record_status,
         *facts.periods,
         *facts.date_evidence,
         *facts.topics,
@@ -478,7 +480,7 @@ async def verify_packet(
             "all_evidence_current_and_complete": complete,
             "batch_scope": batch_scope,
         },
-        PacketVerification,
+        PacketVerificationProposal,
         user_id=user_id,
         interpret=interpret,
         validate=validate,

@@ -80,6 +80,41 @@ class ContentPeriod(EvidenceModel):
 
 DateRole = Literal["event", "publication", "planned_action", "transaction", "as_of", "unknown"]
 TemporalScope = Literal["document_period", "as_of_snapshot", "no_period_claim", "unknown"]
+RecordStatusValue = Literal[
+    "draft", "sample", "requested", "pending", "completed", "cancelled", "unknown"
+]
+RecordStatusBasis = Literal[
+    "documentary_form", "source_assertion", "completion_evidence", "unknown"
+]
+
+
+class RecordStatus(EvidenceModel):
+    """Model-authored status and its evidence, not a host authenticity judgment."""
+
+    status: RecordStatusValue
+    evidence_basis: RecordStatusBasis
+    explanation: str = Field(min_length=1, max_length=1000)
+    citations: list[PageCitation] = Field(max_length=8)
+
+    @model_validator(mode="after")
+    def supported_status(self):
+        if self.status != "unknown" and self.evidence_basis == "unknown":
+            raise ValueError("known record status requires an evidence basis")
+        if (self.status != "unknown" or self.evidence_basis != "unknown") and not self.citations:
+            raise ValueError("record status evidence requires citations")
+        if self.status == "completed" and self.evidence_basis != "completion_evidence":
+            raise ValueError("completed record requires completion evidence")
+        return self
+
+
+def unknown_record_status() -> RecordStatus:
+    """Read historical facts without retroactively assigning their record status."""
+    return RecordStatus(
+        status="unknown",
+        evidence_basis="unknown",
+        explanation="Record status was not assessed under this facts policy.",
+        citations=[],
+    )
 
 
 class DateEvidence(EvidenceModel):
@@ -111,6 +146,7 @@ class DocumentPageFacts(EvidenceModel):
     issuer: EvidenceFact | None
     subject: EvidenceFact | None
     account: EvidenceFact | None
+    record_status: RecordStatus = Field(default_factory=unknown_record_status)
     periods: list[ContentPeriod] = Field(max_length=24)
     date_evidence: list[DateEvidence] = Field(default_factory=list, max_length=24)
     topics: list[EvidenceFact] = Field(max_length=16)
@@ -132,6 +168,7 @@ class DocumentFacts(EvidenceModel):
     issuer: EvidenceFact | None
     subject: EvidenceFact | None
     account: EvidenceFact | None
+    record_status: RecordStatus = Field(default_factory=unknown_record_status)
     periods: list[ContentPeriod] = Field(max_length=120)
     date_evidence: list[DateEvidence] = Field(default_factory=list, max_length=120)
     topics: list[EvidenceFact] = Field(max_length=24)
@@ -232,6 +269,9 @@ class PacketVerification(EvidenceModel):
     correct_subject_and_account: bool
     correct_issuer_and_type: bool
     correct_coverage: bool
+    # Historical immutable checker records predate this separate assertion.
+    # Current model output must supply it through PacketVerificationProposal.
+    correct_record_status: bool | None = None
     no_unrelated_inclusions: bool
     no_unexplained_omissions: bool
     issues: list[str] = Field(max_length=64)
@@ -245,9 +285,15 @@ class PacketVerification(EvidenceModel):
             self.no_unrelated_inclusions,
             self.no_unexplained_omissions,
         )
-        if self.state == "ready" and (not all(checks) or self.issues):
+        if self.state == "ready" and (
+            not all(checks) or self.correct_record_status is False or self.issues
+        ):
             raise ValueError("checker cannot declare unresolved packet ready")
         return self
+
+
+class PacketVerificationProposal(PacketVerification):
+    correct_record_status: bool
 
 
 class PacketRequestMatch(EvidenceModel):
@@ -284,6 +330,7 @@ def validate_page_citations(
         result.issuer,
         result.subject,
         result.account,
+        result.record_status,
         *result.periods,
         *result.date_evidence,
         *result.topics,

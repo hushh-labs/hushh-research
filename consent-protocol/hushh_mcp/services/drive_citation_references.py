@@ -14,6 +14,8 @@ from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
     DocumentPageFacts,
     EvidenceModel,
+    RecordStatusBasis,
+    RecordStatusValue,
 )
 
 FACT_FIELDS = (
@@ -21,6 +23,7 @@ FACT_FIELDS = (
     "issuer",
     "subject",
     "account",
+    "record_status",
     "periods",
     "date_evidence",
     "topics",
@@ -48,12 +51,20 @@ class ReferencedDateEvidence(EvidenceModel):
     citation_refs: list[str] = Field(min_length=1, max_length=8)
 
 
+class ReferencedRecordStatus(EvidenceModel):
+    status: RecordStatusValue
+    evidence_basis: RecordStatusBasis
+    explanation: str = Field(min_length=1, max_length=1000)
+    citation_refs: list[str] = Field(max_length=8)
+
+
 class ReferencedPageFacts(EvidenceModel):
     pages: list[int] = Field(min_length=1)
     document_type: ReferencedFact | None
     issuer: ReferencedFact | None
     subject: ReferencedFact | None
     account: ReferencedFact | None
+    record_status: ReferencedRecordStatus
     periods: list[ReferencedPeriod] = Field(max_length=24)
     date_evidence: list[ReferencedDateEvidence] = Field(max_length=24)
     topics: list[ReferencedFact] = Field(max_length=16)
@@ -67,6 +78,7 @@ class ReferencedDocumentFacts(EvidenceModel):
     issuer: ReferencedFact | None
     subject: ReferencedFact | None
     account: ReferencedFact | None
+    record_status: ReferencedRecordStatus
     periods: list[ReferencedPeriod] = Field(max_length=120)
     date_evidence: list[ReferencedDateEvidence] = Field(max_length=120)
     topics: list[ReferencedFact] = Field(max_length=24)
