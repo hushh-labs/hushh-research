@@ -932,7 +932,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const onFocus = () => void markRead();
     window.addEventListener("focus", onFocus); document.addEventListener("visibilitychange", onFocus);
     return () => { removeLifecycle(); removeLayers(); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
-  }, [isCurrentRead, routeSelection, activeConversationId, loadingThread, messages, readRevision, thread.conversation?.unreadCount, user, blockingLayer, messageSearchQuery, bottomIsUncovered]);
+  }, [isCurrentRead, routeSelection, activeConversationId, loadingThread, messages, readRevision, thread.conversation?.unreadCount, user, blockingLayer, messageSearchQuery, bottomIsUncovered, selectionGeneration]);
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";

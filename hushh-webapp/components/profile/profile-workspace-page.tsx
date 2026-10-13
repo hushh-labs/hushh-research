@@ -29,7 +29,6 @@ import {
   InboxRowIcon,
   LocationAgentIcon,
   MarketplaceAgentIcon,
-  MemoryAgentIcon,
   PhoneRowIcon,
   ResetRowIcon,
   SignOutProfileIcon,

@@ -33,7 +33,10 @@ export function ScheduleFileDialog({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<ScheduledTasksStatus | null>(null);
-  const requestId = useMemo(() => crypto.randomUUID(), [file.id, when]);
+  const selection = useMemo(
+    () => ({ fileId: file.id, fileName: file.name, when, requestId: crypto.randomUUID() }),
+    [file.id, file.name, when],
+  );
   const pending = useRef(false);
   const work = useRef<AbortController | null>(null);
   useEffect(() => () => work.current?.abort(), []);
@@ -98,7 +101,7 @@ export function ScheduleFileDialog({
     const current = () =>
       !request.signal.aborted && AuthService.getCurrentUser()?.uid === owner;
     const operation = new PodScheduledTasksClient(owner)
-      .organizeFile(file, runAt, requestId, request.signal)
+      .organizeFile(file, runAt, selection.requestId, request.signal)
       .then((task) => {
         if (!current()) throw new Error("SCHEDULE_OWNER_CHANGED");
         if (task.state !== "scheduled") throw new Error("SCHEDULE_UNCONFIRMED");
