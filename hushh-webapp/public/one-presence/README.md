@@ -4,7 +4,7 @@ The chat header and One Feed/Profile sheet receive the same presentation state
 from `AgentChatWorkspace`. This observes current work; it does not classify
 message text or change agent decisions.
 
-| Activity | State | Large portrait | Compact animation |
+| Activity | State | HD fallback | Animation in header and profile |
 | --- | --- | --- | --- |
 | One generating a draft | `working` | `drafting-hd.png` | `working.webp` |
 | One preparing or delivering an answer, or running a local action | `thinking` | `thinking-hd.png` | `thinking.webp` |
@@ -18,8 +18,15 @@ background memory persistence do not keep the artwork busy.
 
 The legacy `answering` state also displays the thinking pose. Existing work
 animations remain available at 24 FPS with reduced-motion and visibility
-guards. A matching HD portrait is their loading/error fallback. Large artwork
-uses native images rather than magnifying the 128px animation frames.
+guards. A matching transparent HD portrait is their loading/error and reduced-motion
+fallback. Both the header and open Feed/Profile panel use the existing work
+frames, preserving the shared activity mapping. Animation pauses when offscreen,
+when the document is hidden, or when the app lifecycle is inactive/background.
+No React state updates occur per frame. Idle keeps the sharp native HD image.
+
+Active frames have a 128px source and are displayed at 192 CSS px in the panel,
+so animated work artwork is softer than the HD idle/reduced-motion portraits.
+The artwork, canvas and owning avatar surfaces have no opaque background disk.
 
 ## HD variant provenance
 
