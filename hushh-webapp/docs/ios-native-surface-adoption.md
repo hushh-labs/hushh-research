@@ -56,6 +56,34 @@ returned 4000. Bonjour announcements appeared and disappeared, without a
 successful trusted service probe. This is a transport blocker, not a vault
 rejection or a product acceptance result. The final runner-only build passed.
 
+After the operator corrected the network, both devices established trusted
+`localNetwork` connections and passed XCTest body admission. The iPhone's
+ordinary React-composer session passed ten warm Profile/One/Puppy cycles,
+keyboard layout and route-return checks without submission; this is fallback
+evidence, not native composition acceptance. A later account-verification guard
+was recovered through its authored **Try again** action without sign-out. The
+qualification preparation guard cannot yet prove its unsent state empty, so no
+iPhone qualification relaunch or draft deletion followed.
+
+The iPad product transfer initially timed out. Following a bounded verification
+of the installed fallback, the next transfer returned a successful installation
+receipt for executable SHA-256
+`d67adf72814bb8c21e33713c11dd1e31fc0785f5fc71f3fa9d67f1de2332768f`
+(same product implementation, Debug 1.4.0 (69), UAT-backed). Its normal
+passphrase unlock passed with whole-entry acknowledgment and protected Chat.
+The native composition check stopped before History actions: its 44×44 opener
+at (24, 72) was present/enabled but not hittable, while the selector was
+hittable. A later sample lacked the editor. Adding the authored One-profile
+dismissal did not resolve admission; an advertised drawer alone does not prove
+an active blocker. No native hit-test, isolation or geometry correction was made
+without further evidence. Native window-level hit admission remains unverified.
+
+The nearest runner now distinguishes the One-profile family, reports bounded
+public control frames, optionally retries the authored verification guard once,
+and fails closed before qualification preparation when either editor's empty
+state is unknown or a draft, attachment or action is pending. These are
+diagnostic/preparation controls, not new application action or unlock authority.
+
 Physical acceptance remains pending. This does not enable ordinary custom-native
 admission, qualify iPad material composition or waive visual/accessibility/Release
 performance gates. No push, deployment or distribution occurred.

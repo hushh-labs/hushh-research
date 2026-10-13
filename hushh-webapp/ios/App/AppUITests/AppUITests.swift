@@ -123,20 +123,26 @@ final class AppUITests: XCTestCase {
     private func printCoherentPresentationAdmission(_ app: XCUIApplication) {
         // Fixed authored identifiers/labels only. Never serialize a hierarchy,
         // profile identity, row label, draft or private presentation payload.
-        for (name, label) in [("profile_close", "Close Profile"), ("profile_back", "Back in Profile"),
+        for (name, label) in [("profile_close", "Close Profile"), ("agent_profile_close", "Close One profile"), ("profile_back", "Back in Profile"),
             ("history_close", "Close chat history"), ("profile_open", "Open Profile")] {
             let control = app.buttons[label].firstMatch
             print("COHERENT_CONTROL_ADMISSION control=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled)")
         }
-        for family in ["history", "profile"] {
+        for family in ["history", "profile", "agent-profile"] {
             let body = app.otherElements["native-\(family)-drawer-body"].firstMatch
-            print("COHERENT_DRAWER_ADMISSION family=\(family) present=\(body.exists) hittable=\(body.exists && body.isHittable)")
+            print("COHERENT_DRAWER_ADMISSION family=\(family.replacingOccurrences(of: "-", with: "_")) present=\(body.exists) hittable=\(body.exists && body.isHittable)")
         }
         for (name, control) in [("editor", app.textViews["native-dock-editor"].firstMatch),
             ("history", app.buttons["chat-history-toggle"].firstMatch),
             ("selector", app.segmentedControls["chat-agent-surface"].firstMatch),
             ("chat_tab", app.buttons["one-native-tab-chat"].firstMatch)] {
             print("COHERENT_SHELL_ADMISSION control=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled)")
+            if control.exists {
+                let frame = control.frame
+                if [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite }) {
+                    print("COHERENT_SHELL_FRAME control=\(name) x=\(Int(frame.minX.rounded())) y=\(Int(frame.minY.rounded())) width=\(Int(frame.width.rounded())) height=\(Int(frame.height.rounded()))")
+                }
+            }
         }
         print("COHERENT_SHELL_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists) software_keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
         let probe = app.buttons["native-profile-back-admission"].firstMatch
@@ -476,6 +482,65 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
         XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
         let web = hosts.firstMatch
+        if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETRY_VERIFICATION"] == "true" {
+            let recovery = web.staticTexts["Reconnect to continue securely"].firstMatch
+            if recovery.exists {
+                // One bounded attempt through the security guard's authored
+                // recovery. Never sign out or bypass account verification.
+                let retries = web.buttons.matching(NSPredicate(format: "label == %@", "Try again"))
+                guard retries.count == 1, waitForAdmittedControl(retries.firstMatch) else {
+                    XCTFail("NATIVE_SESSION_VERIFICATION_RECOVERY_UNAVAILABLE"); return
+                }
+                retries.firstMatch.tap()
+                let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: recovery)
+                guard XCTWaiter.wait(for: [settled], timeout: 20) == .completed else {
+                    XCTFail("NATIVE_SESSION_VERIFICATION_RECOVERY_NOT_SETTLED"); return
+                }
+                print("NATIVE_SESSION_VERIFICATION_RECOVERY requested=true settled=true")
+            }
+        }
+        if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_EMPTY_DRAFT_PREPARATION"] == "true" {
+            // Qualification changes launch configuration. Never discard an
+            // owner's memory-only draft merely to prepare another renderer.
+            // Inspect both authored editors in process; emit no contents.
+            let cloud = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "One, your cloud agent")).firstMatch
+            let puppy = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Puppy One")).firstMatch
+            let oneEditor = rehearsalChatComposer(app)
+            let editorReady = waitForAdmittedControl(oneEditor)
+            let puppyReady = waitForAdmittedControl(puppy)
+            print("NATIVE_PREPARATION_CONTROLS editor=\(editorReady) puppy=\(puppyReady)")
+            guard editorReady && puppyReady else {
+                XCTFail("NATIVE_PREPARATION_REQUIRES_ONE_CONTEXT"); return
+            }
+            func empty(_ field: XCUIElement) -> Bool {
+                guard field.waitForExistence(timeout: 10), let value = field.value as? String else { return false }
+                // A placeholder-like value is ambiguous; fail closed rather
+                // than treating an owner's matching text as an empty draft.
+                return value.isEmpty
+            }
+            let oneEmpty = empty(oneEditor)
+            let attachmentPresent = ["Remove text attachment", "Remove selected Drive file"].contains {
+                web.buttons[$0].firstMatch.exists
+            }
+            let actionPending = ["Stop One", "Cancel recording", "Cancel voice command"].contains {
+                let control = app.buttons[$0].firstMatch
+                return control.exists && control.isHittable
+            }
+            guard oneEmpty && !attachmentPresent && !actionPending else {
+                XCTFail("NATIVE_PREPARATION_HAS_PENDING_ONE_DRAFT"); return
+            }
+            puppy.tap()
+            defer { if !oneEditor.isHittable && cloud.exists && cloud.isHittable { cloud.tap() } }
+            guard empty(web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message Puppy One")).firstMatch) else {
+                XCTFail("NATIVE_PREPARATION_PUPPY_DRAFT_NOT_EMPTY_OR_UNAVAILABLE"); return
+            }
+            guard waitForAdmittedControl(cloud) else { XCTFail("NATIVE_PREPARATION_REQUIRES_ONE_CONTEXT"); return }
+            cloud.tap()
+            guard waitForAdmittedControl(oneEditor), empty(oneEditor) else {
+                XCTFail("NATIVE_PREPARATION_HAS_PENDING_ONE_DRAFT"); return
+            }
+            print("NATIVE_PREPARATION_GATE empty_drafts=true attachments=false submitted=false")
+        }
         printNativeControlStatuses(web)
         printCoherentPresentationAdmission(app)
         for identifier in ["native-dock-editor", "chat-history-toggle", "chat-history-close", "profile-close"] {
@@ -6854,7 +6919,7 @@ final class AppUITests: XCTestCase {
         // Recover only authored dismissals left by this rehearsal. A failed
         // XCTest assertion can interrupt Swift defer, so do not assume a prior
         // drawer test restored its warm entry state. No account/fixture reset.
-        for label in ["Close Profile", "Close chat history", "Close search"] {
+        for label in ["Close One profile", "Close Profile", "Close chat history", "Close search"] {
             let close = app.buttons[label].firstMatch
             if close.exists && close.isHittable { close.tap() }
         }
