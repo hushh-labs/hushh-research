@@ -46,9 +46,11 @@ def referral_replay_postgres():
         try:
             with admin.cursor() as cursor:
                 cursor.execute(pg_sql.SQL("CREATE SCHEMA {}").format(pg_sql.Identifier(schema)))
-            conn = psycopg2.connect(dsn, options=f"-c search_path={schema}")
+            # psycopg2 masks the password in conn.dsn; reuse the original for other sessions.
+            fixture_dsn = psycopg2.extensions.make_dsn(dsn, options=f"-c search_path={schema}")
+            conn = psycopg2.connect(fixture_dsn)
             try:
-                yield conn
+                yield conn, fixture_dsn
             finally:
                 conn.close()
                 with admin.cursor() as cursor:
@@ -76,7 +78,7 @@ def referral_replay_postgres():
     if not all((bindir / command).is_file() for command in ("initdb", "pg_ctl", "postgres")):
         pytest.skip("PostgreSQL server binaries are incomplete")
 
-    directory = Path(tempfile.mkdtemp(prefix="hussh-referral-replay-", dir="/tmp"))
+    directory = Path(tempfile.mkdtemp(prefix="hussh-referral-replay-"))
     data = directory / "data"
     port = 20000 + secrets.randbelow(40000)
     started = False
@@ -120,7 +122,7 @@ def referral_replay_postgres():
             host=str(directory), port=port, dbname="postgres", user="referral_fixture_owner"
         )
         try:
-            yield conn
+            yield conn, conn.dsn
         finally:
             conn.close()
     finally:
@@ -131,13 +133,14 @@ def referral_replay_postgres():
 
 def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay_postgres):
     """The published SQL fails on v3; the pinned replay leaves that policy untouched."""
+    fixture_conn, fixture_dsn = referral_replay_postgres
     entry = build_manifest_entries(
         Path(__file__).resolve().parents[1] / "db/migrations",
         ("289_one_referral_program_settings_v2.sql",),
     )[0]
     adapted_sql = _replay_sql(entry)
     assert entry.sql != adapted_sql
-    with closing(referral_replay_postgres) as conn:
+    with closing(fixture_conn) as conn:
         conn.autocommit = True
         with conn.cursor() as cursor:
             cursor.execute("""
@@ -250,7 +253,7 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
                 "BEGIN; LOCK TABLE one_referral_program_settings IN SHARE ROW EXCLUSIVE MODE"
             )
             try:
-                with closing(psycopg2.connect(conn.dsn)) as reader:
+                with closing(psycopg2.connect(fixture_dsn)) as reader:
                     reader.autocommit = True
                     with reader.cursor() as reader_cursor:
                         reader_cursor.execute("SET lock_timeout = '500ms'")
@@ -261,7 +264,7 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
             # A policy writer can hold a v2 row lock before its UPDATE asks
             # for a table write lock. Replay must not wait for that row while
             # holding SHARE ROW EXCLUSIVE, or the two sessions deadlock.
-            with closing(psycopg2.connect(conn.dsn)) as writer:
+            with closing(psycopg2.connect(fixture_dsn)) as writer:
                 writer.autocommit = True
                 with writer.cursor() as writer_cursor:
                     writer_cursor.execute("BEGIN")
@@ -280,7 +283,7 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
 
                     def run_replay() -> None:
                         try:
-                            with closing(psycopg2.connect(conn.dsn)) as replay_conn:
+                            with closing(psycopg2.connect(fixture_dsn)) as replay_conn:
                                 replay_conn.autocommit = True
                                 with replay_conn.cursor() as replay_cursor:
                                     replay_cursor.execute("SELECT pg_backend_pid()")
