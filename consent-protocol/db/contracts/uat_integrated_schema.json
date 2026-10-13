@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 334,
+  "expected_migration_version": 336,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2735,6 +2735,23 @@
       "preservation_receipt",
       "created_at",
       "updated_at"
+    ],
+    "pwm_claim_invitations": [
+      "id",
+      "inviter_user_id",
+      "token_hash",
+      "contact_commitment",
+      "state",
+      "recipient_user_id",
+      "created_at",
+      "expires_at",
+      "claimed_at",
+      "consent_version"
+    ],
+    "pwm_provider_budget": [
+      "provider",
+      "month",
+      "credits"
     ],
     "relationship_share_events": [
       "id",

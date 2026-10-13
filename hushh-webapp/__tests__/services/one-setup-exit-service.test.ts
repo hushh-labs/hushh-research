@@ -73,7 +73,7 @@ describe("acknowledgeOneSetupExit", () => {
     // The onboarding guard admits /one off this latch, so it MUST be set before
     // any await — otherwise a slow/hung network re-traps the person on the hub.
     expect(OneSetupCompletionHintService.isResolved(userId)).toBe(true);
-    expect(useOneConversationSession.getState().pendingProfileResearch).toBeNull();
+    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
   });
 
   it("retries the durable setupCompleted write until it lands", async () => {
@@ -92,7 +92,7 @@ describe("acknowledgeOneSetupExit", () => {
 
     expect(await settled).toBe("ok");
     expect(syncKaiSetupStateMock).toHaveBeenCalledTimes(3);
-    expect(useOneConversationSession.getState().pendingProfileResearch?.userId).toBe(userId);
+    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
     vi.useRealTimers();
   });
 
@@ -113,17 +113,17 @@ describe("acknowledgeOneSetupExit", () => {
     // later). Skip is never a dead end.
     expect(OneSetupCompletionHintService.isResolved(userId)).toBe(true);
     expect(syncKaiSetupStateMock).toHaveBeenCalledTimes(3);
-    expect(useOneConversationSession.getState().pendingProfileResearch).toBeNull();
+    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
     vi.useRealTimers();
   });
 
-  it("does not offer research until both durable completion writes settle", async () => {
+  it("never queues research when onboarding completes", async () => {
     let resolve!: () => void;
     syncOnboardingJourneyMock.mockReturnValue(new Promise<void>(done => { resolve = done; }));
     const finished = acknowledgeOneSetupExit({ userId: "new-owner", skipped: false });
     await Promise.resolve(); await Promise.resolve();
-    expect(useOneConversationSession.getState().pendingProfileResearch).toBeNull();
+    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
     resolve(); await finished;
-    expect(useOneConversationSession.getState().pendingProfileResearch?.userId).toBe("new-owner");
+    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
   });
 });
