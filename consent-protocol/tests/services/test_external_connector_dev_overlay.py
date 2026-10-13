@@ -96,7 +96,7 @@ async def test_a_stale_shared_row_is_replaced_by_its_manifest_in_development(reg
 
     assert _pinned(by_id["notion"])
     assert by_id["notion"].oauth_client_secret_env is None
-    assert by_id["notion"].registered_redirect_uris == (UAT_RETURN,)
+    assert by_id["notion"].registered_redirect_uris == get_manifest("notion").redirect_uris["uat"]
     # The shared row itself is untouched: the overlay is derived, never written.
     stored = connection.execute(
         "SELECT oauth_client_secret_env FROM external_mcp_connectors WHERE connector_id='notion'"
