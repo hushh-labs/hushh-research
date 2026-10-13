@@ -145,6 +145,7 @@ describe("navigation journeys", () => {
       "setup.finish_finance",
       "setup.finish_gmail",
       "setup.finish_location",
+      "setup.finish_location_intro",
       "setup.finish_ria",
       "setup.skip_calendar",
       "setup.skip_email",

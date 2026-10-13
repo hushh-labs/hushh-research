@@ -601,7 +601,7 @@ export function useSetupCapabilityCoordinator({
     [settle],
   );
   useLocalOnboardingActionHandler(finishActionId, finish, {
-    prepare: capabilityId === "location" ? () => operationallyReady ? { status: "ready", binding: { userId, capabilityId }, summary: "Finish Location setup." } : { status: "blocked", gate: "permission", summary: "Allow Location access to finish setup." } : undefined,
+    prepare: capabilityId === "location" ? () => operationallyReady ? { status: "ready", binding: { userId, capabilityId }, summary: "Finish Location setup." } : { status: "blocked", gate: "navigation", summary: "Open the Location introduction to finish setup." } : undefined,
     enabled:
       enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });
