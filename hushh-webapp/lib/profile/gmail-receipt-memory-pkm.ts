@@ -18,6 +18,7 @@ import type {
   ReceiptMemoryArtifact,
   ShoppingReceiptsMemoryPayload,
 } from "@/lib/services/gmail-receipt-memory-service";
+import { assertReceiptMemoryBudget, safeAffinityLabel, type LightweightReceiptMemory } from "@/lib/mail/receipt-lightweight-memory";
 
 /**
  * The registered writer for `shopping.receipts_memory` (reserved-branches
@@ -87,9 +88,26 @@ export function buildShoppingReceiptMemoryPreparedDomain(params: {
   structureDecision: StructureDecision;
 } {
   const candidatePayload = params.artifact.candidate_pkm_payload as ShoppingReceiptsMemoryPayload;
+  // Retired artifact compatibility may contain recent highlights and exact
+  // dates/amounts. Project only bounded affinity counts, never spread it.
+  const previousMemory = toRecord(params.currentDomainData.receipts_memory);
+  const previousHighlights = toRecord(previousMemory.observed_facts).recent_highlights;
+  if (previousMemory._canonical_index || (previousHighlights !== undefined && (!Array.isArray(previousHighlights) || previousHighlights.length > 0)))
+    throw new Error("Move legacy receipts to the encrypted Mail snapshot before updating memory.");
+  const affinity = candidatePayload.receipts_memory.observed_facts.merchant_affinity
+    .filter(m => safeAffinityLabel(m.merchant_label) && Number.isSafeInteger(m.receipt_count_365d) && m.receipt_count_365d >= 0 && m.receipt_count_365d <= 10000)
+    .slice(0, 20).map(m => ({ merchant_label: m.merchant_label, purchase_count: m.receipt_count_365d }));
+  const projected: LightweightReceiptMemory = { schema_version: 2,
+    readable_summary: { text: "An observed Mail receipt sample informs merchant affinities.", highlights: [],
+      updated_at: candidatePayload.receipts_memory.readable_summary.updated_at, source_label: "Mail receipts" },
+    observed_facts: { merchant_affinity: affinity, category_affinity: [], purchase_patterns: [] },
+    inferred_preferences: { preference_signals: [] }, confidence: null,
+    coverage: { canonical_count: 0, partial: true, truncated: false },
+    provenance: { source_kind: "mail_receipt_snapshot", updated_at: candidatePayload.receipts_memory.readable_summary.updated_at } };
+  assertReceiptMemoryBudget(projected);
   const nextDomainData = {
     ...params.currentDomainData,
-    ...candidatePayload,
+    receipts_memory: projected,
   };
 
   const generated = buildPersonalKnowledgeModelStructureArtifacts({
@@ -113,7 +131,7 @@ export function buildShoppingReceiptMemoryPreparedDomain(params: {
     .filter((path) => path.exposure_eligibility)
     .map((path) => path.json_path);
 
-  const readableSummary = candidatePayload.receipts_memory.readable_summary;
+  const readableSummary = projected.readable_summary;
   const summaryProjection = {
     ...(params.currentManifest?.summary_projection || {}),
     readable_summary: readableSummary.text,
@@ -188,18 +206,25 @@ export function buildShoppingReceiptCanonicalIndexPreparedDomain(params: {
   index: ReceiptCanonicalIndex;
   digest: string;
   now: Date;
+  lightweightMemory?: LightweightReceiptMemory;
+  archiveVerified?: boolean;
 }): {
   domainData: Record<string, unknown>;
   summary: Record<string, unknown>;
   manifest: DomainManifest;
   structureDecision: StructureDecision;
 } {
-  const receiptsMemory = mergeReceiptsMemoryWithIndex({
+  const priorReceiptMemory = toRecord(params.currentDomainData.receipts_memory);
+  const priorHighlights = toRecord(priorReceiptMemory.observed_facts).recent_highlights;
+  if ((priorReceiptMemory._canonical_index || (priorHighlights !== undefined && (!Array.isArray(priorHighlights) || priorHighlights.length > 0))) && !params.archiveVerified)
+    throw new Error("Verify the encrypted Mail snapshot before removing the legacy index.");
+  const receiptsMemory = params.lightweightMemory ? { ...params.lightweightMemory } : mergeReceiptsMemoryWithIndex({
     existing: params.currentDomainData.receipts_memory,
     index: params.index,
     digest: params.digest,
     now: params.now,
   });
+  assertReceiptMemoryBudget(receiptsMemory);
   const nextDomainData = {
     ...params.currentDomainData,
     receipts_memory: receiptsMemory,

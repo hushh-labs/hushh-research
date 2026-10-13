@@ -116,7 +116,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -658,8 +658,8 @@ test("all twenty payment finishes fit long names and a revealed 19-digit number 
 });
 
 for (const width of [320, 390, 1440]) {
-  test(`Wallet Sharing keeps requests and grants reachable at ${width}px`, async ({ page }) => {
-    const errors = await open(page, width, "light", { cards: 3 }, { height: 844, shell: true });
+  test(`Wallet Sharing keeps history and revocation reachable at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
     await mount(page);
     await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
     await page.getByRole("tab", { name: "Sharing", exact: true }).click();
@@ -674,14 +674,45 @@ for (const width of [320, 390, 1440]) {
     }
     const sharing = page.getByTestId("wallet-sharing-content");
     await expect(sharing.getByText("Sample requester")).toHaveCount(0);
-    await expect(sharing.getByText("Sample recipient")).toBeVisible();
-    await expect(sharing.getByRole("button", { name: "Manage" })).toBeVisible();
-    await sharing.getByRole("button", { name: "Manage" }).click();
-    await expect(page.getByRole("dialog", { name: "Manage access" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
+    const history = sharing.getByRole("region", { name: "Card sharing history", exact: true });
+    await expect(history).toBeVisible();
+    await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toBeVisible();
+    await expect(sharing.getByText("Everyday •••• 4242 | Sample recipient", { exact: true })).toBeVisible();
+    await expect(sharing.getByText(/15 minutes/)).toBeVisible();
+    const revoke = sharing.getByRole("button", { name: "Revoke Everyday •••• 4242 shared with Sample recipient", exact: true });
+    const revocations = () => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("sharing-revoke:")));
+    await expect(revoke).toBeEnabled();
+    await revoke.scrollIntoViewIfNeeded();
+    const revokeBounds = (await revoke.boundingBox())!;
+    expect(revokeBounds.x).toBeGreaterThanOrEqual(0);
+    expect(revokeBounds.x + revokeBounds.width).toBeLessThanOrEqual(width);
+    await revoke.click();
+    const confirmation = page.getByRole("alertdialog", { name: "Revoke this card share?", exact: true });
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
+    expect(await revocations()).toEqual([]);
+    await confirmation.getByRole("button", { name: "Keep sharing", exact: true }).click();
+    await expect(confirmation).toBeHidden();
+    expect(await revocations()).toEqual([]);
+    await revoke.click();
+    await expect(confirmation).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect(confirmation).toBeHidden();
+    expect(await revocations()).toEqual([]);
+    await revoke.click();
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "Revoke access", exact: true }).click();
+    await expect.poll(revocations).toEqual(["sharing-revoke:fixture-history-grant"]);
+    await expect(confirmation).toBeHidden();
+    await expect(sharing.getByText("Revoked | Connection", { exact: true })).toBeVisible();
+    await expect(revoke).toHaveCount(0);
+    await expect(sharing.getByText("Everyday •••• 4242 | Sample recipient", { exact: true })).toBeVisible();
+    // Terminal settle must remove fractional interpolation so the Sharing
+    // pane remains fully inside the viewport; live drag keeps its own transform.
     await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
+    const recipientBounds = (await sharing.getByText("Everyday •••• 4242 | Sample recipient", { exact: true }).boundingBox())!;
+    expect(recipientBounds.x).toBeGreaterThanOrEqual(0);
+    expect(recipientBounds.x + recipientBounds.width).toBeLessThanOrEqual(width);
     await page.locator('[data-app-scroll-root="true"]').evaluate((el) => { el.scrollTop = 0; });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath("wallet-sharing.png") });
@@ -824,8 +855,11 @@ for (const width of [390, 1440]) {
     await dialog.getByRole("checkbox", { name: "Share with Trusted Recipient", exact: true }).check();
     await expect(dialog.getByRole("button", { name: "Share with 2", exact: true })).toBeEnabled();
     await expect(dialog).toContainText("Trusted Circle");
-    await dialog.getByRole("button", { name: "5 minutes", exact: true }).click();
-    await expect(dialog.getByRole("button", { name: "5 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.getByRole("button", { name: "15 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await dialog.getByRole("button", { name: "1 hour", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "1 hour", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await dialog.getByRole("button", { name: "2 hours", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "2 hours", exact: true })).toHaveAttribute("aria-pressed", "true");
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath("wallet-encrypted-card-sharing.png") });
     await page.keyboard.press("Escape");
@@ -870,6 +904,7 @@ for (const width of [320, 820, 1440]) {
       await page.getByRole("tab", { name: tab, exact: true }).click();
       const panel = page.locator(selector);
       await expect(panel).toBeVisible();
+      await expect(page.getByTestId("one-wallet-add")).toHaveCount(0);
       await expect.poll(async () => page.evaluate((target) => {
         const box = document.querySelector(target)!.getBoundingClientRect();
         const tabs = document.querySelector('[role="tablist"]')!.getBoundingClientRect();
@@ -880,8 +915,13 @@ for (const width of [320, 820, 1440]) {
         if (tab === "Cards") {
           const heading = panel.getByRole("heading", { name: "Your cards", level: 2, exact: true }).first();
           await expect(heading).toHaveClass(/sr-only/);
+        } else if (tab === "Add") {
+          await expect(panel.getByRole("heading", { name: "Add your card" })).toHaveCount(0);
+          await expect(panel.getByLabel("Card number", { exact: true })).toBeVisible();
+          await expect(panel.getByText("Encrypted on this device. Never enters chat.")).toHaveCount(0);
         } else {
-          await expect(panel.locator('h2').first()).toHaveClass(/ui-text-section-title/);
+          await expect(panel.getByRole("button", { name: "Sent cards", exact: true })).toBeVisible();
+          await expect(panel.getByRole("button", { name: "Received cards", exact: true })).toBeVisible();
         }
         await expect(panel).toHaveCSS('background-image', 'none');
       }
@@ -924,6 +964,107 @@ test("Wallet sharp onboarding and stacked detail links", async ({ page }) => {
   await scrollRoot.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await expect.poll(() => page.locator('[data-stack-details]').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).visibility !== "hidden"))).toBe(true);
   await page.getByRole("tab", { name: "Sharing", exact: true }).click();
-  await expect(page.getByTestId("wallet-sharing-content").locator('figure [data-agent-card="profile"]')).toBeVisible();
-  await expect(page.getByTestId("wallet-sharing-content").locator("figure")).toBeInViewport();
+  const sharing = page.getByTestId("wallet-sharing-content");
+  await expect(sharing.locator("figure")).toHaveCount(0);
+  await expect(sharing.getByRole("button", { name: "Sent cards", exact: true })).toBeInViewport();
+  await expect(sharing.getByRole("button", { name: "Received cards", exact: true })).toBeInViewport();
+});
+
+for (const width of [320, 393, 1024]) {
+  test(`Visitor preview keeps photo, details and QR readable at ${width}px`, async ({ page }, testInfo) => {
+    const consoleErrors: string[] = [];
+    page.on("console", message => { if (["error", "warning"].includes(message.type())) consoleErrors.push(message.text()); });
+    const errors = await open(page, width, "light", {}, { secure: true });
+    const photo = `data:image/webp;base64,${fs.readFileSync(path.join(process.cwd(), "public/ria/onboarding/adv1f.webp")).toString("base64")}`;
+    await page.addScriptTag({ content: `window.__visitorPreview = ${JSON.stringify({ photo, long: width === 320 })};` });
+    await mount(page, false);
+    const card = page.getByTestId("visitor-profile-card");
+    await expect(card).toBeVisible();
+    await expect(card.locator('[data-slot="avatar-image"]')).toBeVisible();
+    await expect(card.getByRole("img", { name: "Hushh profile badge" })).toBeVisible();
+    await expect(card.getByRole("img", { name: "Profile QR code", exact: true })).toBeVisible();
+    const email = card.locator('a[href^="mailto:"]');
+    await email.focus();
+    await expect(email).toBeFocused();
+    await expect(card.getByRole("link", { name: /Website/ })).toHaveAttribute("rel", "noopener noreferrer");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const overflowing = await card.locator('h1, p, a, figure').evaluateAll(nodes => nodes.filter(node => node.scrollWidth > node.clientWidth + 1).length);
+    expect(overflowing).toBe(0);
+    const typography = await card.locator('h1').evaluate(node => {
+      const reference = document.createElement("h1");
+      reference.className = "break-words text-[26px] font-medium leading-[1.15] tracking-tight sm:text-[30px]";
+      document.body.append(reference);
+      const original = getComputedStyle(reference);
+      const current = getComputedStyle(node);
+      const result = { current: [current.fontSize, current.fontFamily, current.fontWeight], original: [original.fontSize, original.fontFamily, original.fontWeight] };
+      reference.remove();
+      return result;
+    });
+    expect(typography.current).toEqual(typography.original);
+    expect(errors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+    await email.blur();
+    await page.screenshot({ path: testInfo.outputPath(`visitor-${width}.png`), fullPage: true });
+  });
+}
+for (const width of [320, 1440]) {
+  for (const kind of ["Profile", "Referral", "NWS"] as const) {
+    test(`default ${kind} QR revocation updates the link and counts at ${width}px`, async ({ page }, testInfo) => {
+      const errors = await open(page, width, "light", { cards: 0 }, { height: 900, shell: true, secure: true });
+      await mount(page);
+      await page.getByRole("button", { name: "View details for Agent One Profile", exact: true }).click();
+      if (kind !== "Profile") await page.getByRole("button", { name: "Next card", exact: true }).click();
+      if (kind === "NWS") await page.getByRole("button", { name: "Next card", exact: true }).click();
+      const counter = page.getByTestId(kind === "Referral" ? "wallet-referral-opens" : "wallet-profile-scans");
+      await expect(counter).toHaveText(kind === "Referral" ? "7" : "3");
+      const revoke = page.getByRole("button", { name: "Revoke access", exact: true });
+      await revoke.click();
+      let dialog = page.getByRole("alertdialog");
+      await expect(dialog).toContainText(kind === "Referral" ? "earned referrals" : "Profile and NWS share this QR");
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(counter).toHaveText(kind === "Referral" ? "7" : "3");
+      expect(await page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("qr-revoke:")))).toEqual([]);
+      await revoke.click();
+      dialog = page.getByRole("alertdialog");
+      await dialog.getByRole("button", { name: "Revoke access", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(counter).toHaveText("0");
+      await expect(page.getByText(kind === "Referral" ? "https://example.test/r/fixture-referral-new" : "https://example.test/c/fixture-wallet-share-token-000002", { exact: true })).toBeVisible();
+      if (kind === "Referral") {
+        await expect(page.getByRole("link", { name: "Preview referral page" })).toHaveAttribute("href", "https://example.test/r/fixture-referral-new");
+        await expect(page.getByText("Qualified referrals", { exact: true })).toBeVisible();
+        await expect(page.getByText("2", { exact: true })).toBeVisible();
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await counter.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`revoke-${kind.toLowerCase()}-${width}.png`) });
+      if (kind !== "Referral") {
+        if (kind === "NWS") {
+          await page.getByRole("button", { name: "All cards", exact: true }).click();
+          await page.getByRole("button", { name: "View details for Agent One Profile", exact: true }).click();
+        } else {
+          await page.getByRole("button", { name: "Next card", exact: true }).click();
+          await page.getByRole("button", { name: "Next card", exact: true }).click();
+        }
+        await expect(page.getByTestId("wallet-profile-scans")).toHaveText("0");
+      }
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+test("a failed default QR revoke retains the existing link and scans", async ({ page }) => {
+  await open(page, 393, "light", { cards: 0, revokeFailure: true }, { shell: true, secure: true });
+  await mount(page);
+  await page.getByRole("button", { name: "View details for Agent One Profile", exact: true }).click();
+  await expect(page.getByTestId("wallet-profile-scans")).toHaveText("3");
+  await page.getByRole("button", { name: "Revoke access", exact: true }).click();
+  const dialog = page.getByRole("alertdialog");
+  await dialog.getByRole("button", { name: "Revoke access", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("qr-revoke:")).length)).toBe(1);
+  await expect(dialog.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByTestId("wallet-profile-scans")).toHaveText("3");
+  await expect(page.getByText("https://example.test/c/fixture-wallet-share-token-000001", { exact: true })).toBeVisible();
 });

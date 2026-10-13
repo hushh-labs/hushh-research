@@ -48,6 +48,7 @@ from hushh_mcp.services.one_referral_service import (
     bind_attribution,
     get_referral_summary,
     resolve_slug_for_attribution,
+    rotate_referral_code,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,26 @@ def referral_summary(firebase_uid: str = Depends(require_firebase_auth)):
     except Exception:
         logger.exception("[referrals] summary_unexpected")
         raise HTTPException(status_code=500, detail={"code": "REFERRAL_SUMMARY_FAILED"})
+
+
+class RotateReferralRequest(BaseModel):
+    slug: str = Field(..., min_length=1, max_length=128)
+
+
+@router.post("/rotate")
+def rotate_referral_link(
+    payload: RotateReferralRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Revoke this owner's current invitation link without removing referral credits."""
+    try:
+        rotate_referral_code(firebase_uid, expected_slug=payload.slug)
+        return get_referral_summary(firebase_uid)
+    except ReferralProgramDisabled:
+        raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_OFF"})
+    except Exception:
+        logger.exception("[referrals] rotate_failed")
+        raise HTTPException(status_code=500, detail={"code": "REFERRAL_ROTATE_FAILED"})
 
 
 class ResolveSlugRequest(BaseModel):

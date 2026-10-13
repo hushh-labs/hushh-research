@@ -1,0 +1,32 @@
+.card {
+  width: 100%;
+  max-width: 36rem;
+  min-width: 0;
+  margin-inline: auto;
+  padding: 1.25rem;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: var(--app-card-radius-standard);
+  background: var(--app-card-surface-default-solid);
+  box-shadow: var(--shadow-xs);
+  font-family: var(--font-app-body);
+  color: var(--foreground);
+  display: grid;
+  gap: .75rem;
+  container-type: inline-size;
+}
+.identity { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+.photo { width: 6rem; height: 6rem; flex-shrink: 0; border-radius: 1.5rem; border: 1px solid var(--app-card-border-standard); }
+.heading { display: grid; gap: .375rem; min-width: 0; overflow-wrap: anywhere; }
+.contactArea { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: flex-start; min-width: 0; }
+.contactArea:empty { display: none; }
+.contacts { flex: 1 1 10rem; min-width: 0; }
+.qr { width: 7.5rem; flex-shrink: 0; margin: 0; text-align: center; }
+.qr svg { border-radius: .75rem; }
+@container (max-width: 25rem) {
+  .identity { align-items: flex-start; gap: .75rem; }
+  .photo { width: 5rem; height: 5rem; border-radius: 1.25rem; }
+  .qr { margin-inline: auto; }
+}
+@container (max-width: 18rem) {
+  .identity { flex-direction: column; }
+}

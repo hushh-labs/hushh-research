@@ -358,6 +358,7 @@ export function DocumentRequestRequesterPanel({
         revision={status.revision}
         payment={status.payment ?? null}
         price={status.price ?? null}
+        packageDisclosure={context?.requestRevision === status.revision ? context.packageDisclosure ?? null : null}
         onChanged={onChanged}
       />
 

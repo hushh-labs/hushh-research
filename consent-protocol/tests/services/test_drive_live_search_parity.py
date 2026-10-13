@@ -85,7 +85,7 @@ def reader_with(responses):
 TERM = "(title contains '{0}' or fullText contains '{0}')"
 
 
-async def test_multi_word_terms_must_all_match_before_any_term_may():
+async def test_distinct_legacy_terms_remain_required_concepts():
     both = TERM.format("bank") + " and " + TERM.format("statement")
     reader, calls = reader_with({("search_files", both): [file("f1", "SBI bank statement.pdf")]})
     found = await reader.find(query=["bank", "statement"])
@@ -93,12 +93,7 @@ async def test_multi_word_terms_must_all_match_before_any_term_may():
     assert [call[1] for call in calls] == [both]
 
 
-async def test_any_term_is_only_a_fallback_when_all_terms_find_nothing():
-    both = (
-        "(title contains 'salary slip' or fullText contains '\"salary slip\"')"
-        + " and "
-        + TERM.format("payslip")
-    )
+async def test_equivalent_variants_are_searched_together_even_when_one_has_a_hit():
     either = (
         "("
         + "(title contains 'salary slip' or fullText contains '\"salary slip\"')"
@@ -107,11 +102,47 @@ async def test_any_term_is_only_a_fallback_when_all_terms_find_nothing():
         + ")"
     )
     reader, calls = reader_with(
-        {("search_files", both): [], ("search_files", either): [file("f2", "payslip-aug.pdf")]}
+        {
+            ("search_files", either): [
+                [file("f1", "salary slip.pdf")],
+                [file("f2", "payslip-aug.pdf")],
+            ]
+        }
     )
-    found = await reader.find(query=["salary slip", "payslip"])
-    assert [item["name"] for item in found["matches"]] == ["payslip-aug.pdf"]
-    assert [call[1] for call in calls] == [both, either]
+    found = await reader.find(query=["salary slip"], term_groups=[["salary slip", "payslip"]])
+    assert [item["name"] for item in found["matches"]] == ["salary slip.pdf", "payslip-aug.pdf"]
+    assert [call[1] for call in calls] == [either, either]
+    assert calls[1][2]["pageToken"] == "1"
+
+
+async def test_groups_preserve_institution_and_subject_without_unrelated_or_fallback():
+    query = (
+        "("
+        + TERM.format("Schwab")
+        + " or (title contains 'Charles Schwab' or fullText contains '\"Charles Schwab\"'))"
+        + " and ("
+        + TERM.format("statement")
+        + " or "
+        + TERM.format("statements")
+        + ")"
+    )
+    reader, calls = reader_with({("search_files", query): []})
+    found = await reader.find(
+        query=["Schwab", "statement"],
+        term_groups=[["Schwab", "Charles Schwab"], ["statement", "statements"]],
+    )
+    assert found["matches"] == []
+    assert [call[1] for call in calls] == [query]
+
+
+@pytest.mark.parametrize(
+    "groups", [[[]], [["different"]], [["statement", "STATEMENT"]], [["statement", "bad\nterm"]]]
+)
+async def test_invalid_groups_cannot_reach_drive(groups):
+    reader, calls = reader_with({})
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.find(query=["statement"], term_groups=groups)
+    assert calls == []
 
 
 async def test_compilation_folder_children_use_validated_parent_scope_and_bound_pages():
@@ -126,15 +157,12 @@ async def test_compilation_folder_children_use_validated_parent_scope_and_bound_
     assert calls[0][2]["pageSize"] == 25
 
 
-async def test_owner_title_only_search_excludes_full_text_from_both_query_passes():
-    both = "title contains 'standup' and title contains 'sync'"
+async def test_owner_title_only_search_excludes_full_text_from_variants():
     either = "(title contains 'standup' or title contains 'sync')"
-    reader, calls = reader_with(
-        {("search_files", both): [], ("search_files", either): [file("f2", "Standup sync notes")]}
-    )
-    found = await reader.find(query=["standup", "sync"], title_only=True)
+    reader, calls = reader_with({("search_files", either): [file("f2", "Standup sync notes")]})
+    found = await reader.find(query=["standup"], term_groups=[["standup", "sync"]], title_only=True)
     assert [item["name"] for item in found["matches"]] == ["Standup sync notes"]
-    assert [call[1] for call in calls] == [both, either]
+    assert [call[1] for call in calls] == [either]
     assert all("fullText" not in call[1] for call in calls)
 
 
@@ -215,6 +243,11 @@ async def test_title_only_requires_a_boolean_before_provider_call(value):
     "kind,clause",
     [
         ("pdf", "mimeType = 'application/pdf'"),
+        (
+            "document",
+            "(mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/pdf'"
+            " or mimeType = 'application/msword' or mimeType contains 'wordprocessingml')",
+        ),
         ("video", "mimeType contains 'video/'"),
         (
             "spreadsheet",
@@ -446,7 +479,13 @@ async def test_ambiguous_file_activity_question_keeps_model_planning(monkeypatch
     )
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
     planner = AsyncMock(
-        return_value={"mode": "find", "relative_days": 2, "time_intent": "file_activity"}
+        return_value={
+            "mode": "find",
+            "relative_days": 2,
+            "time_intent": "file_activity",
+            "subject_scope": "metadata_listing",
+            "subject_complete": True,
+        }
     )
     chat = DriveChatService(
         oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
@@ -494,6 +533,7 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
         search_planner=AsyncMock(
             return_value={
                 "terms": ["recording"],
+                "term_groups": [["recording", "recordings"]],
                 "file_kind": "video",
                 "shared_with_me": False,
                 "sort": "recent",
@@ -514,6 +554,7 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
     )
     kwargs = reader.find.await_args.kwargs
     assert kwargs["query"] == ["recording"]
+    assert kwargs["term_groups"] == [["recording", "recordings"]]
     assert kwargs["file_kind"] == "video" and kwargs["recent"] is True
     assert kwargs["shared_with_me"] is False
     assert kwargs["title_dates"] == ["2026-09-24"]
@@ -740,6 +781,8 @@ async def test_a_date_only_listing_states_the_owners_window_and_names_each_file(
                 "date_from": "2026-09-21",
                 "date_to": "2026-09-21",
                 "time_intent": "file_activity",
+                "subject_scope": "metadata_listing",
+                "subject_complete": True,
             }
         ),
     )

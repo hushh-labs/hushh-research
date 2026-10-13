@@ -175,6 +175,7 @@ import {
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
 import {
+  buildProfilePaneCloseHref,
   popProfilePaneLocation,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
@@ -1739,7 +1740,7 @@ function ProfilePageContent({
             settlement.committed = true;
 
             CacheSyncService.onAccountDeleted(user.uid);
-            await UserLocalStateService.clearForUser(user.uid);
+            await UserLocalStateService.clearForUser(user.uid, { deleteDurableReceipts: true });
             await refreshPersonaState({ force: true });
 
             // Reset returns the account to a fresh, just-onboarded state: keep
@@ -4457,6 +4458,11 @@ function ProfilePageContent({
     payouts: () => openVaultBackedPanel("payouts"),
     "request-pricing": () => openVaultBackedPanel("request-pricing"),
     "my-data": () => openVaultBackedPanel("my-data"),
+    "world-model": () => {
+      const from = normalizeInternalRouteHref(searchParams.get("from")) ??
+        (isPanePresentation ? normalizeInternalRouteHref(buildProfilePaneCloseHref(pathname, searchParams)) : null);
+      router.push(from ? `${ROUTES.PROFILE_WORLD_MODEL}?${new URLSearchParams({ from })}` : ROUTES.PROFILE_WORLD_MODEL);
+    },
     preferences: openPreferencesPanel,
     security: openSecurityPanel,
     devices: () => openVaultBackedPanel("security", "trusted-devices"),

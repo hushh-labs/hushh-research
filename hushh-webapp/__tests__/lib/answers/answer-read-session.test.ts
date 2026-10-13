@@ -120,7 +120,7 @@ function session(scopes = [NAME_SCOPE, AGE_SCOPE]) {
 
 async function rawCache(): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
-    const open = indexedDB.open("hushh-secure-resource-cache", 1);
+    const open = indexedDB.open("hushh-secure-resource-cache");
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
       const database = open.result;
@@ -132,6 +132,10 @@ async function rawCache(): Promise<unknown[]> {
 }
 
 beforeEach(async () => {
+  // Stable age calculations and timestamps keep synthetic stale ages from
+  // coincidentally matching wall-clock milliseconds in encrypted readback.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-13T12:00:00.000Z"));
   transport.apiFetch.mockReset();
   transport.refreshAccountIdentityShadow.mockReset();
   transport.encrypt.mockImplementation(({ plaintext, keyHex }) => encryptData(plaintext, keyHex));
@@ -154,7 +158,9 @@ function applicationTransport(params: {
   work: AnswerableWork;
   domains?: StoredDomain[];
   compose?: (projection: Record<string, unknown>) => Response | Promise<Response>;
+  conflictProjectionOnce?: boolean;
 }) {
+  let conflicted = false;
   const domains = new Map((params.domains ?? []).map(domain => [domain.domain, domain]));
   const writes: Record<string, unknown>[] = [];
   const projections: Record<string, unknown>[] = [];
@@ -190,6 +196,11 @@ function applicationTransport(params: {
         paths: body.manifest.paths,
       };
       domains.set(body.domain, saved);
+      if (params.conflictProjectionOnce && !conflicted && body.domain === "one_living_sources") {
+        // A competing refresh has committed this exact encrypted projection.
+        conflicted = true;
+        return Response.json({ detail: { error_code: "version_conflict", current_version: saved.revision } }, { status: 409 });
+      }
       return Response.json({ success: true, data_version: saved.revision, updated_at: new Date().toISOString() });
     }
     if (url.includes("/domain-snapshot/") || url.includes("/domain-data/")) {
@@ -954,4 +965,20 @@ it("round-trips existing-owner edits through encrypted storage, cold readback an
   expect(absent.hasContent).toBe(false);
   expect(JSON.stringify(absent.payload.approvedInformation)).not.toContain("legacy sex");
   expect(JSON.stringify(await rawCache())).not.toContain("Synthetic Ava");
+});
+
+it("recovers an encrypted projection conflict and stages the current approved fact exactly once", async () => {
+  const name = "attr.identity.identity_profile.full_name";
+  const work = await applicationWork([name]);
+  const state = applicationTransport({ work, conflictProjectionOnce: true });
+  const selected = { ...PARAMS, firebaseIdToken: "synthetic-firebase-token", requestId: work.requestId };
+  const results = await Promise.all([runAnswerDeliverySweep(selected), runAnswerDeliverySweep(selected)]);
+  expect(results.every(result => result.delivered === 1)).toBe(true);
+  expect(state.domains.get("one_living_sources")?.revision).toBe(1);
+  expect(state.projections).toHaveLength(1);
+  expect(JSON.stringify(state.projections[0])).toContain("Synthetic Public Name");
+  expect(state.staged).toHaveLength(1);
+  expect(JSON.stringify(state.staged)).not.toContain("Synthetic Public Name");
+  const opened = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+  expect(JSON.stringify(opened)).toContain("Gemini returned this exact readable answer.");
 });

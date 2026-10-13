@@ -125,7 +125,6 @@ export function KaiMarketHubPage() {
         <PageHeader
           title="Finance"
           titleRole="agent"
-          className="ms-[var(--page-inline-gutter-standard)]"
         />
         <TopShellTabs
           tabSet={{ ...FINANCE_TAB_DEFINITION, activeValue: visibleTab }}

@@ -422,3 +422,26 @@ def test_provider_and_candidate_mismatch_is_rejected() -> None:
     assert goal.selected_action_id is None
     assert goal.assessment_status == "rejected"
     assert goal.reason_code == "provider_action_mismatch"
+
+
+def test_location_intro_terminal_requires_visible_action_and_matching_capability() -> None:
+    for active_capability, visible in [("location", True), ("gmail", True), ("location", False)]:
+        goal = resolve_onboarding_goal(
+            OnboardingJourneyContext(
+                phase="capability_setup",
+                authenticated=True,
+                active_capability=active_capability,
+                available_action_ids=["setup.finish_location_intro"] if visible else [],
+                assessment=OnboardingAssessmentV1(
+                    intent="execute_visible_action",
+                    candidate_action_id="setup.finish_location_intro",
+                ),
+            )
+        )
+        if active_capability == "location" and visible:
+            assert goal.selected_action_id == "setup.finish_location_intro"
+            assert goal.return_to_hub is True
+            assert goal.resolves_root is False
+        else:
+            assert goal.selected_action_id is None
+            assert goal.assessment_status == "rejected"

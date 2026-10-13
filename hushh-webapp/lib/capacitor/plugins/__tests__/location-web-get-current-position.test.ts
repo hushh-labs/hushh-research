@@ -178,6 +178,28 @@ describe("HushhLocationWeb.getCurrentPosition", () => {
     expect(getCurrentPositionCalls).toHaveLength(0);
   });
 
+  it("tries the network provider immediately when precise positioning is unavailable", async () => {
+    const web = new HushhLocationWeb();
+    const promise = web.getCurrentPosition({ timeoutMs: 9_000 });
+    watchCalls[0].error(makeError(2));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getCurrentPositionCalls[0].options?.enableHighAccuracy).toBe(false);
+    getCurrentPositionCalls[0].success(makePosition(80));
+    await vi.advanceTimersByTimeAsync(1_200);
+    await expect(promise).resolves.toMatchObject({ accuracyM: 80 });
+    expect(clearWatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the first network request when its fix arrives after precise sampling expires", async () => {
+    const web = new HushhLocationWeb();
+    const promise = web.getCurrentPosition({ timeoutMs: 10_000 });
+    watchCalls[0].error(makeError(2));
+    await vi.advanceTimersByTimeAsync(9_200);
+    expect(getCurrentPositionCalls).toHaveLength(1);
+    getCurrentPositionCalls[0].success(makePosition(20));
+    await expect(promise).resolves.toMatchObject({ accuracyM: 20 });
+  });
+
   it("does not abort sampling on a transient POSITION_UNAVAILABLE", async () => {
     // A live provider reports code 2/3 routinely between fixes. Treating either
     // as failure is what made a working device report "location is off".

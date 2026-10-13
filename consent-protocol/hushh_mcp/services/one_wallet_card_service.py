@@ -275,6 +275,8 @@ _REACTIVATE_CARD: Final = """
         share_token_hash = :share_token_hash,
         share_token_envelope = CAST(:share_token_envelope AS JSONB),
         share_token_version = share_token_version + 1,
+        scan_count = 0,
+        last_scanned_at = NULL,
         status = CASE WHEN status = 'revoked' THEN 'active' ELSE status END,
         revoked_at = NULL,
         avatar_url = CASE WHEN :apply_avatar
@@ -292,6 +294,8 @@ _ROTATE_SHARE_HASH: Final = """
     SET share_token_hash = :share_token_hash,
         share_token_envelope = CAST(:share_token_envelope AS JSONB),
         share_token_version = share_token_version + 1,
+        scan_count = 0,
+        last_scanned_at = NULL,
         updated_at = NOW()
     WHERE user_id = :user_id
       AND status <> 'revoked'

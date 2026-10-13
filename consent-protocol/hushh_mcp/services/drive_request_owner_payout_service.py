@@ -69,7 +69,7 @@ def delivery_amounts(
 ) -> dict[str, int]:
     if (
         type(gross_cents) is not int
-        or not 100 <= gross_cents <= 50000
+        or not 50 <= gross_cents <= 50000
         or type(confirmed) is not int
         or type(expected) is not int
         or expected < 0
@@ -283,7 +283,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         if not payout_enabled() and not (settlement_method == "hashcoins" and hashcoins_enabled()):
             raise RuntimeError("owner_payouts_disabled")
         request = str(UUID(str(request_id)))
-        if not owner_user_id or type(amount_cents) is not int or not 100 <= amount_cents <= 50000:
+        if not owner_user_id or type(amount_cents) is not int or not 50 <= amount_cents <= 50000:
             raise ValueError("invalid payout order")
         order = (
             connection.execute(
@@ -413,15 +413,19 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         return True
 
     @staticmethod
-    def _delivery_summary(connection, request_id: str, requester_user_id: str) -> dict[str, int]:
+    def _delivery_summary(
+        connection, request_id: str, requester_user_id: str, *, package_count: int | None = None
+    ) -> dict[str, int]:
         row = (
             connection.execute(
                 text("""WITH file_outcomes AS (
                 SELECT f.file_digest,
                   bool_or(e.state IN ('succeeded','preexisting')) AS confirmed,
-                  bool_or(e.state IS NULL OR e.state NOT IN
+                  bool_or((b.approved_at IS NOT NULL AND
+                    (e.state IS NULL OR e.state NOT IN
                     ('succeeded','preexisting','skipped','failed','absent') OR
-                    (e.state='failed' AND e.safe_error_code='permission_outcome_unknown'))
+                    (e.state='failed' AND e.safe_error_code='permission_outcome_unknown')))
+                    OR b.status IN ('review_ready','queued','running'))
                     AS unsettled
                 FROM drive_bulk_shares b
                 JOIN drive_bulk_share_files f ON f.share_id=b.share_id
@@ -431,19 +435,31 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 LEFT JOIN drive_bulk_share_effects e
                   ON e.share_id=f.share_id AND e.position=f.position AND
                      e.recipient_user_id=recipient.recipient_user_id
-                WHERE b.origin_request_id=:request AND b.approved_at IS NOT NULL
+                WHERE b.origin_request_id=:request
+                  AND (b.approved_at IS NOT NULL OR :include_frozen)
                   AND (b.progressive_batch=FALSE OR f.origin_request_id=:request)
                 GROUP BY f.file_digest
               ) SELECT COUNT(*) AS expected,
                 COUNT(*) FILTER (WHERE confirmed) AS confirmed,
                 COUNT(*) FILTER (WHERE unsettled) AS unsettled
               FROM file_outcomes"""),
-                {"request": request_id, "requester": requester_user_id},
+                {
+                    "request": request_id,
+                    "requester": requester_user_id,
+                    "include_frozen": package_count is not None,
+                },
             )
             .mappings()
             .one()
         )
-        return {key: int(row[key]) for key in ("expected", "confirmed", "unsettled")}
+        result = {key: int(row[key]) for key in ("expected", "confirmed", "unsettled")}
+        if package_count is not None:
+            # The owner approved the entire immutable package. A later frozen
+            # batch must never make the first delivered subset look complete.
+            # Any missing/extra frozen file holds settlement for reconciliation.
+            result["unsettled"] += int(result["expected"] != package_count)
+            result["expected"] = package_count
+        return result
 
     def _advance_delivery(self, connection, request_id: str) -> str:
         # The same order as share/erasure/refund writers: shares, request,
@@ -564,7 +580,31 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             ).scalar_one()
             if unresolved_batch:
                 return "held"
-            summary = self._delivery_summary(connection, request_id, request["recipient_user_id"])
+            package_count = None
+            if request.get("request_envelope") is not None:
+                from hushh_mcp.services.drive_owner_allowed import package_allow_marker
+                from hushh_mcp.services.drive_sharing_contract import (
+                    DriveSharingCipher,
+                    DriveSharingError,
+                )
+
+                try:
+                    private = DriveSharingCipher().open(
+                        request["request_envelope"],
+                        user_id=request["user_id"],
+                        resource_id=str(request["request_id"]),
+                        purpose="request",
+                    )
+                    if private.get("agent_package_required") is True:
+                        approved = package_allow_marker(private)
+                        if approved is None:
+                            return "held"
+                        package_count = approved["package_selected_count"]
+                except (DriveSharingError, ValueError, TypeError, KeyError):
+                    return "held"
+            summary = self._delivery_summary(
+                connection, request_id, request["recipient_user_id"], package_count=package_count
+            )
             if summary["unsettled"]:
                 return "held"
             amounts = delivery_amounts(

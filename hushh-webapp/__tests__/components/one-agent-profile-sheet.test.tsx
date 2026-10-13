@@ -4,6 +4,9 @@ import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet
 import { CacheService } from "@/lib/services/cache-service";
 
 const mocks = vi.hoisted(() => ({
+  unlocked: true,
+  identityOwner: "viewer",
+  preferredName: "Love",
   list: vi.fn(),
   markRead: vi.fn(),
   push: vi.fn(),
@@ -12,6 +15,12 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: "viewer", getIdToken: mocks.getIdToken } }),
+}));
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: mocks.unlocked ? "fixture-key" : null, vaultOwnerToken: mocks.unlocked ? "fixture-token" : null }),
+}));
+vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
+  usePkmDomainResource: () => ({ data: { key: { userId: mocks.identityOwner }, data: { communication_preferences: { preferred_name: mocks.preferredName } } } }),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/lib/services/feed-service", () => ({
@@ -34,6 +43,9 @@ const item = (id: string, event_type: string) => ({
 describe("One agent profile feed preview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.unlocked = true;
+    mocks.identityOwner = "viewer";
+    mocks.preferredName = "Love";
     window.localStorage.clear();
     CacheService.getInstance().clear();
     mocks.list.mockResolvedValue({
@@ -45,6 +57,18 @@ describe("One agent profile feed preview", () => {
       next_cursor: null,
       unread_count: 3,
     });
+  });
+
+  it("shows only the unlocked current owner's preferred name", async () => {
+    const view = render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(screen.getByRole("heading", { name: "Love" })).toBeInTheDocument();
+    mocks.identityOwner = "another-owner";
+    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
+    mocks.identityOwner = "viewer";
+    mocks.unlocked = false;
+    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
   });
 
   it("fetches the viewer's feed only when visible and preserves its clear/read boundaries", async () => {
@@ -74,7 +98,7 @@ describe("One agent profile feed preview", () => {
       name: "Open memory.md in Memory",
     });
     expect(memory).toHaveAttribute("href", "/one/pkm");
-    expect(screen.getByText("Identity preview")).toBeInTheDocument();
+    expect(screen.getByText("Soul preview")).toBeInTheDocument();
     const calls = mocks.list.mock.calls.length;
     fireEvent.focus(window);
     await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(calls));

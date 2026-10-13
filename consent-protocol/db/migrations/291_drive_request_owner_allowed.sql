@@ -47,7 +47,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint
     WHERE conrelid='drive_request_payment_orders'::regclass AND contype='c'
       AND regexp_replace(pg_get_constraintdef(oid),'[()[:space:]]','','g')
-        ='CHECKamount_cents>=100ANDamount_cents<=50000ANDamount_cents%100=0') THEN
+        IN ('CHECKamount_cents>=100ANDamount_cents<=50000ANDamount_cents%100=0',
+            'CHECKamount_cents>=50ANDamount_cents<=50000')) THEN
     ALTER TABLE drive_request_payment_orders
       DROP CONSTRAINT IF EXISTS drive_request_payment_orders_amount_cents_check;
     ALTER TABLE drive_request_payment_orders
@@ -58,7 +59,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint
     WHERE conrelid='drive_request_payment_obligations'::regclass AND contype='c'
       AND regexp_replace(pg_get_constraintdef(oid),'[()[:space:]]','','g')
-        ='CHECKamount_cents>=100ANDamount_cents<=50000ANDamount_cents%100=0') THEN
+        IN ('CHECKamount_cents>=100ANDamount_cents<=50000ANDamount_cents%100=0',
+            'CHECKamount_cents>=50ANDamount_cents<=50000')) THEN
     ALTER TABLE drive_request_payment_obligations
       DROP CONSTRAINT IF EXISTS drive_request_payment_obligations_amount_cents_check;
     ALTER TABLE drive_request_payment_obligations

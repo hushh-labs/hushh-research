@@ -185,11 +185,28 @@ class DriveSharingService:
         await wake_drive_work("sharing")
         return result
 
-    async def allow(self, *, user_id, request_id, revision, amount_cents):
+    async def allow(
+        self,
+        *,
+        user_id,
+        request_id,
+        revision,
+        amount_cents,
+        package_revision=None,
+        package_digest=None,
+    ):
         """A's Allow hands one request to the automatic search; nothing is shared yet."""
         await self._require_owner()
         result = await self.store.allow_request(
-            user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
+            user_id=user_id,
+            request_id=request_id,
+            revision=revision,
+            amount_cents=amount_cents,
+            **(
+                {"package_revision": package_revision, "package_digest": package_digest}
+                if package_revision is not None or package_digest is not None
+                else {}
+            ),
         )
         await wake_drive_work("suggestions")
         return result

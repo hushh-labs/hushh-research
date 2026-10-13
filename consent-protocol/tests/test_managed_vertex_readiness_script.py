@@ -125,7 +125,9 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     binding = module.ManagedGeminiRuntimeBinding(
         project="synthetic", locations=("global",), auth_mode="vertex_adc"
     )
-    monkeypatch.setattr(module.ManagedGeminiRuntimeBinding, "from_environment", lambda: binding)
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding, "from_environment", lambda **kwargs: binding
+    )
     monkeypatch.setattr(
         module.ManagedGeminiRuntimeBinding,
         "build_direct_client",
@@ -135,6 +137,11 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     )
     monkeypatch.setattr(
         module.ManagedGeminiRuntimeBinding, "build_adk_model", lambda self, model: AdkModel()
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding,
+        "build_regional_adk_model",
+        lambda self, model: AdkModel(),
     )
     monkeypatch.setattr(LocationCommandBrain, "transcribe", transcribe)
     monkeypatch.setattr(LocationCommandBrain, "assess", assess)
@@ -172,7 +179,7 @@ async def test_stalled_live_preserves_slower_command_verdicts(
         "application_broken" if hard_failure else "provider_unavailable"
     )
     assert report["advisory"] is (not hard_failure)
-    assert len(report["probes"]) == 5
+    assert len(report["probes"]) == 6
     assert cancelled == ["live"]
 
 
@@ -186,7 +193,8 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    monkeypatch.setenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", "hussh-511311")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "false")
     monkeypatch.delenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", raising=False)
     monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "scoped")
     monkeypatch.setattr(
@@ -258,7 +266,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
-    monkeypatch.setenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", "hussh-511311")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "scoped")
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
     monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", "gemini-live-2.5-flash-native-audio")
@@ -276,8 +284,11 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
         assert kwargs["vertex_project"] == "hussh-511311"
         return SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
 
+    from unittest.mock import AsyncMock
+
     from hushh_mcp.runtime_providers import factory
 
+    monkeypatch.setattr(module, "_probe_adk_response", AsyncMock())
     monkeypatch.setattr(factory, "build_managed_live_client", build_client)
     report = await module.main()
     assert report["one_voice_project"] == "hussh-511311"

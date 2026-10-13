@@ -1,4 +1,5 @@
-import type { ReactNode, SVGProps } from "react";
+import { useId, type ReactNode, type SVGProps } from "react";
+import { RotateCcw } from "@/components/icons";
 
 type AccountIconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
@@ -89,15 +90,26 @@ export function ProfileAccountWalletIcon(props: AccountIconProps) {
   );
 }
 
-export function ProfileAccountResetIcon(props: AccountIconProps) {
+export function ProfileAccountResetIcon({ size = 24, ...props }: AccountIconProps) {
+  const toneId = useId();
   return (
-    <AccountIcon {...props}>
-      <path d="M4.5 12a7.5 7.5 0 1 1 2.2 5.3" />
-      <path
-        className="profile-account-icon-accent"
-        d="M6.8 15.5 4.5 17.8 7 19.4"
-      />
-    </AccountIcon>
+    <RotateCcw
+      size={size}
+      aria-hidden="true"
+      {...props}
+      fill={`url(#${toneId})`}
+    >
+      <defs>
+        {/* Paint only the L-shaped head; Phosphor still owns the entire glyph. */}
+        <pattern id={toneId} patternUnits="userSpaceOnUse" width="256" height="256">
+          <rect width="256" height="256" fill="currentColor" />
+          <g fill="var(--account-accent, var(--app-accent))">
+            <rect x="16" y="48" width="16" height="64" />
+            <rect x="16" y="96" width="64" height="16" />
+          </g>
+        </pattern>
+      </defs>
+    </RotateCcw>
   );
 }
 

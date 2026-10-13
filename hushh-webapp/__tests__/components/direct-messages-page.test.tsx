@@ -8,9 +8,11 @@ import {
 } from "@/components/agent/agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { DirectMessagesPage as ProductionDirectMessagesPage } from "@/components/direct-messages/direct-messages-page";
-import { ROUTES } from "@/lib/navigation/routes";
 import type { ComponentProps } from "react";
 import type { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { DirectMessageVoiceRecorder } from "@/components/direct-messages/direct-message-voice-recorder";
+import { DirectMessageVoicePlayer } from "@/components/direct-messages/direct-message-voice-player";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 const mocks = vi.hoisted(() => {
   const conversation = {
@@ -43,6 +45,9 @@ const mocks = vi.hoisted(() => {
     getConversationMessages: vi.fn(),
     getAttachment: vi.fn(),
     markConversationRead: vi.fn(),
+    acknowledgeDelivery: vi.fn(),
+    captureStart: vi.fn(), captureFinish: vi.fn(), captureCancel: vi.fn(),
+    captureInstances: [] as unknown[],
     openEvents: vi.fn(),
     sendMessage: vi.fn(),
     editMessage: vi.fn(),
@@ -53,6 +58,12 @@ const mocks = vi.hoisted(() => {
     requestAgentConversationAfterRoute: vi.fn(),
   };
 });
+vi.mock("@/lib/voice/command-capture", () => ({ CommandCapture: class {
+  constructor() { mocks.captureInstances.push(this); }
+  start(...args: unknown[]) { return mocks.captureStart(...args); }
+  finish() { return mocks.captureFinish(); }
+  cancel() { return mocks.captureCancel(); }
+} }));
 
 vi.mock("@/components/agent/location-command-provider", () => ({
   useOptionalLocationCommand: () => ({ active: mocks.commandActive, view: { phase: mocks.commandPhase } }),
@@ -127,6 +138,7 @@ vi.mock("@/lib/services/direct-messages-service", async (importOriginal) => ({
     getAttachment: (...args: unknown[]) => mocks.getAttachment(...args),
     markConversationRead: (...args: unknown[]) =>
       mocks.markConversationRead(...args),
+    acknowledgeDelivery: (...args: unknown[]) => mocks.acknowledgeDelivery(...args),
     openEvents: (...args: unknown[]) => mocks.openEvents(...args),
     sendMessage: (...args: unknown[]) => mocks.sendMessage(...args),
     editMessage: (...args: unknown[]) => mocks.editMessage(...args),
@@ -141,6 +153,13 @@ vi.mock("@/lib/services/connections-service", () => ({
 }));
 
 const messageIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function validVoiceWav() {
+  const bytes = new Uint8Array(32044), view = new DataView(bytes.buffer);
+  for (const [offset, tag] of [[0, "RIFF"], [8, "WAVE"], [12, "fmt "], [36, "data"]] as const) bytes.set(new TextEncoder().encode(tag), offset);
+  view.setUint32(4, 32036, true); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); view.setUint32(40, 32000, true);
+  return bytes;
+}
 const visibleMessage = {
   id: "visible-message", conversationId: "conversation-1", senderIsViewer: false,
   content: "Visible unread message", createdAt: "2026-10-06T10:01:00.000Z", readAt: null,
@@ -227,7 +246,12 @@ describe("DirectMessagesPage", () => {
       nextBefore: null,
     });
     mocks.markConversationRead.mockResolvedValue({ readCount: 0, readAt: null });
-    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic document"]));
+    mocks.acknowledgeDelivery.mockReset().mockResolvedValue(undefined);
+    mocks.getAttachment.mockReset().mockResolvedValue(new Blob(["synthetic document"]));
+    mocks.captureStart.mockReset().mockResolvedValue(undefined);
+    mocks.captureCancel.mockReset().mockResolvedValue(undefined);
+    mocks.captureFinish.mockReset(); mocks.captureInstances.length = 0;
+    appInteractionCoordinator.handleLifecycle("active");
     mocks.openEvents.mockImplementation(() => new Promise(() => undefined));
     mocks.morphyToast.error.mockReset();
     mocks.morphyToast.info.mockReset();
@@ -275,6 +299,123 @@ describe("DirectMessagesPage", () => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  function arrangePhoto() {
+    const observers = new Map<Element, IntersectionObserverCallback>();
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(private callback: IntersectionObserverCallback) {}
+      observe(target: Element) { observers.set(target, this.callback); }
+      unobserve(target: Element) { observers.delete(target); }
+      disconnect() {}
+    });
+    const create = vi.fn(() => "blob:fixture-photo"), revoke = vi.fn();
+    vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation,
+      items: [{ ...visibleMessage, attachment: { kind: "photo", name: "photo.png", mimeType: "image/png", size: 24 } }],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const enterViewport = () => {
+      const target = [...observers.keys()].find(node => node.textContent?.includes("photo.png"))!;
+      act(() => observers.get(target)!([{ target, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
+    };
+    return { create, revoke, enterViewport };
+  }
+
+  it("downloads an inline photo only near the viewport and releases its preview on unmount", async () => {
+    const photo = arrangePhoto();
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    const view = renderConnectionThread();
+    await screen.findByText("photo.png");
+    expect(mocks.getAttachment).not.toHaveBeenCalled();
+    photo.enterViewport();
+    expect(await screen.findByRole("img", { name: "photo.png" })).toHaveAttribute("src", "blob:fixture-photo");
+    expect(mocks.getAttachment).toHaveBeenCalledOnce();
+    view.unmount();
+    expect(photo.revoke).toHaveBeenCalledWith("blob:fixture-photo");
+  });
+
+  it("keeps Open available after an automatic photo failure and retries explicitly", async () => {
+    const photo = arrangePhoto();
+    mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"))
+      .mockResolvedValueOnce(new Blob(["synthetic-photo"], { type: "image/png" }));
+    const view = renderConnectionThread();
+    await screen.findByText("photo.png");
+    photo.enterViewport();
+    const open = screen.getByRole("button", { name: "Open photo.png" });
+    await waitFor(() => expect(mocks.getAttachment).toHaveBeenCalledOnce());
+    await waitFor(() => expect(open).toBeEnabled());
+    fireEvent.click(open);
+    expect(await screen.findByRole("img", { name: "photo.png" })).toHaveAttribute("src", "blob:fixture-photo");
+    expect(mocks.getAttachment).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+
+  it("discards a pending inline photo when its conversation unmounts", async () => {
+    const photo = arrangePhoto();
+    let finish!: (value: Blob) => void;
+    mocks.getAttachment.mockImplementation(() => new Promise<Blob>(resolve => { finish = resolve; }));
+    const view = renderConnectionThread();
+    await screen.findByText("photo.png");
+    photo.enterViewport();
+    await waitFor(() => expect(mocks.getAttachment).toHaveBeenCalledOnce());
+    const input = mocks.getAttachment.mock.calls[0]![0];
+    view.unmount();
+    expect(input.isEffectCurrent()).toBe(false);
+    await act(async () => { finish(new Blob(["synthetic-photo"])); });
+    expect(photo.create).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges received inbox bodies, without treating sender messages or push hints as delivery", async () => {
+    mocks.query = "";
+    mocks.listConversations.mockResolvedValue({ items: [{ ...mocks.conversation, latestMessage: visibleMessage }], unreadCount: 1 });
+    render(<DirectMessagesPage />);
+    await waitFor(() => expect(mocks.acknowledgeDelivery).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conversation-1", messageIds: ["visible-message"], isEffectCurrent: expect.any(Function) })));
+  });
+
+  it("reuses a permission-granted capture on retry and discards a late finished recording after backgrounding", async () => {
+    mocks.captureStart.mockRejectedValueOnce(new Error("Microphone permission updated. Tap Talk to One to record."));
+    const onRecorded = vi.fn(), onRecordingChange = vi.fn();
+    render(<DirectMessageVoiceRecorder disabled={false} onRecorded={onRecorded} onRecordingChange={onRecordingChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
+    await waitFor(() => expect(mocks.morphyToast.error).toHaveBeenCalledWith("Microphone enabled. Tap the mic again to record."));
+    fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Use voice recording" })).toBeEnabled());
+    expect(mocks.captureInstances).toHaveLength(1);
+    let finish!: (value: unknown) => void;
+    mocks.captureFinish.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Use voice recording" }));
+    act(() => appInteractionCoordinator.handleLifecycle("background"));
+    await act(async () => { finish({ audioBase64: "invalid-stale-bytes" }); });
+    expect(onRecorded).not.toHaveBeenCalled();
+    expect(mocks.captureCancel).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Record voice message" })).toBeEnabled();
+  });
+
+  it("never lets a pending voice download supersede a newer recording", async () => {
+    let loaded!: (blob: Blob) => void;
+    const loadAudio = vi.fn(() => new Promise<Blob>(resolve => { loaded = resolve; }));
+    const createObjectURL = vi.fn(); vi.stubGlobal("URL", class extends URL { static createObjectURL = createObjectURL; });
+    render(<DirectMessageVoicePlayer durationMs={1000} loadAudio={loadAudio} />);
+    fireEvent.click(screen.getByRole("button", { name: "Play voice message" }));
+    const recording = appInteractionCoordinator.acquireVoiceLease({ owner: "new-recording", onRevoked: vi.fn() });
+    await act(async () => { loaded({ arrayBuffer: async () => validVoiceWav().buffer } as Blob); });
+    expect(recording.isCurrent()).toBe(true);
+    expect(createObjectURL).not.toHaveBeenCalled();
+    recording.release();
+  });
+
+  it("stages a bounded WAV for explicit sending and releases the microphone", async () => {
+    mocks.captureFinish.mockResolvedValue({ audioBase64: btoa(String.fromCharCode(...validVoiceWav())), mimeType: "audio/wav" });
+    const onRecorded = vi.fn(), onRecordingChange = vi.fn();
+    render(<DirectMessageVoiceRecorder disabled={false} onRecorded={onRecorded} onRecordingChange={onRecordingChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Use voice recording" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Use voice recording" }));
+    await waitFor(() => expect(onRecorded).toHaveBeenCalledOnce());
+    expect(onRecorded.mock.calls[0]![0]).toMatchObject({ name: "Voice message.wav", type: "audio/wav", size: 32044 });
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
+    expect(onRecordingChange).toHaveBeenLastCalledWith(false);
+    expect(mocks.captureCancel).toHaveBeenCalled();
   });
 
   it("keeps the composer in the conversation while sending to the selected connection", async () => {
@@ -458,7 +599,7 @@ describe("DirectMessagesPage", () => {
       mocks.getConversationMessages.mockResolvedValue({
         conversation: mocks.conversation,
         items: [{ ...visibleMessage, attachment: {
-          kind: "document", name: "synthetic.txt", mimeType: "text/plain", sizeBytes: 18,
+          kind: "document", name: "synthetic.txt", mimeType: "text/plain", size: 18,
         } }],
         canSend: true, disconnectedNotice: null, nextBefore: null,
       });
@@ -515,6 +656,7 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
 
     expect(await screen.findByText("Budget review tomorrow")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Contact info" }));
     fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), {
       target: { value: "budget" },
@@ -523,8 +665,7 @@ describe("DirectMessagesPage", () => {
     expect(screen.getByText("1 match")).toBeVisible();
     expect(screen.queryByText("See you then")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Start voice call" }));
-    expect(mocks.morphyToast.info).toHaveBeenCalledWith("Calls are not available yet.");
+    expect(screen.getByRole("button", { name: "Start voice call" })).toBeDisabled();
     expect(mocks.router.push).not.toHaveBeenCalled();
   });
 
@@ -539,6 +680,7 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
     expect(document.body).not.toHaveTextContent("synthetic-encrypted-payload");
+    fireEvent.click(screen.getByRole("button", { name: "Contact info" }));
     fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), { target: { value: "synthetic-encrypted-payload" } });
     expect(screen.queryByRole("region", { name: "Shared payment card" })).toBeNull();
@@ -611,9 +753,9 @@ describe("DirectMessagesPage", () => {
       screen.queryByLabelText("Video calls are not available in Messages yet"),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Talk to One" }));
-    expect(mocks.requestAgentConversationAfterRoute).toHaveBeenCalledWith(ROUTES.HOME);
-    expect(mocks.router.push).toHaveBeenCalledWith(ROUTES.HOME);
+    expect(screen.getByRole("button", { name: "Record voice message" })).toBeEnabled();
+    expect(mocks.requestAgentConversationAfterRoute).not.toHaveBeenCalled();
+    expect(mocks.router.push).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Choose emoji" }));
     expect(screen.getByLabelText("Emoji picker")).toBeVisible();

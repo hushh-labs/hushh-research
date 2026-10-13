@@ -42,7 +42,7 @@ import {
   PageTitle,
   TYPOGRAPHY_CLASSNAMES,
 } from "@/components/app-ui/typography";
-import { Lock, Plus } from "@/components/icons";
+import { Lock } from "@/components/icons";
 import { ProfilePaneSearchIcon } from "@/components/profile/profile-pane-icons";
 import {
   AlertDialog,
@@ -463,6 +463,22 @@ export function WalletWorkspace() {
       if (isCurrent()) setReferralErrorVisit(visit);
     }
   }, [user, profileVisit]);
+  const revokeReferral = useCallback(async (slug: string) => {
+    const visit = profileVisit;
+    const context = vaultContext();
+    if (!user || !context) throw new Error("Unlock your vault to revoke access.");
+    const isCurrent = () => profileVisitRef.current === visit &&
+      activeOwnerIdRef.current === context.userId && getVaultOwnerTokenRef.current() === context.vaultOwnerToken;
+    if (!isCurrent()) throw new Error("Your session changed.");
+    const idToken = await user.getIdToken();
+    if (!isCurrent()) throw new Error("Your session changed.");
+    ++referralReadRevision.current;
+    const summary = await ReferralService.rotateShareLink({ idToken, slug });
+    if (!isCurrent()) return;
+    ++referralReadRevision.current;
+    setReferralState({ visit, summary });
+    setReferralErrorVisit(null);
+  }, [user, vaultContext, profileVisit]);
   useEffect(() => { void loadReferral(); }, [loadReferral]);
   const { connected: referralConnected } = useReferralStream(user, loadReferral);
   useEffect(() => {
@@ -784,16 +800,6 @@ export function WalletWorkspace() {
     >
       Done
     </Button>
-  ) : hasCards ? (
-    <Button
-      variant="secondary"
-      size="compact"
-      onClick={() => dispatch({ type: "open_add" })}
-      data-testid="one-wallet-add"
-    >
-      <Plus aria-hidden="true" />
-      Add card
-    </Button>
   ) : null;
 
   const cardDetails = (
@@ -861,7 +867,6 @@ export function WalletWorkspace() {
             actionsInlineMobile
             titleRole="agent"
             className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-            // Keep the same action track across tabs and loading states.
             actions={
               <span className="flex h-11 items-center sm:h-[53px]" data-slot="wallet-header-action">
                 {headerAction}
@@ -979,7 +984,7 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={referralErrorVisit === profileVisit} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
+            <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={referralErrorVisit === profileVisit} onRevokeReferral={revokeReferral} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
               key={renderedOwnerId || "wallet"}
               cards={cards}
               cardholderNames={cardholderNames}
@@ -1001,6 +1006,7 @@ export function WalletWorkspace() {
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
+                showIntroduction={false}
                 getNetworkContext={vaultContext}
                 scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
@@ -1075,7 +1081,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
+            {ready ? <WalletSharing key={renderedOwnerId} cards={cards} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
           </div>
           </SwipeViews>
           </div>

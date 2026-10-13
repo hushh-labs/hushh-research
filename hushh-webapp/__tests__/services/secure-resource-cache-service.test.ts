@@ -9,7 +9,7 @@ const VAULT_KEY = "ab".repeat(32);
 
 async function readRawCacheRecord(): Promise<unknown> {
   return await new Promise((resolve, reject) => {
-    const request = indexedDB.open("hushh-secure-resource-cache", 1);
+    const request = indexedDB.open("hushh-secure-resource-cache");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const database = request.result;

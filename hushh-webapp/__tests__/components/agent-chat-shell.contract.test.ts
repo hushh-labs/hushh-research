@@ -204,10 +204,9 @@ describe("private-agent chat shell contract", () => {
     const brandTile = workspace.slice(brandTileStart, workspace.indexOf("The name in the header", brandTileStart));
 
     expect(brandTileStart).toBeGreaterThan(0);
-    expect(brandTile).toContain("<HushhMark");
+    expect(brandTile).toContain("<OnePresenceAvatar");
     expect(brandTile).toContain('className="grid h-11 w-11 shrink-0 place-items-center"');
-    expect(brandTile).toContain('className="size-8 items-center justify-center overflow-visible"');
-    expect(brandTile).toContain('imageClassName="!size-8"');
+    expect(brandTile).toContain('className="size-8 shrink-0"');
     expect(brandTile).not.toContain("max-sm:hidden");
   });
 

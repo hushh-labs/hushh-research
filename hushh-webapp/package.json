@@ -120,6 +120,7 @@
     "android:test": "node ./scripts/native/assert-destructive-native-audit.mjs && npm run sync:native-firebase-configs && node ./scripts/native/android-route-audit.mjs",
     "android:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run android:test",
     "build:search-contracts": "node ./scripts/voice/sync-search-contracts.mjs && npm run build:voice-gateway && node ./scripts/architecture/generate-surface-map.mjs && npm run build:route-orchestration-index && npm run build:capability-graph && npm run build:runtime-topology",
+    "verify:search-catalog": "node ./scripts/search/verify-search-catalog.mjs",
     "verify:search-contracts": "node ./scripts/voice/sync-search-contracts.mjs --check && npm run verify:surface-map && npm run verify:voice-gateway && node --test ./scripts/voice/search-contracts.test.mjs",
     "build:runtime-topology": "node ./scripts/architecture/generate-runtime-topology.mjs",
     "docs:back-navigation-graph": "node ./scripts/architecture/generate-back-navigation-graph.mjs",
@@ -186,7 +187,8 @@
     "vaul": "^1.1.2",
     "zustand": "^5.0.12",
     "tesseract.js": "7.0.0",
-    "@tesseract.js-data/eng": "1.0.0"
+    "@tesseract.js-data/eng": "1.0.0",
+    "@rive-app/canvas": "2.44.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",

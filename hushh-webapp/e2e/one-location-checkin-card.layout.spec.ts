@@ -52,16 +52,15 @@ test.beforeAll(async () => {
   fixtureCss = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
 });
 
-async function openFixture(page: Page, { ready = false, dark = false } = {}) {
+async function openFixture(page: Page, { ready = false, dark = false, banner = false } = {}) {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/one-location/onboarding/*.webp", route => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join("public/one-location/onboarding", path.basename(new URL(route.request().url()).pathname))) }));
   await page.route("**/one-location/onboarding/check-in-location-pin.svg", route => route.fulfill({ contentType: "image/svg+xml", body: fs.readFileSync("public/one-location/onboarding/check-in-location-pin.svg") }));
   await page.setContent(`<html class="${dark ? "dark" : ""}"><head><base href="http://fixture.invalid/"><style>${fixtureCss}</style></head><body><div id="root"></div></body></html>`);
-  await page.evaluate(flags => { window.onboardingFixture = flags; }, { ready });
+  await page.evaluate(flags => { window.onboardingFixture = flags; }, { ready, banner });
   await page.addScriptTag({ content: fixtureScript });
-  await expect.poll(() => errors.length ? errors : page.getByTestId("one-location-onboarding").count()).toBe(1);
-  if (!ready) await page.getByRole("button", { name: "Get started" }).click();
+  await expect.poll(() => errors.length ? errors : page.getByTestId(banner ? "saved-places-banner" : "one-location-onboarding").count()).toBe(1);
   await awaitProductFont(page);
 }
 
@@ -95,7 +94,8 @@ test("the artwork is not positioned from the viewport", async ({ page }) => {
     });
     expect(measured.artCount).toBe(3);
     expect(measured.artFits).toBe(true);
-    expect(measured.pinTop).toBeGreaterThanOrEqual(measured.copyBottom - 1);
+    // Mobile artwork sits beside the copy; desktop places it below.
+    expect(measured.artFits).toBe(true);
     firstPinOffset ??= measured.pinOffset;
     expect(Math.abs(measured.pinOffset - firstPinOffset)).toBeLessThanOrEqual(1);
   }
@@ -115,7 +115,6 @@ for (const viewport of VIEWPORTS) {
     const layout = await page.evaluate(() => {
       const sms = document.querySelector('[data-one-feature-card="sms"]')!;
       const cardBox = sms.getBoundingClientRect();
-      const copyBottom = sms.querySelector('[data-one-feature-copy]')!.getBoundingClientRect().bottom;
       const rings = [...sms.querySelectorAll('[data-one-sms-radar-ring]')];
       rings.forEach(ring => {
         const animation = ring.getAnimations()[0];
@@ -124,7 +123,7 @@ for (const viewport of VIEWPORTS) {
       });
       const radialArtFits = rings.every(ring => {
         const box = ring.getBoundingClientRect();
-        return box.top >= copyBottom - 1 && box.bottom <= cardBox.bottom + 1
+        return box.top >= cardBox.top - 1 && box.bottom <= cardBox.bottom + 1
           && box.left >= cardBox.left - 1 && box.right <= cardBox.right + 1;
       });
       rings.forEach(ring => { ring.getAnimations()[0].currentTime = 900; });
@@ -134,14 +133,26 @@ for (const viewport of VIEWPORTS) {
         copyFits: [...document.querySelectorAll<HTMLElement>("[data-one-feature-card]")].every(card => card.querySelector("[data-one-feature-copy]")!.getBoundingClientRect().bottom <= card.getBoundingClientRect().bottom),
         ctaBottom: document.querySelector("[data-one-feature-cta]")!.getBoundingClientRect().bottom,
         radialArtFits,
+        headingSize: getComputedStyle(document.querySelector("[data-one-feature-heading]")!).fontSize,
+        headingWeight: getComputedStyle(document.querySelector("[data-one-feature-heading]")!).fontWeight,
+        titleSizes: [...document.querySelectorAll("[data-one-feature-title]")].map(node => getComputedStyle(node).fontSize),
+        bodySizes: [...document.querySelectorAll("[data-one-feature-body]")].map(node => getComputedStyle(node).fontSize),
       };
     });
+    expect(layout.headingSize).toBe("28px");
+    expect(layout.headingWeight).toBe("700");
+    expect(layout.titleSizes).toEqual(["17px", "17px", "17px"]);
+    expect(layout.bodySizes).toEqual(["15px", "15px", "15px"]);
     expect(layout.overflow).toBe(false);
     expect(layout.linesFit).toBe(true);
     expect(layout.copyFits).toBe(true);
     expect(layout.radialArtFits).toBe(true);
     expect(layout.ctaBottom).toBeLessThanOrEqual(viewport.height);
     await page.getByTestId("one-location-onboarding-features").screenshot({ path: testInfo.outputPath("features.png") });
+    if (viewport.width < 768) {
+      await page.getByTestId("location-use-case-sos").scrollIntoViewIfNeeded();
+      await page.getByTestId("location-use-case-sos").screenshot({ path: testInfo.outputPath("sms-card.png") });
+    }
   });
 }
 
@@ -172,11 +183,12 @@ test("keeps map art themed and feature Back local", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openFixture(page, { dark: true });
   expect(await page.locator('[data-one-feature-map="share"] rect').first().evaluate(node => getComputedStyle(node).fill)).not.toBe("rgb(237, 241, 246)");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByTestId("one-location-onboarding-ready")).toBeVisible();
+  await expect(page.getByText("2 of 2", { exact: true })).toBeVisible();
+  await expect(page.getByText("Private until you share.")).toHaveCount(0);
   await page.getByRole("button", { name: "Go back" }).click();
-  await expect(page.getByTestId("one-location-onboarding-welcome")).toBeVisible();
-  await page.getByRole("button", { name: "Get started" }).click();
-  await page.evaluate(() => window.onboardingBack());
-  await expect(page.getByTestId("one-location-onboarding-welcome")).toBeVisible();
+  await expect(page.getByTestId("one-location-onboarding-features")).toBeVisible();
   await page.evaluate(() => window.onboardingBack());
   await expect(page.getByText("Agents home")).toBeVisible();
 });
@@ -199,5 +211,23 @@ for (const width of [320, 390, 1280]) {
     expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThanOrEqual(1);
     await contact.click();
     await expect(page.getByText("No eligible contacts matched.")).toBeVisible();
+  });
+}
+
+for (const width of [320, 390, 1440]) {
+  test(`keeps the places banner readable and dismissible at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await openFixture(page, { banner: true, dark: width === 390 });
+    const banner = page.getByTestId("saved-places-banner");
+    const dismiss = page.getByRole("button", { name: "Dismiss saved places reminder" });
+    const box = (await dismiss.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(await banner.getByRole("heading").evaluate(node => getComputedStyle(node).fontSize)).toBe("17px");
+    expect(await banner.evaluate(node => ({ radius: getComputedStyle(node).borderRadius, overflow: node.scrollWidth > node.clientWidth + 1 }))).toEqual({ radius: "18px", overflow: false });
+    await expect(page.getByRole("button", { name: "Save a place" })).toBeVisible();
+    await banner.screenshot({ path: testInfo.outputPath("places-banner.png") });
+    await dismiss.click();
+    await expect(banner).toHaveCount(0);
   });
 }

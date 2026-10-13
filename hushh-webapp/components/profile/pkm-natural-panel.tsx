@@ -96,7 +96,7 @@ type MemoryReadSession = symbol;
 
 type MemoryWorkspaceTab = "soul" | "browse" | "add" | "sharing";
 const MEMORY_WORKSPACE_TABS = [
-  { value: "soul", label: "Soul.md" },
+  { value: "soul", label: "memory.md" },
   { value: "browse", label: "Saved" },
   { value: "add", label: "Add" },
   { value: "sharing", label: "Sharing" },

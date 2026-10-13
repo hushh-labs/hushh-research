@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
+import { DrivePacketCatalog } from "@/components/consent/drive-packet-catalog";
 import { RequestScopeButton } from "@/components/consent/request-scope-button";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
@@ -210,6 +211,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const sharedIntent = searchParams?.get("section") === "shared";
   const availableSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
+  const packetsSectionRef = useRef<HTMLDivElement | null>(null);
   const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [showUnlockDialog, setShowUnlockDialog] = useState(false);
   const request = usePersonInformationRequest(resolvedPersonRef);
@@ -647,6 +649,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     router.push(ROUTES.CONSENTS);
     return { status: "started", summary: "Opening the Consent Center." };
   }, { enabled: Boolean(viewerProfile) });
+  useLocalOnboardingActionHandler("people.profile.browse_packets", async () => {
+    if (!packetsSectionRef.current || viewerProfile?.relationship.status !== "connected" || !isVaultUnlocked) {
+      return { status: "blocked", summary: "Connect with this person and unlock to view available packets." };
+    }
+    packetsSectionRef.current.scrollIntoView({ block: "start", behavior: "auto" });
+    return { status: "succeeded", summary: "Showing available document packets." };
+  }, { enabled: viewerProfile?.relationship.status === "connected" && isVaultUnlocked });
 
   const surfaceActions = useMemo(() => {
     if (!viewerProfile) return [];
@@ -670,9 +679,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       actions.push({ id: "cancel-connection", label: "Cancel request", actionId: "people.profile.cancel_connection_request", purpose: "Withdraw the pending social connection request." });
     } else if (viewerProfile.relationship.status === "connected") {
       actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
+      if (isVaultUnlocked) actions.push({ id: "browse-packets", label: "Available packets", actionId: "people.profile.browse_packets", purpose: "View document packets this connection has made available to you." });
     }
     return actions;
-  }, [viewerProfile]);
+  }, [isVaultUnlocked, viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
     viewerProfile
@@ -852,7 +862,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     Cancel request
                   </Button>
                 ) : null}
-                {viewerProfile.relationship.status === "connected" ? <DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} /> : null}
+                {viewerProfile.relationship.status === "connected" ? <><DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} />
+                  {isVaultUnlocked && <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>}
+                </> : null}
               </>
             ) : null}
             {/* Preserve accepted confirmation while profile authority refreshes. */}
@@ -869,6 +881,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
 
           </div>
         </SectionCard>
+
+        {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && <div ref={packetsSectionRef}><SectionCard><DrivePacketCatalog ownerPersonRef={resolvedPersonRef} /></SectionCard></div>}
 
         {!user && !authLoading ? (
           <SectionCard>

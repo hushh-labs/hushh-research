@@ -9,7 +9,7 @@ set -euo pipefail
 readonly UAT_PROJECT_ID="hushh-pda-uat"
 readonly UAT_SCHEDULER_LOCATION="us-central1"
 readonly UAT_JOB_NAME="drive-work-drain-uat"
-readonly UAT_CRON="*/4 * * * *"
+readonly UAT_CRON="* * * * *"
 readonly UAT_TIMEZONE="Etc/UTC"
 readonly UAT_SCHEDULER_SERVICE_ACCOUNT_NAME="drive-work-drain-sched"
 # The scheduler can mint a bearer token for its target. Keep that target to
@@ -43,7 +43,7 @@ fi
 valid_stage=false
 if [[ "${JOB_NAME}" == "drive-work-drain-uat" \
   && "${STAGE}" == "documents" \
-  && "${CRON}" == "*/4 * * * *" ]]; then
+  && "${CRON}" == "* * * * *" ]]; then
   valid_stage=true
 elif [[ "${JOB_NAME}" == "drive-work-suggestions-uat" \
   && "${STAGE}" == "suggestions" \

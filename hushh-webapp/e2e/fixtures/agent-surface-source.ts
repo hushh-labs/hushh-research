@@ -51,7 +51,9 @@ function one(
   what: string,
   where: string,
 ): RegExpMatchArray {
-  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const flags = pattern.flags.includes("g")
+    ? pattern.flags
+    : `${pattern.flags}g`;
   const matches = [...source.matchAll(new RegExp(pattern.source, flags))];
   if (matches.length !== 1) {
     throw new Error(
@@ -192,7 +194,7 @@ const subtitleExpression = `isPuppySurface ? ${puppySubtitle} : ${idleSubtitle}`
 
 const clusterClass = one(
   header,
-  /<div data-agent-chat-header-region="actions" className="(flex shrink-0 items-center gap-2)">/,
+  /<div(?: data-agent-chat-header-region="actions")? className="(flex shrink-0 items-center gap-2)">/,
   "right-hand cluster class",
   WORKSPACE_PATH,
 )[1];
@@ -301,8 +303,9 @@ const actionAnchors = {
 if (Object.values(actionAnchors).some((at) => at < 0)) {
   fail("the header actions (picker, toggle, profile)", WORKSPACE_PATH);
 }
-const actionOrder = (Object.keys(actionAnchors) as Array<keyof typeof actionAnchors>)
-  .sort((a, b) => actionAnchors[a] - actionAnchors[b]);
+const actionOrder = (
+  Object.keys(actionAnchors) as Array<keyof typeof actionAnchors>
+).sort((a, b) => actionAnchors[a] - actionAnchors[b]);
 
 /**
  * The two `hidden` guards below the header, read from the whole file because
@@ -322,7 +325,10 @@ const oneHiddenMatches = [
   ...workspace.matchAll(/^\s*(isPuppySurface && "([^"]*)"),$/gm),
 ];
 if (oneHiddenMatches.length !== 2) {
-  fail("both of One's off-screen guards (transcript and composer)", WORKSPACE_PATH);
+  fail(
+    "both of One's off-screen guards (transcript and composer)",
+    WORKSPACE_PATH,
+  );
 }
 if (oneHiddenMatches[0][2] !== oneHiddenMatches[1][2]) {
   fail(
@@ -429,9 +435,59 @@ export const AGENT_SURFACE_SOURCE = {
   header: {
     historyClass,
     containerClass: headerContainerClass,
+    centeredMarkerExpression: flatten(
+      one(
+        workspace,
+        /data-one-centered-header=\{([^}]+)\}/,
+        "One-only centered header marker",
+        WORKSPACE_PATH,
+      )[1],
+    ),
     identityClass,
     brandTileClass,
     clusterClass,
+    centered: {
+      artwork: header.includes("<OnePresenceAvatar")
+        ? {
+            // Caller sizing owns the compact shell, not the Profile hero default.
+            kind: "image",
+            containerClass: "",
+            className: one(
+              header,
+              /<OnePresenceAvatar[^>]*className="([^"]+)"/,
+              "One presence shell image",
+              WORKSPACE_PATH,
+            )[1],
+          }
+        : {
+            kind: "image",
+            containerClass: one(
+              header,
+              /<HushhMark[\s\S]*?className="([^"]+)"/,
+              "One mark wrapper",
+              WORKSPACE_PATH,
+            )[1],
+            className: one(
+              header,
+              /<HushhMark[\s\S]*?imageClassName="([^"]+)"/,
+              "One mark image",
+              WORKSPACE_PATH,
+            )[1],
+          },
+      historyClass,
+      surfaceClass: one(
+        header,
+        /<NativeChatChrome kind="agent-surface"[\s\S]*?className="([^"]+)"/,
+        "native surface slot",
+        WORKSPACE_PATH,
+      )[1],
+      profileTriggerClass: one(
+        header,
+        /data-agent-chat-one-profile-trigger[\s\S]*?className="([^"]+)"/,
+        "One profile target",
+        WORKSPACE_PATH,
+      )[1],
+    },
     /** Source order of the actions, e.g. ["picker", "toggle", "profile"]. */
     actionOrder,
     profileClass,
@@ -459,6 +515,12 @@ export const AGENT_SURFACE_SOURCE = {
     /** `Running ${modelPreference.effective_model}`, binding left in. */
     titleTemplate: triggerMatch[3],
     triggerClass: triggerMatch[4],
+    iconClass: one(
+      header,
+      /<Cpu aria-hidden="true" className="([^"]+)"/,
+      "phone model icon",
+      WORKSPACE_PATH,
+    )[1],
     labelStrip: {
       pattern: stripMatch[1],
       flags: stripMatch[2],

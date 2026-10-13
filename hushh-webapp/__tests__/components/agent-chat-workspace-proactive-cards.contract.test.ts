@@ -37,26 +37,13 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(afterCapture).toContain("loadAgentPkmContext({");
     expect(afterCapture).not.toContain("forceRefresh: true");
   });
-  it("mounts independent background capabilities from ordinary chat readiness", () => {
-    const readiness = source.slice(
-      source.indexOf("const backgroundCardsEnabled ="),
-      source.indexOf("const [magicIntelligenceVisible"),
-    );
-    expect(readiness).toContain("hasChatAccess && !isPuppySurface && !sessionVerificationRequired");
-    expect(readiness).toContain("chatOnboarding.resolved");
+  it("keeps profile research out of chat while preserving explicit onboarding", () => {
+    expect(source).not.toContain("OneBackgroundCards");
+    expect(source).not.toContain("MagicIntelligenceOffer");
+    expect(source).not.toContain("ProfileResearchCard");
+    expect(source).not.toContain("backgroundCardsEnabled");
+    expect(source).not.toContain("backgroundCardTurnAnchor");
     expect(source).toContain("startSignal: Boolean(user?.uid && pendingEntryWelcome?.userId === user.uid) || Boolean(postSetupWelcomeContext)");
-    expect(readiness).not.toMatch(/business|Business/);
-    const backgroundTurn = source.slice(
-      source.indexOf("const renderBackgroundCardTurn ="),
-      source.indexOf("const renderChatOnboarding ="),
-    );
-    expect(backgroundTurn).toContain("<OneBackgroundCards");
-    expect(backgroundTurn).toContain("enabled={backgroundCardsEnabled}");
-    expect(backgroundTurn).toContain("ephemeralCard={card}");
-    expect(backgroundTurn).not.toContain("magicIntelligenceVisible");
-    const endSlot = source.slice(source.indexOf('renderChatOnboarding({ kind: "end", visibleMessageIds })'));
-    expect(endSlot.indexOf("renderBackgroundCardTurn()")).toBeGreaterThan(0);
-    expect(endSlot).toContain("backgroundCardTurnAnchor.afterId === visibleMessageIds.at(-1)");
   });
 
   it("refreshes recent Drive sharing only while chat history is open", () => {

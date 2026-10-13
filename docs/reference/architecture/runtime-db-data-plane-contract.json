@@ -31,7 +31,17 @@
     "circle_chat_messages",
     "circle_chat_recipients",
     "circle_chat_reactions",
-    "direct_message_attachments"
+    "direct_message_attachments",
+    "drive_collection_sync",
+    "drive_document_extractions",
+    "drive_document_pages",
+    "drive_document_facts",
+    "drive_document_fact_pages",
+    "drive_packet_heads",
+    "drive_packet_members",
+    "drive_packet_versions",
+    "drive_packet_version_sources",
+    "drive_packet_listings"
   ],
   "retention_registry": [
     {
@@ -1068,12 +1078,12 @@
         "connected_documents",
         "document_chunks"
       ],
-      "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access.",
-      "retention_policy": "Keep encrypted source metadata and at most 128 encrypted chunks per selected document while the connection generation remains active. Prior versions are removed atomically on successful publication. Failed retryable refresh preserves the previous version; provider denial deletes it. Runtime processor and retention scheduler acceptance remain rollout prerequisites.",
+      "primary_access_path": "Owner-authenticated selection/management and separately consented continuous live collection discovery, with durable connection-generation-bound ingestion leases and versioned publication. No client database access.",
+      "retention_policy": "Keep encrypted source metadata and current preview chunks while the connection generation remains active. Complete original-document pages and semantic evidence are versioned in the continuous evidence family. Successful preview publication replaces prior chunks; retryable failure preserves the previous version and provider denial invalidates access.",
       "deletion_behavior": "Connection-generation/status trigger deletes sources atomically on disconnect/account switch; connection deletion cascades to sources and composite owner/document FK cascades to chunks. Owner removal is repeat-safe and does not need the processing key. Original-file Google sharing receipts are independent of the removable index; deleting a selection does not revoke an existing Google ACL.",
       "trust_boundary": "Separate server-readable processing domain, not client-key PKM. Source IDs/names, text, provenance and vectors use DRIVE_DOCUMENT_KEY_V1 AES-256-GCM with purpose/owner/document/generation AAD; chunks additionally bind version/ordinal. Owner-keyed HMAC source fingerprints support idempotency; no plaintext content hashes, OAuth credentials or vault keys.",
       "plaintext_posture": "encrypted_source_metadata_content_and_vectors_with_bounded_workflow_status_only",
-      "expected_row_growth": "bounded_100_documents_128_chunks_each_per_owner"
+      "expected_row_growth": "Selected-only admission remains bounded to 100 documents; explicitly consented live collection admission grows with accessible files and uses paged discovery and resumable processing."
     },
     {
       "id": "drive_original_sharing_records",
@@ -1104,10 +1114,10 @@
         "drive_request_payment_webhook_events",
         "drive_request_payment_refunds"
       ],
-      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective quote from 50 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
       "retention_policy": "At most one live order and one account-free obligation per request, plus one refund attempt and verified event dedupe receipts. Checkout URLs expire with their Stripe session and are cleared on settlement. The obligation and refund evidence survive request erasure until payment and refund duties are settled under merchant retention policy.",
       "deletion_behavior": "The live order cascades from the request. Before account reset or erasure removes the request, an opaque obligation snapshots delivery state and removes all account linkage; late signed charges and in-flight refunds remain reconcilable. Stripe's own merchant records follow the payment account's retention policy.",
-      "trust_boundary": "The retained obligation has only a random request UUID, payer digest, amount (whole dollars, 100 to 50000 cents) and currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure. Orders and retained obligations bind an immutable Stripe mode; unproven legacy rows cannot authorize live money. Current-mode processing never reinterprets a test Checkout or refund as live.",
+      "trust_boundary": "The retained obligation has only a random request UUID, payer digest, amount (integer cents, 50 to 50000 cents) and currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure. Orders and retained obligations bind an immutable Stripe mode; unproven legacy rows cannot authorize live money. Current-mode processing never reinterprets a test Checkout or refund as live.",
       "plaintext_posture": "opaque_payment_identifiers_bounded_price_and_workflow_status_only",
       "expected_row_growth": "one_order_per_eligible_request_plus_verified_event_dedupe_receipts"
     },
@@ -1119,7 +1129,7 @@
       "exact_tables": [
         "drive_request_owner_pricing"
       ],
-      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only.",
+      "primary_access_path": "An authenticated document owner sets one USD Drive request price in integer cents from 50 to 50000 in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only.",
       "retention_policy": "One active preference row per owner while the account exists. The default price applies when no custom preference is enabled.",
       "deletion_behavior": "Account reset and erasure remove the preference row. Existing payment obligations retain their original quoted amount without the profile setting.",
       "trust_boundary": "Only the authenticated owner may read or change the preference. Server-side quote/version checks bind the requester to the price at request creation.",
@@ -1758,6 +1768,60 @@
       "trust_boundary": "Server-only wallet ownership, mode, integer amounts, opaque request and provider references. No bank details, card data, or document content. One Hashcoin equals one USD cent. Test redemption can never debit live earnings; original order settlement method is immutable.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_request"
+    },
+    {
+      "id": "drive_continuous_document_evidence",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_collection_sync",
+        "drive_document_extractions",
+        "drive_document_pages",
+        "drive_document_facts",
+        "drive_document_fact_pages",
+        "drive_packet_heads",
+        "drive_packet_members",
+        "drive_packet_versions",
+        "drive_packet_version_sources",
+        "drive_packet_listings"
+      ],
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences.",
+      "retention_policy": "Current collection cursors and workflow state are replaced as progress commits. Versioned extraction, facts and packet evidence are retained while their parent records exist; background pause stops processing without deleting evidence. Historical packet manifests preserve exact approval and purchase evidence. A time-based purge of superseded evidence is not implemented.",
+      "deletion_behavior": "Connection generation invalidation removes connected documents; their extraction, page and fact children cascade. Packet availability is fenced by active connection, consent, generation, source versions and freshness. Connection deletion cascades packet heads and versions. Account reset and deletion explicitly remove owner packet heads and cascade their encrypted versions, sources and listings; reset retains only the connector generation fence. Account deletion removes remaining owner-bound state; request packet foreign keys become null while independently encrypted approved request and financial records retain their established lifecycle.",
+      "trust_boundary": "Source identifiers, filenames, page text, document facts, citations, packet membership, assessments and provider checkpoints remain owner/resource/purpose-bound encrypted evidence. Plaintext contains opaque IDs, versions, keyed digests, work statuses, timestamps, bounded pricing and explicit listing policy. Preparation consent never authorizes publication or buyer access. Provider/model I/O occurs outside database transactions.",
+      "plaintext_posture": "encrypted_document_and_packet_evidence_with_opaque_workflow_metadata_and_explicit_listing_policy",
+      "expected_row_growth": "Proportional to consented accessible files, pages and source versions; canonical membership avoids every possible file combination. Superseded-version storage requires operational growth monitoring."
+    },
+    {
+      "id": "pwm_invitation_authority",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_claim_invitations"
+      ],
+      "primary_access_path": "Authenticated PWM invitation create/list/revoke/claim routes. Shared account graph locks and existing transaction connection for strict owner authority.",
+      "retention_policy": "Seven-day authorization expiry; expired rows removed on subsequent invitation creation. Explicit revocation deletes immediately.",
+      "deletion_behavior": "Delete either participant rows on account reset; actor_profiles cascading foreign keys delete on account erasure. Migration refreshes canonical deleted-identity guards.",
+      "trust_boundary": "Keyed contact commitment and random token hash only; no raw contact, findings, names or passwords. Claim grants no sharing or research.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "bounded_twenty_pending_per_owner"
+    },
+    {
+      "id": "pwm_provider_budget",
+      "owner": "backend-agents-operons",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_provider_budget"
+      ],
+      "primary_access_path": "Atomic monthly provider credit charge before dispatch.",
+      "retention_policy": "One aggregate counter per provider/month; retained for operational cost audit.",
+      "deletion_behavior": "No owner data or identifiers; account deletion does not alter shared quota.",
+      "trust_boundary": "Provider name, UTC month and numeric credits only; never queries or contact identifiers.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one_row_per_provider_month"
     }
   ]
 }

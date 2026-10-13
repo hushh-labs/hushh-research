@@ -23,6 +23,10 @@ import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
+import { DirectMessageVoiceRecorder } from "./direct-message-voice-recorder";
+import { DirectMessageVoicePlayer } from "./direct-message-voice-player";
+import { shareFile } from "@/lib/share/share-file";
+import { isShareCancellationError } from "@/lib/share/share-link";
 import { CircleMessagesPane } from "@/components/connect/circles/circle-messages-pane";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -42,7 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ArrowLeft,
   Check,
@@ -62,6 +66,8 @@ import {
   Plus,
   Image as ImageIcon,
   FileText,
+  Info,
+  Download,
   Trash2,
   X,
 } from "@/components/icons";
@@ -139,52 +145,104 @@ function toggleReaction(message: DirectMessage, emoji: string): DirectMessage {
   return { ...message, reactions };
 }
 
-function MessageAttachment({ message, getIdToken, isCurrentVisit }: {
+function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, visitRevision }: {
   message: DirectMessage;
   getIdToken: () => Promise<string>;
+  onPhotoLoad: () => void;
   isCurrentVisit: () => boolean;
+  visitRevision: number;
 }) {
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
-  const mounted = useRef(false);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const [opening, setOpening] = useState(false);
+  const active = useRef(true);
+  const visitGuard = useRef(isCurrentVisit);
+  visitGuard.current = isCurrentVisit;
+  const isCurrent = () => active.current && isCurrentVisit();
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => () => { if (mediaUrl) URL.revokeObjectURL(mediaUrl); }, [mediaUrl]);
   const attachment = message.attachment;
+  const photoRef = useRef<HTMLDivElement>(null);
+  const [photoVisible, setPhotoVisible] = useState(false);
+  const tokenGetter = useRef(getIdToken);
+  tokenGetter.current = getIdToken;
+  useEffect(() => {
+    const node = photoRef.current;
+    if (attachment?.kind !== "photo" || !node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      setPhotoVisible(true);
+      observer.disconnect();
+    }, { rootMargin: "80px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [attachment?.kind, message.conversationId, message.id]);
+  useEffect(() => {
+    if (attachment?.kind !== "photo" || !photoVisible) return;
+    let current = true;
+    const visit = visitGuard.current;
+    const effectIsCurrent = () => current && active.current && visit();
+    let url: string | null = null;
+    setOpening(true);
+    void (async () => {
+      if (!effectIsCurrent()) return;
+      const idToken = await tokenGetter.current();
+      if (!effectIsCurrent()) return;
+      const blob = await DirectMessagesService.getAttachment({ idToken,
+        conversationId: message.conversationId, messageId: message.id,
+        isEffectCurrent: effectIsCurrent });
+      if (!effectIsCurrent()) return;
+      url = URL.createObjectURL(blob);
+      setMediaUrl(url);
+    })().catch(() => {
+      // Keep the Open control available for an explicit retry.
+    }).finally(() => { if (effectIsCurrent()) setOpening(false); });
+    return () => { current = false; if (url) URL.revokeObjectURL(url); };
+  }, [attachment?.kind, message.conversationId, message.id, photoVisible, visitRevision]);
   if (!attachment) return null;
-  const open = async () => {
-    const isCurrent = () => mounted.current && isCurrentVisit();
-    if (!isCurrent()) return;
-    try {
-      const idToken = await getIdToken();
-      if (!isCurrent()) return;
-      const blob = await DirectMessagesService.getAttachment({
-        idToken,
-        conversationId: message.conversationId,
-        messageId: message.id,
-      });
-      if (!isCurrent()) return;
-      const url = URL.createObjectURL(blob);
-      if (attachment.kind === "document") {
-        const link = document.createElement("a");
-        link.href = url; link.download = attachment.name; link.click();
-        window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-      } else {
-        setMediaUrl(url);
-      }
-    } catch {
-      if (isCurrent()) morphyToast.error("This attachment is unavailable. Try again.");
-    }
+  const typeLabel = ({ "application/pdf": "PDF", "text/plain": "Text file",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word document",
+    "image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WebP",
+    "video/mp4": "MP4 file", "video/webm": "WebM file" } as Record<string, string>)[attachment.mimeType] || "File";
+  const loadAttachment = async () => {
+    const requireCurrent = () => { if (!isCurrent()) throw new DOMException("Attachment request expired.", "AbortError"); };
+    requireCurrent();
+    const idToken = await getIdToken();
+    requireCurrent();
+    const blob = await DirectMessagesService.getAttachment({ idToken, conversationId: message.conversationId, messageId: message.id, isEffectCurrent: isCurrent });
+    requireCurrent();
+    return blob;
   };
-  return <div className={styles.messageAttachment}>
+  if (attachment.kind === "audio") return <DirectMessageVoicePlayer durationMs={attachment.durationMs ?? 0} loadAudio={loadAttachment} />;
+  const open = async () => {
+    if (opening || !isCurrent()) return;
+    setOpening(true);
+    try {
+      const blob = await loadAttachment();
+      if (!isCurrent()) return;
+      if (attachment.kind !== "photo") {
+        await shareFile({ file: new File([blob], attachment.name, { type: attachment.mimeType }), title: attachment.name, isEffectCurrent: isCurrent });
+      } else {
+        if (mediaUrl) URL.revokeObjectURL(mediaUrl);
+        setMediaUrl(URL.createObjectURL(blob));
+      }
+    } catch (error) {
+      if (isCurrent() && !isShareCancellationError(error)) morphyToast.error("This attachment is unavailable. Try again.");
+    } finally { if (isCurrent()) setOpening(false); }
+  };
+  return <div className={styles.messageAttachment} ref={photoRef}>
     {mediaUrl && attachment.kind === "photo" ? (
       // Encrypted attachments use short-lived blob URLs, which Next's image optimizer cannot serve.
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={mediaUrl} alt={attachment.name} />
+      <img src={mediaUrl} alt={attachment.name} onLoad={() => { if (isCurrent()) onPhotoLoad(); }} />
     ) : null}
-    {mediaUrl && attachment.kind === "video" ? <video src={mediaUrl} controls preload="metadata" aria-label={attachment.name} /> : null}
-    {mediaUrl ? <a href={mediaUrl} download={attachment.name}>Save {attachment.kind}</a> :
-      <button type="button" onClick={() => void open()}>
-        {attachment.kind === "document" ? "Download" : "View"} {attachment.name}
-      </button>}
+    <div className={styles.fileMessageCard}>
+      <FileText className="h-6 w-6" aria-hidden="true" />
+      <div><strong title={attachment.name}>{attachment.name}</strong>
+        <span>{attachment.size < 1024 * 1024 ? `${(attachment.size / 1024).toFixed(1)} KB` : `${(attachment.size / 1024 / 1024).toFixed(1)} MB`} · {typeLabel}</span></div>
+      <button type="button" disabled={opening} aria-busy={opening} aria-label={`${attachment.kind === "photo" ? "Open" : "Download"} ${attachment.name}`} onClick={() => void open()}>
+        <Download className="h-5 w-5" aria-hidden="true" />
+      </button>
+    </div>
   </div>;
 }
 
@@ -353,7 +411,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [unconfirmedDraft, setUnconfirmedDraft] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [recordingVoice, setRecordingVoice] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [contactInfoOpen, setContactInfoOpen] = useState(false);
+  const [jumpTarget, setJumpTarget] = useState<string | null>(null);
+  const jumping = useRef(false);
+  const acknowledged = useRef(new Set<string>());
+  const [deliveryRevision, setDeliveryRevision] = useState(0);
   const [openMessageMenu, setOpenMessageMenu] = useState<string | null>(null);
   const [openReactionPicker, setOpenReactionPicker] = useState<string | null>(null);
   const reactionPending = useRef(new Set<string>());
@@ -417,7 +481,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const dockFrame = useAgentDockFrame();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
-  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const documentInputRef = useRef<HTMLInputElement | null>(null);
   const editingInputRef = useRef<HTMLTextAreaElement | null>(null);
   const editDraftGeneration = useRef(0);
@@ -479,7 +542,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const readThrough = useRef<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [readRevision, setReadRevision] = useState(0);
-  const blockingLayer = useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions;
+  const blockingLayer = Boolean(useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions || contactInfoOpen);
   const foreground = () => document.visibilityState === "visible" && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
   const bottomIsUncovered = useCallback(() => {
     const marker = bottomRef.current?.getBoundingClientRect();
@@ -523,6 +586,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     }
     ownerRef.current = user?.uid; invalidateSelection();
     selectionRef.current = routeSelection;
+    acknowledged.current.clear(); setContactInfoOpen(false); setJumpTarget(null); setRecordingVoice(false); jumping.current = false;
     readThrough.current = null; reading.current = false; visibleBottom.current = false;
     atBottomRef.current = true; prependPosition.current = null; setAtBottom(true);
     const previousAttempt = sendAttempts.current.get(draftScope);
@@ -599,11 +663,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     },
     [user],
   );
-
-  const openOneVoiceChat = useCallback(() => {
-    requestAgentConversationAfterRoute(ROUTES.HOME);
-    router.push(ROUTES.HOME);
-  }, [router]);
 
   const loadThread = useCallback(
     async (options?: { preserveMessages?: boolean }) => {
@@ -936,6 +995,40 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     return () => { removeLifecycle(); removeLayers(); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
   }, [activeConversationId, loadingThread, messages, readRevision, thread.conversation?.unreadCount, user, blockingLayer, messageSearchQuery, bottomIsUncovered, lane, isCurrentRead, resolvingSelection, selectionGeneration]);
 
+  useEffect(() => {
+    if (!user) return;
+    // An inbox preview contains the received body too. A push hint alone never
+    // reaches this effect and never establishes delivery.
+    const received = [...inboxItems.flatMap(item => item.latestMessage ? [item.latestMessage] : []),
+      ...(!loadingThread && activeConversationId ? messages : [])];
+    const batches = new Map<string, Set<string>>();
+    for (const message of received) {
+      if (message.senderIsViewer || message.deliveredAt || message.readAt || message.deletedForEveryoneAt || acknowledged.current.has(message.id)) continue;
+      const batch = batches.get(message.conversationId) ?? new Set<string>();
+      if (batch.size < 100) batch.add(message.id);
+      batches.set(message.conversationId, batch);
+    }
+    if (!batches.size) return;
+    const generation = selectionGeneration.current;
+    let cancelled = false;
+    const current = () => !cancelled && generation === selectionGeneration.current && ownerRef.current === user.uid;
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        if (!current()) return;
+        for (const [conversationId, batch] of batches) {
+          if (!current()) return;
+          const messageIds = [...batch];
+          await DirectMessagesService.acknowledgeDelivery({ idToken, conversationId, messageIds, isEffectCurrent: current });
+          if (!current()) return;
+          messageIds.forEach(id => acknowledged.current.add(id));
+        }
+        setDeliveryRevision(value => value + 1);
+      } catch { /* A later history refresh retries; never invent a delivered state. */ }
+    })();
+    return () => { cancelled = true; };
+  }, [activeConversationId, loadingThread, messages, inboxItems, user, deliveryRevision]);
+
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
   const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
@@ -1009,11 +1102,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const chooseAttachment = (file: File | undefined) => {
     if (!file) return;
     const allowed = [
-      "image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm",
+      "image/jpeg", "image/png", "image/webp", "audio/wav",
       "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain",
     ];
     if (!allowed.includes(file.type) || file.size > 5 * 1024 * 1024) {
-      morphyToast.error("Choose a photo, video, PDF, Word, or text file up to 5 MB.");
+      morphyToast.error("Choose a photo, voice recording, PDF, Word, or text file up to 5 MB.");
       return;
     }
     attachmentDrafts.current.set(draftScope, file);
@@ -1149,6 +1242,44 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     );
   };
 
+  const jumpToOriginal = async (messageId: string) => {
+    if (jumping.current || !user || !activeConversationId) return;
+    jumping.current = true;
+    atBottomRef.current = false; setAtBottom(false);
+    const generation = selectionGeneration.current;
+    setMessageSearchOpen(false); setMessageSearchQuery("");
+    try {
+      let items = messagesRef.current;
+      let before = thread.nextBefore;
+      const visited = new Set<string>();
+      const idToken = await user.getIdToken();
+      if (generation !== selectionGeneration.current) return;
+      while (!items.some(item => item.id === messageId) && before && !visited.has(before)) {
+        visited.add(before);
+        const history = await DirectMessagesService.getConversationMessages({ idToken, conversationId: activeConversationId, before, limit: 60 });
+        if (generation !== selectionGeneration.current) return;
+        items = mergeMessages(mergeMessages(history.items, items), messagesRef.current); before = history.nextBefore;
+        setMessages(current => mergeMessages(history.items, current));
+        setThread(current => ({ ...current, nextBefore: before }));
+      }
+      if (items.some(item => item.id === messageId)) setJumpTarget(messageId);
+      else morphyToast.info("The original message is no longer available.");
+    } catch {
+      if (generation === selectionGeneration.current) morphyToast.error("The original message could not be loaded. Try again.");
+    } finally { if (generation === selectionGeneration.current) jumping.current = false; }
+  };
+
+  useLayoutEffect(() => {
+    const list = messageListRef.current;
+    const target = jumpTarget && list?.querySelector<HTMLElement>(`[data-chat-message="${CSS.escape(jumpTarget)}"]`);
+    if (!list || !target) return;
+    const top = list.scrollTop + target.getBoundingClientRect().top - list.getBoundingClientRect().top - (list.clientHeight - target.offsetHeight) / 2;
+    atBottomRef.current = false;
+    list.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    target.tabIndex = -1; target.focus({ preventScroll: true });
+    setJumpTarget(null);
+  }, [jumpTarget, messages, messageSearchQuery]);
+
   const startReply = (message: DirectMessage) => {
     const opening = messageMenuOpening.current;
     if (!opening || opening.generation !== operationGeneration.current ||
@@ -1213,7 +1344,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         replaceMessage(updated);
         if (draftGeneration !== editDraftGeneration.current) return;
         setMessageActionError(null);
-        setActiveMessageActions(null);
         setEditingMessage(null);
         setEditingContent("");
       } catch {
@@ -1251,7 +1381,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         loadGeneration.current += 1;
         replaceMessage(updated);
         setMessageActionError(null);
-        setActiveMessageActions(null);
       } catch {
         if (!isCurrentOperation()) return;
         replaceMessage(message);
@@ -1477,6 +1606,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     />
                     <div className={styles.threadTitle}>
                       <h2 title={selectedLabel}>{selectedLabel}</h2>
+                      <p className={styles.threadStatus}>{loadingThread ? "Connecting…" : thread.canSend ? "Connected" : "Messaging unavailable"}</p>
                     </div>
                   </div>
                   <div className={styles.threadHeaderActions}>
@@ -1515,25 +1645,18 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                           <X className="h-4 w-4" aria-hidden="true" />
                         </button>
                       </label>
-                    ) : (
-                      <button
-                        type="button"
-                        className={styles.headerAction}
-                        aria-label="Search messages"
-                        title="Search messages"
-                        onClick={() => setMessageSearchOpen(true)}
-                      >
-                        <Search className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    )}
+                    ) : null}
                     <button
                       type="button"
                       className={styles.headerAction}
                       aria-label="Start voice call"
                       title="Calls are not available yet"
-                      onClick={() => morphyToast.info("Calls are not available yet.")}
+                      disabled
                     >
                       <PhoneCall className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <button type="button" className={styles.headerAction} aria-label="Contact info" onClick={() => setContactInfoOpen(true)}>
+                      <Info className="h-5 w-5" aria-hidden="true" />
                     </button>
                   </div>
                 </div>
@@ -1685,15 +1808,19 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                 ) : (
                                   <>
                                     {message.replyTo ? (
-                                      <div className={styles.replyPreview}>
+                                      <button type="button" className={styles.replyPreview} aria-label={`Go to original message from ${message.replyTo.senderIsViewer ? "you" : selectedLabel}`}
+                                        onClick={() => void jumpToOriginal(message.replyTo!.id)}>
                                         <span>{message.replyTo.senderIsViewer ? "You" : selectedLabel}</span>
                                         <p>{walletMessagePreview(message.replyTo.content)}</p>
-                                      </div>
+                                      </button>
                                     ) : null}
                                     {cardAccessReference(message.content) ? <WalletCardAccessMessage key={`${message.id}:${activeConversationId}`} grantId={cardAccessReference(message.content)!} senderIsViewer={message.senderIsViewer} /> : isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className="whitespace-pre-wrap break-words">{message.content}</p> : null}
-                                    <MessageAttachment message={message} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
+                                    <MessageAttachment message={message} visitRevision={presentationEpoch} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
                                       if (!user) throw new Error("Sign in to open this attachment.");
                                       return user.getIdToken();
+                                    }} onPhotoLoad={() => {
+                                      const node = messageListRef.current;
+                                      if (node && atBottomRef.current) node.scrollTop = node.scrollHeight;
                                     }} />
                                   </>
                                 )}
@@ -1710,10 +1837,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     {message.senderIsViewer ? (
                                       <span
                                         className={styles.messageDeliveryState}
-                                        aria-label={message.readAt ? "Read" : "Sent"}
-                                        title={message.readAt ? "Read" : "Sent"}
+                                        aria-label={message.readAt ? "Read" : message.deliveredAt ? "Delivered" : "Sent"}
+                                        title={message.readAt ? "Read" : message.deliveredAt ? "Delivered" : "Sent"}
                                       >
-                                        {message.readAt ? (
+                                        {message.readAt || message.deliveredAt ? (
                                           <CheckCheck aria-hidden="true" className="h-3.5 w-3.5" />
                                         ) : (
                                           <Check aria-hidden="true" className="h-3.5 w-3.5" />
@@ -1871,8 +1998,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                   >
                     <input ref={photoInputRef} hidden type="file" accept="image/jpeg,image/png,image/webp"
                       onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
-                    <input ref={videoInputRef} hidden type="file" accept="video/mp4,video/webm"
-                      onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
                     <input ref={documentInputRef} hidden type="file"
                       accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.pdf,.docx,.txt"
                       onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
@@ -1906,16 +2031,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button type="button" className={styles.attachButton} aria-label="Add attachment"
-                          disabled={sending || !canCompose || Boolean(unconfirmedDraft)}>
+                          disabled={sending || recordingVoice || !canCompose || Boolean(unconfirmedDraft)}>
                           <Plus className="h-5 w-5" aria-hidden="true" />
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start" side="top" className={styles.attachmentMenu}>
                         <DropdownMenuItem onSelect={() => photoInputRef.current?.click()}>
                           <ImageIcon className="h-4 w-4" aria-hidden="true" /> Photo
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => videoInputRef.current?.click()}>
-                          <ImageIcon className="h-4 w-4" aria-hidden="true" /> Video
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => documentInputRef.current?.click()}>
                           <FileText className="h-4 w-4" aria-hidden="true" /> Document
@@ -1935,9 +2057,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                         drafts.current.set(draftScope, event.target.value);
                         setDraft(event.target.value);
                       }}
-                      placeholder={hasRouteSelection ? `Message ${selectedLabel}` : "Message"}
+                      placeholder={hasRouteSelection ? `Message ${selectedLabel}...` : "Message"}
                       maxLength={DIRECT_MESSAGE_MAX_LENGTH}
-                      disabled={!canCompose}
+                      disabled={!canCompose || recordingVoice}
                       readOnly={sending || Boolean(unconfirmedDraft)}
                       rows={1}
                       className={styles.composerInput}
@@ -1961,7 +2083,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       }}
                     />
                     <DirectMessageEmojiPicker
-                      disabled={sending || !canCompose || Boolean(unconfirmedDraft)}
+                      disabled={sending || recordingVoice || !canCompose || Boolean(unconfirmedDraft)}
                       onEmojiSelect={(emoji) => {
                         const input = composerRef.current;
                         const start = input?.selectionStart ?? draft.length;
@@ -1977,14 +2099,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       }}
                     />
                     <div className={styles.composerActions}>
-                      {!draft.trim() && !attachment && !sending ? <button
-                        type="button"
-                        className={styles.voiceButton}
-                        aria-label="Talk to One"
-                        onClick={openOneVoiceChat}
-                      >
-                        <Mic className="h-4 w-4" aria-hidden="true" />
-                      </button> : <button
+                      {!draft.trim() && !attachment && !sending ? hasRouteSelection ? <DirectMessageVoiceRecorder
+                        key={`${user?.uid}:${routeSelection}`} disabled={!canCompose || Boolean(unconfirmedDraft)} onRecorded={chooseAttachment} onRecordingChange={setRecordingVoice}
+                      /> : <button type="button" className={styles.voiceButton} aria-label="Talk to One" onClick={() => {
+                        requestAgentConversationAfterRoute(ROUTES.HOME); router.push(ROUTES.HOME);
+                      }}><Mic className="h-5 w-5" aria-hidden="true" /></button> : <button
                         type="submit"
                         className={styles.sendButton}
                         disabled={sending || !canCompose || (!draft.trim() && !attachment)}
@@ -2007,6 +2126,17 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     ) : null}
                   </form>
                   </AgentDockPortal> : null}
+              <Dialog open={contactInfoOpen} onOpenChange={setContactInfoOpen}>
+                <DialogContent className={styles.contactInfoDialog}>
+                  <DialogHeader><DialogTitle>Contact info</DialogTitle></DialogHeader>
+                  <ConnectionPersonAvatar label={selectedLabel} photoUrl={thread.peerPhotoUrl} size="list" className={styles.contactInfoAvatar} />
+                  <h3>{selectedLabel}</h3>
+                  <DialogDescription>{thread.canSend ? "Connected" : thread.disconnectedNotice || "Messaging unavailable"}</DialogDescription>
+                  <Button variant="none" effect="fade" onClick={() => { setContactInfoOpen(false); setMessageSearchOpen(true); }}>
+                    <Search className="h-5 w-5" aria-hidden="true" /> Search messages
+                  </Button>
+                </DialogContent>
+              </Dialog>
               <Dialog modal open={Boolean(editingMessage)} onOpenChange={(open) => {
                 if (!open) { editDraftGeneration.current += 1; setEditingMessage(null); setEditingContent(""); }
               }}>

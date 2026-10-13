@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes.one.wallet_card_access import router
+from hushh_mcp.services.wallet_card_validation import NETWORK_ORDER
 
 ROOT = "/api/one/wallet/card-access"
 ID = "11111111-1111-4111-8111-111111111111"
@@ -32,7 +33,7 @@ def test_card_owner_mismatch_is_private_and_does_not_call_service(path):
 
 def test_rejects_credentials_invalid_duration_and_unbounded_body():
     with patch("api.routes.one.wallet_card_access.service") as service:
-        for extra in [{"pan": "4242424242424242"}, {"durationMinutes": 60}]:
+        for extra in [{"pan": "4242424242424242"}, {"durationMinutes": 180}]:
             response = client().post(
                 ROOT + "/cards/card_one/grants",
                 json={"requestId": ID, "recipientPersonRefs": [ID], "durationMinutes": 10, **extra},
@@ -57,7 +58,8 @@ def test_share_uses_authenticated_owner_and_explicit_recipients():
         service.create_grants.assert_called_once_with("owner", "card_one", ID, [ID], 10)
 
 
-def test_recipient_envelopes_are_forwarded_with_owner_authority():
+@pytest.mark.parametrize("minutes", [15, 60, 120])
+def test_recipient_envelopes_are_forwarded_with_owner_authority(minutes):
     service = MagicMock()
     service.create_grants.return_value = {"grants": []}
     with patch("api.routes.one.wallet_card_access.service", return_value=service):
@@ -66,13 +68,18 @@ def test_recipient_envelopes_are_forwarded_with_owner_authority():
             json={
                 "requestId": ID,
                 "recipientPersonRefs": [ID],
-                "durationMinutes": 10,
+                "durationMinutes": minutes,
                 "encryptedCards": {ID: "opaque-recipient-envelope"},
             },
         )
         assert response.status_code == 200
         service.create_grants.assert_called_once_with(
-            "owner", "card_one", ID, [ID], 10, encrypted_cards={ID: "opaque-recipient-envelope"}
+            "owner",
+            "card_one",
+            ID,
+            [ID],
+            minutes,
+            encrypted_cards={ID: "opaque-recipient-envelope"},
         )
 
 
@@ -100,14 +107,18 @@ def test_network_requests_require_matching_owner_identity(suffix):
         service.assert_not_called()
 
 
-def test_network_contract_is_available_without_sharing_keys():
-    response = client().post(
-        ROOT + "/networks/resolve", json={"iinPrefix": "411111", "panLength": 16}
-    )
+@pytest.mark.parametrize("selected_network", [None, *NETWORK_ORDER])
+def test_network_contract_is_available_without_sharing_keys(selected_network):
+    body = {"iinPrefix": "411111", "panLength": 16}
+    if selected_network:
+        body["selectedNetwork"] = selected_network
+    response = client().post(ROOT + "/networks/resolve", json=body)
     assert response.status_code == 200
-    assert response.json() == {"network": "visa", "source": "prefix", "candidates": []}
+    assert response.json()["network"] == (selected_network or "visa")
+    assert response.json()["source"] == ("owner_selected" if selected_network else "prefix")
+    assert response.json()["candidates"] == []
     assert response.headers["cache-control"] == "private, no-store"
-    assert "visa" in client().get(ROOT + "/networks").json()["networks"]
+    assert client().get(ROOT + "/networks").json()["networks"] == list(NETWORK_ORDER)
 
 
 @pytest.mark.parametrize(

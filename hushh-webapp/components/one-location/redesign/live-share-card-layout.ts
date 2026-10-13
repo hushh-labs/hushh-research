@@ -13,7 +13,7 @@
 
 /** Card body. `overflow-hidden` clips the progress fill to the rounded corner. */
 export const LIVE_SHARE_CARD_CLASSNAME =
-  "!overflow-hidden !rounded-[18px] !border-0 bg-[color:var(--app-primary-surface)] p-4 !shadow-none";
+  "min-w-0 !overflow-hidden !rounded-[18px] !border-0 bg-[color:var(--app-primary-surface)] p-4 !shadow-none";
 
 /**
  * Badge on the left, the one action on the right, sharing a centreline — the
@@ -62,7 +62,7 @@ export const LIVE_SHARE_FOOTER_ROW_CLASSNAME =
 
 /** Primary CTA: full width only when the 320px layout needs to stack. */
 export const LIVE_SHARE_PRIMARY_ACTION_CLASSNAME =
-  "h-11 min-h-11 w-full rounded-full bg-[color:var(--app-accent)] px-4 font-[family-name:var(--font-app-body)] text-[15px] font-semibold leading-5 tracking-[-0.01em] text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 min-[360px]:w-auto sm:px-5";
+  "h-11 min-h-11 w-full rounded-full bg-[color:var(--app-accent)] px-4 font-[family-name:var(--font-app-body)] text-[15px] font-semibold leading-5 tracking-[-0.01em] text-[color:var(--app-accent-fg)] transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 min-[360px]:w-auto sm:px-5";
 
 /** Secondary CTA follows the same responsive width without competing visually. */
 export const LIVE_SHARE_SECONDARY_ACTION_CLASSNAME =

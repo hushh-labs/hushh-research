@@ -54,6 +54,7 @@ from .runtime import router as runtime_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
 from .voice import router as voice_router
 from .wallet_card_access import router as wallet_card_access_router
+from .world_model import router as world_model_router
 
 router = APIRouter()
 router.include_router(a2a_well_known_router)
@@ -79,6 +80,7 @@ router.include_router(feed_router)
 router.include_router(feed_events_router)
 router.include_router(first_connect_insights_router)
 router.include_router(profile_research_router)
+router.include_router(world_model_router)
 router.include_router(models_router)
 router.include_router(agent_feedback_router)
 router.include_router(business_suggestions_router)

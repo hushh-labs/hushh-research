@@ -2,8 +2,6 @@
 
 from unittest.mock import AsyncMock, Mock
 
-import pytest
-
 from hushh_mcp.consent.answer_scope_resolution import validate_resolved_scopes
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
@@ -45,7 +43,13 @@ async def test_answer_catalog_reuses_profile_canonical_scopes_not_opaque_registr
     service = PkmAnswerRequestService(Mock())
     catalog = await service._catalog("requester", "owner")
     scopes = [entry["scope"] for entry in catalog]
-    assert scopes[0] == "attr.preferences.meals"
+    assert "attr.preferences.meals" in scopes
+    assert set(scopes[:4]) == {
+        "attr.identity.identity_profile.full_name",
+        "attr.identity.identity_profile.declared_age",
+        "attr.identity.identity_profile.sex",
+        "attr.identity.identity_profile.profile_photo_url",
+    }
     assert "attr.one_living_sources.private" not in scopes
     assert "attr.preferences.secret" not in scopes
     assert "attr.identity.identity_profile.full_name" in scopes
@@ -64,31 +68,36 @@ async def test_answer_catalog_port_receives_the_exact_participant_pair():
     reader.assert_awaited_once_with("requester", "owner")
 
 
-async def test_catalog_failure_creates_no_hidden_request():
-    db = Mock()
-    service = PkmAnswerRequestService(
-        db, catalog_reader=AsyncMock(side_effect=RuntimeError("offline"))
+async def test_creation_does_not_wait_for_catalog_availability():
+    reader = AsyncMock(side_effect=RuntimeError("offline"))
+    service = PkmAnswerRequestService(Mock(), catalog_reader=reader)
+    service._transaction = AsyncMock(return_value="synthetic-request")
+    result = await service.create(
+        requester_user_id="requester", owner_user_id="owner", question="What trips do you prefer?"
     )
-    service._transaction = AsyncMock()
-    with pytest.raises(RuntimeError, match="offline"):
-        await service.create(
-            requester_user_id="requester",
-            owner_user_id="owner",
-            question="What trips do you prefer?",
-        )
-    service._transaction.assert_not_awaited()
+    assert result == {"requestId": "synthetic-request"}
+    reader.assert_not_awaited()
+    service._transaction.assert_awaited_once()
 
 
 async def test_profile_only_account_can_offer_exact_name_and_photo_without_kyc(monkeypatch):
     profile = Mock()
     profile.get_exact_requestable_scope_entries.return_value = []
-    monkeypatch.setattr("hushh_mcp.services.connections_service.ConnectionsService", lambda: profile)
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service.ConnectionsService", lambda: profile
+    )
     service = PkmAnswerRequestService(Mock())
     catalog = await service._catalog("requester", "existing-owner")
     available = [entry["scope"] for entry in catalog]
-    assert validate_resolved_scopes([
-        "attr.identity.identity_profile.full_name", "attr.identity.identity_profile.profile_photo_url",
-        "attr.identity.*", "attr.identity.identity_documents.passport",
-    ], owner_catalog=available).accepted == (
-        "attr.identity.identity_profile.full_name", "attr.identity.identity_profile.profile_photo_url",
+    assert validate_resolved_scopes(
+        [
+            "attr.identity.identity_profile.full_name",
+            "attr.identity.identity_profile.profile_photo_url",
+            "attr.identity.*",
+            "attr.identity.identity_documents.passport",
+        ],
+        owner_catalog=available,
+    ).accepted == (
+        "attr.identity.identity_profile.full_name",
+        "attr.identity.identity_profile.profile_photo_url",
     )

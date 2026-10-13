@@ -107,11 +107,10 @@ describe("agent chat header layout", () => {
 
   it("keeps the canonical One mark compact without reducing its hit region", () => {
     const header = headerBlock();
-    expect(header).toContain("<HushhMark");
+    expect(header).toContain("<OnePresenceAvatar");
     expect(header).toContain(
-      'className="size-8 items-center justify-center overflow-visible"',
+      'className="size-8 shrink-0"',
     );
-    expect(header).toContain('imageClassName="!size-8"');
     expect(header).toContain('className="!size-11');
     expect(header).not.toContain("🤫");
   });

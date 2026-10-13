@@ -20,9 +20,10 @@ import {
   LocationAgentIcon,
   Heart,
   Mic,
+  MessageCircle,
   Users,
 } from "@/components/icons";
-import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
+import { OneRosterAgentIcon } from "@/components/icons/agents/one-roster-agent-icon";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { ConnectorBrandMark } from "@/components/agent/connector-brand-mark";
 import { AppStreamSection } from "@/components/app-ui/stream-progress-panel";
@@ -519,18 +520,10 @@ function AgentStory() {
               data-preview-intro
               data-agent-selected={index === position}
             >
-              <AgentSectionIcon
-                id={"preview-" + capability.id}
-                icon={capability.icon}
-                tone={capability.tone}
-                size="roster-dashboard"
-                treatment="profile"
-                profileStyle={
-                  PALETTE[
-                    capability.id as keyof typeof PALETTE
-                  ] as CSSProperties
-                }
-              />
+              <span className={styles.agentIcon} aria-hidden="true" data-testid={`one-agent-icon-preview-${capability.id}`}>
+                {capability.id === "messages" ? <MessageCircle weight="regular" size={34} color="var(--app-accent)" /> :
+                  <OneRosterAgentIcon agentId={capability.id} weight="duotone" size={34} />}
+              </span>
               <AgentTabLabel data-tone="primary">
                 {capability.title}
               </AgentTabLabel>

@@ -25,6 +25,7 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "google_drive_picker",
     "drive_document_indexing",
     "drive_document_sharing",
+    "drive_agent_packages_enabled",
     "gmail_chat_reads",
     "google_drive_chat_reads",
     "curated_mcp_connectors",
@@ -305,6 +306,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "google_drive_picker": getattr(args, "google_drive_picker", "false"),
         "drive_document_indexing": getattr(args, "drive_document_indexing", "false"),
         "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
+        "drive_agent_packages_enabled": getattr(args, "drive_agent_packages_enabled", "false"),
         "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
         "google_drive_chat_reads": getattr(args, "google_drive_chat_reads", "false"),
         "curated_mcp_connectors": getattr(args, "curated_mcp_connectors", "false"),
@@ -486,6 +488,7 @@ def main() -> int:
     parser.add_argument("--google-drive-picker", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-indexing", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-agent-packages-enabled", default="false", choices=["true", "false"])
     parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--curated-mcp-connectors", default="false", choices=["true", "false"])

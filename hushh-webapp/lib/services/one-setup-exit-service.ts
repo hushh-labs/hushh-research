@@ -7,7 +7,6 @@ import {
 import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
-import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 
 export function readOneSetupCompletionHint(userId: string): boolean | null {
   return OneSetupCompletionHintService.isResolved(userId) ? true : null;
@@ -82,7 +81,6 @@ export function acknowledgeOneSetupExit(params: {
     );
     // Root completion must not mutate the Finance profile. Finance has its own
     // terminal capability acknowledgement and setupCapabilityIds signal.
-    useOneConversationSession.getState().queueProfileResearch(params.userId);
   })();
 }
 

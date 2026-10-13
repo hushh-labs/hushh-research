@@ -258,6 +258,9 @@ class FakeDb:
                 row["revoked_at"] = row["revoked_at"] or _now()
             if "revoked_at = NULL" in compact:
                 row["revoked_at"] = None
+            if "scan_count = 0" in compact:
+                row["scan_count"] = 0
+                row["last_scanned_at"] = None
             if "scan_count = scan_count + 1" in compact:
                 row["scan_count"] = int(row["scan_count"]) + 1
                 row["last_scanned_at"] = _now()
@@ -461,6 +464,9 @@ def test_rotating_invalidates_the_previous_token_immediately(
     service: OneWalletCardService, db: FakeDb
 ) -> None:
     old_token = db.seed()
+    service.record_scan(share_token=old_token)
+    service.record_scan(share_token=old_token)
+    assert db.rows[OWNER_ID]["scan_count"] == 2
 
     result = service.rotate_share_token(user_id=OWNER_ID)
     new_token = _share_token(result)
@@ -468,6 +474,12 @@ def test_rotating_invalidates_the_previous_token_immediately(
     assert new_token and new_token != old_token
     assert db.rows[OWNER_ID]["share_token_hash"] == _sha256(new_token)
     assert db.rows[OWNER_ID]["share_token_version"] == 2
+    assert result["card"]["scanCount"] == 0
+    assert result["card"]["lastScannedAt"] is None
+    service.record_scan(share_token=old_token)
+    assert db.rows[OWNER_ID]["scan_count"] == 0
+    service.record_scan(share_token=new_token)
+    assert db.rows[OWNER_ID]["scan_count"] == 1
 
     # The old token must no longer resolve to anything.
     assert _public(service.resolve_public_card(share_token=old_token)) == (

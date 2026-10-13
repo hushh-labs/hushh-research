@@ -38,7 +38,7 @@ final class NativeSupportTests: XCTestCase {
     #endif
 
     func testNativeProfileUsesTheBundledWebArtworkAndRejectsUnknownIds() throws {
-        XCTAssertEqual(NativeProfileArtwork.ids.count, 14)
+        XCTAssertEqual(NativeProfileArtwork.ids.count, 15)
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
             XCTAssertEqual(artwork.base.size, CGSize(width: 22, height: 22))

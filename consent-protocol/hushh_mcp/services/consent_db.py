@@ -1200,6 +1200,7 @@ class ConsentDBService:
         agent_id: Optional[str] = None,
         *,
         token_id: Optional[str] = None,
+        conn=None,
     ) -> bool:
         """Check the exact grant under its principal's revocation policy.
 
@@ -1217,11 +1218,7 @@ class ConsentDBService:
         if normalized_agent_id == "self" and normalized_scope == "vault.owner" and token_id:
             # One statement sees exact grant + subsequent revocations together.
             # No fallback to a different ledger or a merely newer owner grant.
-            def owner_lineage_is_active():
-                rows = (
-                    self._get_db()
-                    .execute_raw(
-                        """
+            owner_query = """
                     SELECT grant_event.id FROM internal_access_events AS grant_event
                     WHERE grant_event.user_id = :user_id AND grant_event.agent_id = 'self'
                       AND grant_event.scope = 'vault.owner'
@@ -1241,7 +1238,20 @@ class ConsentDBService:
                           AND revoked.agent_id = 'self' AND revoked.scope = 'vault.owner'
                           AND revoked.action = 'REVOKED' AND revoked.id > grant_event.id
                       ) LIMIT 1
-                """,
+                """
+            if conn is not None:
+                query = (
+                    owner_query.replace(":user_id", "$1")
+                    .replace(":token_id", "$2")
+                    .replace(":now_ms", "$3")
+                )
+                return bool(await conn.fetchval(query, user_id, token_id, now_ms, timeout=5))
+
+            def owner_lineage_is_active():
+                rows = (
+                    self._get_db()
+                    .execute_raw(
+                        owner_query,
                         {"user_id": user_id, "token_id": token_id, "now_ms": now_ms},
                     )
                     .data

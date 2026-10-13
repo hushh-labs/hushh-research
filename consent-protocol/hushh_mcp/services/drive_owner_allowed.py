@@ -17,8 +17,10 @@ an Allow, as it never restores revoked scope grants or named Circles.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import text
 
@@ -27,17 +29,43 @@ from hushh_mcp.services.connector_feature_admission import connector_feature_ena
 OWNER_ALLOWED_KEY = "owner_allowed"
 OWNER_ALLOWED_VERSION = 1
 DEFAULT_PRICE_CENTS = 1000
-MIN_OWNER_PRICE_CENTS = 100
+MIN_OWNER_PRICE_CENTS = 50
 MAX_OWNER_PRICE_CENTS = 50_000
 
 
+def request_has_document_scope(private: Mapping[str, Any]) -> bool:
+    """An exact server-bound packet may legitimately contain undated documents.
+
+    This checks shape only, never grants authority. Callers still validate the
+    current manifest, recipient, consent, owner Allow and frozen source versions.
+    Ordinary free-text requests retain their explicit date requirement.
+    """
+    purpose = private.get("purpose", {})
+    if isinstance(purpose, Mapping) and purpose.get("periodStart") and purpose.get("periodEnd"):
+        return True
+    packet = private.get("reusable_packet")
+    if private.get("agent_package_required") is not True or not isinstance(packet, Mapping):
+        return False
+    try:
+        UUID(packet["packetId"])
+        return bool(
+            type(packet["version"]) is int
+            and packet["version"] >= 1
+            and isinstance(packet["manifestDigest"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", packet["manifestDigest"])
+            and type(packet["listingRevision"]) is int
+            and packet["listingRevision"] >= 1
+            and valid_owner_price_cents(packet["priceCents"])
+            and isinstance(packet["ownerUserId"], str)
+            and packet["ownerUserId"]
+        )
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return False
+
+
 def valid_owner_price_cents(value: object) -> bool:
-    """Whole US dollars from $1 to $500, as integer cents. Booleans are not prices."""
-    return (
-        type(value) is int
-        and MIN_OWNER_PRICE_CENTS <= value <= MAX_OWNER_PRICE_CENTS
-        and value % 100 == 0
-    )
+    """US dollars from $0.50 to $500, as integer cents. Booleans are not prices."""
+    return type(value) is int and MIN_OWNER_PRICE_CENTS <= value <= MAX_OWNER_PRICE_CENTS
 
 
 def owner_allowed_record(*, amount_cents: int | None, allowed_at: str) -> dict[str, Any]:
@@ -67,6 +95,47 @@ def owner_allowed_marker(private: Mapping[str, Any]) -> dict[str, Any] | None:
     if amount is not None and not valid_owner_price_cents(amount):
         return None
     return dict(marker)
+
+
+def package_allow_marker(private: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Only a complete, sealed package Allow authorizes package delivery."""
+    marker = owner_allowed_marker(private)
+    if private.get("agent_package_required") is not True or marker is None:
+        return None
+    sources = marker.get("selected_sources")
+    positions = marker.get("selected_positions")
+    if (
+        type(marker.get("package_revision")) is not int
+        or marker["package_revision"] < 1
+        or type(marker.get("request_revision")) is not int
+        or type(marker.get("connection_generation")) is not int
+        or not isinstance(marker.get("search_job_id"), str)
+        or not isinstance(marker.get("package_digest"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", marker["package_digest"])
+        or not isinstance(positions, list)
+        or not 1 <= len(positions) <= 120
+        or type(marker.get("package_selected_count")) is not int
+        or marker["package_selected_count"] != len(positions)
+        or any(type(p) is not int or p < 1 for p in positions)
+        or positions != sorted(set(positions))
+        or not isinstance(sources, list)
+        or len(sources) != len(positions)
+    ):
+        return None
+    for position, source in zip(positions, sources, strict=True):
+        if (
+            not isinstance(source, Mapping)
+            or source.get("position") != position
+            or not isinstance(source.get("source_version"), str)
+            or not source["source_version"]
+            or any(
+                not isinstance(source.get(key), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", source[key])
+                for key in ("file_digest", "content_fingerprint", "evidence_digest")
+            )
+        ):
+            return None
+    return marker
 
 
 def owner_allowed_price_cents(private: Mapping[str, Any]) -> int | None:
@@ -102,6 +171,10 @@ def automatic_recipient_current(
     """Recheck for automatic work: current Trusted membership, or this request's owner Allow."""
     from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 
+    if private.get("agent_package_required") is True:
+        return package_allow_marker(private) is not None and request_connection_current(
+            connection, owner, recipient, request_id
+        )
     if DriveSharingStore._trusted_recipient_current(connection, owner, recipient):
         return True
     return owner_allowed_marker(private) is not None and request_connection_current(

@@ -276,6 +276,10 @@ async def test_full_contacts_reach_search_child_and_internal_reformulation_is_al
 @pytest.fixture(autouse=True)
 def research_cohort(monkeypatch):
     monkeypatch.setattr(service, "magic_intelligence_saved", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        "hushh_mcp.services.actor_identity_service.ActorIdentityService.get_many",
+        AsyncMock(return_value={"owner": {"phone_number": "+15555550123", "phone_verified": True}}),
+    )
     monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "2")
     monkeypatch.setenv(
         "ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS",
@@ -882,7 +886,9 @@ async def test_personal_profile_admission_does_not_depend_on_business_discovery(
     assert result["status"] == "offered" and result["pkm_written"] is False
     assert [section["kind"] for section in result["report"]["sections"]] == ["career"]
     connection.fetchrow.assert_awaited_once_with(
-        "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1", "owner"
+        "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1",
+        "owner",
+        timeout=5,
     )
 
 
@@ -980,7 +986,8 @@ async def test_canonical_onboarding_name_fallback_keeps_contact_verification(
         display_name=None,
         email="alex@example.test",
         email_verified=True,
-        phone_number=None,
+        # A stale provider phone must not override the current verified binding.
+        phone_number="+15555550999",
     )
     result = await service.offer_profile_research(
         user_id="owner",
@@ -1054,6 +1061,11 @@ async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypa
             monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "false")
         if condition in {"phone_changed", "name_changed"}:
             changed = True
+        if condition == "phone_changed":
+            monkeypatch.setattr(
+                "hushh_mcp.services.actor_identity_service.ActorIdentityService.get_many",
+                AsyncMock(return_value={"owner": {"phone_number": None, "phone_verified": False}}),
+            )
         return {"report": REPORT, "search_suggestions": []}
 
     invoke = service.offer_profile_research(

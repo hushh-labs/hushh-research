@@ -139,6 +139,7 @@ class TestStageDispatch:
 
     async def test_each_stage_short_circuits_while_the_feature_is_off(self, monkeypatch):
         monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "false")
+        monkeypatch.setenv("PKM_ANSWER_REQUESTS_ENABLED", "false")
         worker = PkmAnswerWorkWorker(db=object())
         for stage in sorted(ANSWER_DRAIN_STAGES):
             assert await worker.run_stage(stage) == {"disabled": 1}

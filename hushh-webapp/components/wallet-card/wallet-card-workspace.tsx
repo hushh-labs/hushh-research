@@ -89,11 +89,11 @@ type VisitorPreviewState =
  * page, and the management surface afterwards. Every network call goes through
  * `WalletCardService` — nothing here talks to the API directly.
  */
-function WalletProfileShell({ embedded, title, description, children }: {
-  embedded: boolean; title: string; description: string; children: ReactNode;
+function WalletProfileShell({ embedded, title, description, children, preview }: {
+  embedded: boolean; title: string; description: string; children: ReactNode; preview?: boolean;
 }) {
   return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} className="space-y-4">
-    <div className="space-y-1"><SectionTitle as="h3">{title}</SectionTitle><RowDescription compact>{description}</RowDescription></div>
+    <div className={preview ? "px-[var(--settings-row-px)]" : undefined}><div className={preview ? "mx-auto max-w-[36rem] space-y-1" : "space-y-1"}><SectionTitle as="h3">{title}</SectionTitle>{description ? <RowDescription compact>{description}</RowDescription> : null}</div></div>
     {children}
   </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
 }
@@ -192,6 +192,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
    */
   const adoptCard = useCallback(
     (next: WalletCardRecord | null) => {
+      const currentLink = userId ? WalletCardService.readShareLink(userId) : null;
+      if (next?.shareTokenVersion != null && currentLink?.version != null && currentLink.version > next.shareTokenVersion) return;
       setCard(next);
       setShareLink(
         userId ? WalletCardService.readShareLink(userId, next) : null,
@@ -563,8 +565,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
     }
     if (stage === "preview") {
       return {
-        title: WALLET_CARD_OWNER_COPY.previewTitle,
-        description: WALLET_CARD_OWNER_COPY.previewDescription,
+        title: "Preview as visitor",
+        description: "",
       };
     }
     if (stage === "success") {
@@ -589,6 +591,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
   return (
     <WalletProfileShell
       embedded={embedded}
+      preview={stage === "preview"}
       title={header.title}
       description={header.description}
     >
@@ -670,28 +673,10 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
 
       {stage === "preview" ? (
         <div className="space-y-4">
-          <SettingsGroup
-            title={WALLET_CARD_OWNER_COPY.walletPreviewTitle}
-            description={WALLET_CARD_OWNER_COPY.walletPreviewHint}
-          >
-            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              <WalletCardPassPreview
-                fullName={draft.fullName || card?.displayName || ""}
-                headline={draft.headline || card?.headline || ""}
-                organisation={draft.organisation}
-                locationLabel={draft.locationLabel}
-                shareUrl={shareLink?.shareUrl ?? null}
-              />
-            </div>
-          </SettingsGroup>
-
-          <SettingsGroup
-            title={WALLET_CARD_OWNER_COPY.visitorPreviewTitle}
-            description={WALLET_CARD_OWNER_COPY.visitorPreviewHint}
-          >
+          <SettingsGroup>
             <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
               {visitorPreview.status === "ready" ? (
-                <PublicWalletCardView card={visitorPreview.card} embedded />
+                <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
               ) : visitorPreview.status === "error" ? (
                 <div className="space-y-3 text-sm text-muted-foreground">
                   <p>{visitorPreview.message}</p>
@@ -711,9 +696,20 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
             </div>
           </SettingsGroup>
 
-          <RowDescription compact className="px-1">
-            {WALLET_CARD_OWNER_COPY.updatesAutomatically}
-          </RowDescription>
+          <div className="px-[var(--settings-row-px)]">
+          <details className="mx-auto w-full max-w-[36rem] rounded-[var(--app-card-radius-standard)] border border-border">
+            <summary className="cursor-pointer px-[var(--settings-row-px)] py-3 text-sm font-medium">Profile card preview</summary>
+            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+              <WalletCardPassPreview
+                fullName={draft.fullName || card?.displayName || ""}
+                headline={draft.headline || card?.headline || ""}
+                organisation={draft.organisation}
+                locationLabel={draft.locationLabel}
+                shareUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null}
+              />
+            </div>
+          </details>
+          </div>
 
           {previewOrigin === "setup" ? (
             <div className="flex flex-wrap items-center gap-2">

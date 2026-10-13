@@ -470,7 +470,7 @@ try {
     svg.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns", "http://www.w3.org/2000/svg");
     const fill = svg.getAttribute("fill");
     const colorHex = /^#[0-9a-f]{6}$/i.test(fill ?? "") ? fill : null;
-    const accentSelector = ".profile-account-icon-accent, .profile-account-icon-accent-fill";
+    const accentSelector = ".profile-account-icon-accent, .profile-account-icon-accent-fill, .profile-pane-icon-accent, .profile-pane-icon-accent-fill";
     const hasAccent = svg.querySelector(accentSelector) !== null;
     svg.setAttribute("style", "color:#000000");
     for (const node of [svg, ...svg.querySelectorAll("*")]) {
@@ -483,7 +483,7 @@ try {
       for (const node of artwork.querySelectorAll("path,circle,rect,ellipse,line,polyline,polygon")) {
         const accented = node.matches(accentSelector);
         if ((layer === "base" && accented) || (layer === "accent" && !accented)) node.setAttribute("opacity", "0");
-        if (node.matches(".profile-account-icon-accent-fill")) node.setAttribute("fill", "#000000");
+        if (node.matches(".profile-account-icon-accent-fill, .profile-pane-icon-accent-fill")) node.setAttribute("fill", "#000000");
       }
       const name = `HushhProfile-${entry.id}-${layer}`;
       const directory = `ios/App/App/Assets.xcassets/${name}.imageset`;

@@ -47,6 +47,25 @@ const BOTTOM_NAV_ROOTS: readonly string[] = [
   ROUTES.PROFILE,
 ];
 
+/**
+ * One-level screens whose authored parent is One home but which are neither an
+ * agent section nor a bottom-nav surface (To-dos, Feed, Marketplace, Career,
+ * Referrals, Connected Systems...). With no destination identity nothing was
+ * recorded when they were opened, so Back always fell through to the One
+ * dashboard no matter where the person came from.
+ */
+const STANDALONE_ROOTS: readonly string[] = [
+  ROUTES.ONE_TODOS,
+  ROUTES.ONE_FEED,
+  ROUTES.ONE_MARKETPLACE,
+  ROUTES.ONE_CAREER,
+  ROUTES.ONE_REFERRALS,
+  ROUTES.CONNECTED_SYSTEMS,
+  ROUTES.EMAIL_AGENT,
+  ROUTES.CONSENTS,
+  ROUTES.LEGACY_CONSENTS,
+];
+
 let entries: DestinationEntry[] = [];
 let currentDestinationId: string | null = null;
 let currentHref: string | null = null;
@@ -66,6 +85,14 @@ function bottomNavRootFor(path: string): string | null {
   );
 }
 
+function standaloneRootFor(path: string): string | null {
+  return (
+    STANDALONE_ROOTS.find(
+      (root) => path === root || path.startsWith(`${root}/`),
+    ) ?? null
+  );
+}
+
 /** Which destination a path belongs to, or null when it belongs to none. */
 export function resolveDestinationId(href: string): string | null {
   const path = pathOf(href);
@@ -73,7 +100,9 @@ export function resolveDestinationId(href: string): string | null {
   const section = resolveAgentSectionForPath(path);
   if (section) return `section:${section.id}`;
   const root = bottomNavRootFor(path);
-  return root ? `nav:${root}` : null;
+  if (root) return `nav:${root}`;
+  const standalone = standaloneRootFor(path);
+  return standalone ? `route:${standalone}` : null;
 }
 
 /**
@@ -87,7 +116,8 @@ export function isDestinationRoot(href: string): boolean {
   const section = resolveAgentSectionForPath(path);
   if (section) return pathOf(section.href) === path;
   const root = bottomNavRootFor(path);
-  return root ? root === path : false;
+  if (root) return root === path;
+  return standaloneRootFor(path) === path;
 }
 
 /**

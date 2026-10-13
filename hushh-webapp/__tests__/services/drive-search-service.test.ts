@@ -13,6 +13,31 @@ const page = { jobId, revision: 1, matched: 1, nextCursor: "opaque+/=",
     modifiedTime: null, openUrl: "https://docs.google.com/document/d/file-one/edit" }] };
 beforeEach(() => { vi.resetAllMocks(); });
 describe("owner Drive search API boundary", () => {
+  it("retains unverified document periods for owner review and rejects automatic coverage claims", async () => {
+    const coverage = { corpora: ["user"], fileKind: "document",
+      requestedPeriod: { start: "2026-01-01", end: "2026-06-30", timezone: "Asia/Kolkata" },
+      dateBasis: "content_period_unverified", timeIntent: "document_coverage",
+      ownerReviewRequired: true, contentPeriodVerified: false,
+      providerRowsScanned: 1035, excludedByDateCount: 0, deduplicatedCount: 789,
+      unavailableShortcutCount: 0, providerPagesExhausted: true, shareabilityVerified: true };
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, status: "completed", matched: 46, coverage }));
+    const parsed = await DriveSearchService.get("owner", jobId, () => undefined);
+    expect(parsed.coverage).toEqual(coverage);
+    expect(isDriveSearchSelectionReady(parsed)).toBe(true);
+    for (const change of [
+      { ownerReviewRequired: false }, { ownerReviewRequired: "true" },
+      { ownerReviewRequired: undefined }, { timeIntent: undefined },
+      { timeIntent: "file_activity" }, { timeIntent: "unknown" },
+      { contentPeriodVerified: true }, { dateBasis: "verified_content" },
+    ]) {
+      api.fetch.mockResolvedValueOnce(Response.json({ ...status, coverage: { ...coverage, ...change } }));
+      await expect(DriveSearchService.get("owner", jobId, () => undefined)).rejects.toMatchObject({ code: "invalid_response" });
+    }
+    const legacy = { ...coverage, dateBasis: "title_date_then_created_or_modified", timeIntent: undefined };
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, coverage: legacy }));
+    expect((await DriveSearchService.get("owner", jobId, () => undefined)).coverage)
+      .toMatchObject({ ownerReviewRequired: true, dateBasis: "title_date_then_created_or_modified" });
+  });
   it("preserves finalized top-N coverage and rejects partial or inconsistent selection claims", async () => {
     const coverage = { corpora: ["user", "member_shared_drives"], fileKind: "document",
       requestedPeriod: null, dateBasis: "title_date_then_created_or_modified", contentPeriodVerified: false,

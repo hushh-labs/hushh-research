@@ -19,6 +19,7 @@ from sqlalchemy import text
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current
+from hushh_mcp.services.drive_request_review_policy import checkpoint_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -55,6 +56,27 @@ def _selection_ready(row, checkpoint):
         and not row["incomplete_search"]
         and checkpoint.get("request_results_finalized") is True
     )
+
+
+def validate_reusable_packet(manifest, binding, user_id, *, approved_terms=False):
+    if (
+        not isinstance(binding, dict)
+        or binding.get("ownerUserId") != user_id
+        or manifest.get("owner_user_id") != user_id
+        or manifest.get("state") != "ready"
+        or binding.get("packetId") != manifest.get("packet_id")
+        or type(binding.get("version")) is not int
+        or binding["version"] != manifest.get("version")
+        or binding.get("manifestDigest") != manifest.get("digest")
+        or not approved_terms
+        and (
+            binding.get("listingRevision") != manifest.get("listing_revision")
+            or binding.get("priceCents") != manifest.get("price_cents")
+        )
+        or not 0 < len(manifest.get("sources", [])) <= 120
+    ):
+        raise DriveReadError("packet_unavailable")
+    return manifest
 
 
 def view(row: dict) -> dict:
@@ -119,8 +141,14 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "fileKind",
                         "requestedPeriod",
                         "dateBasis",
+                        "timeIntent",
+                        "ownerReviewRequired",
                         "contentPeriodVerified",
                         "folderDiscovery",
+                        "retrievalSource",
+                        "retrievalCompleteness",
+                        "fallbackReason",
+                        "lastIndexedAt",
                     )
                     if key in manifest
                 },
@@ -129,8 +157,10 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     for key in (
                         "providerRowsScanned",
                         "providerFilePages",
+                        "indexedDocumentsReused",
                         "excludedByDateCount",
                         "excludedByKindCount",
+                        "excludedByFilenameCount",
                         "excludedByNoteTypeCount",
                         "excludedByTopicCount",
                         "excludedFolderTopicCount",
@@ -148,7 +178,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 ),
                 "providerPagesExhausted": row["status"] == "completed"
                 and not row["incomplete_search"]
-                and not checkpoint.get("request_rank_pruned", False),
+                and not checkpoint.get("request_rank_pruned", False)
+                and checkpoint.get("evidence_route") not in {"index", "packet"},
             }
         if checkpoint.get("request_origin_id"):
             # This owner-only bit lets an old completed request search be
@@ -156,6 +187,13 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             # remain encrypted; no provider capability or file data escapes.
             result.setdefault("coverage", {})["shareabilityVerified"] = (
                 checkpoint.get("request_shareability_version") == 1
+            )
+            # Legacy jobs have no frozen distinction between file activity
+            # and content coverage. Their results require an exact owner review.
+            result["coverage"]["ownerReviewRequired"] = checkpoint_requires_owner_review(
+                checkpoint,
+                request_id=checkpoint["request_origin_id"],
+                revision=checkpoint.get("request_revision"),
             )
         selection = _bounded_selection(checkpoint)
         if selection is not None:
@@ -345,6 +383,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 resource_id=request_id,
                 purpose="request",
             )
+            if private.get("agent_package_required") is True:
+                raise DriveReadError("package_review_required")
             if private.get("trusted_auto") is not True:
                 return None
             connection.execute(
@@ -429,7 +469,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         await self._transaction(operation)
 
     async def clear_legacy_completed_request(self, *, user_id, request_id):
-        """Replace an old request search lacking Drive shareability evidence.
+        """Replace an old request search lacking current selection evidence.
 
         A completed search may be discarded only while its origin request is
         pending and no review has frozen its results. The job row lock orders
@@ -452,9 +492,16 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
             checkpoint = self._checkpoint(row)
+            current_selection = (
+                checkpoint.get("request_selection_version") == 2
+                and checkpoint.get("request_time_intent") in {"file_activity", "document_coverage"}
+                and checkpoint.get("request_owner_review_required")
+                is (checkpoint.get("request_time_intent") == "document_coverage")
+            )
             if (
                 checkpoint.get("request_origin_id") != client
                 or checkpoint.get("request_shareability_version") == 1
+                and current_selection
             ):
                 return False
             request = self._row(
@@ -735,8 +782,55 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
+    def _evidence_current(self, connection, checkpoint, user_id, *, approved_terms=False):
+        route = checkpoint.get("evidence_route")
+        if route == "packet":
+            if checkpoint.get("matched_packet"):
+                from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
+                from hushh_mcp.services.drive_packet_contract import PacketVerification
+
+                checked = PacketVerification.model_validate(
+                    checkpoint.get("request_packet_verification")
+                )
+                if checked.state != "ready":
+                    raise DriveReadError("packet_unavailable")
+
+                current = DriveDocumentFactsStore(db=self.db)._current_index_status(
+                    connection, owner_user_id=user_id
+                )
+                if not current["complete"] or current["signature"] != checkpoint.get(
+                    "index_snapshot", {}
+                ).get("signature"):
+                    raise DriveReadError("source_changed")
+            from hushh_mcp.services.drive_packet_store import DrivePacketStore
+
+            binding = checkpoint.get("reusable_packet") or checkpoint["matched_packet"]
+            manifest = DrivePacketStore(db=self.db)._current_packet_manifest(
+                connection,
+                owner_user_id=user_id,
+                packet_id=binding["packetId"],
+                version=binding["version"],
+            )
+            return validate_reusable_packet(
+                manifest, binding, user_id, approved_terms=approved_terms
+            )
+        if route in {"index", "hybrid"}:
+            from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
+
+            current = DriveDocumentFactsStore(db=self.db)._current_index_status(
+                connection, owner_user_id=user_id
+            )
+            if (
+                route == "index"
+                and not current["complete"]
+                or current["signature"] != checkpoint.get("index_snapshot", {}).get("signature")
+            ):
+                raise DriveReadError("source_changed")
+        return None
+
     def _current(self, connection, job):
         self._access(connection, job["user_id"], job["generation"])
+        self._evidence_current(connection, job["checkpoint"], job["user_id"])
         row = self._owned(connection, job["user_id"], job["job_id"], locked=True)
         current_mode = self._checkpoint(row).get("authority_mode", "owner")
         claimed_mode = job["checkpoint"].get("authority_mode", "owner")
@@ -763,14 +857,18 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             ):
                 raise DriveReadError("search_superseded")
-            if current_mode == "trusted_auto":
+            if current_mode in {"trusted_auto", "agent_package"}:
                 private = self.search_cipher.open(
                     request["request_envelope"],
                     user_id=job["user_id"],
                     resource_id=str(origin),
                     purpose="request",
                 )
-                if private.get("trusted_auto") is not True:
+                if (
+                    private.get("agent_package_required") is not True
+                    if current_mode == "agent_package"
+                    else private.get("trusted_auto") is not True
+                ):
                     raise DriveReadError("search_superseded")
                 # A queued automatic request is not an enduring read grant.
                 # Recheck on every page and in the commit transaction, even
@@ -785,7 +883,13 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     raise DriveReadError("search_superseded") from error
                 # Current Trusted membership, or this request's sealed owner
                 # Allow while the pair is still connected.
-                if not automatic_recipient_current(
+                if current_mode == "agent_package":
+                    from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+
+                    DriveSharingStore(db=self.db)._relationship(
+                        connection, job["user_id"], request["recipient_user_id"]
+                    )
+                elif not automatic_recipient_current(
                     connection,
                     job["user_id"],
                     request["recipient_user_id"],

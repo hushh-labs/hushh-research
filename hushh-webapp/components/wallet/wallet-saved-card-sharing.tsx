@@ -25,7 +25,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
   const [query, setQuery] = useState("");
   const [recipients, setRecipients] = useState<CardAccessRecipient[]>([]);
   const [selected, setSelected] = useState<Record<string, CardAccessRecipient>>({});
-  const [duration, setDuration] = useState<5 | 10 | 15>(10);
+  const [duration, setDuration] = useState<15 | 60 | 120>(15);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -195,7 +195,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
             {!loading && !failed && !recipients.length ? <p className="py-3 text-xs text-muted-foreground">No connections found.</p> : null}
             {hasMore ? <p className="text-xs text-muted-foreground">Search by name to find more connections.</p> : null}
           </div>
-          <fieldset><legend className="mb-2 text-[13px]">Access time</legend><div className="flex gap-2">{([5, 10, 15] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes} minutes</Button>)}</div></fieldset>
+          <fieldset><legend className="mb-2 text-[13px]">Access time</legend><div className="flex gap-2">{([15, 60, 120] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes === 15 ? "15 minutes" : minutes === 60 ? "1 hour" : "2 hours"}</Button>)}</div></fieldset>
           <p className="text-xs text-muted-foreground">People outside your Trusted Circle verify their identity before viewing. CVV and PIN stay private.</p>
         </div>
       </SettingsDetailPanel>

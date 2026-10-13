@@ -139,6 +139,18 @@ export const ReferralService = {
     });
   },
 
+  /** Revoke the presented referral QR; preserve earned referrals and progress. */
+  async rotateShareLink(opts: { idToken: string; slug: string }): Promise<ReferralSummary> {
+    return apiJson<ReferralSummary>("/api/one/referrals/rotate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.idToken}`,
+      },
+      body: JSON.stringify({ slug: opts.slug }),
+    });
+  },
+
   /**
    * Opening a referral link. Deliberately unauthenticated -- there is no
    * session yet, which is the whole point: the attribution is recorded on the

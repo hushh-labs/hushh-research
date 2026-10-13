@@ -11,6 +11,7 @@ import type { SharingDelivery, SharingStatus } from "@/lib/services/drive-sharin
 const state = vi.hoisted(() => ({
   reviewRequest: vi.fn(),
   token: "vault-token" as string | null,
+  paymentProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -22,7 +23,7 @@ vi.mock("@/lib/vault/session-epoch", () => ({
 }));
 // The payment section has its own suite; this one covers the recovery row.
 vi.mock("@/components/consent/requester-payment-section", () => ({
-  RequesterPaymentSection: () => null,
+  RequesterPaymentSection: (props: Record<string, unknown>) => { state.paymentProps = props; return null; },
 }));
 vi.mock("@/lib/services/drive-request-requester-service", () => ({
   DriveRequestRequesterService: { reviewRequest: state.reviewRequest },
@@ -84,6 +85,21 @@ describe("DocumentRequestRequesterPanel recovery row", () => {
   beforeEach(() => {
     state.reviewRequest.mockReset();
     state.token = "vault-token";
+  });
+
+  it("binds private disclosure to its request revision without equating the package revision", () => {
+    const disclosure = { schemaVersion: 1 as const, packageDigest: "b".repeat(64), packageRevision: 2,
+      selectedCount: 1, coverageStatus: "complete" as const, periods: [], limitations: [] };
+    const context = { requestId: REQUEST_ID, requestRevision: 3, packageDisclosure: disclosure,
+      purpose: { purpose: "Statements", periodStart: null, periodEnd: null } };
+    const props = { requestId: REQUEST_ID, status: STATUS, locked: false, surface: "sheet" as const,
+      onCancel: vi.fn(), onChanged: vi.fn() };
+    const mounted = render(<DocumentRequestRequesterPanel {...props} context={context} />);
+    expect(state.paymentProps?.packageDisclosure).toBeNull();
+    mounted.rerender(<DocumentRequestRequesterPanel {...props} context={{ ...context, requestRevision: 4 }} />);
+    expect(state.paymentProps?.packageDisclosure).toEqual(disclosure);
+    mounted.rerender(<DocumentRequestRequesterPanel {...props} status={{ ...STATUS, revision: 5 }} context={{ ...context, requestRevision: 4 }} />);
+    expect(state.paymentProps?.packageDisclosure).toBeNull();
   });
 
   it("keeps the row and Request review out of the live region and says nothing on opening", () => {

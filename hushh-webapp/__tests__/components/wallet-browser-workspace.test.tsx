@@ -127,7 +127,7 @@ describe("Wallet video browser workspace", () => {
   it("opens the full owner number and keeps security codes and financial placeholders hidden", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
-    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByRole("button", { name: "Reveal saved details" })).toBeNull();
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Card number");
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Name on card");
@@ -268,7 +268,7 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(result);
     await screen.findByTestId("wallet-selected-card");
     expect(screen.getByTestId("wallet-card-face")).toHaveTextContent("Card 1");
-    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByTestId("one-wallet-reveal-1001")).toBeNull();
     expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));

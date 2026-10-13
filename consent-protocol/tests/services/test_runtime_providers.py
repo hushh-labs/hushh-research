@@ -666,46 +666,23 @@ def test_factory_developer_api_key_mode_is_explicit_and_local_only(monkeypatch):
     assert calls == [{"vertexai": False, "api_key": "LOCAL_DEVELOPER_KEY"}]
 
 
-def test_factory_rejects_developer_api_key_mode_in_hosted_environment(monkeypatch):
+@pytest.mark.parametrize(
+    "environment,project", [("uat", "hussh-511311"), ("production", "hushh-vertex-personal54")]
+)
+def test_hosted_factory_uses_checked_in_profile_even_with_stale_environment(
+    monkeypatch, environment, project
+):
+    calls = []
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
     monkeypatch.setenv("GOOGLE_API_KEY", "HOSTED_KEY_MUST_NOT_BE_USED")
-    monkeypatch.setenv("ENVIRONMENT", "uat")
-
-    with pytest.raises(RuntimeError, match="Hosted Gemini runtimes must use Vertex ADC"):
-        build_managed_runtime_client("gemini")
-
-
-def test_factory_hosted_adc_requires_explicit_vertex_contract(monkeypatch):
-    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
-    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "stale-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "stale-region")
     monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
-    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
-
-    with pytest.raises(RuntimeError, match="GOOGLE_GENAI_USE_VERTEXAI=true"):
-        build_managed_runtime_client("gemini")
-
-
-def test_factory_hosted_adc_requires_project_and_location(monkeypatch):
-    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
-    monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
-    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("GCP_PROJECT", raising=False)
-    monkeypatch.delenv("GOOGLE_PROJECT", raising=False)
-    monkeypatch.delenv("GCLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("VERTEX_PROJECT_ID", raising=False)
-
-    with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_PROJECT"):
-        build_managed_runtime_client("gemini")
-
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
-    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
-    monkeypatch.delenv("GCP_LOCATION", raising=False)
-    monkeypatch.delenv("VERTEX_LOCATION", raising=False)
-
-    with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_LOCATION"):
-        build_managed_runtime_client("gemini")
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs) or object())
+    build_managed_runtime_client("gemini")
+    assert calls == [{"vertexai": True, "project": project, "location": "global"}]
 
 
 def test_factory_grok_uses_openai_transport_with_base_url(monkeypatch):

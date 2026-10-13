@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ history: vi.fn(), revoke: vi.fn(), profile: vi.fn(), subscribe: vi.fn(), current: true }));
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: mocks }));
 vi.mock("@/components/profile/settings-ui", () => ({
+  SettingsPresentationProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   SettingsGroup: ({ title, children }: { title: string; children: React.ReactNode }) => <section aria-label={title}>{children}</section>,
   SettingsRow: ({ title, description, trailing }: { title: string; description: React.ReactNode; trailing: React.ReactNode }) => <div>{title}{description}{trailing}</div>,
 }));
@@ -22,8 +23,13 @@ beforeEach(() => {
 });
 describe("Wallet's participant-scoped sharing ledger", () => {
   it("renders real timing, recipient, verification and activity and confirms recipient-specific revocation", async () => {
+    const record = item("First");
+    record.activity.push(...Array.from({ length: 4 }, () => ({ event: "SHARE_OPENED", at: "2026-10-12T10:01:00Z", actor: "recipient", outcome: "opened" })));
+    mocks.history.mockResolvedValue({ ...page(["First"]), items: [record], recipientCount: 7 });
     render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
-    expect(await screen.findByText("VISA •••• 4242 · First")).toBeVisible();
+    expect(await screen.findByText("VISA •••• 4242 | First")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Shared cards | 7" })).toBeVisible();
+    expect(screen.getAllByText(/share opened/)).toHaveLength(1);
     expect(screen.getByText(/15 minutes/)).toBeVisible();
     expect(screen.getByText("Identity verification required")).toBeVisible();
     expect(screen.getByText(/Last viewed/)).toBeVisible();
@@ -36,11 +42,11 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
     fireEvent.click(await screen.findByRole("button", { name: "Load more shares" }));
-    await screen.findByText("VISA •••• 4242 · Second");
+    await screen.findByText("VISA •••• 4242 | Second");
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     await act(async () => { window.dispatchEvent(new Event("focus")); });
     await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(4));
-    expect(screen.getByText("VISA •••• 4242 · Second")).toBeVisible();
+    expect(screen.getByText("VISA •••• 4242 | Second")).toBeVisible();
     let finish!: (value: ReturnType<typeof page>) => void;
     mocks.history.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     await act(async () => { window.dispatchEvent(new Event("focus")); });

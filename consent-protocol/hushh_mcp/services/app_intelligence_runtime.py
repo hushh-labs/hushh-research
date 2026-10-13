@@ -38,6 +38,7 @@ from hushh_mcp.runtime_providers.factory import (
     VERTEX_ADC_AUTH_MODE,
     ManagedGeminiRuntimeBinding,
 )
+from hushh_mcp.runtime_settings import managed_ai_settings
 from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
@@ -97,7 +98,8 @@ LOCATION_ONBOARDING_COMPLETION_RECEIPT_SCHEMA_VERSION = (
 CAPABILITY_RUN_RESUME_SUMMARY_LIMIT = MAX_CAPABILITY_RUN_RESUME_SUMMARIES
 MIN_RETRIEVAL_RESULTS = 4
 MAX_RETRIEVAL_RESULTS = 10
-LOCATION_BRAIN_EMBEDDING_MODEL = "gemini-embedding-001"
+
+LOCATION_BRAIN_EMBEDDING_MODEL = managed_ai_settings().embedding_model
 LOCATION_BRAIN_EMBEDDING_DIMENSIONS = 768
 _LOCATION_BRAIN_EMBEDDING_TIMEOUT_MS = 900
 _LOCATION_BRAIN_EMBEDDING_STARTUP_TIMEOUT_MS = 8_000
@@ -2622,6 +2624,8 @@ def _compile_service_onboarding_workflows(
             candidate_id
             for candidate_id in _clean_strings(route.get("action_ids"))
             if candidate_id in by_id
+            # The passive introduction is separate from the verified v2 runtime.
+            and not (service_id == "location" and candidate_id == "setup.finish_location_intro")
             and str((by_id[candidate_id].get("execution_target") or {}).get("status") or "")
             == "wired"
         ]

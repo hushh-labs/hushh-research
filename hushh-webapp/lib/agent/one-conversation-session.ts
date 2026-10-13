@@ -80,8 +80,6 @@ type OneConversationSessionState = {
   consumeHandoff: (id: string) => void;
   queueEntryWelcome: (userId: string) => void;
   consumeEntryWelcome: (userId: string) => void;
-  queueProfileResearch: (userId: string) => void;
-  consumeProfileResearch: (userId: string) => void;
   clearSession: () => void;
 };
 
@@ -163,12 +161,6 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
   consumeEntryWelcome: (userId) => {
     if (get().pendingEntryWelcome?.userId !== userId) return;
     set({ pendingEntryWelcome: null });
-  },
-  queueProfileResearch: (userId) => {
-    if (userId.trim()) set({ pendingProfileResearch: { userId, kind: "post_setup" } });
-  },
-  consumeProfileResearch: (userId) => {
-    if (get().pendingProfileResearch?.userId === userId) set({ pendingProfileResearch: null });
   },
   clearSession: () => {
     set({

@@ -256,6 +256,30 @@ locking, or losing access clears the displayed details. These controls cannot
 recall information a recipient has already copied or captured. Existing masked-only
 grants remain readable; the owner must create a new share to include the full number.
 
+#### Recipient browser safeguards
+
+Full card viewing remains available in Messages for the authorized recipient.
+Current grant messages and older encrypted card messages clear visible contents
+and invalidate pending reveals when the window loses focus, the tab is hidden,
+the page is left, or printing starts. Returning to the window does not reopen a
+card. Identity verification may finish in a popup, but a grant is displayed only
+after the window regains focus. The viewer suppresses copy, cut, drag and context
+menu actions and hides its content in print layouts. Older encrypted messages
+follow the same native-viewer restriction as grant messages; native capture
+protection is not implemented by these browser safeguards.
+
+Forwarding a grant reference does not grant another account access: server reads
+remain recipient-bound. Older encrypted envelopes bind both participants with
+authenticated encryption. Received cards have no forward/export control and do
+not become owner Wallet cards. These controls cannot stop an authorized recipient
+from transcribing or re-entering information they can see. Older encrypted copies
+also retain their existing lack of grant expiry or revocation.
+
+These are exposure-reduction measures, not screenshot prevention. Browsers cannot
+reliably block OS screenshots or screen recordings, and neither the browser nor
+the app can reliably detect a photo taken with another device. The viewer says
+so explicitly; it does not request camera access or claim photo detection.
+
 ### Legacy encrypted Chat copies (read compatibility)
 
 The previous Hussh Chat share option required choosing one person and confirming the selected card.
@@ -336,8 +360,10 @@ PKM, indexes, logs, caches, models, notifications or an external provider.
 
 The existing backend `wallet_card_validation.py` owns the supported prefix
 rules. Responses distinguish prefix matches, explicit owner choices, ambiguous
-ranges and unknown ranges. Recognized prefixes retain their network even when
-the length is wrong, so local validation rejects invalid network lengths.
+ranges and unknown ranges. Recognized prefixes and explicit owner selections
+retain their network even when the length is wrong. The form explains a length
+mismatch immediately, and local credential validation rejects saving the card
+until it is corrected; an input mismatch is not a network-service outage.
 These rules are not a live issuer registry. On lookup
 failure, a valid card can still be saved with the neutral Card network. Client
 Luhn, expiry, CVV/PIN and region validation remain local; the backend continues

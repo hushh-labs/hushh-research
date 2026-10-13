@@ -37,6 +37,10 @@ on:
         description: "Exact green main SHA to release"
         required: true
         type: string
+      marketing_version:
+        description: "Optional packaging version, e.g. 1.4.1. Empty uses the exact source project; does not change the production source SHA."
+        required: false
+        type: string
       dry_run:
         description: "Archive + sign but do NOT upload or touch App Store Connect (isolates signing)"
         required: false
@@ -145,6 +149,26 @@ jobs:
           set -euo pipefail
           git checkout --detach "${{ github.event.inputs.sha }}"
           git --no-pager log -1 --oneline
+
+      - name: Resolve App Store marketing version
+        shell: bash
+        env:
+          REQUESTED_MARKETING_VERSION: ${{ inputs.marketing_version }}
+        run: |
+          set -euo pipefail
+          version="$(python3 - <<'PY'
+          import os, pathlib, re, sys
+          requested = os.environ.get('REQUESTED_MARKETING_VERSION', '').strip()
+          source = pathlib.Path(os.environ['PBXPROJ']).read_text()
+          match = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', source)
+          version = requested or (match.group(1).strip() if match else '')
+          if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
+              sys.exit('Marketing version must have three numeric components, for example 1.4.1.')
+          print(version)
+          PY
+          )"
+          echo "IOS_MARKETING_VERSION=$version" >> "$GITHUB_ENV"
+          echo "App Store packaging version: $version"
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -504,6 +528,7 @@ jobs:
             --key-id "${ASC_KEY_ID}" \
             --issuer-id "${ASC_ISSUER_ID}" \
             --bundle-id "${IOS_BUNDLE_ID}" \
+            --marketing-version "${IOS_MARKETING_VERSION}" \
             --pbxproj "${PBXPROJ}")"
           echo "next_build=${NEXT_BUILD}" >> "$GITHUB_OUTPUT"
           echo "Next build number: ${NEXT_BUILD}"
@@ -551,8 +576,28 @@ jobs:
             -skipMacroValidation \
             -skipPackagePluginValidation \
             HUSSH_APP_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS}" \
+            MARKETING_VERSION="${IOS_MARKETING_VERSION}" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
             archive 2>&1 | tee "${RUNNER_TEMP}/xcodebuild-archive.log"
+
+      - name: Verify archived app and extension versions
+        shell: bash
+        env:
+          EXPECTED_BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, plistlib, sys
+          app = pathlib.Path(os.environ['RUNNER_TEMP'], 'App.xcarchive/Products/Applications/App.app')
+          plists = [app / 'Info.plist', *app.glob('PlugIns/*.appex/Info.plist')]
+          for path in plists:
+              with path.open('rb') as handle:
+                  info = plistlib.load(handle)
+              if (info.get('CFBundleShortVersionString') != os.environ['IOS_MARKETING_VERSION'] or
+                  str(info.get('CFBundleVersion')) != os.environ['EXPECTED_BUILD_NUMBER']):
+                  sys.exit(f'Archive version mismatch: {path.relative_to(app)}')
+          print(f'Verified app and {len(plists) - 1} extension version(s).')
+          PY
 
       - name: Verify archived product voice assets and privacy declarations
         shell: bash
@@ -662,7 +707,7 @@ jobs:
           set -euo pipefail
           RELEASE_SHA="$(git rev-parse HEAD)" python3 - <<'PY'
           import json, os, pathlib, re
-          version = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', pathlib.Path(os.environ['PBXPROJ']).read_text()).group(1).strip()
+          version = os.environ['IOS_MARKETING_VERSION']
           receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'], backend_target=os.environ['BACKEND_TARGET'])
           pathlib.Path(os.environ['RUNNER_TEMP'], 'testflight-upload-receipt.json').write_text(json.dumps(receipt))
           PY
@@ -703,6 +748,7 @@ jobs:
             --issuer-id "${ASC_ISSUER_ID}" \
             --bundle-id "${IOS_BUNDLE_ID}" \
             --pbxproj "${PBXPROJ}" \
+            --marketing-version "${IOS_MARKETING_VERSION}" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
             --release-type "$RELEASE_TYPE" \
             --evidence-path "${RUNNER_TEMP}/ios-appstore-state.json" \
@@ -727,6 +773,7 @@ jobs:
           receipt = {
               'source_sha': sha if re.fullmatch(r'[0-9a-f]{40}', sha) else None,
               'build_number': build if re.fullmatch(r'[0-9]+', build) else None,
+              'marketing_version': os.environ.get('IOS_MARKETING_VERSION'),
               'dry_run': os.environ.get('DRY_RUN') == 'true',
               'export_outcome': os.environ.get('EXPORT_OUTCOME'),
               'appstore_outcome': os.environ.get('APPSTORE_OUTCOME'),
@@ -755,7 +802,7 @@ jobs:
           RELEASE_NOTES: ${{ inputs.notes }}
         run: |
           set -euo pipefail
-          MARKETING="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "${PBXPROJ}" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
+          MARKETING="${IOS_MARKETING_VERSION:-unknown}"
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             MODE="dry run (no upload, no ASC changes)"
           elif [ "${{ github.event.inputs.submit_for_review }}" = "true" ]; then
