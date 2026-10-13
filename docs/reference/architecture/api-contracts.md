@@ -2168,6 +2168,27 @@ Security invariant:
 | ------ | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/consent/data` | Legacy consent-token encrypted export path; Developer API and MCP integrations should prefer `/api/v1/scoped-export` or `get_encrypted_scoped_export`, which return ciphertext plus `wrapped_key_bundle` for connector-local decryption. The MCP tool carries ciphertext directly; raw HTTP retains its resource endpoint for compatibility. |
 
+### One Feed history
+
+The One Feed history API uses Firebase bearer authentication. The owner always
+comes from the verified token; item IDs are presentation-row IDs, never an
+authorization grant. All writes are idempotent and leave source domain records
+and audit trails intact.
+
+| Method | Path | Feed history contract |
+| ------ | ---- | --------------------- |
+| GET | `/api/one/feed?cursor=&limit=` | Owner-scoped, grouped newest-first history with keyset pagination; returns `{items,next_cursor,unread_count}` and `Cache-Control: private, no-store`. Hidden rows do not appear. |
+| POST | `/api/one/feed/{item_id}/dismiss` | Marks this owner's presentation row hidden and read. Returns `{status:"ok",dismissal_token:"<UUID>"}` for a newly hidden row; missing, another owner's, or already hidden IDs return a null token. |
+| POST | `/api/one/feed/{item_id}/restore` | Body `{dismissal_token:"<UUID>"}`. Undoes only that exact dismissal, leaving the row read. Returns `{status:"ok",restored:boolean}`; missing, another owner's, or superseded tokens return false. |
+| POST | `/api/one/feed/clear` | Body `{up_to_id:"<positive Postgres bigint>"}`. Atomically marks this owner's existing rows through that ID hidden and read, and replaces their dismissal tokens so a stale Undo cannot revive them. Newer rows remain visible. Returns `{status:"ok"}`. |
+
+The latest grouped chat row is hidden after grouping, so dismissing it cannot
+reveal an older message in the same thread. A later new message can make the
+thread visible again. A dismissal also covers older rows in the same displayed
+Consent bundle. A Drive outcome dismissal also hides earlier outcome rows for
+that same request; its decision, progress, and payment entries remain visible.
+Account deletion removes its Feed rows and hide state.
+
 ### SSE (Server-Sent Events)
 
 | Method | Path                                                               | Description                                                                                                                                                                                                         |
