@@ -1,4 +1,7 @@
 import base64
+import io
+import struct
+import wave
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -16,6 +19,49 @@ from hushh_mcp.services.direct_messages_service import (
 
 _CONVERSATION_ID = "11111111-1111-4111-8111-111111111111"
 _MESSAGE_ID = "22222222-2222-4222-8222-222222222222"
+
+
+def _voice_wav(duration_ms=1000):
+    output = io.BytesIO()
+    with wave.open(output, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16000)
+        audio.writeframes(b"\x00\x40" * (duration_ms * 16))
+    return output.getvalue()
+
+
+def test_voice_upload_validates_actual_pcm_and_keeps_a_legacy_readable_envelope():
+    raw = _voice_wav()
+    payload = {
+        "name": "Voice message.wav",
+        "mimeType": "audio/wav",
+        "data": base64.urlsafe_b64encode(raw).decode().rstrip("="),
+    }
+    normalized = normalize_direct_attachment(payload)
+    assert normalized["durationMs"] == 1000
+    assert normalized["kind"] == "audio"
+    stored = _stored_message_content("", normalized)
+    content, attachment = _opened_message_content(stored)
+    assert content == ""
+    assert attachment["kind"] == "document"  # Older readers accept and download it.
+    assert attachment["durationMs"] == 1000
+    wrong_rate = bytearray(raw)
+    struct.pack_into("<I", wrong_rate, 24, 48000)
+    duplicated_fmt = raw[:36] + raw[12:36] + raw[36:]
+    duplicated_fmt = bytearray(duplicated_fmt)
+    struct.pack_into("<I", duplicated_fmt, 4, len(duplicated_fmt) - 8)
+    for invalid in (raw[:-1], wrong_rate, duplicated_fmt, _voice_wav(60001)):
+        with pytest.raises(DirectMessagesError):
+            normalize_direct_attachment(
+                {**payload, "data": base64.urlsafe_b64encode(invalid).decode().rstrip("=")}
+            )
+    assert (
+        normalize_direct_attachment(
+            {**payload, "data": base64.urlsafe_b64encode(_voice_wav(60000)).decode().rstrip("=")}
+        )["durationMs"]
+        == 60000
+    )
 
 
 def test_text_matching_attachment_marker_round_trips_as_plain_message():

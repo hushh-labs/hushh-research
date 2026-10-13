@@ -168,7 +168,7 @@ class DecisionRequest(StrictRequest):
 
 class OwnerPricingRequest(StrictRequest):
     enabled: StrictBool
-    amountCents: int = Field(strict=True, ge=100, le=50000, multiple_of=100)
+    amountCents: int = Field(strict=True, ge=50, le=50000)
     expectedVersion: int = Field(strict=True, ge=0)
 
 
@@ -225,9 +225,11 @@ class BulkShareCreateRequest(StrictRequest):
 
 
 class AllowRequest(DecisionRequest):
+    packageRevision: int | None = Field(default=None, strict=True, ge=1)
+    packageDigest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     # Whole US dollars as cents. Required only for a paid request; the store
     # checks that against the request it locks.
-    amountCents: int | None = Field(default=None, strict=True, ge=100, le=50000, multiple_of=100)
+    amountCents: int | None = Field(default=None, strict=True, ge=50, le=50000)
     confirmed: StrictBool
 
     @model_validator(mode="after")
@@ -238,7 +240,7 @@ class AllowRequest(DecisionRequest):
 
 
 class RequestPrice(AllowRequest):
-    amountCents: int = Field(strict=True, ge=100, le=50000, multiple_of=100)
+    amountCents: int = Field(strict=True, ge=50, le=50000)
 
 
 class BulkShareApprovalRequest(StrictRequest):
@@ -319,6 +321,11 @@ def _error(error):
         "request_already_decided": (409, "This request already has a decision."),
         "request_paid": (409, "This request was paid or files were shared. Refresh it."),
         "request_changed": (409, "This request changed. Refresh its status."),
+        "package_changed": (409, "The document package changed. Review it again."),
+        "package_not_ready": (409, "AgentOne is still preparing the document package."),
+        "package_not_allowed": (409, "Allow the prepared document package before sharing."),
+        "package_review_required": (409, "Review the prepared document package."),
+        "package_incomplete": (409, "The document package is incomplete. Refresh its status."),
         "price_changed": (409, "The price changed. Review it again."),
         "payout_unavailable": (503, "Document payments are temporarily unavailable."),
         "revocation_pending": (409, "Removal is pending. Refresh its status."),
@@ -360,7 +367,7 @@ def _error(error):
         "search_not_found": (404, "This Drive search is unavailable."),
         "no_recipients": (409, "No one in your Trusted circle can receive these files yet."),
         "date_range_required": (422, "Choose exact start and end dates before requesting files."),
-        "invalid_payment_amount": (422, "Choose a whole-dollar price from $1 to $500."),
+        "invalid_payment_amount": (422, "Choose a price from $0.50 to $500."),
         "owner_price_required": (409, "Set your request price to continue."),
         "owner_payout_required": (409, "Set up payouts to continue."),
         "invalid_argument": (422, "Check the document-sharing request."),
@@ -1023,6 +1030,11 @@ async def allow(request_id: UUID, body: AllowRequest, owner: Owner = Depends(_ow
         request_id=str(request_id),
         revision=body.revision,
         amount_cents=body.amountCents,
+        **(
+            {"package_revision": body.packageRevision, "package_digest": body.packageDigest}
+            if body.packageRevision is not None or body.packageDigest is not None
+            else {}
+        ),
     )
 
 

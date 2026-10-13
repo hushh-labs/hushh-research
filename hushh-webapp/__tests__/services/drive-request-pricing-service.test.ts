@@ -17,18 +17,18 @@ describe("Drive request pricing service", () => {
       headers: { Authorization: "Bearer vault" }, cache: "no-store",
     });
 
-    apiJson.mockResolvedValueOnce({ enabled: true, amountCents: 2500, version: 3 });
+    apiJson.mockResolvedValueOnce({ enabled: true, amountCents: 2551, version: 3 });
     expect(await DriveRequestPricingService.save("vault", {
-      enabled: true, amountCents: 2500, expectedVersion: 2,
-    })).toMatchObject({ amountCents: 2500, version: 3 });
+      enabled: true, amountCents: 2551, expectedVersion: 2,
+    })).toMatchObject({ amountCents: 2551, version: 3 });
     expect(apiJson).toHaveBeenLastCalledWith("/api/connectors/google_drive/sharing/pricing", {
       method: "PUT",
       headers: { Authorization: "Bearer vault", "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: true, amountCents: 2500, expectedVersion: 2 }),
+      body: JSON.stringify({ enabled: true, amountCents: 2551, expectedVersion: 2 }),
     });
 
-    apiJson.mockResolvedValueOnce({ amountCents: 2500, version: 3, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: false });
-    expect(await DriveRequestPricingService.quote("vault", owner)).toMatchObject({ amountCents: 2500, version: 3, payoutReady: false });
+    apiJson.mockResolvedValueOnce({ amountCents: 2551, version: 3, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: false });
+    expect(await DriveRequestPricingService.quote("vault", owner)).toMatchObject({ amountCents: 2551, version: 3, payoutReady: false });
     expect(apiJson).toHaveBeenLastCalledWith(
       `/api/connectors/google_drive/sharing/quote?ownerPersonRef=${owner}`,
       { headers: { Authorization: "Bearer vault" }, cache: "no-store" },
@@ -50,8 +50,8 @@ describe("Drive request pricing service", () => {
 
   it("rejects malformed prices and quote replies before they reach the UI", async () => {
     await expect(DriveRequestPricingService.save("vault", {
-      enabled: true, amountCents: 1050, expectedVersion: 1,
-    })).rejects.toThrow("whole-dollar");
+      enabled: true, amountCents: 49, expectedVersion: 1,
+    })).rejects.toThrow("$0.50 to $500");
     expect(apiJson).not.toHaveBeenCalled();
     apiJson.mockResolvedValueOnce({ amountCents: 0, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
     await expect(DriveRequestPricingService.quote("vault", owner)).rejects.toThrow("Invalid Drive pricing response");

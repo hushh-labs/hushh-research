@@ -9,11 +9,14 @@ from collections.abc import Mapping
 
 from sqlalchemy import text
 
+from hushh_mcp.services.drive_owner_allowed import package_allow_marker
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 
 
 def checkpoint_requires_owner_review(checkpoint, *, request_id, revision) -> bool:
     """Missing semantics never establish automatic selection authority."""
+    if isinstance(checkpoint, Mapping) and checkpoint.get("agent_package_required") is True:
+        return True
     return not (
         isinstance(checkpoint, Mapping)
         and checkpoint.get("request_origin_id") == str(request_id)
@@ -46,4 +49,40 @@ def request_requires_owner_review(
         resource_id=str(search["job_id"]),
         purpose="owner-search-checkpoint",
     )
+    if checkpoint.get("agent_package_required") is True:
+        request = (
+            connection.execute(
+                text("""SELECT request_envelope,owner_allowed_at,
+            revision,access_stop_requested_at FROM drive_share_requests
+            WHERE request_id=:request AND user_id=:user"""),
+                {"request": str(request_id), "user": user_id},
+            )
+            .mappings()
+            .first()
+        )
+        if (
+            request is None
+            or request["owner_allowed_at"] is None
+            or request["access_stop_requested_at"] is not None
+        ):
+            return True
+        private = (cipher or DriveSharingCipher()).open(
+            request["request_envelope"],
+            user_id=user_id,
+            resource_id=str(request_id),
+            purpose="request",
+        )
+        marker = package_allow_marker(private)
+        package = checkpoint.get("agent_package", {})
+        return not (
+            marker
+            and request["revision"] == revision == marker["request_revision"]
+            and marker["search_job_id"] == str(search["job_id"])
+            and checkpoint.get("request_origin_id") == str(request_id)
+            and checkpoint.get("request_revision") == revision
+            and package.get("digest") == marker["package_digest"]
+            and package.get("revision") == marker["package_revision"]
+            and package.get("connection_generation") == marker["connection_generation"]
+            and package.get("selected_positions") == marker["selected_positions"]
+        )
     return checkpoint_requires_owner_review(checkpoint, request_id=request_id, revision=revision)

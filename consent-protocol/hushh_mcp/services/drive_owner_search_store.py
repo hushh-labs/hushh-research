@@ -356,6 +356,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 resource_id=request_id,
                 purpose="request",
             )
+            if private.get("agent_package_required") is True:
+                raise DriveReadError("package_review_required")
             if private.get("trusted_auto") is not True:
                 return None
             connection.execute(
@@ -781,14 +783,18 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             ):
                 raise DriveReadError("search_superseded")
-            if current_mode == "trusted_auto":
+            if current_mode in {"trusted_auto", "agent_package"}:
                 private = self.search_cipher.open(
                     request["request_envelope"],
                     user_id=job["user_id"],
                     resource_id=str(origin),
                     purpose="request",
                 )
-                if private.get("trusted_auto") is not True:
+                if (
+                    private.get("agent_package_required") is not True
+                    if current_mode == "agent_package"
+                    else private.get("trusted_auto") is not True
+                ):
                     raise DriveReadError("search_superseded")
                 # A queued automatic request is not an enduring read grant.
                 # Recheck on every page and in the commit transaction, even
@@ -803,7 +809,13 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     raise DriveReadError("search_superseded") from error
                 # Current Trusted membership, or this request's sealed owner
                 # Allow while the pair is still connected.
-                if not automatic_recipient_current(
+                if current_mode == "agent_package":
+                    from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+
+                    DriveSharingStore(db=self.db)._relationship(
+                        connection, job["user_id"], request["recipient_user_id"]
+                    )
+                elif not automatic_recipient_current(
                     connection,
                     job["user_id"],
                     request["recipient_user_id"],

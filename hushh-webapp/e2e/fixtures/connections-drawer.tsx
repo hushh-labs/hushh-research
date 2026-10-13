@@ -6,6 +6,7 @@ import {
   type ConnectionsDrawerMode,
 } from "../../components/agent/agent-connections-drawer";
 import { OneAgentProfileSheet } from "../../components/agent/one-agent-profile-sheet";
+import { OnePresenceAvatar, resolveOnePresenceState } from "../../components/agent/one-presence-avatar";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
@@ -204,6 +205,9 @@ function Fixture() {
   const [draft, setDraft] = useState("");
   const [turns, setTurns] = useState(1);
   const [oneProfileOpen, setOneProfileOpen] = useState(false);
+  const [onePresenceWork, setOnePresenceWork] = useState({ drafting: false, answering: false });
+  Object.assign(window, { __setOnePresenceWork: setOnePresenceWork });
+  const onePresenceState = resolveOnePresenceState(onePresenceWork);
   const oneProfileTrigger = useRef<HTMLButtonElement>(null);
   const changeOpen = (nextOpen: boolean) => {
     const next = transitionConnectionsDrawer(
@@ -244,8 +248,10 @@ function Fixture() {
       >
         Open drawer
       </button>
-      {new URLSearchParams(window.location.search).has("one-profile") ? <button ref={oneProfileTrigger} onClick={() => setOneProfileOpen(true)}>Open One profile</button> : null}
-      <OneAgentProfileSheet open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
+      {new URLSearchParams(window.location.search).has("one-profile") ? <button data-testid="one-presence-header" ref={oneProfileTrigger} onClick={() => setOneProfileOpen(true)}>
+        <OnePresenceAvatar state={onePresenceState} /> Open One profile
+      </button> : null}
+      <OneAgentProfileSheet presenceState={onePresenceState} open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
       <AgentConnectionsDrawer
         gestureSurfaceRef={transcriptRef}
         gestureEnabled={gestureEnabled}

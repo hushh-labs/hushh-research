@@ -14,6 +14,23 @@ def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
+def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
+    # The September fleet rollback missed the worker; new package evaluations
+    # must not silently run on a different model from the evaluated API lane.
+    fleet = re.search(
+        r'FLEET_TEXT_MODEL_DEFAULT = "([^"]+)"',
+        _read("consent-protocol/hushh_mcp/constants.py"),
+    )
+    api = re.search(
+        r"_HUSSH_GEMINI_TEXT_MODEL=([a-z0-9.-]+)", _read(".github/workflows/deploy-uat.yml")
+    )
+    worker = re.search(
+        r"HUSSH_GEMINI_TEXT_MODEL=([a-z0-9.-]+)", _read("deploy/drive/deploy_worker_service.sh")
+    )
+    assert fleet and api and worker
+    assert worker.group(1) == api.group(1) == fleet.group(1)
+
+
 def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
     workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
     selection = workflow["jobs"]["select-target"]
