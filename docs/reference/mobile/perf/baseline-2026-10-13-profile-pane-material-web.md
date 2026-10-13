@@ -12,18 +12,19 @@ certification; this report records a scoped browser comparison.
 ## Measurement
 
 This is a browser attribution run, not a physical-device release certification.
-The UI branch uses main `f687c2b641ba3f7068a8cffc19bb53fb96ecad9d` as its base.
+The UI branch uses main `e2f5c9320a2c66452a3c5417fa0e1e7bc8b1a38e` as its base.
 
 The production Connections fixture and canonical `startFramePacingProbe` measured
 three open/close cycles for Chats and One at 390 × 844. A paired CSS experiment
 held the DOM and geometry fixed: the previous opaque fill/no filter was compared
 with Profile's shared translucent material. Screenshots were outside the measured
-windows. Raw exports and the experiment script remain in ignored `tmp/`.
+windows. The shared highlight is static and bounded to the pane; it does not
+expand scroll bounds or keep idle panes animating. Raw exports and the experiment script remain in ignored `tmp/`.
 
 | Engine | Before p99 maximum | After p99 maximum | Before / after frames | Frames over 50ms |
 | --- | --- | --- | --- | --- |
-| Chromium | 17ms | 17ms | 287 / 290 | 0 / 0 |
-| WebKit test renderer | 37ms | 23ms | 318 / 307 | 0 / 0 |
+| Chromium | 17ms | 17ms | 283 / 282 | 0 / 0 |
+| WebKit test renderer | 31ms | 21ms | 309 / 302 | 0 / 0 |
 
 Each variant recorded 18 input/settlement windows. Chromium rendered the glass.
 The installed WebKit renderer reported the filter but did not render it, even

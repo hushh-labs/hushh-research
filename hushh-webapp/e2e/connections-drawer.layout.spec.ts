@@ -1417,6 +1417,15 @@ test.describe("One profile Retina artwork", () => {
         return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight,
           weight: style.fontWeight, tracking: style.letterSpacing, color: style.color };
       });
+      const expectIdlePane = async (panel: import("@playwright/test").Locator) => {
+        // A decorative sweep kept closed drawers animating and expanded pane
+        // scroll bounds. Idle glass must settle without horizontal overflow.
+        expect(await panel.evaluate(element => ({
+          perpetualAnimations: element.getAnimations({ subtree: true }).filter(animation =>
+            animation.effect?.getComputedTiming().iterations === Infinity).length,
+          horizontalOverflow: element.scrollWidth > element.clientWidth,
+        }))).toEqual({ perpetualAnimations: 0, horizontalOverflow: false });
+      };
       for (const dark of [false, true]) {
         await page.evaluate(() => window.__hushhPerf?.scenario("profile-panels-parity"));
         await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
@@ -1425,6 +1434,7 @@ test.describe("One profile Retina artwork", () => {
         const profileRow = profile.getByTestId("profile-account-row");
         await expect(profileRow).toBeVisible();
         await expect.poll(() => profile.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+        await expectIdlePane(profile);
         const reference = {
           material: await material(profile), title: await type(profile.getByRole("heading", { name: "Profile", exact: true })),
           row: await type(profileRow.locator('[data-slot="settings-row-title"]')),
@@ -1446,6 +1456,7 @@ test.describe("One profile Retina artwork", () => {
         await page.getByRole("button", { name: "Open drawer", exact: true }).click();
         const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
         await expect.poll(() => chats.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+        await expectIdlePane(chats);
         expect(await material(chats)).toEqual(reference.material);
         expect(await type(chats.getByRole("heading", { name: "Chats", exact: true }))).toEqual(reference.title);
         expect(await type(chats.locator('[data-agent-history-row-title]').first())).toEqual(reference.row);
@@ -1463,6 +1474,7 @@ test.describe("One profile Retina artwork", () => {
         const feedRow = one.getByTestId("feed-row").first();
         await expect(feedRow).toBeVisible();
         await expect.poll(() => one.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+        await expectIdlePane(one);
         expect(await material(one)).toEqual(reference.material);
         expect(await type(one.getByRole("heading", { name: "One", exact: true }))).toEqual(reference.title);
         expect(await type(feedRow.locator('[data-slot="settings-row-title"]'))).toEqual(reference.row);

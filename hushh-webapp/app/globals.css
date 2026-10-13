@@ -2253,7 +2253,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   content: "";
   position: absolute;
   z-index: 5;
-  inset: -35% -85%;
+  /* Keep the glass highlight inside its pane. An oversized moving highlight
+   * expands scroll bounds and continuously composites an otherwise idle pane. */
+  inset: 0;
   pointer-events: none;
   background: linear-gradient(
     105deg,
@@ -2262,19 +2264,6 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
     rgba(255, 255, 255, 0.05) 54%,
     transparent 62%
   );
-  transform: translateX(-38%) rotate(2deg);
-  animation: profile-pane-sheen 11s ease-in-out infinite;
-}
-
-@keyframes profile-pane-sheen {
-  0%,
-  38% {
-    transform: translateX(-38%) rotate(2deg);
-  }
-  72%,
-  100% {
-    transform: translateX(42%) rotate(2deg);
-  }
 }
 
 html.dark .profile-pane-sheet[data-slot="sheet-content"],
@@ -2870,12 +2859,6 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .profile-pane-sheet[data-slot="sheet-content"]::after,
-  [data-app-side-pane]::after,
-  [data-agent-history-drawer]::after {
-    animation: none;
-  }
-
   .profile-pane-close,
   .app-side-pane-close,
   [data-agent-history-drawer] [data-agent-history-close],
