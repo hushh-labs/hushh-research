@@ -38,7 +38,9 @@ async def pending_reviews(owner, session) -> list[dict]:
             if call is None or not isinstance(call.args, dict):
                 continue
             view = _confirmation_view(call.args)
-            original = (view or {}).get("originalFunctionCall", {})
+            if view is None:
+                continue
+            original = view.get("originalFunctionCall", {})
             if not original:
                 continue
             try:

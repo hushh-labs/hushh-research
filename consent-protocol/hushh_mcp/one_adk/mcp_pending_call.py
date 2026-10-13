@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from google.adk.sessions import Session
 
@@ -42,19 +42,29 @@ from hushh_mcp.services.chat_key import (
     LegacyChatCiphertextError,
     chat_aad,
 )
-from hushh_mcp.services.pod_mcp_pending import PodMcpPendingStore
+
+
+class PrivatePendingStore(Protocol):
+    """Typed seam for the existing owner-encrypted recovery store."""
+
+    async def save(self, payload: dict) -> str: ...
+
+    async def details(self, session: Session, handle: str) -> dict: ...
+
+    async def discard(self, session: Session, handle: str) -> None: ...
+
 
 logger = logging.getLogger(__name__)
 
 _CURRENT_HANDLE: ContextVar[str | None] = ContextVar("mcp_pending_handle", default=None)
 _PRIVATE_PENDING: ContextVar[bool] = ContextVar("mcp_private_pending", default=False)
-_PRIVATE_STORE: ContextVar[PodMcpPendingStore | None] = ContextVar(
+_PRIVATE_STORE: ContextVar[PrivatePendingStore | None] = ContextVar(
     "pod_mcp_pending_store", default=None
 )
 
 
 @contextmanager
-def private_pending_call_scope(storage: PodMcpPendingStore | None = None):
+def private_pending_call_scope(storage: PrivatePendingStore | None = None):
     """Bind owner-encrypted recovery; nested approval scopes inherit it."""
     token = _PRIVATE_PENDING.set(True)
     store_token = _PRIVATE_STORE.set(storage) if storage is not None else None
