@@ -311,9 +311,10 @@ def test_retained_answer_mode_secrets_survive_packed_deployment() -> None:
     step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
     packed = next(e for e in step["env"] if e.startswith("_DRIVE_SECRET_SETTINGS="))
     names = [
-        f"_PKM_ANSWER_STRIPE_{mode}_{kind}_SECRET"
-        for mode in ("TEST", "LIVE")
-        for kind in ("SECRET_KEY", "WEBHOOK_SECRET")
+        "_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET",
+        "_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET",
+        "_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET",
+        "_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET",
     ]
     values = {
         **config["substitutions"],
