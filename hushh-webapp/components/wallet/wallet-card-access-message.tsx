@@ -9,6 +9,7 @@ import { WalletAccessCardDetails } from "./wallet-access-card-details";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { WalletCardAccessService, type CardAccessView } from "@/lib/services/wallet-card-access-service";
 import { AuthService } from "@/lib/services/auth-service";
+import { useSharedCardPrivacy } from "@/lib/wallet/use-shared-card-privacy";
 import { normalizePublicWalletCard, PublicWalletCardView } from "@/components/wallet-card/public-card-view";
 
 /** A message reference is untrusted. Only the authenticated server response authorizes a view. */
@@ -25,26 +26,24 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
   const [refreshKey, setRefreshKey] = useState(0);
   const epoch = useRef(0);
   const verifying = useRef(false);
+  const focused = useRef(true);
   const view = result && result.owner === user?.uid && result.grant === grantId ? result : null;
   const close = () => { epoch.current += 1; setOpen(false); setResult(null); setBusy(false); setFailed(false); };
   useEffect(() => { epoch.current += 1; setResult(null); setOpen(false); setBusy(false); }, [user?.uid, grantId]);
-  useEffect(() => {
-    const hide = () => {
-      if (document.visibilityState !== "hidden") return;
-      // Authentication may background this tab. Clear card contents immediately,
-      // but keep the pending identity operation valid until it returns.
-      if (verifying.current) setResult(null);
-      else close();
-    };
-    document.addEventListener("visibilitychange", hide);
-    window.addEventListener("pagehide", close);
-    return () => { epoch.current += 1; document.removeEventListener("visibilitychange", hide); window.removeEventListener("pagehide", close); };
-  }, []);
+  useSharedCardPrivacy(boundary => {
+    if (boundary === "focus") { focused.current = true; setRefreshKey(value => value + 1); return; }
+    if (boundary === "blur") focused.current = false;
+    // The identity popup may blur/background the tab. Discard visible contents
+    // without cancelling that operation; navigation/printing still cancels it.
+    if (verifying.current && (boundary === "blur" || boundary === "hidden")) setResult(null);
+    else close();
+  });
+  useEffect(() => () => { epoch.current += 1; }, []);
   useEffect(() => {
     if (!open || !user || senderIsViewer || nativeViewerUnavailable) return;
     let cancelled = false;
     const currentEpoch = epoch.current;
-    const current = () => !cancelled && currentEpoch === epoch.current && document.visibilityState !== "hidden";
+    const current = () => !cancelled && currentEpoch === epoch.current && focused.current && document.visibilityState !== "hidden";
     let pending = false;
     const refresh = async () => {
       if (pending || verifying.current || !current()) return;
@@ -103,7 +102,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
     {!senderIsViewer && nativeViewerUnavailable ? <p className="text-xs">Open Messages in your browser to view this card.</p> : null}
     <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Shared card" mobilePresentation="sheet" surfaceClassName={`${profileStyles.walletContent} print:hidden`} desktopMaxWidth="820px" contentClassName="!bg-[color:var(--app-glass-surface)] backdrop-blur-[var(--blur-standard)] [&_[data-slot=dialog-header]]:text-center [&_[data-slot=dialog-header]>div]:justify-center [&_[data-slot=dialog-header]>div>div]:text-center" bodyClassName="text-center">
       <SettingsPresentationProvider density="compact" separatorInset>
-        <div className="select-none" onCopy={event => event.preventDefault()} onContextMenu={event => event.preventDefault()}>
+        <div className="select-none" onCopy={event => event.preventDefault()} onCut={event => event.preventDefault()} onDragStart={event => event.preventDefault()} onContextMenu={event => event.preventDefault()}>
           {failed ? <p role="alert" className="text-xs">Card unavailable. Close and try again.</p> : !view ? <p role="status">Checking access…</p> : null}
           {view?.data.status === "verification_required" ? <div className="space-y-3"><p className="text-xs">Verify your identity to view this card.</p><Button disabled={busy} onClick={() => void verify()}>{busy ? "Verifying…" : "Verify identity"}</Button></div> : null}
           {view?.data.status === "expired" || view?.data.status === "revoked" ? <p role="status">This access has ended.</p> : null}
@@ -114,6 +113,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
             <div className="mx-auto mt-4 w-full max-w-md">
               <WalletAccessCardDetails grantId={grantId} data={view!.data} />
             </div>
+            <p className="mt-3 text-xs text-muted-foreground">For you only. Do not copy or share. This card closes when you leave this window. Browsers cannot block screenshots or photos.</p>
           </> : null}
         </div>
       </SettingsPresentationProvider>

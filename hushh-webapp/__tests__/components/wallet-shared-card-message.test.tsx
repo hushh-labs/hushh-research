@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ uid: "bob", key: "vault-key" as string | null, token: "owner-token" as string | null, open: vi.fn(), directory: vi.fn(), state: vi.fn(), error: vi.fn() }));
+const mocks = vi.hoisted(() => ({ uid: "bob", key: "vault-key" as string | null, token: "owner-token" as string | null, open: vi.fn(), directory: vi.fn(), state: vi.fn(), error: vi.fn(), native: false }));
+vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => mocks.native } }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.uid } }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.key, getVaultOwnerToken: () => mocks.token }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: () => null }));
@@ -12,7 +13,7 @@ const props = { content: "encrypted-card-envelope", peerPersonRef: "person-alice
 const card = { pan: "4111111111111111", cardholderName: "Alice", brand: "visa" as const, expiryMonth: 4, expiryYear: 2030, issuingRegion: "US" };
 describe("encrypted card message viewer", () => {
   beforeEach(() => {
-    vi.resetAllMocks(); mocks.uid = "bob"; mocks.key = "vault-key"; mocks.token = "owner-token";
+    vi.resetAllMocks(); mocks.native = false; mocks.uid = "bob"; mocks.key = "vault-key"; mocks.token = "owner-token";
     mocks.directory.mockResolvedValue({ items: [{ userId: "alice", publicPersonRef: "person-alice" }], hasMore: false });
     mocks.state.mockResolvedValue({ myRecipientKey: null }); mocks.open.mockResolvedValue(card);
   });
@@ -26,7 +27,7 @@ describe("encrypted card message viewer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide card" }));
     expect(screen.queryByTestId("wallet-card-face")).toBeNull();
   });
-  it.each(["owner", "lock", "peer", "visibility", "unmount"])("discards delayed plaintext after %s changes", async boundary => {
+  it.each(["owner", "lock", "peer", "visibility", "blur", "beforeprint", "pagehide", "unmount"])("discards delayed plaintext after %s changes", async boundary => {
     let finish!: (value: typeof card) => void;
     mocks.open.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<WalletSharedCardMessage {...props} />);
@@ -36,9 +37,25 @@ describe("encrypted card message viewer", () => {
     if (boundary === "lock") { mocks.key = null; mocks.token = null; view.rerender(<WalletSharedCardMessage {...props} />); }
     if (boundary === "peer") view.rerender(<WalletSharedCardMessage {...props} peerPersonRef="person-other" />);
     if (boundary === "visibility") { vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden"); fireEvent(document, new Event("visibilitychange")); }
+    if (["blur", "beforeprint", "pagehide"].includes(boundary)) fireEvent(window, new Event(boundary));
     if (boundary === "unmount") view.unmount();
     await act(async () => finish(card));
     expect(screen.queryByTestId("wallet-card-face")).toBeNull(); expect(mocks.error).not.toHaveBeenCalled();
     vi.restoreAllMocks();
+  });
+  it.each(["blur", "beforeprint", "pagehide"])("clears displayed legacy details on %s", async event => {
+    render(<WalletSharedCardMessage {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "View card details" }));
+    await screen.findByRole("button", { name: "Hide card" });
+    fireEvent(window, new Event(event));
+    fireEvent(window, new Event("focus"));
+    expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+    expect(screen.getByRole("button", { name: "View card details" })).toBeVisible();
+  });
+  it("does not allow legacy messages to bypass the native viewer restriction", () => {
+    mocks.native = true;
+    render(<WalletSharedCardMessage {...props} />);
+    expect(screen.queryByRole("button", { name: "View card details" })).toBeNull();
+    expect(mocks.open).not.toHaveBeenCalled();
   });
 });
