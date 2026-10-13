@@ -122,6 +122,11 @@ test.beforeEach(async ({ page }) => {
     return route.continue();
   });
   await page.route(`**${HUSHH_MARK_PATH}`, route => route.fulfill({ contentType: "image/png", body: mark }));
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:thinking|working)\.riv$|^http:\/\/localhost\/one-presence\/rive\.wasm$/, route =>
+    route.fulfill({ contentType: route.request().url().endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
   await page.route("http://localhost/one-presence/*-hd.png", route =>
     route.fulfill({
       contentType: "image/png",
@@ -656,18 +661,11 @@ for (const width of [320, 390, 768, 1440])
     const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
     await expect(drawer).toHaveAttribute("data-slot", width < 768 ? "sheet-content" : "dialog-content");
-    if (width >= 768) {
-      expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(448);
-      await expect.poll(async () => {
-        const box = (await drawer.boundingBox())!;
-        return Math.abs(box.x + box.width / 2 - width / 2);
-      }).toBeLessThan(2);
-    } else {
-      await expect.poll(async () => {
-        const box = (await drawer.boundingBox())!;
-        return Math.abs(box.y + box.height - 820);
-      }).toBeLessThan(2);
-    }
+    await expect.poll(async () => {
+      const box = (await drawer.boundingBox())!;
+      return box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= 820;
+    }).toBe(true);
+    expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(430);
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
     const overlay = page.locator('[data-slot="dialog-overlay"], [data-slot="sheet-overlay"]').last();
     await expect(overlay).toBeVisible();
@@ -689,7 +687,7 @@ for (const width of [320, 390, 768, 1440])
       await expect(drawer.getByText(account)).toBeVisible();
       if (connector === "Google Drive") {
         await expect(drawer.getByRole("button", { name: "Retry Drive" })).toHaveCount(0);
-        if (width === 1440) expect((await drawer.boundingBox())!.height).toBeLessThan(600);
+        if (width === 1440) expect((await drawer.boundingBox())!.height).toBeLessThan(820);
         if (width === 1440) await testInfo.attach("Drive connected details", {
           body: await page.screenshot({ path: testInfo.outputPath("drive-connected-details.png") }),
           contentType: "image/png",
@@ -1396,8 +1394,13 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
 });
 
 async function presencePixels(artwork: Locator) {
-  return artwork.evaluate((canvas: HTMLCanvasElement) => {
-    const pixels = canvas.getContext("2d")!.getImageData(0, 0, 128, 128).data;
+  const canvas = artwork.locator("canvas");
+  return canvas.evaluate((canvas: HTMLCanvasElement) => {
+    const sample = document.createElement("canvas");
+    sample.width = sample.height = 128;
+    const context = sample.getContext("2d")!;
+    context.drawImage(canvas, 0, 0, 128, 128);
+    const pixels = context.getImageData(0, 0, 128, 128).data;
     let hash = 0, opaque = 0;
     for (let i = 0; i < pixels.length; i += 1) {
       hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
@@ -1466,11 +1469,12 @@ test.describe("One profile artwork and mapped work frames", () => {
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
-    const profile = panel.locator("canvas[data-one-presence-state]");
+    const profile = panel.locator("[data-one-presence-state]");
     await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect(profile).toHaveCSS("background-image", /drafting-hd\.png/);
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBe(0);
+    await expect(profile.locator("canvas")).toBeHidden();
+    await expect(profile.locator("img")).toBeVisible();
+    await expect(profile.locator("img")).toHaveAttribute("src", "/one-presence/drafting-hd.png");
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));

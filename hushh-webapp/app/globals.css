@@ -9382,3 +9382,9 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     height: 18px;
   }
 }
+
+/* Dialogs using the side-pane recipe position from the right inset, so the
+   centered dialog translation must not shift their controls offscreen. */
+[data-app-side-pane][data-slot="dialog-content"] {
+  translate: none;
+}
