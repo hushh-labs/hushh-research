@@ -1332,9 +1332,13 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         if output.exists():
                             output.unlink()
                         if not allowed:
-                            with self.assertRaises(MAINTENANCE.retention.UnsafeState):
-                                MAINTENANCE.main()
-                            self.assertFalse(output.exists())
+                            if environment == "uat" and not requested:
+                                self.assertEqual(MAINTENANCE.main(), 0)
+                                self.assertEqual(output.read_text(), "cleanup_ready=false\n")
+                            else:
+                                with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                                    MAINTENANCE.main()
+                                self.assertFalse(output.exists())
                         else:
                             self.assertEqual(MAINTENANCE.main(), 0)
                             self.assertEqual(
@@ -1375,6 +1379,44 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertEqual(
                 MAINTENANCE.find_release("org/repo", "", pathlib.Path(temporary))[0], 2
             )
+
+    def test_auto_scan_skips_ungoverned_failed_uat_run_before_valid_release(self):
+        blocked = {
+            **self.trusted_source(4),
+            "conclusion": "failure",
+            "actor": {"login": "unapproved-actor"},
+        }
+        valid = self.trusted_source(3)
+        release = {
+            "status": "healthy",
+            "final": {
+                "backend_revision": "consent-protocol-00003-abc",
+                "frontend_revision": "hushh-webapp-00003-abc",
+            },
+        }
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            mock.patch.object(
+                MAINTENANCE,
+                "api",
+                side_effect=lambda _repository, endpoint: (
+                    blocked if endpoint == "runs/4" else {"workflow_runs": [blocked, valid]}
+                ),
+            ),
+            mock.patch.object(
+                MAINTENANCE, "load_release", return_value=release
+            ) as load,
+            mock.patch.object(
+                MAINTENANCE, "live_release_matches", return_value=True
+            ),
+        ):
+            self.assertEqual(
+                MAINTENANCE.find_release("org/repo", "", pathlib.Path(temporary)),
+                (3, release),
+            )
+            load.assert_called_once_with("org/repo", 3, mock.ANY, "uat")
+            with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                MAINTENANCE.find_release("org/repo", "4", pathlib.Path(temporary))
 
     def test_state_restoration_rejects_untrusted_runs_and_stops_at_empty_latest_pass(
         self,
@@ -1438,6 +1480,77 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     self.assertEqual(
                         (destination / "consent-protocol.json").exists(), has_state
                     )
+
+    def test_same_run_drain_state_is_not_replaced_by_older_completed_artifact(self):
+        good = self.trusted_source(10, "capacity-maintenance.yml")
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = pathlib.Path(temporary)
+            state_file = destination / "consent-protocol.json"
+            state_file.write_text('{"observed_at": 2000}')
+
+            def api(_repository, endpoint):
+                if endpoint.startswith("artifacts?"):
+                    return {"artifacts": [{
+                        "name": MAINTENANCE.STATE_ARTIFACT,
+                        "expired": False,
+                        "workflow_run": {"id": 10},
+                    }]}
+                return good
+
+            def download(_repository, _run_id, _name, source):
+                (source / "consent-protocol.json").write_text(
+                    '{"observed_at": 1000}'
+                )
+
+            with (
+                mock.patch.object(MAINTENANCE, "api", side_effect=api),
+                mock.patch.object(MAINTENANCE, "download", side_effect=download),
+            ):
+                MAINTENANCE.restore_state("org/repo", destination)
+            self.assertEqual(json.loads(state_file.read_text()), {"observed_at": 2000})
+
+    def test_uat_apply_exposes_verified_source_and_latest_pending_deadline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            output = directory / "output"
+            state_dir = directory / "state"
+
+            def run(command, **_kwargs):
+                if command[2] == "consent-protocol":
+                    (state_dir / "consent-protocol.json").write_text(
+                        json.dumps({
+                            "schema_version": 1,
+                            "service": "consent-protocol",
+                            "project": "hushh-pda-uat",
+                            "region": "us-central1",
+                            "release_run_id": "123",
+                            "not_before": 13660,
+                            "revisions": ["consent-protocol-00001-abc"],
+                        })
+                    )
+
+            with (
+                mock.patch.dict("os.environ", {
+                    "GITHUB_REPOSITORY": "org/repo",
+                    "GITHUB_OUTPUT": str(output),
+                }),
+                mock.patch.object(sys, "argv", [
+                    "maintenance", "--state-dir", str(state_dir), "--apply",
+                ]),
+                mock.patch.object(
+                    MAINTENANCE, "find_release", return_value=(123, {"status": "healthy"})
+                ),
+                mock.patch.object(MAINTENANCE, "live_release_matches", return_value=True),
+                mock.patch.object(MAINTENANCE, "restore_state"),
+                mock.patch.object(MAINTENANCE, "release_protection_flags", return_value=[]),
+                mock.patch.object(MAINTENANCE.subprocess, "run", side_effect=run),
+                mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
+            ):
+                self.assertEqual(MAINTENANCE.main(), 0)
+            self.assertEqual(
+                output.read_text(),
+                "verified_source_run_id=123\ndrain_not_before=13660\n",
+            )
 
     def test_wrong_source_run_never_downloads_release_artifacts(self):
         good = {

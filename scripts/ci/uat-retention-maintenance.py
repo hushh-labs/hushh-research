@@ -445,6 +445,11 @@ def find_release(
                 )
             continue
         if not governed_dispatch(run, repository, environment):
+            if environment == "uat" and not requested:
+                # An unauthorized dispatch can fail before it writes a release
+                # artifact. It must not prevent a later scan from finding the
+                # current, independently verified UAT release.
+                continue
             raise retention.UnsafeState(
                 f"source deployment actor is not governed for {environment}"
             )
@@ -523,7 +528,15 @@ def restore_state(
             ]:
                 state = source / name
                 if state.is_file() and not state.is_symlink():
-                    shutil.copyfile(state, directory / state.name)
+                    destination = directory / state.name
+                    if destination.is_symlink():
+                        raise retention.UnsafeState("preseeded retention state is a symlink")
+                    # The final job in this workflow can preseed the state it
+                    # just uploaded. An older completed run cannot replace its
+                    # observed drain clock; the retention helper checks the
+                    # preseeded state against live service identity before use.
+                    if not destination.exists():
+                        shutil.copyfile(state, destination)
         return
 
 
@@ -818,13 +831,44 @@ def main() -> int:
             )
             + "\n"
         )
+    if args.apply and args.environment == "uat":
+        deadlines: list[int] = []
+        for service in lane_config["services"]:
+            state_file = args.state_dir / f"{service}.json"
+            if not state_file.exists():
+                continue
+            if state_file.is_symlink():
+                raise retention.UnsafeState("deferred UAT retention state is a symlink")
+            state = json.loads(state_file.read_text())
+            if (
+                not isinstance(state, dict)
+                or state.get("schema_version") != 1
+                or state.get("service") != service
+                or state.get("project") != lane_config["project"]
+                or state.get("region") != REGION
+                or state.get("release_run_id") != str(run_id)
+                or type(state.get("not_before")) is not int
+                or state["not_before"] <= int(time.time())
+                or not isinstance(state.get("revisions"), list)
+                or not state["revisions"]
+            ):
+                raise retention.UnsafeState("invalid pending UAT retention state")
+            deadlines.append(state["not_before"])
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with Path(output).open("a") as stream:
+                stream.write(f"verified_source_run_id={run_id}\n")
+                stream.write(
+                    f"drain_not_before={max(deadlines) if deadlines else ''}\n"
+                )
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with Path(summary).open("a") as output:
             output.write(
                 f"## {args.environment} revision maintenance\n\nVerified source release: {run_id}. "
                 "This pass completes without waiting for requests to drain. "
-                "Pending deletions are retried by scheduled maintenance; release health is separate.\n"
+                "Pending UAT deletions receive a timed follow-up and scheduled maintenance remains a backup. "
+                "Release health is separate.\n"
             )
             if args.apply:
                 for service in lane_config["services"]:

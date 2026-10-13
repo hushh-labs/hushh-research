@@ -91,7 +91,10 @@ provenance checks. Other failed deployments and no-op runs grant no cleanup auth
 Each mutation pass verifies that release against live traffic, removes unused tags, and saves drain evidence in the
 `uat-retention-state` or `production-retention-state` artifact. A later pass deletes only eligible revisions after
 the maximum request timeout plus 60 seconds has elapsed. The backend still
-supports 3,600-second requests. No runner sleeps through that grace period.
+supports 3,600-second requests. When a UAT pass saves a future drain deadline,
+a tokenless wait job wakes after that deadline and a new short maintenance job
+rechecks the source and live service before deletion. The wait holds no deployment
+lock; the timer remains a backup if the follow-up job fails or is canceled.
 Traffic/generation or release changes invalidate the saved clock; missing or
 expired evidence starts a fresh clock. Current, latest, predeploy rollback, and
 the actual last-known-good revisions remain protected.
