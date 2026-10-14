@@ -143,7 +143,7 @@ export function WorldModelResearchPanel() {
             </div>
             {offered.report.sections.map((section) => (
               <section key={section.kind} className="space-y-2">
-                <h3 className="text-xs font-medium">
+                <h3 className="text-xs font-semibold">
                   {PROFILE_SECTION_LABELS[section.kind]}
                 </h3>
                 <ul className="space-y-3">
@@ -185,7 +185,7 @@ export function WorldModelResearchPanel() {
               <ul className="space-y-3">
                 {offered.research.coverage.map((row) => (
                   <li key={row.topic} className="text-xs">
-                    <span className="font-medium">
+                    <span className="font-semibold">
                       {PROFILE_SECTION_LABELS[
                         row.topic as keyof typeof PROFILE_SECTION_LABELS
                       ] ?? row.topic}

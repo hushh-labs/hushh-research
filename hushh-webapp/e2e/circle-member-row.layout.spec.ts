@@ -128,21 +128,12 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
 /**
  * Write a fixture directory and return its `file://` URL.
  *
- * The real Inter face is copied in and the stylesheet's absolute `/fonts/...`
- * URLs rewritten to point at it. Without that step the page falls back to a
- * system font, and a row measured here would be a row of the wrong typeface.
+ * The fixture inlines the shipped Plus Jakarta Sans faces after removing
+ * absolute app font URLs. A row measured here uses the product typeface.
  */
 async function buildFixture(name: string, body: string, candidates: string[]) {
-  const webappRoot = process.cwd();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
-
-  let css = await buildStylesheet(candidates);
-
-  const fontSource = path.join(webappRoot, "public/fonts/Inter");
-  if (fs.existsSync(fontSource)) {
-    fs.cpSync(fontSource, path.join(dir, "fonts/Inter"), { recursive: true });
-    css = css.replace(/url\(["']?\/fonts\//g, 'url("./fonts/');
-  }
+  const css = await buildStylesheet(candidates);
 
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(

@@ -246,7 +246,7 @@ export function WorldModelInvitations({
           </div>
         )}
         <label className="block space-y-1 text-xs">
-          Their name
+          <span className="font-semibold">Their name</span>
           <Input
             aria-label="Their name"
             disabled={busy}
@@ -259,7 +259,7 @@ export function WorldModelInvitations({
           />
         </label>
         <label className="block space-y-1 text-xs">
-          Public professional profile URL
+          <span className="font-semibold">Public professional profile URL</span>
           <Input
             aria-label="Public professional profile URL"
             disabled={busy}
@@ -272,7 +272,7 @@ export function WorldModelInvitations({
           />
         </label>
         <label className="block space-y-1 text-xs">
-          Introduction (optional)
+          <span className="font-semibold">Introduction (optional)</span>
           <Textarea
             aria-label="Introduction (optional)"
             value={introduction}
@@ -353,7 +353,7 @@ export function WorldModelInvitations({
           </div>
         )}
         <label className="block space-y-1 text-xs">
-          <span>Recipient’s email or phone with country code</span>
+          <span className="font-semibold">Recipient’s email or phone with country code</span>
           <Input
             aria-label="Recipient’s email or phone with country code"
             value={contact}

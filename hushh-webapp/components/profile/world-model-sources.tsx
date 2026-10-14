@@ -106,7 +106,7 @@ export function WorldModelSources({
             before saving them.
           </HelperText>
           <label className="block space-y-1 text-xs">
-            Your account name
+            <span className="font-semibold">Your account name</span>
             <Input
               aria-label="Your account name"
               value={name}
@@ -115,7 +115,7 @@ export function WorldModelSources({
             />
           </label>
           <label className="block space-y-1 text-xs">
-            Public source links, one per line
+            <span className="font-semibold">Public source links, one per line</span>
             <Textarea
               aria-label="Public source links, one per line"
               value={urls}
