@@ -42,12 +42,12 @@ describe("Agent One cohesive card faces", () => {
     let finish!: (svg: string) => void;
     buildSvg.mockImplementationOnce(() => new Promise<string>((resolve) => { finish = resolve; }));
     const { rerender, container, unmount } = render(<WalletDemoCardFace summary={card("profile")} profile={profile} />);
-    rerender(<WalletDemoCardFace summary={card("profile")} profile={{ ...profile, ownerId: "owner-b", cardPayload: { username: "new.owner" } }} />);
+    rerender(<WalletDemoCardFace summary={card("profile")} profile={{ ...profile, ownerId: "owner-b", cardPayload: { full_name: "New Owner", username: "new.owner" } }} />);
     await waitFor(() => expect(container.querySelector("img")).toHaveAttribute("src", "blob:card-1"));
     await act(async () => { fireEvent.load(container.querySelector("img")!); });
     await act(async () => finish("<svg>old owner</svg>"));
     expect(URL.createObjectURL).toHaveBeenCalledOnce();
-    expect(container.querySelector("dl")).toHaveTextContent("new.owner");
+    expect(container.querySelector("dl")).toHaveTextContent("New Owner");
     rerender(<WalletDemoCardFace summary={card("profile")} profile={{ ...profile, shareUrl: "https://one.hushh.ai/c/rotated-token" }} />);
     expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-artwork-ready", "false");
     expect(container.querySelector('img[src="blob:card-1"]')).toBeNull();
@@ -59,7 +59,7 @@ describe("Agent One cohesive card faces", () => {
     const { container } = render(<WalletDemoCardFace summary={card("nws")} profile={profile} />);
     await waitFor(() => expect(buildSvg).toHaveBeenCalledWith(expect.objectContaining({ kind: "nws", profile })));
     expect(screen.getByText("Sample NWS score: 900 out of 1000. This is not an evaluated net worth score.")).toHaveClass("sr-only");
-    expect(container.querySelector("dl")).toHaveTextContent("ankit.kumar.singh");
+    expect(container.querySelector("dl")).toHaveTextContent("Ankit Kumar Singh");
     expect(container.querySelector("dl")).toHaveTextContent("2021");
     expect(container.querySelector("dl")).toHaveTextContent("1234ABCD");
   });

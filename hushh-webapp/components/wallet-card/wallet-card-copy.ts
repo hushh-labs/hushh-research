@@ -115,7 +115,7 @@ export const WALLET_CARD_OWNER_COPY = {
 export const WALLET_CARD_CONFIRMATIONS = {
   pause: {
     title: "Pause sharing?",
-    body: "Anyone who scans your pass will see nothing at all — the page behaves as if the profile does not exist. Your pass stays in Apple Wallet and you can resume sharing at any time.",
+    body: "Hide your profile until you resume sharing.",
     confirmLabel: "Pause sharing",
   },
   resume: {
@@ -125,12 +125,12 @@ export const WALLET_CARD_CONFIRMATIONS = {
   },
   rotate: {
     title: "Revoke QR access?",
-    body: "The current QR and previously shared links stop working. Your saved profile stays available with a new QR and zero scans. Profile and NWS share this QR, so both update. Add your pass to Apple Wallet again to update its QR.",
+    body: "Replace shared QR links and reset scans for Profile and NWS.",
     confirmLabel: "Revoke access",
   },
   remove: {
     title: "Remove Wallet profile?",
-    body: "Sharing stops immediately and anyone who scans sees that this profile is no longer shared. The pass in Apple Wallet stops resolving. This cannot be undone — you would need to set the Wallet Profile up again.",
-    confirmLabel: "Remove Wallet profile",
+    body: "Permanently remove this profile and stop sharing.",
+    confirmLabel: "Remove profile",
   },
 } as const;
