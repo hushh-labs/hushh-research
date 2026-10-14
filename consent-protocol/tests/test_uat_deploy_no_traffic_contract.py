@@ -7,6 +7,8 @@ from pathlib import Path
 
 import yaml
 
+from hushh_mcp.managed_ai_config import load_profile
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -15,25 +17,22 @@ def _read(path: str) -> str:
 
 
 def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
-    # The September fleet rollback missed the worker; new package evaluations
-    # must not silently run on a different model from the evaluated API lane.
-    fleet = re.search(
-        r'FLEET_TEXT_MODEL_DEFAULT = "([^"]+)"',
-        _read("consent-protocol/hushh_mcp/constants.py"),
+    from hushh_mcp.constants import FLEET_TEXT_MODEL_DEFAULT
+
+    assert load_profile("uat")["text_model"] == FLEET_TEXT_MODEL_DEFAULT
+    for path in (".github/workflows/deploy-uat.yml", "deploy/drive/deploy_worker_service.sh"):
+        source = _read(path)
+        assert "scripts/ops/managed_ai_config.py --environment uat" in source
+        assert "HUSSH_GEMINI_TEXT_MODEL=gemini-" not in source
+    assert "HUSSH_GEMINI_TEXT_MODEL=${MANAGED_TEXT_MODEL}" in _read(
+        "deploy/drive/deploy_worker_service.sh"
     )
-    api = re.search(
-        r"_HUSSH_GEMINI_TEXT_MODEL=([a-z0-9.-]+)", _read(".github/workflows/deploy-uat.yml")
-    )
-    worker = re.search(
-        r"HUSSH_GEMINI_TEXT_MODEL=([a-z0-9.-]+)", _read("deploy/drive/deploy_worker_service.sh")
-    )
-    assert fleet and api and worker
-    assert worker.group(1) == api.group(1) == fleet.group(1)
 
 
 def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
     workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
     selection = workflow["jobs"]["select-target"]
+    wait = workflow["jobs"]["wait-capacity"]
     deploy = workflow["jobs"]["deploy"]
 
     # A read-only no-op must not create a successful environment deployment
@@ -45,7 +44,10 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
         "deployments": "read",
         "actions": "read",
     }
-    assert deploy["needs"] == "select-target"
+    assert wait["needs"] == "select-target"
+    assert wait["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"
+    assert wait["environment"] == {"name": "uat", "deployment": False}
+    assert deploy["needs"] == ["select-target", "wait-capacity"]
     assert deploy["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"
     assert deploy["environment"] == "uat"
 
@@ -309,17 +311,14 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
-    # Gemini 3.1 Flash-Lite is part of the approved text matrix and only shares
-    # global/us/eu endpoints with Gemini 3.5 Flash. The deployed service and its
-    # candidate-image readiness job must prove the same configuration.
-    assert backend_build.count("GOOGLE_CLOUD_LOCATION=global") == 2
-    assert '"HUSHH_VERTEX_LOCATIONS=global,us,eu"' in backend_build
-    assert '--set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|' in backend_build
-    assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_build
-    assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_build
-    assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_build
-    # Neither changed paths nor direct builds implicitly authorize paid calls.
-    # UAT honors the explicit opt-in through the canonical verification plan.
+    assert load_profile("uat")["text_locations"] == ["global", "us", "eu"]
+    assert "_MANAGED_AI_CONFIG_HASH" in backend_build
+    assert 'verdict.get("config_hash") != os.environ["EXPECTED_CONFIG_HASH"]' in backend_build
+    assert '"config_hash": managed_ai_settings().config_hash' in _read(
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py"
+    )
+    assert "HUSHH_VERTEX_LOCATIONS=global,us,eu" not in backend_build
+    # UAT always validates the deployed AI profile; semantic evaluation remains opt-in.
     assert '_VERIFY_MANAGED_VERTEX_RUNTIME: "false"' in backend_build
     assert 'case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in' in backend_build
     assert "true) probe_mode=full ;;" in backend_build
@@ -329,7 +328,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
         "Skipping managed Vertex candidate probe: live model checks were not requested."
         in backend_build
     )
-    assert "verify_managed_vertex_runtime=false" in uat_workflow
+    assert "verify_managed_vertex_runtime=true" in uat_workflow
     assert "steps.verification-plan.outputs.pkm_evaluator_runs" in uat_workflow
     assert "##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in uat_workflow
     workflow = yaml.safe_load(uat_workflow)
@@ -391,86 +390,50 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     assert 'sed -n \'s/.*"classification":"' not in backend_build
 
 
-def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only() -> None:
+def test_managed_vertex_targets_follow_environment_profiles() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
-    production_workflow = _read(".github/workflows/deploy-production.yml")
-
-    assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
-    assert 'genai_project_id="hushh-pda-uat"' in backend_build
-    assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
-    assert (
-        "dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54)"
-        in backend_build
-    )
-    assert "Cross-project managed Vertex target is not allowlisted." in backend_build
-    assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
-    assert "hushh-gemini-bridge" not in uat_workflow
-    assert "hushh-gemini-bridge" not in production_workflow
-    assert "_GENAI_PROJECT_ID=hushh-vertex-personal54" in production_workflow
+    assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
+        "dev": "hushh-pda-uat",
+        "uat": "hussh-511311",
+        "production": "hushh-vertex-personal54",
+    }
+    for env in ("dev", "uat", "production"):
+        assert f"scripts/ops/managed_ai_config.py --environment {env}" in _read(
+            f".github/workflows/deploy-{env}.yml"
+        )
+    assert "Managed AI profile hash mismatch." in backend_build
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
     assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_build
-    assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
     assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_build
     assert '_GENAI_PROJECT_ID: ""' in backend_build
 
 
-def test_one_chat_vertex_override_is_uat_only_and_keeps_fleet_project() -> None:
+def test_one_chat_uses_central_project_and_verified_profile() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
-    production_workflow = _read(".github/workflows/deploy-production.yml")
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
-    agent_chat = _read("consent-protocol/api/routes/one/agent_chat.py")
-
-    assert 'case "${_DEPLOY_ENV}:${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" in' in backend_build
-    assert "uat:hussh-511311)" in backend_build
-    assert "One chat Vertex target is not allowlisted." in backend_build
+    workflow = _read(".github/workflows/deploy-uat.yml")
+    assert "_HUSHH_ONE_CHAT_VERTEX_PROJECT=" not in workflow
     assert (
-        'add_env "HUSHH_ONE_CHAT_VERTEX_PROJECT" "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}"'
+        '-n "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" || -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]'
         in backend_build
     )
-    assert '_HUSHH_ONE_CHAT_VERTEX_PROJECT: ""' in backend_build
-    assert "##_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311" in uat_workflow
-    assert "_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311" not in production_workflow
-    assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
-    assert (
-        'if [[ -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" && -z "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then'
-        in backend_build
-    )
-    assert "|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|" in backend_build
-    assert "HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}" in backend_build
-    assert "probe_mode=scoped" in backend_build
+    assert 'EXPECTED_CHAT_PROJECT="${_GENAI_PROJECT_ID}"' in backend_build
     assert 'verdict.get("one_chat_probe_ok") is not True' in backend_build
-    assert 'job_name="genai-ready-${BUILD_ID}"' in backend_build
+    assert 'verdict.get("config_hash") != os.environ["EXPECTED_CONFIG_HASH"]' in backend_build
     assert "binding.build_regional_adk_model(model)" in readiness
     assert '"one_chat_probe_ok": chat_ok' in readiness
-    assert (
-        "root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),"
-        in agent_chat
-    )
 
 
-def test_one_voice_vertex_override_is_uat_only_and_probed_before_traffic() -> None:
+def test_one_voice_uses_central_project_and_is_probed_before_traffic() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
-    dev_workflow = _read(".github/workflows/deploy-dev.yml")
-    production_workflow = _read(".github/workflows/deploy-production.yml")
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
-
-    assert 'case "${_DEPLOY_ENV}:${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in' in backend_build
-    assert "One voice Vertex target is not allowlisted." in backend_build
-    assert '_HUSHH_ONE_VOICE_VERTEX_PROJECT: ""' in backend_build
-    assert (
-        'add_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"'
-        in backend_build
-    )
-    assert "one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in backend_build
-    assert "tr -c 'a-z0-9_-' '-' | cut -c1-63" in backend_build
-    assert "one-voice-live-model=${live_model_label}" in backend_build
-    assert "##_HUSHH_ONE_VOICE_VERTEX_PROJECT=hussh-511311" in uat_workflow
-    assert "HUSHH_ONE_VOICE_VERTEX_PROJECT" not in dev_workflow
-    assert "HUSHH_ONE_VOICE_VERTEX_PROJECT" not in production_workflow
-    assert "|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|" in backend_build
+    for env in ("dev", "uat", "production"):
+        assert "_HUSHH_ONE_VOICE_VERTEX_PROJECT=" not in _read(
+            f".github/workflows/deploy-{env}.yml"
+        )
+    assert 'EXPECTED_VOICE_PROJECT="${_GENAI_PROJECT_ID}"' in backend_build
+    assert 'EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}"' in backend_build
+    assert 'EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}"' in backend_build
     assert 'verdict.get("one_voice_probe_ok") is not True' in backend_build
     assert '"one_voice_project": voice_project or None' in readiness
 
@@ -495,7 +458,8 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
         # not come back under their old names either.
         assert "AGENT_GEMINI_LIVE_ENABLED" not in source
         assert "AGENT_ONE_ADK_LOCATION" not in source
-    assert all("HUSSH_GEMINI_TEXT_MODEL" in source for source in sources[:3])
+    assert "HUSSH_GEMINI_TEXT_MODEL" in sources[0]
+    assert all("scripts/ops/managed_ai_config.py" in source for source in sources[1:3])
     assert "resolve_fleet_model_name" in sources[3]
 
 
@@ -526,30 +490,28 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
 
     for name in ("ONE_VOICE_LIVE_ENABLED", "VERTEX_LIVE_MODEL_ID", "VERTEX_LIVE_LOCATION"):
         assert name in backend_build
-        assert f"_{name}=" in uat_workflow
-        assert f"_{name}=" in dev_workflow
-        assert f"_{name}=" in production_workflow
+        if name == "ONE_VOICE_LIVE_ENABLED":
+            assert all(
+                f"_{name}=" in source
+                for source in (uat_workflow, dev_workflow, production_workflow)
+            )
     assert '_ONE_VOICE_LIVE_ENABLED: "false"' in backend_build
     assert '_VERTEX_LIVE_MODEL_ID: ""' in backend_build
     assert '_VERTEX_LIVE_LOCATION: ""' in backend_build
     assert "_ONE_VOICE_LIVE_ENABLED=true" in production_workflow
     assert "_ONE_VOICE_LIVE_ENABLED=true" in uat_workflow
     assert (
-        '[[ "${_DEPLOY_ENV}" != "production" || "${_ONE_VOICE_LIVE_ENABLED}" != "true" ]]'
+        '[[ "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]'
         in backend_build
     )
     assert "python3 scripts/ci/assert_one_voice_live_probe.py" in backend_build
 
-    import re
-
-    for source in (uat_workflow, dev_workflow, production_workflow):
-        model = re.search(r"_VERTEX_LIVE_MODEL_ID=([A-Za-z0-9._-]+)", source)
-        location = re.search(r"_VERTEX_LIVE_LOCATION=([a-z0-9-]+)", source)
-        assert model and location
-        entry = resolve_live_model_entry(model.group(1))
+    for env in ("uat", "dev", "production"):
+        profile = load_profile(env)
+        entry = resolve_live_model_entry(profile["live_model"])
         assert entry.supports_native_realtime is True
-        assert location.group(1) in entry.supported_vertex_locations
-        assert location.group(1) not in {"global", "us", "eu"}
+        assert profile["live_location"] in entry.supported_vertex_locations
+        assert profile["live_location"] not in {"global", "us", "eu"}
     # Never an API key for Live in any lane.
     for source in (backend_build, uat_workflow, dev_workflow, production_workflow):
         assert "LIVE_API_KEY" not in source

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -17,16 +18,25 @@ PROJECT = "hushh-pda-uat"
 REGION = "us-central1"
 SERVICE = "consent-protocol"
 RUNTIME_SA = "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
-CHAT_PROJECT = "hussh-511311"
+_CONFIG_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "consent-protocol/hushh_mcp/managed_ai_config.py"
+)
+_CONFIG_SPEC = importlib.util.spec_from_file_location(
+    "managed_ai_contract", _CONFIG_PATH
+)
+_CONFIG = importlib.util.module_from_spec(_CONFIG_SPEC)
+_CONFIG_SPEC.loader.exec_module(_CONFIG)
+_MANAGED_PROFILE = _CONFIG.load_profile("uat")
+CHAT_PROJECT = _MANAGED_PROFILE["project"]
 SOURCE = "deploy-uat-one-chat"
 PROBE_RUNTIME_ENV = {
     "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
     "GOOGLE_GENAI_USE_VERTEXAI": "true",
     "GOOGLE_CLOUD_PROJECT": PROJECT,
-    "GENAI_GOOGLE_CLOUD_PROJECT": "hushh-vertex-personal54",
-    "GOOGLE_CLOUD_LOCATION": "global",
-    "HUSHH_VERTEX_LOCATIONS": "global,us,eu",
-    "HUSSH_GEMINI_TEXT_MODEL": "gemini-3.6-flash",
+    "GENAI_GOOGLE_CLOUD_PROJECT": CHAT_PROJECT,
+    "HUSSH_GEMINI_TEXT_MODEL": _MANAGED_PROFILE["text_model"],
+    "ENVIRONMENT": "uat",
 }
 
 # A service-only release is valid only when every accumulated change since
@@ -151,13 +161,18 @@ def serving_revision(service: dict[str, Any]) -> str:
 
 def release_paths(base_sha: str, target_sha: str) -> list[str]:
     command("git", "merge-base", "--is-ancestor", base_sha, target_sha)
-    paths = output("git", "diff", "--no-renames", "--name-only", base_sha, target_sha).splitlines()
+    paths = output(
+        "git", "diff", "--no-renames", "--name-only", base_sha, target_sha
+    ).splitlines()
     disallowed = []
     for path in paths:
         if not backend_release_input(path) or path in ALLOWED_PATHS:
             continue
         pinned_blob = KNOWN_LOCATION_BLOBS.get(path)
-        if pinned_blob and output("git", "rev-parse", f"{target_sha}:{path}") == pinned_blob:
+        if (
+            pinned_blob
+            and output("git", "rev-parse", f"{target_sha}:{path}") == pinned_blob
+        ):
             continue
         disallowed.append(path)
     disallowed.sort()
@@ -188,6 +203,18 @@ def preflight(target_sha: str) -> tuple[str, str]:
     base_sha = str(labels.get("deploy-sha") or "")
     if len(base_sha) != 40 or any(char not in "0123456789abcdef" for char in base_sha):
         raise RuntimeError("Serving backend has no exact deploy SHA")
+    env = {
+        entry.get("name"): entry.get("value")
+        for container in (revision.get("spec") or {}).get("containers") or []
+        for entry in container.get("env") or []
+    }
+    if env.get("HUSHH_DEPLOY_ENV") != "uat" or any(
+        env.get(name) != value for name, value in PROBE_RUNTIME_ENV.items()
+    ):
+        raise RuntimeError(
+            "Service-only UAT release requires the canonical managed AI fleet "
+            "already deployed; run the full UAT workflow first"
+        )
     release_paths(base_sha, target_sha)
     return old_revision, base_sha
 
@@ -421,7 +448,7 @@ def probe_runtime(image: str, run_id: str, attempt: str) -> dict[str, Any]:
                 [
                     *(f"{name}={value}" for name, value in PROBE_RUNTIME_ENV.items()),
                     f"HUSHH_ONE_CHAT_VERTEX_PROJECT={CHAT_PROJECT}",
-                    "HUSHH_MANAGED_VERTEX_PROBE_MODE=one_chat",
+                    "HUSHH_MANAGED_VERTEX_PROBE_MODE=scoped",
                 ]
             ),
             "--max-retries=0",
@@ -481,6 +508,7 @@ def probe_runtime(image: str, run_id: str, attempt: str) -> dict[str, Any]:
         verdict = json.loads(line.split(marker, 1)[1].strip())
         if (
             execution.returncode != 0
+            or verdict.get("config_hash") != _CONFIG.profile_hash(_MANAGED_PROFILE)
             or verdict.get("one_chat_project") != CHAT_PROJECT
             or verdict.get("one_chat_probe_ok") is not True
         ):
@@ -583,7 +611,12 @@ def remove_candidate_tag(tag: str) -> bool:
 
 
 def write_promotion_receipt(
-    temp: Path, target_sha: str, run_id: str, attempt: str, old_revision: str, candidate: str
+    temp: Path,
+    target_sha: str,
+    run_id: str,
+    attempt: str,
+    old_revision: str,
+    candidate: str,
 ) -> None:
     """Persist rollback authority before the first traffic mutation."""
     path = temp / "uat-one-chat-promotion.json"
@@ -685,7 +718,9 @@ def recover_interrupted() -> int:
                 "--quiet",
             )
             if live_traffic() != {old_revision: 100}:
-                raise RuntimeError("Interrupted release rollback did not restore old traffic")
+                raise RuntimeError(
+                    "Interrupted release rollback did not restore old traffic"
+                )
             report["rollback"] = True
             report["status"] = "rolled_back"
         else:
@@ -693,7 +728,9 @@ def recover_interrupted() -> int:
         report["candidate_tag_removed"] = remove_candidate_tag(tag)
         report["traffic_after"] = live_traffic()
         if report["traffic_after"] != {old_revision: 100}:
-            raise RuntimeError("Interrupted release recovery did not preserve old traffic")
+            raise RuntimeError(
+                "Interrupted release recovery did not preserve old traffic"
+            )
         return 0
     except Exception as exc:  # noqa: BLE001 - preserve the failed recovery verdict
         report["status"] = "blocked"
@@ -748,7 +785,9 @@ def main() -> int:
         report.update(candidate_revision=candidate, candidate_url=url)
         report["probe"] = probe_runtime(image, run_id, attempt)
         report["temporary_probe_job_deleted"] = True
-        write_promotion_receipt(temp, target_sha, run_id, attempt, old_revision, candidate)
+        write_promotion_receipt(
+            temp, target_sha, run_id, attempt, old_revision, candidate
+        )
         promote(candidate, old_revision, target_sha, run_id, temp)
         report["candidate_tag_removed"] = remove_candidate_tag(tag)
         report["final_traffic"] = live_traffic()

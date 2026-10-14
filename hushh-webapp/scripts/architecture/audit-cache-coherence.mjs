@@ -199,7 +199,7 @@ function screenClassForRoute(route, mode, flags) {
     route === "/pkm" ||
     route === "/gmail" ||
     isConnectedSystemsRoute(route) ||
-    route.startsWith("/one/profile/pkm") ||
+    (route.startsWith("/one/profile/pkm") || route === "/one/profile/world-model") ||
     route === "/one/profile/receipts"
   ) {
     return "PKM-secure";
@@ -318,7 +318,7 @@ function resourceClassesFor(route, screenClass) {
   if (
     route === "/pkm" ||
     route === "/gmail" ||
-    route.startsWith("/one/profile/pkm") ||
+    (route.startsWith("/one/profile/pkm") || route === "/one/profile/world-model") ||
     route === "/one/profile/receipts"
   ) {
     return ["pkm_metadata", "pkm_projection"];
@@ -480,6 +480,7 @@ function isPkmEpochRoute(route) {
     route === "/one/pkm/location" ||
     route === "/one/pkm/location/detail" ||
     route === "/one/profile/my-data" ||
+    route === "/one/profile/world-model" ||
     route === "/one/wallet"
   );
 }

@@ -76,16 +76,26 @@ production.
 
 UAT and production deployments complete after release verification, artifact publication, quick
 zero-traffic tag retirement, and the final health assertion. Old revision deletion runs in **Capacity Maintenance**,
-triggered after a verified healthy deployment and checked by the existing 15-minute timer. Maintenance
+woken when a UAT deployment is requested, again when a deployment completes, and checked by the existing 15-minute timer. Maintenance
 uses the matching environment without creating a deployment record. Its failure does
 not change the release result.
 
 The authority job verifies the source repository, workflow, governed actor and
-healthy release artifact before cloud authentication. No-op runs skip cleanup.
+release artifact before cloud authentication. A requested or failed UAT deployment only wakes
+maintenance; it does not authorize deletion. The helper independently selects a
+completed, healthy source and verifies live provenance. The narrow passkey-association
+failure case may use its proven serving backend and the immediately preceding
+healthy UAT release's frontend after verifying both against live revision
+provenance. A UAT run that passed every release gate and failed solely while
+retiring old tags may use its healthy artifact after job and live revision
+provenance checks. Other failed deployments and no-op runs grant no cleanup authority.
 Each mutation pass verifies that release against live traffic, removes unused tags, and saves drain evidence in the
 `uat-retention-state` or `production-retention-state` artifact. A later pass deletes only eligible revisions after
 the maximum request timeout plus 60 seconds has elapsed. The backend still
-supports 3,600-second requests. No runner sleeps through that grace period.
+supports 3,600-second requests. When a UAT pass saves a future drain deadline,
+a tokenless wait job wakes after that deadline and a new short maintenance job
+rechecks the source and live service before deletion. The wait holds no deployment
+lock; the timer remains a backup if the follow-up job fails or is canceled.
 Traffic/generation or release changes invalidate the saved clock; missing or
 expired evidence starts a fresh clock. Current, latest, predeploy rollback, and
 the actual last-known-good revisions remain protected.
@@ -95,6 +105,26 @@ participants queue without replacing pending deployments. Admission checks
 conservatively count every retained UAT database revision while cleanup is
 deferred, so overlapping drains cannot silently exceed the database budget.
 The capacity gate can still reject an unsafe release.
+
+Both UAT deploy workflows now poll capacity for at most 90 minutes before taking
+the `deploy-uat` mutation lock. A backend request (including One chat and `auto`)
+waits in the backend request group; an explicit `scope=frontend` request uses a
+separate group and can proceed while backend revisions drain. GitHub's
+`queue: max` holds at most 100 pending runs per group; a further run is canceled.
+An exact job inventory drift with extra unprofiled jobs and no missing profiled
+jobs is retried within the 90-minute wait. The wait never admits while that drift
+persists and reports the extra names if it times out. Missing profiled jobs,
+authentication and query errors, and malformed reports fail immediately. Once
+admitted, the deployment rechecks the exact SHA,
+actor, scope, and connection budget under the mutation lock before any writes.
+
+The UAT deploy request promptly wakes a verified Capacity Maintenance first pass;
+its deferred recheck can free old revisions after drainage. If no eligible source
+is found, a governed operator should verify the live healthy release run and dispatch `capacity-maintenance.yml`
+for `environment=uat`, that `healthy_release_run_id`, and `apply=true`. The
+maintenance workflow verifies the source and live traffic before deletion. If
+there is no eligible source or capacity remains blocked after the bounded wait,
+escalate for capacity review; do not bypass the admission gate.
 
 Production's source-only selection skips cloud authentication after a settled
 pass, or while every retained drain deadline is still in the future. A completion
@@ -109,6 +139,11 @@ readiness. Failed maintenance artifacts still cannot restore drain authority.
 This reuses the existing workflow and timer, with no new cron runs.
 
 The default capacity phase reserves the next deployment's candidate revisions.
+UAT resolves deployment scope before admission: a frontend-only release reserves
+no new database service revisions, while a backend release reserves both the
+backend and Drive worker candidates. All retained database revisions and jobs
+remain counted in either case.
+The exceptional One chat backend-only lane reserves only its backend candidate.
 Post-release reporting uses `--phase post-release`, which counts current retained
 revisions, jobs and the administrative reserve without adding another hypothetical
 deployment. Actual over-budget capacity remains blocking in both phases.

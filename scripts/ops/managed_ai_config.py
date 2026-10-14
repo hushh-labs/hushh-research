@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""Compile deploy metadata from the same packaged profile that constructs clients."""
+
+import argparse
+import importlib.util
+import json
+from pathlib import Path
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", required=True)
+    parser.add_argument(
+        "--format", choices=("json", "substitutions", "hash"), default="json"
+    )
+    args = parser.parse_args()
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "consent-protocol/config/managed-ai-runtime.json"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "managed_ai_contract", path.parent.parent / "hushh_mcp/managed_ai_config.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    value = module.load_profile(args.environment, path)
+    if args.format == "hash":
+        print(module.profile_hash(value))
+    elif args.format == "substitutions":
+        fields = {
+            "_MANAGED_AI_CONFIG_HASH": module.profile_hash(value),
+            "_GENAI_PROJECT_ID": value["project"],
+            "_HUSSH_GEMINI_TEXT_MODEL": value["text_model"],
+            "_VERTEX_LIVE_MODEL_ID": value["live_model"],
+            "_VERTEX_LIVE_LOCATION": value["live_location"],
+        }
+        print("##".join(f"{key}={item}" for key, item in fields.items()))
+    else:
+        print(json.dumps(value))
+
+
+if __name__ == "__main__":
+    main()

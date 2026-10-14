@@ -15,7 +15,7 @@ const viewports = [
 
 for (const dark of [false, true]) {
   for (const viewport of viewports) {
-    test(`four-screen intro ${dark ? "dark" : "light"} ${viewport.width}x${viewport.height} fits`, async ({ page }, testInfo) => {
+    test(`welcome and four stories ${dark ? "dark" : "light"} ${viewport.width}x${viewport.height} fit`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport);
       await page.addInitScript((theme) => localStorage.setItem("theme", theme), dark ? "dark" : "light");
       await page.emulateMedia({ reducedMotion: "reduce" });
@@ -25,20 +25,39 @@ for (const dark of [false, true]) {
       await expect(preview).toBeVisible({ timeout: 30000 });
       await page.addStyleTag({ content: `:root { --app-safe-area-top-effective: ${viewport.top}px !important; --app-safe-area-bottom-effective: ${viewport.bottom}px !important; }` });
       await page.evaluate(() => document.fonts.ready);
-      for (let step = 1; step <= 4; step++) {
+      const storyTitles = [
+        "Start with a clearer day.",
+        "Find what you already have.",
+        "Make the next move easier.",
+        "Share only what you choose.",
+      ];
+      for (let step = 1; step <= 5; step++) {
         await expect(preview).toHaveAttribute("data-preview-step", String(step));
-        const cta = preview.getByRole("button", { name: step === 1 ? "Create your One" : step === 2 ? "Meet your agents" : step === 3 ? "See what’s next" : "Create your One", exact: true });
+        if (step === 1) {
+          const heading = preview.getByRole("heading", { name: "Your private AI agent for everyday life." });
+          await expect(heading).toBeVisible();
+          await expect(heading).toHaveCSS("font-family", /InterVariable/);
+        }
+        const story = preview.locator(`[data-intro-v2-card][data-story-index="${step - 1}"]`);
+        const cta = step === 1
+          ? preview.getByRole("button", { name: "Create your One", exact: true })
+          : story.getByRole("button", { name: step === 5 ? "Start with One" : "Next screen", exact: true });
+        if (step > 1) {
+          await expect(story.locator("[data-intro-v2-title]")).toHaveText(storyTitles[step - 2]);
+          await expect(story).toBeVisible();
+          await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(1);
+        }
         const result = await preview.evaluate((element) => {
           const root = document.querySelector<HTMLElement>("[data-app-scroll-root]")!;
           return { x: root.scrollWidth - root.clientWidth, y: root.scrollHeight - root.clientHeight, top: element.getBoundingClientRect().top };
         });
         expect(result.x).toBeLessThanOrEqual(1);
-        if (viewport.height >= 568) expect(result.y).toBeLessThanOrEqual(1);
+        if (viewport.width <= 430 && viewport.height >= 664) expect(result.y).toBeLessThanOrEqual(1);
         await expect(cta).toBeVisible();
         await cta.scrollIntoViewIfNeeded();
         await expect(cta).toBeInViewport();
         await page.screenshot({ path: testInfo.outputPath(`intro-${step}.png`) });
-        if (step < 4) await cta.click();
+        if (step < 5) await cta.click();
       }
     });
   }

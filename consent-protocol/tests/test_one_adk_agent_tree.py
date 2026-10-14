@@ -674,13 +674,15 @@ def _tool_context(state: dict, *, session_id: str | None = None) -> SimpleNamesp
 
 class TestSpecialistTurn:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "execution_surface,expected_project",
-        [("typed_chat", "hussh-511311"), (None, "hushh-vertex-personal54")],
-    )
-    async def test_delegated_model_uses_only_typed_chat_project_scope(
-        self, monkeypatch, execution_surface, expected_project
+    @pytest.mark.parametrize("deploy_env", ["uat", "production"])
+    @pytest.mark.parametrize("execution_surface", ["typed_chat", None])
+    async def test_delegated_model_uses_central_project(
+        self, monkeypatch, execution_surface, deploy_env
     ):
+        from hushh_mcp.managed_ai_config import load_profile
+
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", deploy_env)
+        expected_project = load_profile(deploy_env)["project"]
         from hushh_mcp.runtime_providers import (
             ManagedGeminiRuntimeBinding,
             build_managed_regional_gemini_adk_model,
@@ -696,7 +698,7 @@ class TestSpecialistTurn:
         async def delegated(_agent_id, _task):
             # Specialist models are built during dispatch, after the scope binds.
             model = build_managed_regional_gemini_adk_model("gemini-default")
-            projects.append(model.client_kwargs["project"])
+            projects.append(model.regional_client._project)
             return SpecialistTurnResult(
                 conversation_id="conversation",
                 text="Specialist answer",
@@ -720,7 +722,7 @@ class TestSpecialistTurn:
                 _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"}),
             )
         assert projects == [expected_project]
-        assert ManagedGeminiRuntimeBinding.from_environment().project == "hushh-vertex-personal54"
+        assert ManagedGeminiRuntimeBinding.from_environment().project == expected_project
 
     @pytest.mark.asyncio
     async def test_fails_closed_without_auth_state(self):
