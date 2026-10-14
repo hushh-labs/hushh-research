@@ -6339,7 +6339,7 @@
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
     "action_gateway": "8b3aba3024ee630e40a020a20364089e1a3cbd769c3a81151dcd6a904b7e16a3",
-    "agent_registry": "591ca8093a5ab0742a27c1551240ad1e6af87a32fb47c457f423bd54dd936931",
+    "agent_registry": "52e933c4ced61b765ce95c1d2a0280a3a3c8ca90cbb960c9a45eecc3228a1000",
     "cache_manifest": "3cef501ea152624ffeee45d26ebb960b6d575123af8bba6c68aff08d88e7ffdf",
     "data_plane": "ac2a6429207505ad69b4921427e80eff567d0244f96d0bda3c7abf0634f7988f",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
