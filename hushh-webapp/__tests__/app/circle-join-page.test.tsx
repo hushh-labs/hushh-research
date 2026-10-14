@@ -124,14 +124,21 @@ describe("/circle/join landing", () => {
     render(<CircleJoinPage />);
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
+    const storyTitles = [
+      "Start with a clearer day.",
+      "Find what you already have.",
+      "Make the next move easier.",
+    ];
     for (const step of [2, 3, 4]) {
       expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", String(step));
+      expect(screen.getByRole("heading", { name: storyTitles[step - 2] })).toBeInTheDocument();
       const activeCard = screen.getByRole("heading", { level: 1 }).closest<HTMLElement>("[data-intro-v2-card]");
       expect(activeCard).not.toBeNull();
       fireEvent.click(within(activeCard!).getByRole("button", { name: "Next screen" }));
       expect(mockPush).not.toHaveBeenCalled();
     }
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "5");
+    expect(screen.getByRole("heading", { name: "Share only what you choose." })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Family Circle", level: 2 })).toBeInTheDocument();
     expect(screen.getByText("Invited by Alex")).toBeInTheDocument();
     expect(mockPreview).not.toHaveBeenCalled();

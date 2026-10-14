@@ -328,6 +328,118 @@ _BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS = {
     ),
 }
 
+_REFERRAL_POLICY_V2_REPLAY_CHECKSUM = (
+    "52a25acc61327f6b7f3b69c905fae9425844c934ac7a1000e040d7f5b2737c65"
+)
+_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256 = (
+    "ed26dc5ad4a88eaa0564200a139ded13b52e1783755c7fef569b37429138f27a"
+)
+
+
+def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
+    """Accept one pinned v3 successor without rewriting policy rows.
+
+    The published 289 body requires v2 to remain active forever. A later
+    versioned policy retires v2. Replay recognizes only the observed UAT v3
+    contents after verifying the lineage and every authored v2 value. The v3
+    policy still requires an owner attestation before this adapter is released.
+    Keep it out of ledger/observe mode and pin the original file's checksum.
+    """
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if checksum != _REFERRAL_POLICY_V2_REPLAY_CHECKSUM or entry.checksum_sha256 != checksum:
+        raise MigrationAuthorityError("Referral policy v2 replay source checksum changed")
+
+    def replace_once(old: str, new: str) -> None:
+        nonlocal sql
+        if sql.count(old) != 1:
+            raise MigrationAuthorityError("Referral policy v2 replay source shape changed")
+        sql = sql.replace(old, new, 1)
+
+    sql = entry.sql
+    replace_once(
+        "  active_count INTEGER;\nBEGIN\n",
+        "  active_count INTEGER;\n"
+        "  successor_row RECORD;\n"
+        "  expected_successor_version INTEGER := 3;\n"
+        "  previous_retirement TIMESTAMPTZ;\n"
+        "  successor_count INTEGER := 0;\n"
+        "  successor_policy_hash TEXT;\nBEGIN\n",
+    )
+    replace_once(
+        "  PERFORM 1 FROM one_referral_program_settings WHERE version IN (1, 2) FOR UPDATE;",
+        "  LOCK TABLE one_referral_program_settings IN SHARE ROW EXCLUSIVE MODE;\n"
+        "  PERFORM 1 FROM one_referral_program_settings WHERE version IN (1, 2);",
+    )
+    replace_once(
+        "  -- Serialize: lock both candidate rows before reading either, so a second\n"
+        "  -- concurrent replay of this migration blocks here rather than racing this\n"
+        "  -- one on the read.",
+        "  -- Serialize policy writes with a table lock before reading the\n"
+        "  -- lineage. Do not also lock v1/v2 rows: a writer holding a row lock\n"
+        "  -- before its UPDATE would deadlock against the table lock.",
+    )
+    replace_once(
+        "    IF v2_row.activated_at IS NULL OR v2_row.retired_at IS NOT NULL THEN\n"
+        "      RAISE EXCEPTION 'migration 289: version 2 exists but is not the active settings version (activated_at=%, retired_at=%); refusing to guess intent; version 1 left untouched',\n"
+        "        v2_row.activated_at, v2_row.retired_at;\n"
+        "    END IF;",
+        "    IF v2_row.activated_at IS NULL THEN\n"
+        "      RAISE EXCEPTION 'migration 289: version 2 exists but was never activated';\n"
+        "    END IF;",
+    )
+    replace_once(
+        "migration 289: version 2 exists and is active, but its configuration does not match",
+        "migration 289: version 2 exists, but its configuration does not match",
+    )
+    replace_once(
+        "    RAISE NOTICE 'migration 289: version 2 already active with matching configuration; idempotent no-op';",
+        f"""    IF v2_row.retired_at IS NULL THEN
+      RAISE NOTICE 'migration 289: version 2 already active with matching configuration; idempotent no-op';
+    ELSE
+      -- A later policy may supersede v2. Require an unbroken, ordered
+      -- activation/retirement chain and leave every historical row untouched.
+      SELECT * INTO v1_row FROM one_referral_program_settings WHERE version = 1;
+      IF NOT FOUND OR v1_row.activated_at IS NULL
+         OR v1_row.retired_at IS DISTINCT FROM v2_row.activated_at THEN
+        RAISE EXCEPTION 'migration 289: version 1 to 2 policy lineage is invalid';
+      END IF;
+      previous_retirement := v2_row.retired_at;
+      FOR successor_row IN
+        SELECT version, activated_at, retired_at
+          FROM one_referral_program_settings
+         WHERE version > 2
+         ORDER BY version
+      LOOP
+        IF successor_row.version <> expected_successor_version
+           OR successor_row.activated_at IS DISTINCT FROM previous_retirement
+           OR (successor_row.retired_at IS NOT NULL
+               AND successor_row.retired_at <= successor_row.activated_at) THEN
+          RAISE EXCEPTION 'migration 289: later policy lineage is incomplete or out of order at version %',
+            successor_row.version;
+        END IF;
+        previous_retirement := successor_row.retired_at;
+        expected_successor_version := expected_successor_version + 1;
+        successor_count := successor_count + 1;
+      END LOOP;
+      IF successor_count <> 1 OR previous_retirement IS NOT NULL THEN
+        RAISE EXCEPTION 'migration 289: retired version 2 requires exactly one active, reviewed version 3 successor';
+      END IF;
+      SELECT encode(sha256(convert_to(jsonb_build_object(
+        'qualification_policy_version', qualification_policy_version,
+        'points', points, 'milestones', milestones, 'streak_rules', streak_rules,
+        'flash_windows', flash_windows, 'weekly_schedule', weekly_schedule,
+        'prize_catalogue', prize_catalogue, 'tie_break_rules', tie_break_rules,
+        'fulfillment_config', fulfillment_config, 'feature_active', feature_active
+      )::text, 'UTF8')), 'hex') INTO successor_policy_hash
+        FROM one_referral_program_settings WHERE version = 3;
+      IF successor_policy_hash IS DISTINCT FROM '{_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256}' THEN
+        RAISE EXCEPTION 'migration 289: active version 3 contents differ from the reviewed policy fingerprint';
+      END IF;
+      RAISE NOTICE 'migration 289: exact historical version 2 superseded by reviewed version 3; idempotent no-op';
+    END IF;""",
+    )
+    return sql
+
 
 def _replay_bank_payout_event_sql(entry: MigrationManifestEntryV2, pinned: str) -> str:
     # 298 and 304 re-add an exact Connect event CHECK on replay, which rejects
@@ -371,45 +483,11 @@ END $$;"""
     return entry.sql[:start] + repair + entry.sql[end:]
 
 
-def _replay_referral_settings_sql(entry: MigrationManifestEntryV2) -> str:
-    # 289's original transition requires v2 to remain active forever. A later
-    # settings version or the published rollback can legitimately retire it.
-    # Replay must preserve that decision, never reactivate historical settings.
-    # Keep the immutable body and ledger checksum; adapt only this exact source.
-    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
-    if (
-        checksum != "52a25acc61327f6b7f3b69c905fae9425844c934ac7a1000e040d7f5b2737c65"
-        or entry.checksum_sha256 != checksum
-    ):
-        raise MigrationAuthorityError("Legacy referral settings replay source checksum changed")
-    # All ten configuration comparisons and the final single-active invariant
-    # still execute. Never-activated, mismatched and zero-active states fail.
-    # The existing-v2 branch performs no UPDATE or INSERT, including after a
-    # deliberate rollback. Fresh v1-only databases retain the original transition.
-    return (
-        entry.sql.replace(
-            "IF v2_row.activated_at IS NULL OR v2_row.retired_at IS NOT NULL THEN",
-            "IF v2_row.activated_at IS NULL THEN",
-            1,
-        )
-        .replace(
-            "version 2 exists and is active, but its configuration",
-            "version 2 exists, but its configuration",
-            1,
-        )
-        .replace(
-            "version 2 already active with matching configuration; idempotent no-op",
-            "version 2 history matches; preserving current settings; idempotent no-op",
-            1,
-        )
-    )
-
-
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    if entry.migration_id == "289" and entry.filename == "289_one_referral_program_settings_v2.sql":
+        return _replay_referral_policy_v2_sql(entry)
     if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
         return _replay_drive_feed_sql(entry)
-    if entry.migration_id == "289" and entry.filename == "289_one_referral_program_settings_v2.sql":
-        return _replay_referral_settings_sql(entry)
     pinned = _BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS.get((entry.migration_id, entry.filename))
     if pinned:
         return _replay_bank_payout_event_sql(entry, pinned)

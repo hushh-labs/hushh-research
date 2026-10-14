@@ -42,7 +42,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("IntroStep voice contract", () => {
+describe("IntroStep", () => {
   it("moves through four stories with next, keyboard, and dots without signing in", () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
@@ -50,10 +50,13 @@ describe("IntroStep voice contract", () => {
 
     for (let index = 0; index < storyTitles.length; index += 1) {
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[index]);
+      expect(document.querySelectorAll('[data-intro-v2-card="true"]:not([hidden])')).toHaveLength(1);
+      expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", String(index + 2));
       expect(activeStory().getByRole("button", {
         name: `Screen ${index + 1}: ${storyTitles[index]}`,
       })).toHaveAttribute("aria-current", "step");
       if (index < storyTitles.length - 1) {
+        expect(screen.queryByRole("button", { name: "Start with One" })).not.toBeInTheDocument();
         fireEvent.click(activeStory().getByRole("button", { name: "Next screen" }));
       }
     }
@@ -82,6 +85,7 @@ describe("IntroStep voice contract", () => {
     );
     const onLogin = vi.fn();
     const { unmount } = render(<IntroStep onLogin={onLogin} />);
+    expect(document.querySelector('[data-motion="static"]')).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     act(() => vi.advanceTimersByTime(20000));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
@@ -145,6 +149,16 @@ describe("IntroStep voice contract", () => {
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "2");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
     expect(activeStory().getAllByRole("button", { name: /^Screen \d/ })).toHaveLength(4);
+    fireEvent.click(activeStory().getByRole("button", { name: "Skip", exact: true }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[3]);
+    fireEvent.click(activeStory().getByRole("button", { name: "Previous screen" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[2]);
+    fireEvent.click(activeStory().getByRole("button", {
+      name: `Screen 2: ${storyTitles[1]}`,
+    }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[1]);
+    fireEvent.click(activeStory().getByRole("button", { name: "Previous screen" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
     fireEvent.click(activeStory().getByRole("button", { name: "Previous screen" }));
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     expect(screen.getByRole("heading", { name: welcomeTitle, level: 1 })).toBeVisible();

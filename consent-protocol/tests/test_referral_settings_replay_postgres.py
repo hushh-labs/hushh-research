@@ -60,38 +60,8 @@ async def test_retired_settings_replay_preserves_history_and_rejects_drift(conne
         await connection.execute("""INSERT INTO one_referral_reward_rounds
           (settings_version,cutoff_at,timezone) VALUES (2,'2026-10-01Z','Asia/Kolkata')""")
 
-        # Reproduce the actual deployment failure after the published rollback.
-        await connection.execute(
-            (MIGRATIONS / "rollback" / V2.replace(".sql", ".rollback.sql")).read_text()
-        )
-        retired = await _snapshot(connection)
-        with pytest.raises(asyncpg.RaiseError, match="not the active settings version"):
-            await connection.execute((MIGRATIONS / V2).read_text())
-        await connection.execute("ROLLBACK")
-        await _replay(connection)
-        await _replay(connection)
-        assert await _snapshot(connection) == retired
-        assert (
-            await connection.fetchval("SELECT settings_version FROM one_referral_reward_rounds")
-            == 2
-        )
-
-        # A later operator-selected version remains current; historical v2 is
-        # not reactivated and no configuration or retirement timestamp changes.
-        await connection.execute("""BEGIN;
-          UPDATE one_referral_program_settings SET retired_at=clock_timestamp() WHERE version=1;
-          INSERT INTO one_referral_program_settings
-          SELECT (jsonb_populate_record(NULL::one_referral_program_settings,
-            to_jsonb(s) || jsonb_build_object('version',3,'retired_at',NULL,
-              'activated_at',clock_timestamp(),'feature_active',TRUE))).*
-          FROM one_referral_program_settings s WHERE version=2;
-          COMMIT;""")
-        later = await _snapshot(connection)
-        await _replay(connection)
-        assert await _snapshot(connection) == later
-
-        # A retired row is accepted only if every immutable policy value matches.
-        original = dict(next(row for row in later if row["version"] == 2))
+        # Existing settings are accepted only if every immutable policy value matches.
+        original = dict(next(row for row in active if row["version"] == 2))
         changes = {
             "qualification_policy_version": 2,
             "points": '{"changed":1}',
@@ -117,20 +87,29 @@ async def test_retired_settings_replay_preserves_history_and_rejects_drift(conne
             "UPDATE one_referral_program_settings SET activated_at=NULL WHERE version=2"
         )
         unactivated = await _snapshot(connection)
-        with pytest.raises(asyncpg.RaiseError, match="not the active settings version"):
+        with pytest.raises(asyncpg.RaiseError, match="was never activated"):
             await _replay(connection)
         assert await _snapshot(connection) == unactivated
         await connection.execute(
             "UPDATE one_referral_program_settings SET activated_at=$1 WHERE version=2",
             original["activated_at"],
         )
+        # Main's reviewed adapter permits only the pinned v3 successor. A
+        # deliberate rollback is preserved but cannot silently authorize replay.
         await connection.execute(
-            "UPDATE one_referral_program_settings SET retired_at=clock_timestamp() WHERE version=3"
+            (MIGRATIONS / "rollback" / V2.replace(".sql", ".rollback.sql")).read_text()
         )
-        zero_active = await _snapshot(connection)
-        with pytest.raises(asyncpg.RaiseError, match="expected exactly one active"):
+        retired = await _snapshot(connection)
+        with pytest.raises(asyncpg.RaiseError, match="not the active settings version"):
+            await connection.execute((MIGRATIONS / V2).read_text())
+        await connection.execute("ROLLBACK")
+        with pytest.raises(asyncpg.RaiseError, match="version 1 to 2 policy lineage is invalid"):
             await _replay(connection)
-        assert await _snapshot(connection) == zero_active
+        assert await _snapshot(connection) == retired
+        assert (
+            await connection.fetchval("SELECT settings_version FROM one_referral_reward_rounds")
+            == 2
+        )
         assert await connection.fetchval("SELECT to_regclass('schema_migrations')") is None
     finally:
         await connection.close()
