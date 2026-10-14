@@ -3,7 +3,10 @@
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { HelperText } from "@/components/app-ui/typography";
-import { SpinnerGapIcon as Loader2, TrashIcon as Trash2 } from "@/components/icons";
+import {
+  SpinnerGapIcon as Loader2,
+  TrashIcon as Trash2,
+} from "@/components/icons";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -12,7 +15,32 @@ import type { AgentAiReadiness } from "@/lib/one/ai-selection-agent";
 export type KeyNotice = { tone: "error" | "status"; text: string } | null;
 
 /** Presentation only. Owner authority and configuration effects stay in the card. */
-export function OwnerKeyContent({readiness, providerName, busy, vault, needsVaultCreation, lastFailure, provider, endpoint, deployment, draftKey, notice, defaultModel, statusId, hasSavedKey, inUse, load, approveUpdate, requestVault, setEndpoint, setDeployment, setDraftKey, setNotice, checkAndUse, remove}: {
+export function OwnerKeyContent({
+  readiness,
+  providerName,
+  busy,
+  vault,
+  needsVaultCreation,
+  lastFailure,
+  provider,
+  endpoint,
+  deployment,
+  draftKey,
+  notice,
+  defaultModel,
+  statusId,
+  hasSavedKey,
+  inUse,
+  load,
+  approveUpdate,
+  requestVault,
+  setEndpoint,
+  setDeployment,
+  setDraftKey,
+  setNotice,
+  checkAndUse,
+  remove,
+}: {
   readiness: AgentAiReadiness | null;
   providerName: string;
   busy: "checking" | "removing" | "updating" | null;

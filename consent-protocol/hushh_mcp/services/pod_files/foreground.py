@@ -28,7 +28,7 @@ class ForegroundRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     file: ForegroundFile
     content: str = Field(max_length=256 * 1024)
-    folders: list[ForegroundFile] = Field(default_factory=list, max_length=100)
+    folders: list[ForegroundFile] = Field(default_factory=list, max_length=0)
     processing_consent: Literal[True]
     provider: Literal["gemini"]
     consent_revision: int = Field(ge=0)

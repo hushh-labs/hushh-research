@@ -173,7 +173,7 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit }:
     }, { rootMargin: "80px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [attachment?.kind, message.conversationId, message.id]);
+  }, [attachment?.kind, message.conversationId, message.id, isCurrent]);
   useEffect(() => {
     if (!isCurrent() || attachment?.kind !== "photo" || !photoVisible) return;
     let current = true;
@@ -194,7 +194,7 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit }:
       // Keep the Open control available for an explicit retry.
     }).finally(() => { if (effectIsCurrent()) setOpening(false); });
     return () => { current = false; if (url) URL.revokeObjectURL(url); };
-  }, [attachment?.kind, message.conversationId, message.id, photoVisible]);
+  }, [attachment?.kind, message.conversationId, message.id, photoVisible, isCurrent]);
   if (!attachment) return null;
   const typeLabel = ({ "application/pdf": "PDF", "text/plain": "Text file",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word document",

@@ -698,6 +698,28 @@ async def test_shared_foreground_projection_reads_only_selected_revision_and_rec
         ),
         check,
     )
+    from pydantic import ValidationError
+
+    # The selected-file grant does not authorize sibling folder disclosure,
+    # including requests from older clients.
+    payload = {
+        "file": port.file,
+        "content": "synthetic selected content",
+        "processing_consent": True,
+        "provider": "gemini",
+        "consent_revision": 1,
+        "folders": [
+            {
+                "id": "b" * 32,
+                "name": "Unapproved folder",
+                "parent": "root",
+                "kind": "folder",
+                "revision": 1,
+            }
+        ],
+    }
+    with pytest.raises(ValidationError):
+        ForegroundRequest.model_validate(payload)
     assert (await port.read_file("b" * 32))["status"] == "blocked"
     assert (await port.read_file(file_id))["untrusted_content"]
     assert (await port.organize_file(file_id, 1, "rename", "new.txt", "root"))[

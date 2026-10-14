@@ -16,7 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useFilesConnection } from "@/lib/files/use-files-connection";
 import { ApiService } from "@/lib/services/api-service";
-import { FilesLocalError } from "@/lib/files/local-error";
+import { FilesLocalError, transientFilesRead } from "@/lib/files/local-error";
 import { ROUTES } from "@/lib/navigation/routes";
 import { FilesToolbar } from "./files-toolbar";
 import { FilesMoveDialog, FilesDetailsDialog } from "./files-workspace-dialogs";
@@ -31,15 +31,6 @@ import {
   type FilesSettings,
 } from "@/lib/files/service";
 
-function transientFilesRead(error: unknown): boolean {
-  if (error instanceof TypeError) return true;
-  return (
-    error instanceof Error &&
-    /^(?:FILES_UNAVAILABLE|POD_DIRECT_UNAVAILABLE|ENDPOINT_UNAVAILABLE):(429|502|503|504)$/.test(
-      error.message,
-    )
-  );
-}
 
 export function FilesWorkspace() {
   const { user } = useAuth();

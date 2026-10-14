@@ -43,8 +43,9 @@ Returning to a private cloud AI default uses the owner-config action with a veri
 provider/model receipt; old images refuse PATCH without clearing a working key.
 
 Selected foreground organization requires explicit analysis consent. Only the
-selected UTF-8 file (at most 256 KiB) and bounded current-folder context reach managed
-Gemini. The authored specialist proposes reversible changes; the browser rechecks
+selected UTF-8 file (at most 256 KiB) and its explicitly selected metadata reach
+managed Gemini. Sibling folder names are excluded, including from older-client
+requests; the server rejects a nonempty folder projection. The authored specialist proposes reversible changes; the browser rechecks
 consent, exclusions, revision and cancellation under the mutation lease before
 committing. Original bytes remain immutable. Closing/locking the browser interrupts
 foreground work; it does not become a background service. Automatic organization,
@@ -69,7 +70,7 @@ flowchart LR
   V["Existing vault custody<br/>wrapped random library key"]
   H["Shared Files transport<br/>owner + generation + write fence"]
   O["Private GCS bucket<br/>opaque encrypted objects"]
-  A["Files ADK task<br/>selected foreground projection only"]
+  A["Files ADK task<br/>selected foreground projection (no sibling folder labels) only"]
   M["Managed Gemini<br/>explicit processing consent"]
   V -->|"unwrap in browser memory"| B
   B -->|"ciphertext only"| H

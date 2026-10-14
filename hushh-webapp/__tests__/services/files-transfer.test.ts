@@ -184,12 +184,20 @@ describe("Shared Files ciphertext boundary", () => {
     >();
     const sent: string[] = [];
     let generation = 0;
+    const analyzed: Record<string, unknown>[] = [];
     let interruptTail = false;
     let interruptUpload = true;
     sharedRequest.mockImplementation(
       async (path: string, init: RequestInit) => {
         const url = new URL(path, "https://fixture.invalid");
         const key = url.pathname;
+        if (key.endsWith("/analyze") && init.method === "POST") {
+          const body = JSON.parse(String(init.body));
+          analyzed.push(body);
+          return Response.json({ fileId: body.file.id, revision: body.file.revision,
+            consentRevision: body.consent_revision, provider: "gemini", changes: [],
+            result: { state: "unchanged", explanation: "Synthetic selected-file review" } });
+        }
         if (key.endsWith("/storage") && init.method === "POST")
           return Response.json({ status: "accepted" });
         if (key.endsWith("/storage"))
@@ -341,6 +349,16 @@ describe("Shared Files ciphertext boundary", () => {
         excluded: [],
       }),
     ).rejects.toThrow("FILES_PRIVATE_AGENT_REQUIRED");
+    await FilesService.createFolder("Unapproved sibling folder", "root");
+    await FilesService.configure({ revision: 0, analysis: true, automatic: false, excluded: [] });
+    const selected = await FilesService.upload(
+      Object.assign(new NativeBlob(["selected synthetic text"]), { name: "selected.txt" }) as unknown as File,
+      "root", () => undefined, new AbortController().signal,
+    );
+    expect((await FilesService.organize(selected.id)).state).toBe("completed");
+    expect(analyzed).toHaveLength(1);
+    expect(analyzed[0]).toMatchObject({ file: { id: selected.id }, folders: [] });
+    expect(JSON.stringify(analyzed)).not.toContain("Unapproved sibling folder");
     const object = [...storage.values()].find(
       (value) => value.ciphertext.length > 80,
     )!;

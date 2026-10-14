@@ -132,12 +132,6 @@ export class SharedFilesForeground {
       ? AbortSignal.any([signal, controller.signal])
       : controller.signal;
     try {
-      const page = await this.library.list(
-        entry.parent,
-        "",
-        false,
-        requestSignal,
-      );
       const immediateConsent = await this.library.settings(requestSignal);
       const immediateFile = (await this.library.entry(fileId, requestSignal))
         .entry;
@@ -153,12 +147,8 @@ export class SharedFilesForeground {
           {
             file: projection(publicEntry(entry)),
             content,
-            folders: page.entries
-              .filter(
-                (item) =>
-                  item.kind === "folder" && !consent.excluded.includes(item.id),
-              )
-              .map(projection),
+            // Selected-file consent does not include sibling folder labels.
+            folders: [],
             processing_consent: true,
             provider: "gemini",
             consent_revision: consent.revision,

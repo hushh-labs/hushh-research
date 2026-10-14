@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2583,
+  "finding_count": 2585,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -204,7 +204,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "AccountService",
-      "value": 2825
+      "value": 2914
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4434,7 +4434,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_clear_user_data_tables",
-      "value": 237
+      "value": 274
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4443,7 +4443,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 530
+      "value": 538
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4479,7 +4479,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "reset_account",
-      "value": 98
+      "value": 101
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8367,7 +8367,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "provision",
-      "value": 447
+      "value": 460
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -15442,7 +15442,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": null,
-      "value": 2907
+      "value": 2997
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17863,7 +17863,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_pkm_answer_recovery_postgres.py",
       "symbol": null,
-      "value": 848
+      "value": 862
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18700,7 +18700,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_provisioning_service.py",
       "symbol": null,
-      "value": 1830
+      "value": 1833
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18754,7 +18754,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pkm_answer_routes.py",
       "symbol": null,
-      "value": 684
+      "value": 710
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18862,7 +18862,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_files_jobs.py",
       "symbol": null,
-      "value": 596
+      "value": 736
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19366,7 +19366,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/capacitor/native-chrome.test.tsx",
       "symbol": null,
-      "value": 2673
+      "value": 2746
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19483,7 +19483,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 1107
+      "value": 1267
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19537,7 +19537,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx",
       "symbol": null,
-      "value": 695
+      "value": 1013
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20050,7 +20050,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-chat-client.test.ts",
       "symbol": null,
-      "value": 1967
+      "value": 2080
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20438,7 +20438,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 10954
+      "value": 11054
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20582,7 +20582,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/app-ui/native-chat-chrome.tsx",
       "symbol": null,
-      "value": 712
+      "value": 752
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20717,7 +20717,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/gemini-runtime-settings-card.tsx",
       "symbol": null,
-      "value": 1005
+      "value": 1028
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20798,7 +20798,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 2101
+      "value": 2226
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21663,7 +21663,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 1132
+      "value": 1141
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21681,7 +21681,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
-      "value": 687
+      "value": 897
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21726,7 +21726,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1543
+      "value": 1714
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21943,7 +21943,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/capacitor/native-chrome.ts",
       "symbol": null,
-      "value": 528
+      "value": 534
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22159,7 +22159,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/legal/legal-documents.ts",
       "symbol": null,
-      "value": 728
+      "value": 735
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22600,7 +22600,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/agent-chat-client.ts",
       "symbol": null,
-      "value": 2520
+      "value": 2597
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23024,7 +23024,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs",
       "symbol": null,
-      "value": 632
+      "value": 716
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23259,6 +23259,24 @@
       "path": "scripts/ops/verify-env-secrets-parity.py",
       "symbol": null,
       "value": 1326
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/e2e/profile-pane-close.layout.spec.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/e2e/profile-pane-close.layout.spec.ts",
+      "symbol": null,
+      "value": 551
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_pod_ai_selection_doors.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_pod_ai_selection_doors.py",
+      "symbol": null,
+      "value": 507
     }
   ],
   "inspected_files": 6625,
@@ -43462,6 +43480,204 @@
         "key": "module_size|scripts/ops/sync_backend_runtime_secrets.py||module exceeds the advisory operon budget",
         "selection": "incoming exact",
         "source_sha256": "edf045c5aa91cfcd963625ea5171e29ac41ccfbd49859a7b31f243352c538b06"
+      }
+    ]
+  },
+  "ai_shared_files_final_source_review_20261013": {
+    "candidate_parent": "018c8d6020",
+    "frozen_root": "465ed16fefb",
+    "frozen_main": "a8ebcb86b2c",
+    "frozen_adk": "3501811eb6b",
+    "review": "Narrow reviewed integrated-source ceilings after cohesive Files connection, key-entry, cloud-default verification, erasure and schedule-test extractions. Independent frontend/native/backend/privacy reviews informed parent decisions. Budgets, scanner, dependency-direction/import-initialization checks, multiplicity and unrelated slots unchanged; any subsequent growth still fails. Historical reviews remain historical. This is measured maintenance debt, not deployed acceptance.",
+    "findings": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "before": 2825,
+        "after": 2914,
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "before": 530,
+        "after": 538,
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|provision|function exceeds the advisory gene budget",
+        "before": 447,
+        "after": 460,
+        "source_sha256": "77bbca8a80dc803b6d30cd89ca416a01b110c993617cedb46023bb230aa56518",
+        "review": "Existing claim now holds the same placement admission lock as Shared enrollment; no cloud recreation or new authority."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_clear_user_data_tables|function exceeds the advisory gene budget",
+        "before": 237,
+        "after": 274,
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|reset_account|function exceeds the advisory gene budget",
+        "before": 98,
+        "after": 101,
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "before": 10954,
+        "after": 11054,
+        "source_sha256": "a48e15de90a93e51ab91560ba3089e124230d90ed4a233b148421c37d3f6d26b",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "before": 2907,
+        "after": 2997,
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+        "before": 2673,
+        "after": 2746,
+        "source_sha256": "e09aeebfb1b4d25a4376c0f60347145faefafa5a28a8ec8a3795610a7ff3091b",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+        "before": 2520,
+        "after": 2597,
+        "source_sha256": "5b5ac04d7d652a8371744f7f83e30f38b84a8de90877516a802998a944b57fd0",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "before": 2101,
+        "after": 2226,
+        "source_sha256": "77d13f591f43e8b6c8391eda638ea18c45fb65648a1086aef6912b561f49963b",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
+        "before": 1967,
+        "after": 2080,
+        "source_sha256": "c7747cadd6535c98fa58ac04a7df070f1a7a77034e517e8e77a85a0f2c982009",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
+        "before": 1830,
+        "after": 1833,
+        "source_sha256": "4f19c1af1e8a7547e665f4ada1b778e6c0e0f0ff4dd18e430bace3ed3139fcd5",
+        "review": "Legacy fixture models schema absence; live Shared lifecycle SQL checks remain independent."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": 1543,
+        "after": 1714,
+        "source_sha256": "dadac5c1933c4d8fb28f41c9612a86f2254866a989cfa28f9cb44964244f97c5",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "before": 1107,
+        "after": 1267,
+        "source_sha256": "ba713e09e86b70564720483ae86c83e57b684543bdae98f638fb04a5428db37d",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "before": 1132,
+        "after": 1141,
+        "source_sha256": "0537b3e4a2ad19fc3084d509cb5e02b84569ca5187924a9ed8f130aa594e7996",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/connections/gemini-runtime-settings-card.tsx||module exceeds the advisory operon budget",
+        "before": 1005,
+        "after": 1028,
+        "source_sha256": "8c2335d7725d9509a9a7468aa538b25f820f93f7f94b0968ea108bc3d24bb831",
+        "review": "Provider-aware placement, exact cloud-default receipt and Back preserve prior connection. Key-entry presentation and placement observation extracted; 1314 becomes 1028. Focused UI and type checks pass."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx||module exceeds the advisory operon budget",
+        "before": 695,
+        "after": 1013,
+        "source_sha256": "e7a301a10e8b5466af4e5cddcd513052611bbfbf146f5253f2e53d78d3e5e39a",
+        "review": "Distinct Azure/Shared/pending placement, sealed private-key path, default verification, failure preservation and Back authority regressions; no markup snapshots."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": 687,
+        "after": 897,
+        "source_sha256": "da1c075879826cd854458ecb6bd47922e385005326da6beeec7bcdde63c1c340",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_recovery_postgres.py||module exceeds the advisory operon budget",
+        "before": 848,
+        "after": 862,
+        "source_sha256": "dfa22d1a54f36c1703d0896344655a77750245bcc3194c62761680d072cbbbae",
+        "review": "Restore exact incoming root source862; duplicated erasure tests removed, retained in dedicated retention owner."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/app-ui/native-chat-chrome.tsx||module exceeds the advisory operon budget",
+        "before": 712,
+        "after": 752,
+        "source_sha256": "dfbb38bc3251fcabcabf47d490e90bd1b023db57dfc7f4bc940739122752b697",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_files_jobs.py||module exceeds the advisory operon budget",
+        "before": 596,
+        "after": 736,
+        "source_sha256": "7fce8874193c09faf410718f6fba792973b1b5aad9d8e99f79a6399644dbe8eb",
+        "review": "Schedule lifecycle extracted into dedicated core owner. Retain owner-project/model negative controls and selected-projection privacy refusal; originals and jobs remain authoritative."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/legal/legal-documents.ts||module exceeds the advisory operon budget",
+        "before": 728,
+        "after": 735,
+        "source_sha256": "6236ae81cc5b7d4e2a5170903507b2a832322b58e81e30ed4b3b2ea448e39bc0",
+        "review": "Narrow actual provider disclosure update; Azure managed identity and selected foreground Shared Files do not establish provider blindness."
+      },
+      {
+        "key": "module_size|hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs||module exceeds the advisory operon budget",
+        "before": 632,
+        "after": 716,
+        "source_sha256": "ec5756151e57622dd96d5a033e086218cb3e8228d609200e5d976e4bfd42ef01",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pkm_answer_routes.py||module exceeds the advisory operon budget",
+        "before": 684,
+        "after": 710,
+        "source_sha256": "5f58bf54777d723b01cad8ceef1c244c391fe9f046a1fb19ffa6b0d1e2eef00a",
+        "review": "Reviewed compatibility fixture adds BackgroundTasks wrapper required by incoming route; existing hosting-change negative retained."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/profile-pane-close.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 551,
+        "source_sha256": "b698a387f4df459ade4fb800ae37736fced40bb68768497970c600b5f8c75e44",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/capacitor/native-chrome.ts||module exceeds the advisory operon budget",
+        "before": 528,
+        "after": 534,
+        "source_sha256": "c37f7186214419a08e1160f6779a5b5acda3f180eb89281862b44c47116e3815",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_ai_selection_doors.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 507,
+        "source_sha256": "5b7ace9ba82f12de65df34f6313384c5f5372c1831e10eaa2452c572dbd9e211",
+        "review": "New real negative control proves disabled model modes cannot probe central AI or clear saved key; strict default request and response tests retained."
       }
     ]
   }

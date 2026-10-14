@@ -21,7 +21,6 @@ so a refusal of the envelope is never an answer to a caller the pod has not admi
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -171,54 +170,15 @@ async def run_ai_selection_delete(
         raise _no_store()
     _prior, floor = await store.read_ai_selection(log, hushh_id=owner_id)
     if verify_default:
-        from google.genai import types  # noqa: PLC0415
-
-        from hushh_mcp.runtime_providers import azure_openai  # noqa: PLC0415
-        from hushh_mcp.runtime_providers.factory import (
-            build_managed_runtime_client,  # noqa: PLC0415
-        )
-        from hushh_mcp.services.pod_ai_selection_check import (
-            classify_check_failure,  # noqa: PLC0415
+        from hushh_mcp.services.pod_ai_selection_check import (  # noqa: PLC0415
+            classify_check_failure,
+            verify_cloud_default,
         )
 
         try:
-            azure = azure_openai.owner_azure_model()
-            if azure:
-                provider, model = azure
-                client = azure_openai.owner_azure_client(provider, "user_azure_mi")
-            else:
-                from hushh_mcp.services.pod_platform import workload_platform  # noqa: PLC0415
-
-                if workload_platform() == "azure":
-                    raise ValueError("AZURE_MODEL_TOPOLOGY_INVALID")
-                from hushh_mcp.runtime_settings import (  # noqa: PLC0415
-                    pod_managed_model_enabled,
-                    pod_user_adc_enabled,
-                )
-
-                # Verification has the same default authority as ordinary turns;
-                # fleet configuration alone must not discard an owner's key.
-                if not (pod_user_adc_enabled() or pod_managed_model_enabled()):
-                    raise HTTPException(status_code=409, detail={"code": "AI_DEFAULT_UNAVAILABLE"})
-                provider, model = "gemini", _gemini_default()
-                client = build_managed_runtime_client(provider)
-            response = await asyncio.wait_for(
-                client.aio.models.generate_content(
-                    model=model,
-                    contents="Reply with OK.",
-                    config=types.GenerateContentConfig(max_output_tokens=16),
-                ),
-                timeout=8,
-            )
-            if not isinstance(getattr(response, "text", None), str) or not response.text.strip():
-                raise ValueError("PROVIDER_EMPTY_RESPONSE")
-            verified = {
-                "defaultProvider": provider,
-                "defaultModel": model,
-                "checkedAtMs": int(time.time() * 1000),
-            }
-        except HTTPException:
-            raise
+            verified = await verify_cloud_default(gemini_default=_gemini_default())
+        except store.AiSelectionRefused as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code}) from None
         except Exception as exc:  # noqa: BLE001 - typed refusal preserves prior selection
             raise HTTPException(
                 status_code=422, detail={"code": classify_check_failure(exc)}

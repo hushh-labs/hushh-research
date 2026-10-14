@@ -1,18 +1,31 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { bindFilesConnection } from "@/lib/files/connection";
-import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
 import { ApiService } from "@/lib/services/api-service";
 
 /** Bind ciphertext/pod transport to the exact current unlocked owner visit. */
-export function useFilesConnection(userId: string | undefined, vaultKey: string | null, vaultOwnerToken: string | null) {
+export function useFilesConnection(
+  userId: string | undefined,
+  vaultKey: string | null,
+  vaultOwnerToken: string | null,
+) {
   const currentAccess = useRef({
     userId: userId,
     vaultKey,
     vaultOwnerToken,
   });
-  currentAccess.current = { userId: userId, vaultKey, vaultOwnerToken };
+  useLayoutEffect(() => {
+    currentAccess.current = { userId, vaultKey, vaultOwnerToken };
+  }, [userId, vaultKey, vaultOwnerToken]);
   const [hosting, setHosting] = useState<"shared" | "pod" | null>(null);
   const [connectionError, setConnectionError] = useState("");
   const boundOwner = useRef<string | null>(null);
@@ -22,6 +35,7 @@ export function useFilesConnection(userId: string | undefined, vaultKey: string 
       return;
     }
     const identity = snapshotValidatedAuthSessionOwner();
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const controller = new AbortController();
     let release: (() => void) | undefined;
     const check = () => {
@@ -31,6 +45,7 @@ export function useFilesConnection(userId: string | undefined, vaultKey: string 
         current.userId !== userId ||
         current.vaultKey !== vaultKey ||
         current.vaultOwnerToken !== vaultOwnerToken ||
+        !isVaultSessionEpochCurrent(vaultEpoch) ||
         !identity ||
         !isValidatedAuthSessionOwnerCurrent(identity)
       )
