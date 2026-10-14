@@ -481,8 +481,19 @@ jobs:
       # optional: it is the engine iOS ships, and a native <select> there
       # ignores an author border-radius that Chromium honours, so a
       # Chromium-only run passes controls that are visibly broken on an iPhone.
+      #
+      # Bounded at 8 minutes. Across 420 browser legs on 2026-10-08..14 this
+      # step took 1.2-1.4 minutes at p50 and 1.7 at p95, warm or cold cache.
+      # On 10-08 the apt half fetched 116 MB at 83.8 kB/s for 23 minutes (job
+      # 113516651801); three legs spent 20-24 minutes here and two of them then
+      # hit the job limit mid-test. A stall now fails here in minutes, as a
+      # failure rather than a "cancelled" that reads like noise, and frees the
+      # runner. The retry is for a fast transient error (an apt lock, a mirror
+      # mid-sync); a mirror that stays slow will not finish inside the bound,
+      # so a run that hits it should be re-run.
       - name: Install Playwright browsers
         if: matrix.part == 'browser'
+        timeout-minutes: 8
         run: |
           set -euo pipefail
           # The one dependency install for this job. It is the same
@@ -495,10 +506,25 @@ jobs:
           # ~/.cache/ms-playwright), so on a cache hit install only the system
           # deps and let the restored browser binaries stand.
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            (cd hushh-webapp && npx playwright install-deps chromium webkit)
+            install=(npx playwright install-deps chromium webkit)
           else
-            (cd hushh-webapp && npx playwright install --with-deps chromium webkit)
+            install=(npx playwright install --with-deps chromium webkit)
           fi
+          # Two attempts at most. A second attempt is safe: apt keeps what it
+          # already fetched and skips installed packages, and Playwright skips
+          # a browser that wrote its completion marker (its own download
+          # already retries five times).
+          for attempt in 1 2; do
+            if (cd hushh-webapp && "${install[@]}"); then
+              break
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "::error::Playwright browser install failed twice."
+              exit 1
+            fi
+            echo "::warning::Playwright browser install failed on attempt $attempt of 2; retrying in 15 seconds."
+            sleep 15
+          done
 
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted

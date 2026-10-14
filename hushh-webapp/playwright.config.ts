@@ -45,13 +45,22 @@ function ciShard(): { current: number; total: number } | undefined {
  *
  * Environment:
  *   BASE_URL - override the dev server URL (default: http://localhost:3000)
- *   CI       - set in GitHub Actions; disables retries and video recording
+ *   CI       - set in GitHub Actions and by the npm scripts that pass CI=1:
+ *              forbids test.only, allows one retry, reads PLAYWRIGHT_WORKERS,
+ *              reports to GitHub, and starts no dev server unless
+ *              PLAYWRIGHT_START_SERVER=1
  */
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // One retry absorbs a genuine transient. A second hid specs that fail two
+  // runs in three: in 313 green browser legs sampled from 2026-10-08..14, 12
+  // passed a test only on its third attempt, 11 of them WebKit
+  // wallet-workspace layout tests. It also gave every real failure a third
+  // run, in a fresh worker that rebuilds its beforeAll fixture, inside a 17-29
+  // minute leg: 100 of 102 failing legs ran a test three times before going red.
+  retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? ciWorkers() : undefined,
   shard: ciShard(),
   reporter: process.env.CI ? "github" : "html",
