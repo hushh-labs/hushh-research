@@ -33,7 +33,7 @@ describe("Files settings and local navigation", () => {
 
   it("closes protected settings when the vault locks and does not reopen on unlock", async () => {
     const view = render(<FilesWorkspace />);
-    await waitFor(() => expect(files.settings).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "File settings" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "File settings" }));
     await screen.findByRole("dialog", { name: "File settings" });
     session.vaultKey = null;
@@ -53,7 +53,7 @@ describe("Files settings and local navigation", () => {
 
   it("keeps provider retention truthful and storage details secondary", async () => {
     render(<FilesWorkspace />);
-    await waitFor(() => expect(files.settings).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "File settings" })).toBeEnabled());
     expect(screen.queryByText("Storage details")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "File settings" }));
     await screen.findByRole("dialog", { name: "File settings" });
@@ -77,7 +77,7 @@ describe("Files settings and local navigation", () => {
       new Error("FILES_AUTHORITY_UNAVAILABLE"),
     );
     render(<FilesWorkspace />);
-    await waitFor(() => expect(files.settings).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "File settings" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "File settings" }));
     const analysis = await screen.findByRole("switch", {
       name: "Allow library analysis",
@@ -106,7 +106,7 @@ describe("Files settings and local navigation", () => {
       return value;
     });
     render(<FilesWorkspace />);
-    await waitFor(() => expect(files.settings).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "File settings" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "File settings" }));
     const automatic = await screen.findByRole("switch", {
       name: "Automatically organize new uploads",
@@ -119,7 +119,11 @@ describe("Files settings and local navigation", () => {
         expect.any(AbortSignal),
       ),
     );
-    await waitFor(() => expect(automatic).toBeDisabled());
+    await waitFor(() => {
+      expect(automatic).toHaveAttribute("aria-checked", "false");
+      expect(screen.getByRole("switch", { name: "Allow library analysis" })).toBeEnabled();
+    });
+    expect(automatic).toBeDisabled();
     fireEvent.click(automatic);
     expect(files.configure).toHaveBeenCalledTimes(1);
   });
