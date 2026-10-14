@@ -59,8 +59,7 @@ import type {
 import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
-import { ProfileInnerReviewIcon } from "@/components/profile/profile-inner-icons";
-import { ProfileSecondaryRefreshIcon } from "@/components/profile/profile-secondary-icons";
+import { ReviewRowIcon } from "@/components/icons/agents";
 import { HelperText } from "@/components/app-ui/typography";
 
 const listShellClassName = cn(
@@ -303,9 +302,9 @@ export function PkmDataManagerPanel({
   return (
     <div className="space-y-4">
       <SettingsGroup description={savedDetailsSummary}>
-        {!needsUnlock ? <SettingsRow icon={ProfileInnerReviewIcon} iconTone="capability"
+        {!needsUnlock ? <SettingsRow icon={ReviewRowIcon} iconTone="capability"
           title="Manage sharing" chevron onClick={onOpenSharing} /> : null}
-        <SettingsRow icon={ProfileSecondaryRefreshIcon} iconTone="capability"
+        <SettingsRow icon={SyncRowIcon} iconTone="capability"
           title="Refresh" onClick={onRefresh} />
       </SettingsGroup>
 

@@ -13,6 +13,50 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Active Profile parity correction — 2026-10-13
+
+The installed qualification product on both physical devices is `8cdf24f098`,
+Debug 1.4.0 (69), UAT-backed; executable SHA-256
+`01fb5e14afcb2bb86a523143ed5d05e939f96a7ec4396d2b5994f1dfacc8a725`.
+Its exact local core passed in 475 seconds. This supersedes installed identities
+in the historical checkpoints below, not their stated verification limits.
+
+The Delete crash was an attempt to replace UIKit's alert presentation delegate.
+Owned alerts now retain UIKit's delegate and their actual dismissal completion;
+custom sheets retain the adaptive delegate. The actual alert regression passes
+and fails with the old assignment. Physical iPhone Delete confirmation/Cancel
+passes without deleting a chat.
+
+Profile Close delivered successfully but traversed to an earlier open query root.
+The shared history owner now preserves untracked in-place nested navigation.
+The iPhone Invite/Help/Privacy/Terms return sequence and final Close restore the
+same Chat host/draft; the exact core and 47 owning cases pass. Readmission alone
+was not the Close RCA. An iPad warm run reaches Preferences/Gemini/Voice,
+Security/Vault, Devices and Connectors, then stops at Referrals route admission.
+That run does not qualify its remaining destinations or final Close.
+
+The next candidate corrects a separate pre-slide scroll jump: mounting a retained
+destination must not restore the outgoing screen's scroll or overwrite its return
+position. Restoration follows the active screen key, not retained-entry changes.
+The owning regression holds the entry frame and checks push/pop positions; the
+old dependency list fails. This is not proof of all reported physical flicker.
+
+| Family | Current renderer and operation owner | Next correction / qualification limit |
+| --- | --- | --- |
+| Profile root icons | Native templates generated from the shared React roster | Match the 28px glyph / 32px well and title column; regenerate matching-resolution assets. No second artwork source. |
+| Nested Account, Security, Legal, Devices, Referrals and Memory rows | Shared React content; native acknowledged Back/Close | Remove pane-only legacy glyph selections. Reuse the pane styling context and preserve capability colors/sizing. Optimized Chromium/WebKit phone/tablet geometry passes; new physical candidate pending. |
+| Emoji-opened One panel | Shared hero, owner-gated name, model control and Feed/Profile body inside the owned content pane | Native Back/Close; eliminate the divergent two-row menu and tab-dependent handoff. Feed read/filter boundaries and owner isolation remain authoritative. Rich body/tabs remain React, not a qualified whole-native sliding drawer. |
+| Appearance, Accent and One/Puppy | Existing authored NativeChrome finite-choice families | Update retained presentation and existing controlled values. Moving/stacked controls remain React until their complete overlap composition is qualified. |
+| Short menus and bounded single-value/date choices | Existing owned native presenter and React validation | Single-value contract only; no production date/finite-wheel consumer is declared qualified by this audit. |
+| Searchable multiselects and Connect/Memory/Mail/Finance pagers | Existing React selection or pager owner | No array-value native contract exists. Do not map them to a single-value picker or add a second tab/router authority. Independent native adoption requires complete semantics and device evidence. |
+
+Installing the next iPhone candidate is authorized despite its detected unsent
+draft; the safety check did not clear it. iPad preparation remains separately
+session-preserving. Neither unit/layout results nor compile/install receipts prove
+native visual, accessibility, ten-cycle or physical Release performance acceptance.
+
+The following sections retain dated experimental and preparation history.
+
 ### Merged candidate and preparation authority — 2026-10-13
 
 The current candidate incorporates main through `ae85461ceb`, including Rive

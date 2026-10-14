@@ -2775,13 +2775,13 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   background: var(--profile-pane-hair) !important;
 }
 
-.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] {
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) {
   width: 24px !important;
   height: 24px !important;
   color: var(--ios-account-label) !important;
 }
 
-.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] svg {
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg {
   width: 24px !important;
   height: 24px !important;
   stroke-width: 1.8 !important;

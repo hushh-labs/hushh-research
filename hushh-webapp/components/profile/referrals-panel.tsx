@@ -14,19 +14,7 @@ import {
   UseAgentRowIcon,
   WarningRowIcon,
 } from "@/components/icons/agents";
-import { ProfilePaneInviteIcon } from "@/components/profile/profile-pane-icons";
 import typographyStyles from "@/components/profile/profile-secondary-typography.module.css";
-import {
-  ProfileInnerAgentIcon,
-  ProfileInnerJoinIcon,
-  ProfileInnerLinkIcon,
-  ProfileInnerPeopleIcon,
-  ProfileInnerProgressIcon,
-  ProfileInnerQualifiedIcon,
-  ProfileInnerReviewIcon,
-  ProfileInnerSuccessIcon,
-  ProfileInnerWarningIcon,
-} from "@/components/profile/profile-inner-icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Input } from "@/components/ui/input";
@@ -70,31 +58,18 @@ export function ReferralsPanel({
   panePresentation?: boolean;
 }) {
   const { user } = useAuth();
-  const icons = panePresentation
-    ? {
-        invite: ProfilePaneInviteIcon,
-        link: ProfileInnerLinkIcon,
-        join: ProfileInnerJoinIcon,
-        agent: ProfileInnerAgentIcon,
-        qualified: ProfileInnerQualifiedIcon,
-        success: ProfileInnerSuccessIcon,
-        people: ProfileInnerPeopleIcon,
-        progress: ProfileInnerProgressIcon,
-        review: ProfileInnerReviewIcon,
-        warning: ProfileInnerWarningIcon,
-      }
-    : {
-        invite: InviteFriendsProfileIcon,
-        link: LinkRowIcon,
-        join: JoinRowIcon,
-        agent: UseAgentRowIcon,
-        qualified: QualifiedRowIcon,
-        success: SuccessRowIcon,
-        people: PeopleRowIcon,
-        progress: ProgressRowIcon,
-        review: ReviewRowIcon,
-        warning: WarningRowIcon,
-      };
+  const icons = {
+    invite: InviteFriendsProfileIcon,
+    link: LinkRowIcon,
+    join: JoinRowIcon,
+    agent: UseAgentRowIcon,
+    qualified: QualifiedRowIcon,
+    success: SuccessRowIcon,
+    people: PeopleRowIcon,
+    progress: ProgressRowIcon,
+    review: ReviewRowIcon,
+    warning: WarningRowIcon,
+  };
   const [state, setState] = useState<LoadState>("loading");
   const [showProgress, setShowProgress] = useState(false);
   const [summary, setSummary] = useState<ReferralSummary | null>(null);

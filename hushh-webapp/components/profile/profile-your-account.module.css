@@ -106,7 +106,7 @@
 
   :is(:global(.profile-pane-scroll-root)
     .paneAccountContent, .walletContent)
-    :global([data-slot="settings-row-icon"]) {
+    :global([data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"])) {
     width: 31px !important;
     height: 31px !important;
     color: var(--account-icon) !important;
@@ -115,14 +115,14 @@
 
   :is(:global(.profile-pane-scroll-root)
     .paneAccountContent, .walletContent)
-    :global([data-slot="settings-row-icon"] svg) {
+    :global([data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg) {
     width: 22px !important;
     height: 22px !important;
   }
 
   :is(:global(.profile-pane-scroll-root)
     .paneAccountContent, .walletContent)
-    :global([data-slot="settings-row-icon"] svg:not([data-canonical-icon])),
+    :global([data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg:not([data-canonical-icon])),
   :is(:global(.profile-pane-scroll-root)
     .paneAccountContent, .walletContent)
     :global(.profile-account-line-icon) {

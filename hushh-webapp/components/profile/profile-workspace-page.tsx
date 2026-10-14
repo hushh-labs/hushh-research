@@ -38,29 +38,6 @@ import {
   VoiceRowIcon,
   WalletAgentIcon,
 } from "@/components/icons/agents";
-import {
-  ProfilePaneSecurityIcon,
-  ProfilePaneSignOutIcon,
-} from "@/components/profile/profile-pane-icons";
-import {
-  ProfileInnerPeopleIcon,
-  ProfileInnerReviewIcon,
-} from "@/components/profile/profile-inner-icons";
-import {
-  ProfileSecondaryInboxIcon,
-  ProfileSecondaryLocationIcon,
-  ProfileSecondaryRefreshIcon,
-  ProfileSecondaryVisibilityIcon,
-} from "@/components/profile/profile-secondary-icons";
-import {
-  ProfileAccountDeleteIcon,
-  ProfileAccountMailIcon,
-  ProfileAccountNameIcon,
-  ProfileAccountPhoneIcon,
-  ProfileAccountProviderIcon,
-  ProfileAccountResetIcon,
-  ProfileAccountWalletIcon,
-} from "@/components/profile/profile-your-account-icons";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
@@ -3437,11 +3414,7 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={
-            isPanePresentation
-              ? ProfileSecondaryLocationIcon
-              : LocationAgentIcon
-          }
+          icon={LocationAgentIcon}
           iconTone="capability"
           title="Location sharing"
           description="Manage live location."
@@ -3451,7 +3424,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.ONE_LOCATION)}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileInnerReviewIcon : ConsentAgentIcon}
+          icon={ConsentAgentIcon}
           iconTone="capability"
           title="Consent center"
           description="Review sharing."
@@ -3461,9 +3434,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.CONSENTS)}
         />
         <SettingsRow
-          icon={
-            isPanePresentation ? ProfileInnerPeopleIcon : DiscoverableRowIcon
-          }
+          icon={DiscoverableRowIcon}
           iconTone="capability"
           title="Find and connect me by phone number"
           description={contactDiscoverableStatusText}
@@ -3481,11 +3452,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={
-            isPanePresentation
-              ? ProfileSecondaryVisibilityIcon
-              : MarketplaceAgentIcon
-          }
+          icon={MarketplaceAgentIcon}
           iconTone="capability"
           title="Marketplace visibility"
           description={marketplaceStatusText}
@@ -3524,9 +3491,7 @@ function ProfilePageContent({
       {presentation === "native-page" ? <ProfileAvatarEditor /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
-          icon={
-            isPanePresentation ? ProfileAccountNameIcon : AccountProfileIcon
-          }
+          icon={AccountProfileIcon}
           iconTone="capability"
           title="Display name"
           description={user.displayName || "Not available"}
@@ -3553,13 +3518,13 @@ function ProfilePageContent({
           </div>
         ) : null}
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
+          icon={GmailAgentIcon}
           iconTone="capability"
           title="Mail"
           description={user.email || "Not available"}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountPhoneIcon : PhoneRowIcon}
+          icon={PhoneRowIcon}
           iconTone="capability"
           title="Phone number"
           description={phoneSummaryText}
@@ -3574,23 +3539,18 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountProviderIcon : undefined}
           iconTone="capability"
           leading={
-            isPanePresentation ? undefined : (
               <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
                 <ProviderIcon providerId={provider.id} email={user.email} />
               </span>
-            )
           }
           title="Sign-in provider"
           description={provider.name}
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={
-              isPanePresentation ? ProfileAccountWalletIcon : WalletAgentIcon
-            }
+            icon={WalletAgentIcon}
             iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
@@ -3602,7 +3562,7 @@ function ProfilePageContent({
       </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountResetIcon : ResetRowIcon}
+          icon={ResetRowIcon}
           iconTone="capability"
           className="profile-account-reset-row"
           title="Reset account"
@@ -3611,7 +3571,7 @@ function ProfilePageContent({
           onClick={() => void handleResetClick()}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountDeleteIcon : DeleteRowIcon}
+          icon={DeleteRowIcon}
           iconTone="capability"
           className="profile-account-delete-row"
           testId="profile-account-delete-row"
@@ -3666,11 +3626,7 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={
-            isPanePresentation
-              ? ProfilePaneSecurityIcon
-              : FingerprintProfileIcon
-          }
+          icon={FingerprintProfileIcon}
           iconTone="capability"
           title="Vault methods"
           description="Passphrase, passkey, and unlock method."
@@ -3864,7 +3820,7 @@ function ProfilePageContent({
     >
       <SettingsGroup>
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
+          icon={GmailAgentIcon}
           iconTone="capability"
           title="Connection"
           description={gmailSettingsDescription}
@@ -3879,7 +3835,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryRefreshIcon : SyncRowIcon}
+          icon={SyncRowIcon}
           iconTone="capability"
           title="Actions"
           description="Sync, receipts, or disconnect."
@@ -3920,7 +3876,7 @@ function ProfilePageContent({
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
-            icon={isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon}
+            icon={VaultRowIcon}
             iconTone="capability"
             title="Create your vault"
             description="Secure saved details."
@@ -3940,9 +3896,7 @@ function ProfilePageContent({
           <>
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
-                icon={
-                  isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon
-                }
+                icon={VaultRowIcon}
                 iconTone="capability"
                 title="Unlock vault"
                 description="Change methods or passphrase."
@@ -3978,7 +3932,7 @@ function ProfilePageContent({
     >
       <SettingsGroup title="Connection">
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
+          icon={GmailAgentIcon}
           iconTone="capability"
           title="Status"
           description={gmailSettingsDescription}
@@ -3986,7 +3940,7 @@ function ProfilePageContent({
           stackTrailingOnMobile
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryInboxIcon : InboxRowIcon}
+          icon={InboxRowIcon}
           iconTone="capability"
           title="Inbox"
           description={
@@ -3998,7 +3952,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryRefreshIcon : SyncRowIcon}
+          icon={SyncRowIcon}
           iconTone="capability"
           title="Latest sync"
           description={gmailLastSyncText}
@@ -4394,9 +4348,7 @@ function ProfilePageContent({
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
-              icon={
-                isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon
-              }
+              icon={SignOutProfileIcon}
               iconTone="capability"
               title="Sign out"
               description="Sign out on this device."
@@ -4835,7 +4787,7 @@ function ProfilePageContent({
       surfaceOpen={nativeMenuOpen}
       name={user.displayName || "Your account"} email={user.email} onClose={() => onNativeMenuClose?.()}
       groups={menuGroups} actions={menuActions} />
-    <NativeFeaturePage pane open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
+    <NativeFeaturePage pane bodyClassName="profile-pane-scroll-root" open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
       owner={user.uid} context={JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail])}
       onReady={() => setNativeDetailReady(nativeDetailOwner)}
       onClose={() => onNativeMenuClose?.()}

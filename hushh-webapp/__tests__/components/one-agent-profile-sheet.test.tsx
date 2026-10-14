@@ -7,11 +7,17 @@ const mocks = vi.hoisted(() => ({
   unlocked: true,
   identityOwner: "viewer",
   preferredName: "Love",
+  native: false,
   list: vi.fn(),
   markRead: vi.fn(),
   push: vi.fn(),
   close: vi.fn(),
   getIdToken: vi.fn().mockResolvedValue("viewer-token"),
+}));
+vi.mock("@/lib/capacitor/native-drawers", () => ({ nativeDrawersPlatformEligible: () => mocks.native }));
+vi.mock("@/components/app-ui/native-feature-page", () => ({
+  NativeFeaturePage: ({ open, context, children, onBack, onClose }: { open: boolean; context: string; children: React.ReactNode; onBack: () => void; onClose: () => void }) =>
+    open ? <section data-testid="native-one-pane" data-context={context}><button onClick={onBack}>Back to Chat</button><button onClick={onClose}>Close One profile</button>{children}</section> : null,
 }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: "viewer", getIdToken: mocks.getIdToken } }),
@@ -46,6 +52,7 @@ describe("One agent profile feed preview", () => {
     mocks.unlocked = true;
     mocks.identityOwner = "viewer";
     mocks.preferredName = "Love";
+    mocks.native = false;
     window.localStorage.clear();
     CacheService.getInstance().clear();
     mocks.list.mockResolvedValue({
@@ -133,5 +140,27 @@ describe("One agent profile feed preview", () => {
     await screen.findByText(/Recent detail/);
     expect(screen.queryByText(/Cleared detail/)).not.toBeInTheDocument();
     expect(mocks.markRead).not.toHaveBeenCalled();
+  });
+
+  it("keeps native One on the shared hero and tabs without replacing the pane or leaking another owner's name", async () => {
+    mocks.native = true;
+    const view = render(<OneAgentProfileSheet open nativeReady onOpenChange={mocks.close} />);
+    const pane = screen.getByTestId("native-one-pane");
+    const binding = pane.dataset.context;
+    expect(screen.getByRole("heading", { name: "Love" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Feed" })).toBeInTheDocument();
+    await screen.findByText("Mail connected");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("link", { name: "Open memory.md in Memory" })).toHaveAttribute("href", "/one/pkm");
+    expect(screen.getByText("Soul preview")).toBeInTheDocument();
+    expect(screen.getByTestId("native-one-pane")).toBe(pane);
+    expect(pane.dataset.context).toBe(binding);
+    expect(mocks.markRead).not.toHaveBeenCalled();
+    mocks.identityOwner = "another-owner";
+    view.rerender(<OneAgentProfileSheet open nativeReady onOpenChange={mocks.close} />);
+    expect(screen.queryByRole("heading", { name: "Love" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close One profile" }));
+    expect(mocks.close).toHaveBeenCalledWith(false);
   });
 });

@@ -3892,15 +3892,16 @@ final class AppUITests: XCTestCase {
             XCTFail("ONE_PROFILE_OPENER_UNAVAILABLE"); return
         }
         oneProfile.tap()
-        let oneClose = app.buttons["native-agent-profile-drawer-close"].firstMatch
+        let oneClose = app.buttons["Close One profile"].firstMatch
         guard waitForAdmittedControl(oneClose) else { XCTFail("ONE_NATIVE_PROFILE_UNAVAILABLE"); return }
-        let oneRow = app.buttons["native-profile-row-one-profile"].firstMatch
-        guard waitForAdmittedControl(oneRow) else { XCTFail("ONE_NATIVE_PROFILE_ROW_UNAVAILABLE"); return }
-        oneRow.tap()
-        let oneBack = app.buttons["Back to One profile"].firstMatch
-        XCTAssertTrue(waitForAdmittedControl(oneBack), "ONE_PROFILE_DETAIL_BACK_UNAVAILABLE")
-        XCTAssertTrue(waitForAdmittedControl(app.buttons["profile-close"].firstMatch))
-        oneBack.tap()
+        let oneTab = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Profile")).firstMatch
+        let feedTab = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Feed")).firstMatch
+        guard waitForAdmittedControl(oneTab), waitForAdmittedControl(feedTab) else { XCTFail("ONE_PROFILE_TABS_UNAVAILABLE"); return }
+        oneTab.tap()
+        let memory = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Open memory.md in Memory")).firstMatch
+        XCTAssertTrue(waitForAdmittedControl(memory), "ONE_PROFILE_SHARED_CONTENT_UNAVAILABLE")
+        XCTAssertTrue(waitForAdmittedControl(app.buttons["Back to Chat"].firstMatch))
+        feedTab.tap()
         XCTAssertTrue(waitForAdmittedControl(oneClose))
         oneClose.tap()
         XCTAssertTrue(waitForAdmittedControl(editor))

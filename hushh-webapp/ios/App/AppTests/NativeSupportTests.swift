@@ -41,9 +41,9 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(NativeProfileArtwork.ids.count, 15)
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
-            XCTAssertEqual(artwork.base.size, CGSize(width: 22, height: 22))
+            XCTAssertEqual(artwork.base.size, CGSize(width: 28, height: 28))
             XCTAssertEqual(artwork.base.renderingMode, .alwaysTemplate)
-            XCTAssertEqual(artwork.accent != nil, ["payouts", "request-pricing"].contains(id))
+            XCTAssertEqual(artwork.accent != nil, ["payouts", "request-pricing", "my-data", "world-model"].contains(id))
         }
         XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
         XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")

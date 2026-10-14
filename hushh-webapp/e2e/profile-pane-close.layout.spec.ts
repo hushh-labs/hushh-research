@@ -180,6 +180,7 @@ test.describe("Profile pane custom close layout", () => {
       });
       const css = stripAppFontFaces(optimize(compiler.build([...candidates]), { minify: true }).code);
       const script = fs.readFileSync(path.join(output, "fixture.js"), "utf8");
+      const modules = fs.existsSync(path.join(output, "fixture.css")) ? fs.readFileSync(path.join(output, "fixture.css"), "utf8") : "";
       for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
         await page.setViewportSize(viewport);
         await page.setContent(`<style>${css}:root { --agent-chat-header-height:116px; --app-bottom-content-clearance:149px; --page-inline-gutter-standard:24px; }</style><div id="root"></div>`);
@@ -241,7 +242,7 @@ test.describe("Profile pane custom close layout", () => {
       // is covered by the focused lifecycle tests, not this geometry fixture.
       for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 1366 }, { width: 1194, height: 834 }]) {
         await page.setViewportSize(viewport);
-        await page.setContent(`<style>${css}:root { --app-safe-area-top-effective:0px; }</style><div id="root" data-pane="true"></div>`);
+        await page.setContent(`<style>${modules}${css}:root { --app-safe-area-top-effective:0px; }</style><div id="root" data-pane="true"></div>`);
         await page.addScriptTag({ content: script });
         const pane = page.locator('[data-native-feature-pane="profile"]');
         await expect(pane).toBeVisible();
@@ -256,6 +257,22 @@ test.describe("Profile pane custom close layout", () => {
         expect(control!.width).toBe(44);
         expect(control!.height).toBe(44);
         expect(control!.y).toBeCloseTo(leading!.y, 0);
+        const glyphs = page.locator('[data-icon-tone="capability"] svg');
+        expect(await glyphs.count()).toBe(2);
+        for (const glyph of await glyphs.all()) {
+          expect(await glyph.getAttribute("viewBox")).toBe("0 0 256 256");
+          const glyphBounds = await glyph.boundingBox();
+          expect(glyphBounds!.width).toBe(28);
+          expect(glyphBounds!.height).toBe(28);
+        }
+        // The former pane/account rules shrank only nested glyphs, despite
+        // their shared registry source. Exercise the real optimized cascade.
+        const smallGlyphRule = await page.addStyleTag({ content:
+          '.profile-pane-scroll-root [data-profile-stack-content="true"] [data-icon-tone="capability"] svg { width:24px !important; height:24px !important; }',
+        });
+        expect((await glyphs.first().boundingBox())!.width).toBe(24);
+        await smallGlyphRule.evaluate(node => node.remove());
+        expect((await glyphs.first().boundingBox())!.width).toBe(28);
         // A nested Profile pane inherits the shared modal backdrop. Only
         // bounded feature pages may suppress it; transparent details caused
         // the reported disappearance during the menu/content handoff.

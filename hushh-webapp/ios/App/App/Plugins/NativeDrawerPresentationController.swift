@@ -656,7 +656,7 @@ struct NativeDrawerContent: View {
                                 ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
                                     profileRow(row)
                                     if index < section.rows.count - 1 {
-                                        Divider().padding(.leading, 50).padding(.trailing, 16)
+                                        Divider().padding(.leading, 60).padding(.trailing, 16)
                                     }
                                 }
                             }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
@@ -680,7 +680,7 @@ struct NativeDrawerContent: View {
                             Image(uiImage: accent).resizable()
                                 .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
                         }
-                    }.frame(width: 22, height: 22).accessibilityHidden(true)
+                    }.frame(width: 28, height: 28).frame(width: 32, height: 32).accessibilityHidden(true)
                 } else if let symbol = row.symbol {
                     Image(systemName: symbol).symbolRenderingMode(.hierarchical).font(.system(size: 28))
                         .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(row.iconHex) ?? .label))

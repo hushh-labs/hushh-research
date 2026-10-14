@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -95,7 +95,7 @@ describe("ProfileStackNavigator", () => {
     expect(screen.queryByRole("button", { name: /back/i })).toBeNull();
   });
 
-  it("resets the route scroll root even while a closing Profile pane remains mounted", () => {
+  it("resets the route scroll root even while a closing Profile pane remains mounted", async () => {
     const appRoot = mountScrollRoot("data-app-scroll-root");
     const paneRoot = mountScrollRoot("data-profile-pane-scroll-root");
     const { rerender } = render(
@@ -120,14 +120,14 @@ describe("ProfileStackNavigator", () => {
       />,
     );
 
-    expect(appRoot.scrollTo).toHaveBeenCalledWith({
+    await waitFor(() => expect(appRoot.scrollTo).toHaveBeenCalledWith({
       top: 0,
       behavior: "auto",
-    });
+    }));
     expect(paneRoot.scrollTo).not.toHaveBeenCalled();
   });
 
-  it("uses the pane scroll root for in-pane Profile navigation", () => {
+  it("uses the pane scroll root for in-pane Profile navigation", async () => {
     const appRoot = mountScrollRoot("data-app-scroll-root");
     const paneRoot = mountScrollRoot("data-profile-pane-scroll-root");
     const { rerender } = render(
@@ -156,14 +156,18 @@ describe("ProfileStackNavigator", () => {
       />,
     );
 
-    expect(paneRoot.scrollTo).toHaveBeenCalledWith({
+    await waitFor(() => expect(paneRoot.scrollTo).toHaveBeenCalledWith({
       top: 0,
       behavior: "auto",
-    });
+    }));
     expect(appRoot.scrollTo).not.toHaveBeenCalled();
   });
 
   it("owns native detail scrolling without touching a retained web pane or Chat", () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let sequence = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { frames.set(++sequence, callback); return sequence; });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(id => { frames.delete(id); });
     const appRoot = mountScrollRoot("data-app-scroll-root");
     const stalePane = mountScrollRoot("data-profile-pane-scroll-root");
     const nativeRoot = mountScrollRoot("data-native-feature-scroll-root");
@@ -173,7 +177,16 @@ describe("ProfileStackNavigator", () => {
     nativeRoot.root.scrollTop = 72;
     view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} resetScroll={false}
       entries={[{ key: "preferences", title: "Preferences", content: <div>Public controls</div> }]} />);
+    // The outgoing pane owns scroll until the entry frame. Mounting the new
+    // screen must not reset it or save a corrupted zero return position.
+    expect(nativeRoot.root.scrollTop).toBe(72);
+    expect(nativeRoot.scrollTo).not.toHaveBeenCalled();
+    act(() => { [...frames.values()].forEach(callback => callback(0)); frames.clear(); });
     expect(nativeRoot.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "auto" });
+    nativeRoot.root.scrollTop = 24;
+    nativeRoot.scrollTo.mockClear();
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} resetScroll={false} entries={[]} />);
+    expect(nativeRoot.root.scrollTop).toBe(72);
     expect(appRoot.scrollTo).not.toHaveBeenCalled();
     expect(stalePane.scrollTo).not.toHaveBeenCalled();
     nativeRoot.root.remove();
