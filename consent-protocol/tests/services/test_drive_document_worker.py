@@ -21,7 +21,7 @@ async def test_worker_requires_explicit_rollout_for_each_owner(monkeypatch):
     result = await worker.run(max_jobs=2)
     assert result == {"schema_version": "drive.worker.v1", "outcomes": {"ready": 1, "disabled": 1}}
     worker.due_owners.assert_awaited_once_with(2)
-    service.run_one.assert_awaited_once_with(user_id="approved-owner")
+    service.run_one.assert_awaited_once_with(user_id="approved-owner", prefer_profile_upgrade=True)
     assert "owner" not in str(result) and "PRIVATE" not in str(result)
 
 
@@ -57,6 +57,12 @@ async def test_busy_extraction_reserves_parallel_facts_and_packet_budget(monkeyp
     monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", wake)
     result = await worker.run(max_jobs=8, deadline_seconds=160)
     assert service.run_one.await_count == 4
+    assert [call.kwargs["prefer_profile_upgrade"] for call in service.run_one.await_args_list] == [
+        True,
+        False,
+        False,
+        False,
+    ]
     discovery.run.assert_awaited_once_with(max_jobs=2, deadline_seconds=100)
     packet_worker.run.assert_awaited_once()
     assert result["outcomes"] == {"ready": 4, "synced": 2, "queued": 2}

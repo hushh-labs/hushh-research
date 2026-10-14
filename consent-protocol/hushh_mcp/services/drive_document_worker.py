@@ -11,6 +11,7 @@ from hushh_mcp.services.connector_feature_admission import (
     connector_feature_enabled,
     connector_feature_owner_cohort,
 )
+from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_ingestion_service import DriveIngestionService
@@ -42,21 +43,48 @@ class DriveDocumentWorker:
             return list(
                 connection.execute(
                     text("""
-                SELECT d.user_id FROM connected_documents d
-                JOIN user_external_connector_connections c
-                  ON c.user_id=d.user_id AND c.connector_id='google_drive'
-                    AND c.connection_generation=d.connection_generation
-                WHERE c.status='connected' AND c.validation_state='verified'
-                  AND (:all_owners OR d.user_id=ANY(CAST(:owners AS text[])))
-                  AND d.processing_enabled AND (d.processing_disclosure_version=:disclosure
-                    OR (d.source_profile='live' AND d.processing_disclosure_version='live-drive-collection-v1'))
-                  AND d.status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
-                  AND d.next_attempt_at<=clock_timestamp() AND (d.source_profile='live' OR d.attempt_count<5)
-                  AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
-                GROUP BY d.user_id ORDER BY min(d.next_attempt_at),d.user_id LIMIT :limit
+                WITH owner_jobs AS (
+                  SELECT d.user_id,0 AS lane,min(d.next_attempt_at) AS due_at
+                  FROM connected_documents d
+                  JOIN user_external_connector_connections c
+                    ON c.user_id=d.user_id AND c.connector_id='google_drive'
+                      AND c.connection_generation=d.connection_generation
+                  WHERE c.status='connected' AND c.validation_state='verified'
+                    AND (:all_owners OR d.user_id=ANY(CAST(:owners AS text[])))
+                    AND d.processing_enabled AND (d.processing_disclosure_version=:disclosure
+                      OR (d.source_profile='live' AND d.processing_disclosure_version='live-drive-collection-v1'))
+                    AND d.status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
+                    AND d.next_attempt_at<=clock_timestamp()
+                    AND (d.source_profile='live' OR d.attempt_count<5)
+                    AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
+                  GROUP BY d.user_id
+                  UNION ALL
+                  SELECT e.user_id,1 AS lane,min(e.updated_at) AS due_at
+                  FROM drive_document_extractions e
+                  JOIN connected_documents d ON d.document_id=e.document_id
+                    AND d.active_version=e.extraction_version
+                  JOIN user_external_connector_connections c
+                    ON c.user_id=e.user_id AND c.connector_id='google_drive'
+                      AND c.connection_generation=e.connection_generation
+                  WHERE c.status='connected' AND c.validation_state='verified'
+                    AND (:all_owners OR e.user_id=ANY(CAST(:owners AS text[])))
+                    AND e.extraction_profile<>:extraction_profile
+                    AND d.user_id=e.user_id AND d.connection_generation=e.connection_generation
+                    AND d.source_profile='live' AND d.processing_enabled
+                    AND d.processing_disclosure_version='live-drive-collection-v1'
+                    AND d.status='ready'
+                    AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
+                  GROUP BY e.user_id
+                )
+                SELECT user_id FROM owner_jobs
+                GROUP BY user_id
+                ORDER BY min(lane),
+                  min(due_at) FILTER (WHERE lane=0) NULLS LAST,
+                  min(due_at) FILTER (WHERE lane=1),user_id LIMIT :limit
             """),
                     {
                         "disclosure": PROCESSING_DISCLOSURE_VERSION,
+                        "extraction_profile": EXTRACTION_PROFILE,
                         "limit": limit,
                         "all_owners": cohort is None,
                         "owners": list(cohort or ()),
@@ -98,14 +126,16 @@ class DriveDocumentWorker:
                     break
                 semaphore = asyncio.Semaphore(4)
 
-                async def one(owner, semaphore=semaphore):
+                async def one(owner, *, prefer_profile_upgrade, semaphore=semaphore):
                     async with semaphore:
                         if not connector_feature_enabled("drive_document_indexing", owner):
                             counts["disabled"] += 1
                             blocked.add(owner)
                             return
                         try:
-                            outcome = await self.service.run_one(user_id=owner)
+                            outcome = await self.service.run_one(
+                                user_id=owner, prefer_profile_upgrade=prefer_profile_upgrade
+                            )
                             status = outcome.get("status")
                             counts[
                                 status
@@ -127,7 +157,12 @@ class DriveDocumentWorker:
                             counts["not_ready"] += 1
                             blocked.add(owner)
 
-                await asyncio.gather(*(one(owner) for owner in owners))
+                await asyncio.gather(
+                    *(
+                        one(owner, prefer_profile_upgrade=(processed + index) % 4 == 0)
+                        for index, owner in enumerate(owners)
+                    )
+                )
                 processed += len(owners)
 
         async def discovery():
