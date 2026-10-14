@@ -154,6 +154,15 @@ final class AppUITests: XCTestCase {
             print("COHERENT_HISTORY_AX_ELEMENT index=\(index) hittable=\(candidate.isHittable) x=\(Int(frame.minX.rounded())) y=\(Int(frame.minY.rounded())) width=\(Int(frame.width.rounded())) height=\(Int(frame.height.rounded()))")
         }
         print("COHERENT_SHELL_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists) software_keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
+        for (name, label, identifier) in [("one_profile", "Open One profile", "public-one-profile-opener"),
+                                         ("connectors", "Connectors", "native-history-row-connectors")] {
+            let byLabel = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label))
+            let byId = app.descendants(matching: .any).matching(identifier: identifier)
+            let candidate = byLabel.firstMatch
+            let observed = candidate.exists ? candidate.frame : .zero
+            let frame = [observed.minX, observed.minY, observed.width, observed.height].allSatisfy({ $0.isFinite && abs($0) <= 10_000 }) ? observed : .zero
+            print("COHERENT_PUBLIC_CONTROL name=\(name) label_count=\(byLabel.count) id_count=\(byId.count) role=\(candidate.exists ? candidate.elementType.rawValue : 0) hittable=\(candidate.exists && candidate.isHittable) x=\(Int(frame.minX)) y=\(Int(frame.minY)) width=\(Int(frame.width)) height=\(Int(frame.height))")
+        }
         let probe = app.buttons["native-profile-back-admission"].firstMatch
         if let raw = probe.exists ? probe.value as? String : nil, raw.utf8.count <= 1024 {
             let fields = Dictionary(raw.split(separator: ";").compactMap { item -> (String, String)? in
@@ -1143,7 +1152,7 @@ final class AppUITests: XCTestCase {
                     print("COHERENT_HISTORY_ACTION_STAGE stage=delete_cancelled")
                     guard waitForAdmittedControl(close) else { XCTFail("COHERENT_HISTORY_CONFIRMATION_DID_NOT_RETIRE"); return }
                     let connectors = app.buttons["native-history-row-connectors"].firstMatch
-                    guard waitForAdmittedControl(connectors) else { XCTFail("COHERENT_HISTORY_CONNECTORS_TRIGGER_UNAVAILABLE"); return }
+                    guard waitForAdmittedControl(connectors) else { printCoherentPresentationAdmission(app); XCTFail("COHERENT_HISTORY_CONNECTORS_TRIGGER_UNAVAILABLE"); return }
                     connectors.tap()
                     print("COHERENT_HISTORY_ACTION_STAGE stage=connectors_opened")
                     let connectorsBack = app.buttons["Back to chats"].firstMatch
@@ -4835,6 +4844,7 @@ final class AppUITests: XCTestCase {
         let reviewerLabel = NSPredicate(format: "label == %@", reviewerEmail)
         let privateEntryAdmitted = { (field: XCUIElement) -> Bool in
             let account = owningWebView.staticTexts.matching(reviewerLabel).firstMatch
+            print("VAULT_ENTRY_FENCE owner_present=\(account.exists) owner_hittable=\(account.exists && account.isHittable) single_host=\(hosts.count == 1) field_hittable=\(field.exists && field.isHittable) privacy_cover=\(privacyCover.exists)")
             return !reviewerEmail.isEmpty && hosts.count == 1 &&
                 field.exists && field.isHittable && !privacyCover.exists && account.exists && account.isHittable
         }
