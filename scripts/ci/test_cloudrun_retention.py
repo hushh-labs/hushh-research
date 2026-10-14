@@ -8,13 +8,12 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest import mock
-
-import yaml
 
 SCRIPT = pathlib.Path(__file__).with_name("cloudrun-retention.py")
 SPEC = importlib.util.spec_from_file_location("cloudrun_retention", SCRIPT)
@@ -1866,30 +1865,54 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     deploy.index("google-github-actions/auth@"),
                 )
                 self.assertIn("group: deploy-" + environment, source)
-                workflow = yaml.safe_load(source)
-
                 def check_actions_read(document):
-                    permissions = document["jobs"]["deploy"].get(
-                        "permissions", document.get("permissions", {})
-                    )
-                    self.assertEqual(permissions.get("actions"), "read")
-                    guards = [step for step in document["jobs"]["deploy"]["steps"]
-                              if "--check-mutations" in step.get("run", "")]
-                    self.assertEqual(len(guards), 1)
-                    self.assertEqual(guards[0].get("env", {}).get("GH_TOKEN"),
-                                     "${{ secrets.GITHUB_TOKEN }}")
+                    # These authored mappings use block YAML. Keep the governance
+                    # runner stdlib-only and respect job permission replacement.
+                    def block(text, header):
+                        lines = text.splitlines()
+                        if header not in lines:
+                            return None
+                        start = lines.index(header) + 1
+                        indent = len(header) - len(header.lstrip())
+                        end = start
+                        while end < len(lines):
+                            line = lines[end]
+                            if line.strip() and len(line) - len(line.lstrip()) <= indent:
+                                break
+                            end += 1
+                        return "\n".join(lines[start:end])
 
-                check_actions_read(workflow)
-                missing_read = copy.deepcopy(workflow)
-                missing_read["jobs"]["deploy"]["permissions"] = {"contents": "read"}
+                    job = block(document, "  deploy:")
+                    self.assertIsNotNone(job)
+                    permissions = block(job, "    permissions:")
+                    if permissions is None:
+                        permissions = block(document, "permissions:")
+                    self.assertIsNotNone(permissions)
+                    self.assertRegex(permissions, r"(?m)^\s+actions: read\s*$")
+                    guards = [step for step in re.split(r"(?m)(?=^      - )", job)
+                              if "--check-mutations" in step]
+                    self.assertEqual(len(guards), 1)
+                    environment = block(guards[0], "        env:")
+                    self.assertIsNotNone(environment)
+                    self.assertIn("          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}", environment.splitlines())
+
+                check_actions_read(source)
+                missing_read = source.replace(
+                    "  deploy:\n", "  deploy:\n    permissions:\n      contents: read\n", 1
+                )
                 with self.assertRaises(AssertionError):
                     check_actions_read(missing_read)
-                missing_token = copy.deepcopy(workflow)
-                for step in missing_token["jobs"]["deploy"]["steps"]:
-                    if "--check-mutations" in step.get("run", ""):
-                        step["env"].pop("GH_TOKEN")
+                missing_token = source.replace(
+                    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n", "", 1
+                )
                 with self.assertRaises(AssertionError):
                     check_actions_read(missing_token)
+                wrong_token = source.replace(
+                    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
+                    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}suffix\n", 1
+                )
+                with self.assertRaises(AssertionError):
+                    check_actions_read(wrong_token)
 
     def test_production_does_not_restore_older_settled_receipt_before_newer_uncertain_one(self):
         runs = {n: self.trusted_source(n, "capacity-maintenance.yml") for n in (10, 20)}
