@@ -1,6 +1,7 @@
 // Synthetic auth/native/Mail/cache boundaries; the production drawer, Drive
 // transport, popup controller, Picker adapter and card actions are unchanged.
 import { createContext, useState } from "react";
+export function usePathname() { return "/"; }
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];
 export const loadCustomConnectorSnapshot = async () => ({

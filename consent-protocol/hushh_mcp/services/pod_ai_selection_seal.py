@@ -56,7 +56,7 @@ PURPOSE = "ai_selection"
 HKDF_INFO = b"hussh/ai-selection/v1"
 MAX_API_KEY_CHARS = 512
 #: The providers this agent can run a person's turns on with their own key.
-SUPPORTED_PROVIDERS: tuple[str, ...] = ("gemini", "openai")
+SUPPORTED_PROVIDERS: tuple[str, ...] = ("gemini", "openai", "azure_openai")
 GEMINI_TRANSPORTS = frozenset({"developer_api", "vertex_api_key"})
 
 STALE_SELECTION = "STALE_SELECTION"
@@ -64,7 +64,7 @@ PROVIDER_UNSUPPORTED = "PROVIDER_UNSUPPORTED"
 
 _AAD_KEYS = frozenset({"purpose", "hushhId", "podKeyId", "issuedAtMs", "selectionId"})
 _PLAINTEXT_KEYS = frozenset(
-    {"provider", "model", "apiKey", "transport", "vertexProject", "vertexLocation"}
+    {"provider", "model", "apiKey", "transport", "vertexProject", "vertexLocation", "azureEndpoint"}
 )
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 
@@ -90,6 +90,7 @@ class OpenedSelection:
     vertex_location: Optional[str]
     issued_at_ms: int
     selection_id: str
+    azure_endpoint: Optional[str] = None
 
 
 def b64url_decode(text: Any, *, length: Optional[int] = None) -> bytes:
@@ -158,6 +159,18 @@ def _parse_plaintext(raw: bytes) -> dict[str, Any]:
     transport = _optional_text(body.get("transport"), limit=32)
     project = _optional_text(body.get("vertexProject"), limit=64)
     location = _optional_text(body.get("vertexLocation"), limit=64)
+    endpoint = _optional_text(body.get("azureEndpoint"), limit=256)
+    if provider == "azure_openai":
+        from hushh_mcp.runtime_providers.owner_azure_key import configuration  # noqa: PLC0415
+
+        if not endpoint or not model or transport is not None or project or location:
+            raise AiSelectionRefused(BAD_ENVELOPE)
+        try:
+            endpoint = configuration(endpoint, model).endpoint
+        except ValueError:
+            raise AiSelectionRefused(BAD_ENVELOPE) from None
+    elif endpoint:
+        raise AiSelectionRefused(BAD_ENVELOPE)
     if provider == "openai" and (transport not in {None, "developer_api"} or project or location):
         raise AiSelectionRefused(BAD_ENVELOPE)
     if transport is not None and transport not in GEMINI_TRANSPORTS:
@@ -171,6 +184,7 @@ def _parse_plaintext(raw: bytes) -> dict[str, Any]:
         "transport": transport,
         "vertex_project": project,
         "vertex_location": location,
+        "azure_endpoint": endpoint,
     }
 
 

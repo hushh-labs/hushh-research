@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -9,6 +9,7 @@ import { boundedDock, DockEventFence, getNativeDockCapabilities, nativeDock, nex
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { getNativeSessionPrivacyState, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
+import { nativeDrawerIsolation, observeNativeDrawerIsolation } from "@/lib/capacitor/native-drawers";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useAgentDockState } from "./agent-dock";
 import { useNativeDockPorts } from "./native-dock-port";
@@ -38,7 +39,9 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const ports = useNativeDockPorts();
   const theme = useNativeControlAppearance("secondary");
   const suppressed = useSessionChromeSuppressed();
-  const overlay = useNativeShellOverlayBlocked();
+  const webOverlay = useNativeShellOverlayBlocked();
+  const nativeCovered = useSyncExternalStore(observeNativeDrawerIsolation, () => nativeDrawerIsolation().isolated, () => false);
+  const overlay = webOverlay || nativeCovered;
   const regionRevision = useNativePresentationRegionRevision();
   const [supported, setSupported] = useState(false);
   const [discovered, setDiscovered] = useState(false);
@@ -51,6 +54,8 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const identity = useRef<DockIdentity | null>(null);
   const underlay = useRef(false);
   const reservedRegions = useRef(false);
+  const coherentPresentation = useRef(false);
+  const snapshotSupported = useRef(false);
   const fence = useRef<DockEventFence | null>(null);
   const generation = useRef(0);
   const previousOverlay = useRef(overlay);
@@ -68,7 +73,23 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     // Presentation survives coverage; a pending action must not survive an
     // open/close cycle just because the same editor is retained.
     generation.current++;
-  }, [overlay]);
+    if (!overlay || !snapshotSupported.current || !identity.current || !applied.current || !port || port.projection.mode !== "text") return;
+    const captured = identity.current, privacyGeneration = applied.current.privacyGeneration, account = user?.uid, handoffGeneration = generation.current;
+    const original = port.projection;
+    // The drawer may synchronously revoke input choices before the final edit
+    // receipt reaches JS. Reconcile the committed text only, never an action.
+    pending.current = pending.current.then(async () => {
+      const result = await boundedDock(nativeDock.snapshotDraft({ ...captured, context: original.context,
+        editorRevision: original.editorRevision, privacyGeneration }));
+      const live = current.current, next = live.ports?.get(live.family);
+      if (!result.valid || typeof result.text !== "string" || result.text.length > 1_000_000 || identity.current !== captured ||
+          generation.current !== handoffGeneration || live.user !== account || !live.enabled || live.suppressed || isSessionChromeSuppressed() || !next || next.projection.context !== original.context ||
+          next.projection.editorRevision !== original.editorRevision || next.projection.text !== original.text ||
+          result.editorRevision !== original.editorRevision || applied.current?.privacyGeneration !== privacyGeneration ||
+          typeof result.editRevision !== "number" || !fence.current?.acknowledgeDraftSnapshot(result.editRevision)) return;
+      flushSync(() => next.onEdit?.(result.text!));
+    }).catch(() => { /* No action or uncertain read is replayed. */ });
+  }, [overlay, port, user?.uid]);
   useLayoutEffect(() => {
     if (owner.current === user?.uid) return;
     owner.current = user?.uid; generation.current++; failed.current = false;
@@ -96,8 +117,10 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   useEffect(() => { let live = true; void getNativeDockCapabilities().then(value => {
     if (!live) return;
     const admitted = value?.supported === true && value.contractVersion === 1;
+    snapshotSupported.current = value?.draftSnapshot === true;
     underlay.current = admitted && value?.underlayPresentation === true;
     reservedRegions.current = admitted && value?.reservedPresentationRegions === true;
+    coherentPresentation.current = admitted && value?.coherentPresentation === true;
     setDiscovered(true);
     setSupported(admitted);
     if (!admitted && !identity.current && presentationOwner === presentation.current) {
@@ -135,10 +158,11 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
             !before.enabled || before.suppressed || before.overlay || before.dock?.suppressed ||
             isSessionChromeSuppressed() || nativeShellOverlayBlocked()) return;
         const { documentId, ownerEpoch, revision, updateSequence, sequence, editRevision, editorRevision, privacyGeneration, context, kind } = event;
+        const isolation = nativeDrawerIsolation();
         const confirmation = await boundedDock(nativeDock.confirmEvent({ documentId, ownerEpoch, revision, updateSequence, sequence, editRevision, editorRevision, privacyGeneration, context, kind }));
         const after = current.current;
         const afterPort = after.ports?.get(after.family);
-        if (!confirmation.valid || capturedGeneration !== generation.current || !after.enabled || after.dock?.suppressed || after.suppressed || after.overlay ||
+        if (!confirmation.valid || isolation.isolated || nativeDrawerIsolation().isolated || isolation.generation !== nativeDrawerIsolation().generation || capturedGeneration !== generation.current || !after.enabled || after.dock?.suppressed || after.suppressed || after.overlay ||
             isSessionChromeSuppressed() || nativeShellOverlayBlocked() || !afterPort ||
             event.editorRevision !== afterPort.projection.editorRevision ||
             event.kind === "action" && (applied.current?.sequence !== event.updateSequence || applied.current.configuration !== actionConfiguration(afterPort.projection)) ||
@@ -150,7 +174,8 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
           const latest = current.current;
           const latestPort = latest.ports?.get(latest.family);
           if (identity.current !== consuming || fence.current !== consumptionFence) return;
-          if (capturedGeneration !== generation.current) {
+          if (capturedGeneration !== generation.current || nativeDrawerIsolation().isolated ||
+              isolation.generation !== nativeDrawerIsolation().generation) {
             // An overlay can invalidate admission while native consumption is
             // in flight. Retire that exact held replica without dispatching or
             // replaying Send; otherwise its editor would remain frozen.
@@ -186,7 +211,8 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
             const transition = await boundedDock(nativeDock.beginEditingTransition({ documentId, ownerEpoch, revision, sequence, editRevision, editorRevision, privacyGeneration, context }));
             const latest = current.current;
             if (!transition.accepted) { morphyToast.error("Your draft changed. Try the edit again."); return; }
-            if (capturedGeneration !== generation.current || identity.current !== consuming ||
+            if (capturedGeneration !== generation.current || nativeDrawerIsolation().isolated ||
+                isolation.generation !== nativeDrawerIsolation().generation || identity.current !== consuming ||
                 latest.ports?.get(latest.family) !== afterPort || latest.overlay || latest.suppressed || !latest.enabled ||
                 isSessionChromeSuppressed() || nativeShellOverlayBlocked()) { await restoreUnsent(); return; }
           }
@@ -207,7 +233,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     }), nativeDock.addListener("layout", event => {
       const snapshot = applied.current;
       if (snapshot && current.current.enabled && !current.current.suppressed &&
-          !isSessionChromeSuppressed() && (reservedRegions.current || !nativeShellOverlayBlocked()) &&
+          !isSessionChromeSuppressed() && (reservedRegions.current || coherentPresentation.current || !nativeShellOverlayBlocked()) &&
           snapshot.sequence === update.current && fence.current?.acceptLayout(event, snapshot.sequence, snapshot.privacyGeneration,
             { width: window.innerWidth, height: window.innerHeight })) {
         current.current.ports?.setLayout(event);
@@ -258,7 +284,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       })().catch(() => { ports.present(true); });
       return;
     }
-    if (!enabled || overlay && !reservedRegions.current || !port) {
+    if (!enabled || overlay && !reservedRegions.current && !coherentPresentation.current || !port) {
       generation.current++;
       ports.setLayout(null);
       const lease = identity.current;
@@ -284,7 +310,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       ...lease, ...theme, ...port.projection, updateSequence: sequence,
       acknowledgedEdit: fence.current?.editRevision ?? 0,
       settledConsumption: settledConsumption.current,
-      visible: enabled && (!overlay || reservedRegions.current),
+      visible: enabled && (!overlay || reservedRegions.current || coherentPresentation.current),
       interactionEnabled: !overlay,
       frame: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
       viewport: { width: window.innerWidth, height: window.innerHeight },

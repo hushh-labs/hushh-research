@@ -17,6 +17,19 @@ struct HushhAppHapticFeedbackState {
 
 /// One existing device preference; no account information or second store.
 enum HushhAppHaptics {
+    @MainActor private static var feedback = HushhAppHapticFeedbackState()
+    @MainActor static func accept(_ call: CAPPluginCall) -> Bool {
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        guard let id = call.getString("intentId"), let document = call.getString("documentId"),
+              let issued = call.getDouble("issuedAtMs"), let kind = call.getString("kind"),
+              ["light", "selection"].contains(kind),
+              call.getInt("privacyGeneration") == privacy.generation,
+              privacy.appIsActive, !privacy.shielded,
+              HushhSessionPrivacyShield.shared.acceptsDocument(document), enabled(),
+              feedback.consume(id, issuedAt: issued, now: Date().timeIntervalSince1970 * 1000) else { return false }
+        play(kind)
+        return true
+    }
     static func enabled(in defaults: UserDefaults = .standard) -> Bool {
         if !defaults.bool(forKey: "hapticFeedbackMigrated.v1") {
             let native = strictBool(defaults.object(forKey: "hapticFeedback"))
@@ -55,7 +68,9 @@ public class HushhSettingsPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "updateSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "resetSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "shouldUseLocalAgents", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "shouldSyncToCloud", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "shouldSyncToCloud", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getFeedbackCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "interactionFeedback", returnType: CAPPluginReturnPromise)
     ]
     
     private let TAG = "HushhSettings"
@@ -75,6 +90,12 @@ public class HushhSettingsPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
     
     // MARK: - Get Settings
+    @objc func getFeedbackCapabilities(_ call: CAPPluginCall) {
+        call.resolve(["interactionFeedback": true])
+    }
+    @objc func interactionFeedback(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { call.resolve(["accepted": HushhAppHaptics.accept(call)]) }
+    }
     @objc func getSettings(_ call: CAPPluginCall) {
         call.resolve([
             "useRemoteSync": defaults.object(forKey: "useRemoteSync") as? Bool ?? defaultSettings["useRemoteSync"] as! Bool,

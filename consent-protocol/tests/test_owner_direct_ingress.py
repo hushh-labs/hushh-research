@@ -27,6 +27,9 @@ from hushh_mcp.services.gcp_backend import INGRESS_DIRECT, GcpBackend, pod_ingre
 from hushh_mcp.services.pod_wall import POD_WALL_NOT_FOUND_BODY
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 ORIGIN = "https://one.hushh.ai"
 URL = "https://one-pod-ha1-owner-abc123-uc.a.run.app"
 _REFUSAL = r"direct ingress is a dev-lane pilot"

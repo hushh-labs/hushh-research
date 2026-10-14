@@ -136,6 +136,18 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     expect(unreadable).toMatchObject({ complete: false, unavailableScopes: [AGE] });
   });
 
+  it("keeps a failed readable canonical export unavailable even when Soul has the same fact", async () => {
+    identity = { revision: 7, manifestRevision: 1, paths: ["identity_profile.sex"], value: { identity_profile: { sex: "canonical value" } } };
+    soul = { revision: 9, markdown: "- Sex: Soul value\n", deletedFactLabels: [] };
+    transport.export.mockRejectedValueOnce(new Error("canonical decrypt failed"));
+    const refused = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [SEX] });
+    expect(refused).toMatchObject({ complete: false, unavailableScopes: [SEX], projections: [] });
+    expect(transport.write).not.toHaveBeenCalled();
+    const available = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [SEX] });
+    expect(available.complete).toBe(true);
+    expect(resultValue(available, SEX, "identity_profile.sex")).toBe("Soul value");
+  });
+
   it.each(["denied", "revision_changed"])("does not replace a failed materialized export with Soul: %s", async failure => {
     identity = { revision: 7, manifestRevision: 1, paths: ["identity_profile.sex"], value: { identity_profile: { sex: "canonical fact" } } };
     soul = { revision: 10, markdown: "- Sex: matching private fact\n", deletedFactLabels: [] };

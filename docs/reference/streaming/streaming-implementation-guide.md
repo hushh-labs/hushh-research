@@ -62,6 +62,28 @@ Files activity reads only existing queued/running jobs, one at a time, while
 visible and online. The ten-minute observation window stops on terminal state,
 mutation, owner change, vault closure or unmount; it never resubmits a job.
 
+Private command proposals and pending MCP arguments use separate bounded,
+owner-chat-key-encrypted CAS slots in the existing owner object store. Command
+reconnect reads the stored revision; it never dispatches an effect automatically.
+An accepted effect is journaled as `dispatching` before execution. An uncertain
+response stays uncertain rather than returning to a runnable checkpoint.
+
+After a pod restart, MCP recovery reads the sealed native ADK confirmation and
+its encrypted pending arguments. Only the process epoch may change. The existing
+hub action ledger atomically cancels the old directive and issues its exact
+successor with the original expiry; a fresh browser confirmation is required.
+A persisted rebind intent reconciles a lost acknowledgement before another
+restart. Consumed, expired or mismatched directives cannot be revived. Private
+arguments and previews never enter hub persistence or the history cache.
+
+Each recovered browser continuation has a fresh cancellation lifetime and
+message identity. Late events cannot update a stopped or replaced segment.
+Stop remains pending until its server acknowledgement; failure displays an
+uncertain outcome. Recovery reads do not start a model turn or prolong idle
+compute. Old clients are explicitly refused by the new command contract; a
+legacy pod can accept a fresh supported command but cannot promise restart
+recovery.
+
 Process-local continuation does not guarantee completion after process loss.
 Request-based Cloud Run does not provide continuous CPU after the request ends;
 durable background completion belongs to the existing authenticated job/queue

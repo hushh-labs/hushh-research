@@ -37,7 +37,21 @@ describe("Wallet Sharing", () => {
     expect(screen.queryByRole("img", { name: "Agent One Profile" })).toBeNull();
   });
   beforeEach(() => { vi.clearAllMocks(); mocks.vaultKey = "test-key"; mocks.approve.mockResolvedValue(undefined); mocks.deny.mockResolvedValue(undefined); mocks.revoke.mockResolvedValue(undefined); });
-  it("shows only recipients and shared information without a duplicate card preview", async () => {
+  it("does not expose projected identity or load another protected profile in Sharing", async () => {
+    vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [] });
+    const profile = { displayName: "Current projected owner", shareUrl: "https://example.com/profile" };
+    const view = render(<WalletSharing profile={profile} />);
+    await screen.findByText("Not shared with anyone yet.");
+    expect(screen.getByText("Not shared with anyone yet.")).toBeVisible();
+    expect(screen.queryByText("Current projected owner")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Wallet Profile QR code" })).toBeNull();
+    mocks.vaultKey = null;
+    view.rerender(<WalletSharing profile={profile} />);
+    expect(screen.queryByText("Current projected owner")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Wallet Profile QR code" })).toBeNull();
+    expect(mocks.getProfile).not.toHaveBeenCalled();
+  });
+  it("shows only recipients and shared information", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({
       requests: [{ id: "pending", scope: "attr.wallet.summary.*", kind: "incoming_request", status: "pending", action: "request", counterpart_type: "person", counterpart_label: "Pending person" }],
       grants: [{ id: "grant", request_id: "grant", scope: "attr.wallet.summary.*", kind: "active_grant", status: "active", action: "grant", counterpart_type: "person", counterpart_label: "Alex" }]

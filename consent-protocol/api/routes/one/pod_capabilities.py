@@ -144,7 +144,11 @@ def ai_selection_capability() -> dict[str, Any]:
     """The "Bring your own AI" providers this image runs turns on (contract C3)."""
     from hushh_mcp.services.pod_ai_selection_seal import SUPPORTED_PROVIDERS  # noqa: PLC0415
 
-    return {"version": AI_SELECTION_VERSION, "providers": list(SUPPORTED_PROVIDERS)}
+    return {
+        "version": AI_SELECTION_VERSION,
+        "providers": list(SUPPORTED_PROVIDERS),
+        "defaultVerification": True,
+    }
 
 
 def ai_selection_advert(value: Any) -> dict[str, Any] | None:
@@ -164,7 +168,11 @@ def ai_selection_advert(value: Any) -> dict[str, Any] | None:
         isinstance(item, str) and _PROVIDER_ID_RE.fullmatch(item) for item in providers
     ):
         return None
-    return {"version": version, "providers": list(dict.fromkeys(providers))}
+    return {
+        "version": version,
+        "providers": list(dict.fromkeys(providers)),
+        **({"defaultVerification": True} if value.get("defaultVerification") is True else {}),
+    }
 
 
 CONNECTORS_VERSION = 1

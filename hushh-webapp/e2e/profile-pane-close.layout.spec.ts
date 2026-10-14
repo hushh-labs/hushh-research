@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 const WEBAPP_ROOT = path.resolve(__dirname, "..");
 const PROFILE_PANE_SOURCE = path.join(
@@ -13,7 +13,7 @@ const PROFILE_PANE_SOURCE = path.join(
 const GLOBAL_CSS_SOURCE = path.join(WEBAPP_ROOT, "app/globals.css");
 const CLOSE_RIGHT = "max(1rem, env(safe-area-inset-right, 0px))";
 const CLOSE_POSITION_CLASSNAME =
-  "absolute top-[calc(1rem+env(safe-area-inset-top,0px))] z-10";
+  "profile-pane-close absolute top-[calc(1rem+env(safe-area-inset-top))] z-10";
 const CLOSE_BUTTON_CLASSNAME =
   "inline-flex h-11 w-11 items-center justify-center rounded-full";
 const HEADER_CLASSNAME =
@@ -132,14 +132,198 @@ async function measure(
 }
 
 test.describe("Profile pane custom close layout", () => {
-  test("keeps the liquid-glass card inset and curved across viewport sizes", async ({
-    page,
+  test("keeps the real feature-page Back inside its reserved band after production CSS optimization", async ({ page }) => {
+    const { build } = await import("vite");
+    const { Scanner } = await import("@tailwindcss/oxide");
+    const { compile } = await import("tailwindcss");
+    const { optimize } = await import("@tailwindcss/node");
+    const scanner = new Scanner({});
+    const candidates = new Set<string>();
+    const output = fs.mkdtempSync(path.join(os.tmpdir(), "native-feature-page-"));
+    try {
+      await build({
+        configFile: false, logLevel: "error", oxc: { jsx: { runtime: "automatic" } },
+        resolve: { alias: [{ find: "@", replacement: WEBAPP_ROOT }] },
+        define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+        plugins: [{
+          name: "feature-page-layout-ports",
+          transform(source, id) {
+            // Only bridge side effects are replaced. The feature page, Radix
+            // dialog, class merging and shell button are the product modules.
+            if (id.endsWith("/native-chat-chrome.tsx")) return {
+              code: 'import { createElement, useLayoutEffect } from "react"; export function NativeChatChrome(p) { useLayoutEffect(() => { p.onPresentationReady?.(); }, []); return createElement("div", { className:p.className, "data-native-chrome-slot":p.kind }, p.children); }', map: null,
+            };
+            if (id.endsWith("/use-native-content-pane.ts")) return {
+              code: 'export function useNativeContentPane(node, owner, enabled) { return enabled ? { phase:"native", identity:{ documentId:"synthetic", ownerEpoch:"synthetic", generation:1, privacyGeneration:0 } } : { phase:"web" }; }', map: null,
+            };
+            if (id.endsWith("/lib/capacitor/native-navigation.ts")) return {
+              code: 'export function useNativeNavigationOverlayRef(ref) { return ref; }', map: null,
+            };
+            if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
+              for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
+            }
+          },
+        }],
+        build: { outDir: output, emptyOutDir: false, lib: {
+          entry: path.join(WEBAPP_ROOT, "e2e/fixtures/native-feature-page.tsx"),
+          name: "Fixture", formats: ["iife"], fileName: () => "fixture.js",
+        } },
+      });
+      const compiler = await compile(fs.readFileSync(path.join(WEBAPP_ROOT, "app/globals.css"), "utf8")
+        .replace(/^@source\s+[^;]+;\s*$/gm, ""), {
+        base: path.join(WEBAPP_ROOT, "app"),
+        loadStylesheet: async (id, base) => {
+          const file = id === "tailwindcss" ? path.join(WEBAPP_ROOT, "node_modules/tailwindcss/index.css")
+            : id === "tw-animate-css" ? path.join(WEBAPP_ROOT, "node_modules/tw-animate-css/dist/tw-animate.css") : path.resolve(base, id);
+          return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
+        },
+      });
+      const css = stripAppFontFaces(optimize(compiler.build([...candidates]), { minify: true }).code);
+      const script = fs.readFileSync(path.join(output, "fixture.js"), "utf8");
+      for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+        await page.setViewportSize(viewport);
+        await page.setContent(`<style>${css}:root { --agent-chat-header-height:116px; --app-bottom-content-clearance:149px; --page-inline-gutter-standard:24px; }</style><div id="root"></div>`);
+        await page.addScriptTag({ content: script });
+        const back = page.locator('[data-native-chrome-slot="profile-back"]');
+        await expect(back).toBeVisible();
+        const bounds = await back.evaluate(node => node.getBoundingClientRect().toJSON());
+        expect(bounds.x).toBeCloseTo(24, 0);
+        expect(bounds.y).toBeCloseTo(124, 0);
+        expect(bounds.width).toBe(44);
+        expect(bounds.height).toBe(44);
+        const title = page.locator('.native-feature-page-header [data-slot="dialog-title"]');
+        // Real product header/CSS, synthetic text only. Long sub-route names
+        // must wrap without changing the Back track or clipping essential text.
+        for (const scale of [1, 2]) {
+          await title.evaluate((node, scale) => {
+            node.textContent = "Connected accounts and privacy preferences";
+            document.documentElement.style.setProperty("--type-navigation-title-size", `${17 * scale}px`);
+            document.documentElement.style.setProperty("--type-navigation-title-line", `${22 * scale}px`);
+          }, scale);
+          const geometry = await title.evaluate(node => {
+            const header = node.closest("header")!;
+            const back = header.querySelector('[data-native-chrome-slot="profile-back"]')!;
+            const title = node.getBoundingClientRect(), control = back.getBoundingClientRect();
+            const page = header.closest(".native-feature-page")!.getBoundingClientRect();
+            const body = header.parentElement!.querySelector(".native-feature-page-body")!.getBoundingClientRect();
+            return { width: node.clientWidth, scroll: node.scrollWidth, left: title.left, right: title.right,
+              center: title.top + title.height / 2, backRight: control.right, backCenter: control.top + control.height / 2,
+              top: title.top, bottom: title.bottom, pageTop: page.top, pageBottom: page.bottom,
+              bodyTop: body.top, bodyBottom: body.bottom, bodyHeight: body.height };
+          });
+          expect(geometry.scroll).toBeLessThanOrEqual(geometry.width + 1);
+          expect(geometry.left - geometry.backRight).toBeCloseTo(8, 0);
+          expect(geometry.right).toBeLessThanOrEqual(viewport.width - 24 + 1);
+          expect(geometry.center).toBeCloseTo(geometry.backCenter, 0);
+          expect(geometry.top).toBeGreaterThanOrEqual(geometry.pageTop);
+          expect(geometry.bottom).toBeLessThanOrEqual(geometry.pageBottom + 1);
+          expect(geometry.bodyTop).toBeGreaterThanOrEqual(geometry.bottom);
+          expect(geometry.bodyBottom).toBeLessThanOrEqual(geometry.pageBottom + 1);
+          expect(geometry.bodyHeight).toBeGreaterThan(0);
+        }
+        await title.evaluate(node => {
+          node.textContent = "Preferences";
+          document.documentElement.style.removeProperty("--type-navigation-title-size");
+          document.documentElement.style.removeProperty("--type-navigation-title-line");
+        });
+        // Reproduce the shipped broken centering, not a markup snapshot.
+        await page.locator(".native-feature-page").evaluate(node => {
+          node.classList.remove("translate-x-0", "translate-y-0");
+          node.classList.add("translate-x-[-50%]", "translate-y-[-50%]");
+        });
+        await expect.poll(() => back.evaluate(node => node.getBoundingClientRect().x)).toBeLessThan(0);
+        const broken = await back.evaluate(node => node.getBoundingClientRect().toJSON());
+        expect(broken.x).toBeLessThan(0);
+        expect(broken.y).toBeLessThan(bounds.y);
+      }
+      // The same product component/CSS must keep nested details in the full
+      // pane, not return to the shorter reserved-band layout. Bridge acceptance
+      // is covered by the focused lifecycle tests, not this geometry fixture.
+      for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 1366 }]) {
+        await page.setViewportSize(viewport);
+        await page.setContent(`<style>${css}:root { --app-safe-area-top-effective:0px; }</style><div id="root" data-pane="true"></div>`);
+        await page.addScriptTag({ content: script });
+        const pane = page.locator('[data-native-feature-pane="profile"]');
+        await expect(pane).toBeVisible();
+        const bounds = await pane.boundingBox();
+        expect(bounds!.y).toBe(0);
+        expect(bounds!.height).toBeCloseTo(viewport.height, 0);
+        expect(bounds!.width).toBeCloseTo(viewport.width < 640 ? viewport.width : 430, 0);
+        const close = page.locator('[data-native-chrome-slot="close"]');
+        await expect(close).toBeVisible();
+        const back = page.locator('[data-native-chrome-slot="profile-back"]');
+        const control = await close.boundingBox(), leading = await back.boundingBox();
+        expect(control!.width).toBe(44);
+        expect(control!.height).toBe(44);
+        expect(control!.y).toBeCloseTo(leading!.y, 0);
+      }
+    } finally { fs.rmSync(output, { recursive: true, force: true }); }
+  });
+
+  test("keeps negotiated full-height drawers edge-to-edge before coverage acknowledgment", async ({ page }) => {
+    const globals = fs.readFileSync(path.join(WEBAPP_ROOT, "app/globals.css"), "utf8");
+    const start = globals.indexOf("/* Acknowledged native seats bound web overlays; panel motion stays React. */");
+    const end = globals.indexOf("/* Opt-in stationary chrome:", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setContent(`<style>
+      :root { --native-overlay-top: 116px; --native-overlay-bottom: 149px; }
+      section { position: fixed; inset: 0; }
+      ${globals.slice(start, end).replace(/env\(safe-area-inset-(top|bottom|left|right), 0px\)/g, (_, edge: string) => `${edge === "top" ? 20 : edge === "bottom" ? 28 : 12}px`)}
+    </style>
+    <section id="profile" class="profile-pane-sheet" data-testid="profile-pane" data-slot="sheet-content" data-sheet-side="right">
+      <header class="profile-pane-header" data-slot="sheet-header"></header>
+      <button class="profile-pane-close" data-native-chrome-slot="profile-close" style="position:absolute"></button>
+    </section>
+    <section id="preview" data-profile-preview></section>
+    <section id="history" data-agent-history-drawer data-slot="sheet-content" data-sheet-side="left">
+      <aside data-agent-history-sidebar="drawer" style="box-sizing:border-box;height:100%"><header data-agent-history-header></header></aside>
+    </section>`);
+    for (const mode of [
+      { classes: "native-reserved-chrome native-full-window-overlays", top: 0, height: 844 },
+      { classes: "native-reserved-chrome", top: 116, height: 579 },
+      { classes: "", top: 0, height: 844 },
+    ]) {
+      await page.evaluate(classes => { document.documentElement.className = classes; }, mode.classes);
+      // No coverage attribute: initial sampling must already use authored
+      // full-height geometry, while the separate admission gate stays closed.
+      for (const family of ["profile", "preview", "history"]) {
+        const bounds = await page.locator(`#${family}`).evaluate(node => node.getBoundingClientRect().toJSON());
+        expect(bounds.y, `${mode.classes}:${family}`).toBeCloseTo(mode.top, 0);
+        expect(bounds.height, `${mode.classes}:${family}`).toBeCloseTo(mode.height, 0);
+      }
+      // Simulate nonzero material-safe insets in the owning CSS. Legacy native
+      // reservations already include them; only full-window content adds them.
+      const content = await page.evaluate(() => ({
+        profileTop: parseFloat(getComputedStyle(document.querySelector(".profile-pane-header")!).paddingTop),
+        closeTop: parseFloat(getComputedStyle(document.querySelector(".profile-pane-close")!).top),
+        historyTop: parseFloat(getComputedStyle(document.querySelector("aside")!).paddingTop),
+        historyBottom: parseFloat(getComputedStyle(document.querySelector("aside")!).paddingBottom),
+      }));
+      const legacy = mode.classes === "native-reserved-chrome";
+      expect(content.profileTop).toBe(legacy ? 16 : 36);
+      expect(content.closeTop).toBe(legacy ? 16 : 37);
+      expect(content.historyTop).toBe(legacy ? 0 : 20);
+      expect(content.historyBottom).toBe(legacy ? 0 : 28);
+    }
+  });
+
+  test("keeps touch Profile full-height and the desktop card inset", async ({
+    browser,
   }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
     const css = fs.readFileSync(GLOBAL_CSS_SOURCE, "utf8");
     const start = css.indexOf('/*\n * Profile pane: a bounded liquid-glass card');
     const end = css.indexOf('html:has(.profile-home-screen', start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
+    const mobileStart = css.indexOf("/* Profile is a full mobile surface");
+    const mobileEnd = css.indexOf("/* Opt-in stationary chrome:", mobileStart);
+    expect(mobileStart).toBeGreaterThan(end);
+    const mobileRules = css.slice(mobileStart, mobileEnd);
 
     await page.setContent(`<!doctype html><html><head><style>
       *, *::before, *::after { box-sizing: border-box; }
@@ -147,7 +331,7 @@ test.describe("Profile pane custom close layout", () => {
       .profile-pane-sheet { position: fixed; top: 0; right: 0; bottom: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
       .profile-pane-scroll-root { overflow-y: auto; min-height: 0; flex: 1; }
       ${css.slice(start, end)}
-    </style></head><body>
+    </style><style id="mobile-profile-geometry">${mobileRules}</style></head><body>
       <section class="profile-pane-sheet" data-slot="sheet-content">
         <header class="profile-pane-header">Profile</header>
         <button class="profile-pane-close" style="position:absolute;right:16px">Close</button>
@@ -156,9 +340,8 @@ test.describe("Profile pane custom close layout", () => {
     </body></html>`);
 
     for (const size of [
-      { width: 390, height: 844, gutter: 12, cardHeight: 820 },
+      { width: 390, height: 844, gutter: 0, cardHeight: 844 },
       { width: 1280, height: 900, gutter: 18, cardHeight: 820 },
-      { width: 844, height: 390, gutter: 18, cardHeight: 354 },
     ]) {
       await page.setViewportSize({ width: size.width, height: size.height });
       const geometry = await page.locator(".profile-pane-sheet").evaluate((panel) => {
@@ -179,12 +362,37 @@ test.describe("Profile pane custom close layout", () => {
       expect(geometry.top).toBeGreaterThanOrEqual(size.gutter - 1);
       expect(geometry.right).toBeCloseTo(size.gutter, 0);
       expect(geometry.bottom).toBeGreaterThanOrEqual(size.gutter - 1);
-      expect(geometry.width).toBeLessThanOrEqual(430);
+      expect(geometry.width).toBeCloseTo(size.gutter === 0 ? size.width : 430, 0);
       expect(geometry.height).toBeCloseTo(size.cardHeight, 0);
-      expect(geometry.radius).toBe("25px");
+      expect(geometry.radius).toBe(size.gutter === 0 ? "0px" : "25px");
       expect(geometry.canScroll).toBe(true);
-      expect(geometry.closeRightGap).toBeCloseTo(17, 0);
+      expect(geometry.closeRightGap).toBeCloseTo(size.gutter === 0 ? 16 : 21, 0);
     }
+    // Negative control: removing the mobile policy reproduces the actual
+    // shortened, inset phone pane; the old recipe must not pass this contract.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator("#mobile-profile-geometry").evaluate(node => node.remove());
+    const broken = await page.locator(".profile-pane-sheet").boundingBox();
+    expect(broken?.height).toBeLessThan(844);
+    expect(broken?.width).toBeLessThan(390);
+    const touchContext = await browser.newContext({ hasTouch: true });
+    try {
+      const touchPage = await touchContext.newPage();
+      await touchPage.setContent(await page.content());
+      await touchPage.addStyleTag({ content: mobileRules });
+      for (const size of [
+        { width: 844, height: 390, gutter: 0 },
+        { width: 1194, height: 834, gutter: 18 },
+      ]) {
+        await touchPage.setViewportSize(size);
+        const bounds = await touchPage.locator(".profile-pane-sheet").boundingBox();
+        expect(bounds?.y).toBeCloseTo(0, 0);
+        expect(bounds?.height).toBeCloseTo(size.height, 0);
+        expect(bounds?.width).toBeCloseTo(size.gutter === 0 ? size.width : 430, 0);
+        expect(size.width - (bounds!.x + bounds!.width)).toBeCloseTo(size.gutter, 0);
+      }
+    } finally { await touchContext.close(); }
+    } finally { await context.close(); }
   });
 
   test("keeps inner tabs centered and readable in the inset card", async ({ page }) => {
@@ -320,7 +528,7 @@ test.describe("Profile pane custom close layout", () => {
       expect(result.close.width).toBeGreaterThanOrEqual(44);
       expect(result.close.height).toBeGreaterThanOrEqual(44);
       expect(result.close.x + result.close.width).toBeCloseTo(
-        result.viewportWidth - 20,
+        result.viewportWidth - 16,
         0,
       );
       expect(result.title.x + result.title.width).toBeLessThanOrEqual(

@@ -17,7 +17,7 @@
  * BACKEND: `--backend uat` (default) ships the same UAT backend + shared Firebase
  * authority (hushh-pda; config stored in hushh-pda-uat) as TestFlight. `--backend
  * production` maps to the workflow's `backend_target=production`: the binary
- * talks to one.hushh.ai and the production API, with the same shared Firebase
+ * talks to one.hussh.ai and the production API, with the same shared Firebase
  * identity.
  *
  * SAFETY / IRREVERSIBILITY
@@ -229,7 +229,7 @@ async function main() {
   console.log(`  SHA       : ${sha}`);
   console.log(`  Version   : ${opts.marketingVersion || "from the exact source project"}`);
   console.log(
-    `  Backend   : ${opts.backend === "production" ? "PRODUCTION (hushh-pda, one.hushh.ai)" : "UAT (hushh-pda-uat), same as TestFlight"}`,
+    `  Backend   : ${opts.backend === "production" ? "PRODUCTION (hushh-pda, one.hussh.ai)" : "UAT (hushh-pda-uat), same as TestFlight"}`,
   );
   console.log(`  Mode      : ${mode}`);
   console.log(`  Publication: ${opts.releaseAfterApproval ? "automatic after Apple approval" : "manual; submission alone does not publish"}`);

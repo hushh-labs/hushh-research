@@ -69,9 +69,14 @@ const REGRESSION_ASSERTIONS = [
     law: "law 5 (no decorative badge): the per-row Coming soon badge only restated the group title and the disabled state",
   },
   {
-    path: "components/connections/gemini-runtime-settings-card.tsx",
+    path: "components/connections/gemini-key-choice.tsx",
     present: 'requiresExplicitSelection ? "blue" : "blue-gradient"',
     law: "law 2 (one primary action): the AI-access confirm/validate action must demote below the footer on the first-run step",
+  },
+  {
+    path: "components/connections/gemini-runtime-settings-card.tsx",
+    present: "requiresExplicitSelection={requiresExplicitSelection}",
+    law: "law 2 (one primary action): the extracted AI key controls inherit the first-run action hierarchy",
   },
   {
     path: "components/onboarding/setup/one-setup-hub.tsx",

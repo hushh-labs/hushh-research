@@ -43,7 +43,11 @@ export function FilesSettingsPanel({
         <SettingsGroup title="Files Agent" embedded headingClassName="mt-0">
           <SettingsRow
             title="Allow library analysis"
-            description="Allow your model provider to analyze file content."
+            description={
+              settings.foregroundOnly
+                ? "Selected files use Hussh-managed Gemini while your vault is unlocked."
+                : "Allow your model provider to analyze file content."
+            }
             trailing={
               <Switch
                 size="ios"
@@ -72,7 +76,9 @@ export function FilesSettingsPanel({
             description={
               settings.backgroundAvailable && settings.backgroundProvider
                 ? "New uploads only. View provider details below."
-                : "Unavailable. You can still turn it off."
+                : settings.foregroundOnly
+                  ? "Set up your private agent for unattended organization."
+                  : "Unavailable. You can still turn it off."
             }
             trailing={
               <Switch

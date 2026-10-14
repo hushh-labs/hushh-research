@@ -72,6 +72,7 @@ from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
 from api.routes.one.pod_pkm_preparation import router as pod_pkm_preparation_router
 from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # noqa: E402
+from api.routes.one.pod_scheduled_tasks import router as pod_scheduled_tasks_router
 from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
 from api.routes.one.pod_sync import router as pod_sync_router  # noqa: E402
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
@@ -157,6 +158,7 @@ _POD_ROUTERS = (
     # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
     pod_session_router,
     pod_files_router,
+    pod_scheduled_tasks_router,
     pod_commands_router,
     pod_pkm_preparation_router,
     # The device door: Puppy One dials THIS pod with a device-role session and

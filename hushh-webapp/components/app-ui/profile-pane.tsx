@@ -9,6 +9,9 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { presentationMotionDuration, renderedDrawerOffset } from "@/components/app-ui/drawer-motion";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
+import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 
 import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "@/components/icons";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -162,7 +165,22 @@ type ProfilePaneProps = {
  * rows and route-aware stack; this component only supplies the immersive
  * right-side presentation used by the shell and native edge gesture.
  */
-export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange, returnFocusRef }: ProfilePaneProps) {
+export const ProfilePane = memo(function ProfilePane(props: ProfilePaneProps) {
+  return customNativePresentationEnabled() && nativeDrawersPlatformEligible() ? <NativeProfilePane {...props} /> : <WebProfilePane {...props} />;
+});
+
+function NativeProfilePane({ open, onOpenChange }: ProfilePaneProps) {
+  const { isVaultUnlocked } = useVault();
+  const searchParams = useSearchParams();
+  const location = resolveProfilePaneUrlState(searchParams).location;
+  // The controller is prepared while closed. Only the native root or its
+  // same-owner React detail is presented; the Chat route tree never moves.
+  if (!isVaultUnlocked) return null;
+  return <VoiceSurfaceActivityBoundary active={open}><ProfilePage presentation="native-page" paneLocation={location} nativeMenuOpen={open}
+    onNativeMenuClose={() => onOpenChange(false)} nativeControlsEligible={false} /></VoiceSurfaceActivityBoundary>;
+}
+
+const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange, returnFocusRef }: ProfilePaneProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const semanticRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -322,7 +340,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     {!open ? <>
       <div ref={previewScrimRef} data-profile-preview-scrim hidden aria-hidden inert className="pointer-events-none fixed inset-0 z-(--z-sheet-overlay) bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)]" />
       <div ref={attachPreview} hidden aria-hidden inert data-profile-preview
-        className="pointer-events-none fixed inset-y-0 right-0 z-(--z-sheet) w-full overflow-hidden bg-background sm:w-[min(92vw,560px)]">
+        className="pointer-events-none fixed inset-y-0 right-0 z-(--z-sheet) w-full overflow-hidden bg-background sm:w-[min(92vw,430px)]">
         <div className="border-b border-border/60 px-[var(--page-inline-gutter-standard)] pb-4 pt-[calc(1rem+env(safe-area-inset-top))] text-[22px] font-bold">Profile</div>
         <ProfilePaneShell />
       </div>
@@ -336,7 +354,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
         contentRef={attachPanel}
         overlayRef={scrimRef}
         overlayClassName="data-[state=open]:duration-(--motion-sheet-enter-duration) data-[state=closed]:duration-(--motion-sheet-exit-duration) data-[state=open]:ease-(--motion-sheet-enter-ease) data-[state=closed]:ease-(--motion-sheet-exit-ease)"
-        className="profile-pane-sheet w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,430px)] sm:max-w-[430px] data-[state=open]:duration-(--motion-sheet-enter-duration) data-[state=closed]:duration-(--motion-sheet-exit-duration) data-[state=open]:ease-(--motion-sheet-enter-ease) data-[state=closed]:ease-(--motion-sheet-exit-ease)"
+        className="profile-pane-sheet w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,430px)] sm:max-w-[430px]"
         aria-label="Profile"
         data-testid="profile-pane"
         data-native-panel-group="profile"
@@ -358,7 +376,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
         }}
       >
         <ProfilePaneDrag open={open} presentationKey={JSON.stringify([owner, pathname, profilePaneLocationKey(location), isVaultUnlocked])} panelRef={panelRef} semanticRef={semanticRef} scrimRef={scrimRef} onClose={() => onOpenChange(false)} />
-        <SheetHeader className="shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left">
+        <SheetHeader className={`profile-pane-header ${canGoBack ? "profile-pane-header--inner " : ""}shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left`}>
           <div className="flex min-w-0 items-center gap-2">
             {canGoBack ? (
               <NativeChatChrome
@@ -382,7 +400,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
                 </ShellActionSurface>
               </NativeChatChrome>
             ) : null}
-            <SheetTitle ref={titleRef} tabIndex={-1} className="truncate outline-none font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal">
+            <SheetTitle ref={titleRef} tabIndex={-1} className={`${canGoBack ? "whitespace-normal text-center" : "truncate"} outline-none font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal`}>
               {title}
             </SheetTitle>
           </div>
@@ -406,7 +424,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
           context={panePresentationKey} eligible={false}
           onActivate={() => onOpenChange(false)}
           style={{ right: "max(1rem, env(safe-area-inset-right, 0px))" }}
-          className="absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">
+          className="profile-pane-close absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">
         <SheetClose asChild>
           <ShellActionSurface
             ref={closeRef}

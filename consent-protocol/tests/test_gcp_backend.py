@@ -315,24 +315,28 @@ def _live(client) -> GcpBackend:
 
 @pytest.fixture
 def simulation_lane(monkeypatch):
-    """Declare the lane a live hussh-operated provision is only ever allowed in.
-
-    `GcpBackend`'s live path calls `require_hosted_pod_creates_permitted`, which
-    demands an explicit opt-in, a stated deploy lane, and a NAMED hosting project.
-    These tests exercise that live path, so they have to say where they are
-    standing; without this fixture they raise `HostedTierNotPermittedError`, which
-    is the guard working.
-
-    The refusal itself is asserted in `test_hosted_tier_guard.py` — kept there
-    rather than here so this file stays about the backend and that one stays about
-    the boundary. The fixture name is unchanged so the diff stays about the guard.
-    """
+    """Existing-fleet maintenance configuration; not new-create qualification."""
     monkeypatch.setenv("HUSSH_HOSTED_POD_TIER_ENABLED", "1")
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
     monkeypatch.setenv("HUSSH_POD_PROJECT", "hussh-pda-dev")
 
 
-async def test_live_provision_creates_service_and_returns_live_handle(simulation_lane):
+@pytest.fixture
+def qualified_creation_port(monkeypatch):
+    """Synthetic admission for backend mechanics, not cloud qualification.
+
+    The unchanged hosted-tier guard suite proves real creates remain refused.
+    """
+    from hushh_mcp.services import hosted_tier_guard
+
+    monkeypatch.setattr(
+        hosted_tier_guard, "require_hosted_pod_creates_permitted", lambda _operation: None
+    )
+
+
+async def test_live_provision_creates_service_and_returns_live_handle(
+    simulation_lane, qualified_creation_port
+):
     fake = _FakeRunClient(ready=True)
     handle = await _live(fake).provision(_spec())
     assert len(fake.created) == 1
@@ -359,7 +363,7 @@ async def test_managed_upgrade_refuses_unverified_incarnation_before_mutation(
     assert fake.created == [] and writes == []
 
 
-async def test_live_provision_not_ready_is_deploying(simulation_lane):
+async def test_live_provision_not_ready_is_deploying(simulation_lane, qualified_creation_port):
     handle = await _live(_FakeRunClient(ready=False)).provision(_spec())
     assert handle.status == "deploying"
     assert handle.backend_metadata["ready"] is False
@@ -420,11 +424,14 @@ async def test_erasure_observation_backends_only_read_existing_service(monkeypat
 @pytest.mark.parametrize("refuse_ack", [False, True])
 @pytest.mark.parametrize("optional_spec", [None, "invalid", {"template": []}])
 async def test_owned_creation_retains_location_and_uid_before_readiness(
-    monkeypatch, simulation_lane, kind, refuse_ack, optional_spec
+    monkeypatch, simulation_lane, request, kind, refuse_ack, optional_spec
 ):
     from dataclasses import replace
 
     from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+    if kind == "managed":
+        request.getfixturevalue("qualified_creation_port")
 
     calls = []
 

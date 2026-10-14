@@ -70,6 +70,9 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/commands/assess",
         "/api/one/pod/memory/proposals",
         "/api/one/pod/files/worker",
+        "/api/one/pod/tasks",
+        "/api/one/pod/tasks/control",
+        "/api/one/pod/tasks/worker",
         "/api/one/pod/files/jobs",
         "/api/one/pod/files/repair-index",
         "/api/one/pod/files/usage",
@@ -131,7 +134,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
         # The owner's sealed "Bring your own AI" (api/routes/one/pod_ai_selection.py):
-        # PUT, GET and DELETE on one path. The point of sealing the key to the pod is
+        # PUT, GET, DELETE and body-free verified-default PATCH on one path. The point of sealing the key to the pod is
         # that the hub never holds it, so the owner's app must reach this door directly.
         # Same trade as the memory doors: the route's own admission is the whole
         # defence (a hub-verified owner consent, or an app-role session with
@@ -163,7 +166,7 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         # Messages sent while a turn runs, and stop (pod_agent_chat.py).
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/(?:queue|stop)",
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/queue/[A-Za-z0-9_-]{{8,64}}",
-        rf"/api/one/pod/agent-chat/proposals/{_UUID}(?:/settle)?",
+        rf"/api/one/pod/agent-chat/proposals/{_UUID}(?:/(?:settle|dispatch))?",
         r"/api/one/pod/connectors/(?:gmail|calendar|drive|contacts)",
         r"/api/one/pod/actions/(?:gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}/confirm",
         r"/api/one/pod/actions/gmod_[A-Za-z0-9_-]{16,64}/status",

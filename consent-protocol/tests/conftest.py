@@ -68,6 +68,56 @@ def shared_hub_owner(monkeypatch: pytest.MonkeyPatch):
     return resolver
 
 
+@pytest.fixture
+def legacy_shared_files_absent(monkeypatch: pytest.MonkeyPatch):
+    """Pre-Shared-Files unit fixtures prove absent schema without a live DB.
+
+    Keep the production placement guard. Real storage/race acceptance uses the
+    dedicated disposable PostgreSQL fixture instead of this absent-schema port.
+    """
+    from contextlib import asynccontextmanager
+
+    from hushh_mcp.services.shared_files import registry
+
+    class Connection:
+        @asynccontextmanager
+        async def transaction(self):
+            yield
+
+        async def execute(self, sql, *args):
+            assert sql.startswith("SELECT pg_advisory_xact_lock")
+
+        async def fetchval(self, sql):
+            assert sql == "SELECT to_regclass('public.shared_files_storage')"
+            return None
+
+    class Pool:
+        @asynccontextmanager
+        async def acquire(self):
+            yield Connection()
+
+    async def get_pool():
+        return Pool()
+
+    monkeypatch.delenv("HUSSH_SHARED_FILES_ENABLED", raising=False)
+    monkeypatch.setattr(registry, "get_pool", get_pool)
+
+
+@pytest.fixture
+def legacy_account_without_shared_files(monkeypatch: pytest.MonkeyPatch):
+    """Legacy account SQL inventories contain no provisioned Files resources.
+
+    Real erasure/key fences remain in the dedicated isolated PostgreSQL suite.
+    """
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.account_service import AccountService
+
+    monkeypatch.setattr(
+        AccountService, "_erase_shared_files_if_present", AsyncMock(return_value=None)
+    )
+
+
 @pytest.fixture(autouse=True)
 def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
     # Local import: hushh_mcp.config resolves APP_SIGNING_KEY at import time,

@@ -151,6 +151,7 @@ async def run_ai_selection_delete(
     verifier: Any = None,
     session: Optional[dict] = None,
     log: Any = None,
+    verify_default: bool = False,
 ) -> dict:
     """Clear the selection; the agent returns to its default model path."""
     from hushh_mcp.services import pod_ai_selection as store  # noqa: PLC0415
@@ -162,10 +163,38 @@ async def run_ai_selection_delete(
     log = log if log is not None else _log()
     if log is None:
         raise _no_store()
-    await store.clear_ai_selection(log, hushh_id=(os.environ.get("HUSSH_ID") or "").strip())
+    verified: dict[str, Any] = {}
+    owner_id = (os.environ.get("HUSSH_ID") or "").strip()
+    log = log if log is not None else _log()
+    if log is None:
+        raise _no_store()
+    _prior, floor = await store.read_ai_selection(log, hushh_id=owner_id)
+    if verify_default:
+        from hushh_mcp.services.pod_ai_selection_check import (  # noqa: PLC0415
+            classify_check_failure,
+            verify_cloud_default,
+        )
+
+        try:
+            verified = await verify_cloud_default(gemini_default=_gemini_default())
+        except store.AiSelectionRefused as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code}) from None
+        except Exception as exc:  # noqa: BLE001 - typed refusal preserves prior selection
+            raise HTTPException(
+                status_code=422, detail={"code": classify_check_failure(exc)}
+            ) from None
+        # Provider calls are asynchronous; admission must still be current before
+        # replacing the owner's working selection.
+        await _admit_owner_local(
+            consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
+        )
+    try:
+        await store.clear_ai_selection(log, hushh_id=owner_id, expected_floor=floor)
+    except store.AiSelectionRefused:
+        raise HTTPException(status_code=409, detail={"code": "STALE_SELECTION"}) from None
     store.note_ai_selection_failure(None)
     logger.info("pod_ai_selection.cleared")
-    return {"status": "cleared"}
+    return {"status": "cleared", **verified}
 
 
 async def run_ai_selection_get(
@@ -213,12 +242,36 @@ async def pod_ai_selection_put_route(
 async def pod_ai_selection_delete_route(
     x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
     authorization: Optional[str] = Header(default=None),
+    verify_default: bool = False,
 ) -> dict:
     from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
 
     return await run_ai_selection_delete(
-        **await _owner_local_door(x_consent_token, authorization, scope=SCOPE_POD_CONFIG, held=True)
+        verify_default=verify_default,
+        **await _owner_local_door(
+            x_consent_token, authorization, scope=SCOPE_POD_CONFIG, held=True
+        ),
     )
+
+
+@router.patch("/ai-selection")
+async def pod_ai_selection_default_route(
+    request: Request,
+    x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
+
+    door = await _owner_local_door(
+        x_consent_token, authorization, scope=SCOPE_POD_CONFIG, held=True
+    )
+    # A new verb protects old images: they refuse PATCH instead of ignoring a
+    # new DELETE query and clearing an owner's working selection without a probe.
+    # This action carries no credentials or caller-supplied provider configuration.
+    async for chunk in request.stream():
+        if chunk:
+            raise HTTPException(status_code=400, detail={"code": "BAD_ENVELOPE"})
+    return await run_ai_selection_delete(verify_default=True, **door)
 
 
 @router.get("/ai-selection")

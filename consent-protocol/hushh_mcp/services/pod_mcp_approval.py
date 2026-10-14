@@ -100,15 +100,26 @@ class PodMcpMutation(BaseModel):
     review: PodMcpTerms
     directiveId: str | None = Field(default=None, pattern=r"^dir_[a-f0-9]{32}$")
     receipt: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{32,128}$", repr=False)
+    previousReview: PodMcpTerms | None = None
 
 
 async def _change_review_ledger(
     store: ActionDirectiveStore,
-    operation: Literal["issue", "confirm", "consume"],
+    operation: Literal["issue", "confirm", "consume", "rebind"],
     review: PodMcpTerms,
     payload: PodMcpMutation,
 ) -> dict:
     """Apply exact terms inside the caller's fenced registry transaction."""
+    if operation == "rebind":
+        from hushh_mcp.services.pod_mcp_recovery import rebind_review
+
+        if not payload.previousReview or not payload.directiveId or payload.receipt:
+            raise ActionDirectiveAuthorityError("Private review recovery is required.")
+        return rebind_review(
+            store, previous=payload.previousReview, current=review, directive_id=payload.directiveId
+        )
+    if payload.previousReview is not None:
+        raise ActionDirectiveAuthorityError("Unexpected private recovery terms.")
     if operation == "issue":
         if payload.directiveId or payload.receipt:
             raise ActionDirectiveAuthorityError("Invalid private review issue.")
@@ -157,7 +168,7 @@ async def _change_review_ledger(
 
 
 async def mutate_review(
-    operation: Literal["issue", "confirm", "consume"],
+    operation: Literal["issue", "confirm", "consume", "rebind"],
     payload: PodMcpMutation,
     *,
     principal: VerifiedPod | VerifiedOwnerPod | None = None,
@@ -294,6 +305,34 @@ class PodMcpApprovalPort:
             datetime.fromisoformat(value["expiresAt"]),
             recorded.model_dump(),
         )
+
+    async def rebind(self, *, previous: dict, target: PodMcpTerms) -> dict:
+        recorded = PodMcpTerms.model_validate(previous["podReview"])
+        if (
+            target.epoch > self.owner.authority.epoch
+            or target.epoch <= recorded.epoch
+            or target.model_dump(exclude={"epoch"}) != recorded.model_dump(exclude={"epoch"})
+        ):
+            raise ActionDirectiveAuthorityError("Private connector recovery terms changed.")
+        value = await self._call(
+            "rebind",
+            PodMcpMutation(
+                review=target,
+                previousReview=recorded,
+                directiveId=previous["directiveId"],
+            ),
+        )
+        mutation = PodMcpMutation(
+            review=PodMcpTerms.model_validate(value["podReview"]), directiveId=value["directiveId"]
+        )
+        if (
+            mutation.review != target
+            or datetime.fromisoformat(value["expiresAt"])
+            != datetime.fromisoformat(previous["expiresAt"])
+            or value.get("state") != "issued"
+        ):
+            raise ActionDirectiveAuthorityError("Private connector recovery was not verified.")
+        return {**previous, "directiveId": mutation.directiveId, "podReview": target.model_dump()}
 
     async def consume(self, approval, *, directive_id: str, receipt: str):
         from google.adk.sessions import Session

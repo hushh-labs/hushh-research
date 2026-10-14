@@ -193,6 +193,7 @@ class OpenAIResponsesTransport(ProviderTransport):
         provider: str = "openai",
         token_provider: TokenProvider | None = None,
         http_client: Any = None,
+        client: Any = None,
     ):
         from openai import AsyncOpenAI  # noqa: PLC0415 - only needed when this runs
 
@@ -202,7 +203,7 @@ class OpenAIResponsesTransport(ProviderTransport):
             client_kwargs["base_url"] = base_url
         if http_client is not None:
             client_kwargs["http_client"] = http_client
-        self._client = AsyncOpenAI(**client_kwargs)
+        self._client = client if client is not None else AsyncOpenAI(**client_kwargs)
 
     def _request_kwargs(self, request: NeutralRequest, *, model: str) -> dict[str, Any]:
         kwargs: dict[str, Any] = {

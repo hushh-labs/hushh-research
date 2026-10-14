@@ -46,7 +46,7 @@ Non-owned surfaces:
 8. `hushh-webapp/docs/ios-native-surface-adoption.md`
 
 ## Workflow
-Hybrid iOS renderer, overlap and first-paint gates: `hushh-webapp/docs/ios-native-surface-adoption.md`.
+Hybrid iOS renderer, overlap and first-paint gates: `hushh-webapp/docs/ios-native-surface-adoption.md`. Verify changed overlay geometry against production-optimized CSS in the nearest browser layout test: development CSS and mocked rectangles cannot prove that independent transforms survive optimization. Keep a negative control for a reproduced displacement; do not weaken native geometry admission to conceal a web-layout defect.
 1. Read design-system and frontend architecture docs before touching shared UI.
 2. Decide the owning layer first: stock UI, Morphy UX, or app-ui.
 3. Keep route-container ownership with shared shells.
@@ -74,7 +74,7 @@ Hybrid iOS renderer, overlap and first-paint gates: `hushh-webapp/docs/ios-nativ
 1. Broad or ambiguous frontend work routes back to `frontend`.
 2. Route contracts or verification ownership route to `frontend-architecture`.
 3. File placement or layer ownership routes to `frontend-surface-placement`.
-4. Cross-domain scans start with `repo-context`.
+4. Cross-domain scans start with `repo-context`. Hybrid native shell changes follow the complete-composition inventory in `hushh-webapp/docs/ios-native-surface-adoption.md`: authored adapters, not DOM inference; verify overlapping menus/forms/query panels as a family.
 ## Required Checks
 ```bash
 cd hushh-webapp && npm run verify:design-system

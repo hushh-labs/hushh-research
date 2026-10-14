@@ -31,6 +31,7 @@ struct HushhDockFence {
     private(set) var event = 0
     private var confirmed = 0
     private var retiredDocuments = Set<String>()
+    private var withdrawnRevisions = [String: Int]()
     private var latestDocument: String?
     private var latestRevision = -1
     private struct Emission { let update: Int; let edit: Int; let kind: String; let action: String? }
@@ -46,8 +47,11 @@ struct HushhDockFence {
         guard !next.document.isEmpty, next.document.count <= 128, !next.owner.isEmpty, next.owner.count <= 128,
               next.revision > 0, next.revision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
               sequence > 0, sequence <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
-              !retiredDocuments.contains(next.document) else { return false }
-        if let current = latestDocument, current != next.document { retiredDocuments.insert(current); latestRevision = -1 }
+              !retiredDocuments.contains(next.document),
+              next.revision > (withdrawnRevisions[next.document] ?? -1) else { return false }
+        if let current = latestDocument, current != next.document {
+            retiredDocuments.insert(current); withdrawnRevisions.removeValue(forKey: current); latestRevision = -1
+        }
         latestDocument = next.document
         if next != identity {
             guard next.revision > latestRevision else { return false }
@@ -58,6 +62,11 @@ struct HushhDockFence {
         update = sequence; return true
     }
     mutating func edited() { edit += 1 }
+    mutating func invalidateChoices() {
+        confirmed = event
+        confirmedEmission = nil
+        emissions.removeAll()
+    }
     mutating func emitted(kind: String, action: String? = nil) -> Int {
         event += 1
         emissions[event] = Emission(update: update, edit: edit, kind: kind, action: action)
@@ -83,8 +92,19 @@ struct HushhDockFence {
         edited()
         return true
     }
+    /// Withdrawal can overtake the first apply. Preserve its cancellation
+    /// tombstone without retiring a different, newer installation.
+    mutating func withdraw(_ requested: Identity) -> Bool {
+        guard !requested.document.isEmpty, requested.document.count <= 128,
+              !requested.owner.isEmpty, requested.owner.count <= 128,
+              requested.revision > 0, requested.revision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return false }
+        if retiredDocuments.contains(requested.document) { return true }
+        guard withdrawnRevisions[requested.document] != nil || withdrawnRevisions.count < 32 else { return false }
+        withdrawnRevisions[requested.document] = max(withdrawnRevisions[requested.document] ?? -1, requested.revision)
+        return true
+    }
     mutating func retire(_ requested: Identity) -> Bool {
-        guard identity == requested else { return false }
+        guard withdraw(requested), identity == requested else { return false }
         identity = nil; emissions.removeAll(); return true
     }
 }
@@ -93,6 +113,7 @@ final class NativeDockModel: ObservableObject {
     @Published var mode = "voice"
     @Published var text = ""
     @Published var placeholder = "Talk to One"
+    @Published var editorLabel = "Message One"
     @Published var expanded = false
     @Published var editable = false
     @Published var awaitingConsumption = false
@@ -227,7 +248,7 @@ struct NativeDockEditor: UIViewRepresentable {
         editor.adjustsFontForContentSizeCategory = true
         editor.textContainerInset = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 8)
         editor.textContainer.lineFragmentPadding = 0
-        editor.accessibilityLabel = "Message One"
+        editor.accessibilityLabel = model.editorLabel
         editor.accessibilityIdentifier = "native-dock-editor"
         editor.returnKeyType = .default
         editor.keyboardDismissMode = .interactive
@@ -240,6 +261,7 @@ struct NativeDockEditor: UIViewRepresentable {
         editor.isSelectable = model.visible
         editor.textColor = .label
         editor.tintColor = model.accent
+        editor.accessibilityLabel = model.editorLabel
         editor.updatePlaceholder(model.placeholder, visible: model.mode == "text")
         // Never destroy marked text, selection or undo on a theme/geometry echo.
         if editor.markedTextRange == nil && editor.text != model.text {
@@ -265,7 +287,7 @@ struct NativeDockEditor: UIViewRepresentable {
         private let model: NativeDockModel
         init(_ model: NativeDockModel) { self.model = model }
         func textViewDidChange(_ textView: UITextView) {
-            guard model.visible, model.interactionEnabled else { return }
+            guard model.visible, model.mode == "text", textView === model.editor else { return }
             (textView as? DockTextView)?.refreshPlaceholder()
             model.text = textView.text
             model.emit?("edit", nil, nil, textView.text, textView.selectedRange)
@@ -402,6 +424,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "consumeDraft", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "beginEditingTransition", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmEvent", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "snapshotDraft", returnType: CAPPluginReturnPromise),
     ]
     private var fence = HushhDockFence()
     private var context = ""
@@ -421,9 +444,9 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     private lazy var model = NativeDockModel()
     private var admitted: Bool {
         guard HushhNativePresentationPolicy.customControlsEnabled else { return false }
-        #if DEBUG
-        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone {
-            return ProcessInfo.processInfo.arguments.contains("--hushh-native-agent-dock")
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.deviceEligible {
+            return NativeDrawerQualificationPolicy.coherentShell
         }
         #endif
         return false // Physical qualification precedes Release/iPad promotion.
@@ -436,7 +459,8 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics"), let parent = self.bridge?.viewController?.view {
+            if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") || NativeDrawerQualificationPolicy.coherentShell,
+               let parent = self.bridge?.viewController?.view {
                 let probe = NativeTestStatusLabel(frame: .zero, showOverlay: false)
                 probe.accessibilityIdentifier = "native-dock-admission"
                 probe.translatesAutoresizingMaskIntoConstraints = false
@@ -450,9 +474,18 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.admissionProbe = probe
             }
             #endif
-            for name in [UIApplication.willResignActiveNotification, HushhSessionPrivacyShield.presentationDidChange] {
+            for name in [UIApplication.willResignActiveNotification, HushhSessionPrivacyShield.presentationDidChange,
+                         NativePresentationContainer.isolationDidChange] {
                 self.observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                     guard let self, #available(iOS 26.0, *) else { return }
+                    if notification.name == NativePresentationContainer.isolationDidChange {
+                        guard notification.object as? NativePresentationContainer === self.compositor else { return }
+                        self.fence.invalidateChoices()
+                        if self.compositor?.interactionIsolated == false {
+                            self.notifyListeners("readmissionRequested", data: [:], retainUntilConsumed: false)
+                        }
+                        return // Never hide the dock or discard its draft for ordinary coverage.
+                    }
                     #if DEBUG
                     let probePrivacy = HushhSessionPrivacyShield.shared.snapshot()
                     self.admissionProbe?.accessibilityElementsHidden = notification.name == UIApplication.willResignActiveNotification ||
@@ -496,10 +529,12 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     @objc func getCapabilities(_ call: CAPPluginCall) {
         call.resolve(["contractVersion": 1, "supported": admitted,
+                      "draftSnapshot": admitted,
+                      "coherentPresentation": compositor?.wholeNativeDrawers == true && NativeDrawerQualificationPolicy.coherentShell,
                       "underlayPresentation": compositor != nil && compositor?.contentBackedPresentation != true,
                       "contentBackedPresentation": compositor?.contentBackedPresentation == true,
-                      "reservedPresentationRegions": compositor?.contentBackedPresentation == true,
-                      "fullWindowOverlays": compositor?.contentBackedPresentation == true])
+                      "reservedPresentationRegions": compositor?.legacyRegionPresentation == true,
+                      "fullWindowOverlays": compositor?.legacyRegionPresentation == true])
     }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -508,6 +543,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let input = call.getString("text"), input.utf16.count <= 1_000_000,
                   let context = call.getString("context"), !context.isEmpty, context.count <= 128,
                   let mode = call.getString("mode"), ["text", "voice"].contains(mode),
+                  ["Message One", "Message Puppy"].contains(call.getString("editorLabel") ?? "Message One"),
                   let theme = HushhNativeControlAppearance(appearance: call.getString("appearance"), accentHex: call.getString("accentHex"), foregroundHex: call.getString("foregroundHex")),
                   let bounds = call.getObject("frame"), let screen = call.getObject("viewport"),
                   let x = bounds["x"] as? Double, let y = bounds["y"] as? Double,
@@ -554,6 +590,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             if replacing || changingEditor || replacingText { self.model.awaitingTransition = false }
             self.model.placeholder = call.getString("placeholder") ?? ""
+            self.model.editorLabel = call.getString("editorLabel") ?? "Message One"
             self.model.expanded = call.getBool("expanded") ?? false
             self.model.editable = call.getBool("editable") ?? false
             self.model.sendEnabled = call.getBool("sendEnabled") ?? false
@@ -592,10 +629,10 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             self.hosting?.overrideUserInterfaceStyle = theme.style
             self.requestedVisible = call.getBool("visible") ?? false
             self.model.visible = self.requestedVisible && self.safe
-            self.model.interactionEnabled = self.model.visible && (call.getBool("interactionEnabled") ?? true) && self.compositor?.overlayIsolated != true
+            self.model.interactionEnabled = self.model.visible && (call.getBool("interactionEnabled") ?? true) && self.compositor?.interactionIsolated != true
             // A real modal takes focus; a temporary admission/disabled echo
             // does not dismiss the keyboard or replace the retained editor.
-            if self.compositor?.overlayIsolated == true { self.model.editor?.resignFirstResponder() }
+            if self.compositor?.interactionIsolated == true { self.model.editor?.resignFirstResponder() }
             self.hosting?.view.isHidden = !self.requestedVisible || !self.safe
             self.hosting?.view.isUserInteractionEnabled = self.model.interactionEnabled
             self.hosting?.view.accessibilityElementsHidden = !self.model.interactionEnabled
@@ -666,8 +703,9 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func retire(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call) else { call.reject("NATIVE_DOCK_INVALID"); return }
+            guard self.fence.withdraw(identity) else { call.reject("NATIVE_DOCK_RETIRE_UNCONFIRMED"); return }
             var result = self.ack(identity, sequence: 0, phase: "retired")
-            if self.fence.identity == identity, self.fence.retire(identity), #available(iOS 26.0, *) {
+            if self.fence.retire(identity), #available(iOS 26.0, *) {
                 if call.getBool("preserveDraft") == true, self.model.mode == "text" {
                     // Private recovery is returned to the current owner only;
                     // never retained, persisted or placed in diagnostics.
@@ -691,10 +729,30 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let kind = call.getString("kind") else { call.resolve(["valid": false]); return }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let valid = self.fence.confirm(identity, sequence: sequence, applied: applied, editRevision: editRevision, kind: kind,
-                allowed: self.safe && self.requestedVisible && self.model.visible && self.model.interactionEnabled && self.compositor?.overlayIsolated != true && call.getString("context") == self.context &&
+                allowed: self.safe && self.requestedVisible && self.model.visible && self.model.interactionEnabled && self.compositor?.interactionIsolated != true && call.getString("context") == self.context &&
                     call.getInt("editorRevision") == (self.model.mode == "text" ? self.editorRevision : 0) &&
                     call.getInt("privacyGeneration") == privacy.generation)
             call.resolve(["valid": valid])
+        }
+    }
+    /// Read-only handoff of committed editing after responder dismissal. This
+    /// cannot consume/replay an action and remains owner/document/privacy fenced.
+    @objc func snapshotDraft(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), self.fence.identity == identity,
+                  self.safe, self.model.mode == "text", !self.model.awaitingConsumption,
+                  self.model.editor?.markedTextRange == nil,
+                  call.getString("context") == self.context,
+                  call.getInt("editorRevision") == self.editorRevision,
+                  call.getInt("privacyGeneration") == HushhSessionPrivacyShield.shared.snapshot().generation else {
+                call.resolve(["valid": false]); return
+            }
+            // UIKit may finish IME composition while drawer coverage revokes
+            // event delivery. Read only committed editor text, never replay an
+            // input action or infer a submission from this reconciliation.
+            let committed = self.model.editor?.text ?? self.model.text
+            self.model.text = committed
+            call.resolve(["valid": true, "text": committed, "editorRevision": self.editorRevision, "editRevision": self.fence.edit])
         }
     }
     @objc func consumeDraft(_ call: CAPPluginCall) {
@@ -705,7 +763,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let consumed = self.fence.consume(identity, sequence: sequence, editRevision: edit,
-                allowed: self.safe && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && self.model.sendEnabled &&
+                allowed: self.safe && self.compositor?.interactionIsolated != true && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && self.model.sendEnabled &&
                     self.model.editor?.markedTextRange == nil && call.getString("context") == self.context &&
                     call.getInt("privacyGeneration") == privacy.generation)
             if consumed {
@@ -719,7 +777,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func beginEditingTransition(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let sequence = call.getInt("sequence"),
-                  let edit = call.getInt("editRevision"), self.safe, self.model.visible, self.model.interactionEnabled,
+                  let edit = call.getInt("editRevision"), self.safe, self.compositor?.interactionIsolated != true, self.model.visible, self.model.interactionEnabled,
                   self.model.mode == "text", !self.model.awaitingConsumption, !self.model.awaitingTransition,
                   self.model.editor?.markedTextRange == nil,
                   call.getString("context") == self.context, call.getInt("editorRevision") == self.editorRevision,
@@ -733,8 +791,12 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     private func emit(kind: String, action: String?, attachment: String?, text: String?, range: NSRange?) {
-        guard #available(iOS 26.0, *), safe, model.visible, model.interactionEnabled, !model.awaitingConsumption, !model.awaitingTransition, let identity = fence.identity else { return }
+        guard #available(iOS 26.0, *), safe, model.visible, !model.awaitingConsumption, !model.awaitingTransition, let identity = fence.identity else { return }
+        // Final IME commits remain draft edits even after coverage revokes
+        // choice delivery. Advancing the edit fence prevents stale JS echoes
+        // from overwriting that committed text; it grants no input action.
         if kind == "edit" { fence.edited() }
+        guard compositor?.interactionIsolated != true, model.interactionEnabled else { return }
         let selection = range ?? model.editor?.selectedRange ?? NSRange(location: 0, length: 0)
         var payload = identityPayload(identity)
         payload.merge(["kind": kind, "sequence": fence.emitted(kind: kind, action: action), "editRevision": fence.edit,

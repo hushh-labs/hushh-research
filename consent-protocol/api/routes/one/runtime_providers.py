@@ -43,6 +43,13 @@ def provider_catalog() -> dict[str, Any]:
                 "agentCapability": "openai",
                 "defaultModel": OWNER_OPENAI_DEFAULT_MODEL,
             },
+            {
+                "id": "azure_openai",
+                "name": "Azure AI",
+                "availability": "available",
+                "methods": ["own_key"],
+                "agentCapability": "azure_openai",
+            },
             {"id": "anthropic", "name": "Claude", "availability": "coming_soon", "methods": []},
             {"id": "grok", "name": "Grok", "availability": "coming_soon", "methods": []},
         ],

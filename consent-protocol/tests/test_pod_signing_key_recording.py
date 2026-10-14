@@ -25,6 +25,9 @@ from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypai
 from hushh_mcp.services.pod_key_collector import collect_pod_key_if_pending, fetch_pod_public_key
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 _UID = "firebase-uid-0123456789abcdefghij"
 _PHONE = "+14155550123"
 _POD_URL = "https://pod-abc-uc.a.run.app"

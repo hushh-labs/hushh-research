@@ -20,6 +20,9 @@ import pytest
 
 import hushh_mcp.services.actor_identity_service as ais
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 _UID = "firebase-uid-0123456789abcdefghij"
 _PHONE = "+14155550123"
 

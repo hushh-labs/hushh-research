@@ -698,6 +698,15 @@ enum NativeTestResetter {
 }
 
 final class NativeTestStatusLabel: UIButton {
+    #if DEBUG
+    /// Synchronous, bounded public evidence only. No asynchronous WebKit
+    /// completion is needed to inspect the current native presentation.
+    var currentValue: ((String?) -> String)?
+    override var accessibilityValue: String? {
+        get { currentValue?(super.accessibilityValue) ?? super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
+    }
+    #endif
     init(frame: CGRect, showOverlay: Bool) {
         super.init(frame: frame)
         isAccessibilityElement = true

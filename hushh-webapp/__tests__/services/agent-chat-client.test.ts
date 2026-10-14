@@ -635,6 +635,25 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE SEARCH");
   });
 
+  it.each(["u1", "other-owner"])("keeps browser content private and rediscovers only the current owner: %s", async (owner) => {
+    const onBrowserTaskCreated = vi.fn();
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "browser", toolCallName: "start_browser_task" } });
+      subscriber.onToolCallEndEvent({ event: { toolCallId: "browser" }, toolCallName: "start_browser_task",
+        toolCallArgs: { goal: "PRIVATE GOAL" } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "browser", content: JSON.stringify({
+        status: "accepted", binding: { owner_id: owner, task_id: "browser_" + "a".repeat(32) },
+        summary: "PRIVATE WEBSITE", review: { secret: "PRIVATE COOKIE" },
+      }) } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Research a site", vaultOwnerToken: "fixture",
+      handlers: { onBrowserTaskCreated, onToolResult, onToolWaiting } });
+    expect(onBrowserTaskCreated).toHaveBeenCalledTimes(owner === "u1" ? 1 : 0);
+    expect(JSON.stringify([onToolResult.mock.calls, onToolWaiting.mock.calls])).not.toContain("PRIVATE");
+  });
+
   it("keeps private connector setup names out of transport diagnostics", async () => {
     const onStructuredExperience = vi.fn();
     const onToolResult = vi.fn();
@@ -1378,6 +1397,60 @@ describe("AG-UI Agent One client", () => {
     expect(review.isCurrent()).toBe(true);
     advanceVaultSessionEpoch();
     expect(review.isCurrent()).toBe(false);
+  });
+
+  it("restores a native review without replaying the user's turn and gives each continuation fresh handlers", async () => {
+    const { recoverMcpReviews } = await import("@/lib/agent/mcp-review-recovery");
+    publishValidatedAuthSessionOwner("user-1");
+    const reference = { kind: "mcp_call_review", version: 1,
+      connectorId: "custom_test", toolName: `mcp_${"a".repeat(40)}`,
+      directiveId: `dir_${"b".repeat(32)}`, pendingHandle: `one_secret_ref:${"c".repeat(32)}`,
+      expiresAt: "2099-01-01T00:00:00Z" };
+    vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
+      messages: [], mcpReviews: [{ interruptId: "interrupt-1", reference }],
+    })));
+    const [review] = await recoverMcpReviews({ vaultKey: TEST_VAULT_KEY, userId: "user-1",
+      conversationId: "thread-mcp", vaultOwnerToken: "owner-token", isCurrent: () => true, handlers: {} });
+    const approval = { connectorId: reference.connectorId, toolName: reference.toolName,
+      directiveId: reference.directiveId, pendingHandle: reference.pendingHandle, receipt: "r".repeat(48) };
+    mockTransport.runAgent.mockClear();
+    const oldToken = vi.fn(), newToken = vi.fn();
+    const next = vi.fn<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>();
+    mockTransport.outcome = "interrupt";
+    mockTransport.emitEvents = subscriber => subscriber.onToolCallEndEvent?.({
+      event: { type: "TOOL_CALL_END", toolCallId: "tool-1" }, toolCallName: "adk_request_confirmation",
+      toolCallArgs: { originalFunctionCall: { id: "second-call", name: reference.toolName, args: {} },
+        toolConfirmation: { confirmed: false, payload: reference } },
+    });
+    await review.resume(approval, undefined, { onToken: oldToken, onMcpReview: next });
+    expect(oldToken).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledOnce();
+    expect(mockTransport.runAgent.mock.calls[0][1].initialMessages).toEqual([]);
+    expect(mockTransport.runAgent.mock.calls[0][0].resume).toEqual([
+      { interruptId: "interrupt-1", status: "resolved", payload: { confirmed: true } },
+    ]);
+    mockTransport.outcome = "success"; mockTransport.emitEvents = null;
+    await next.mock.calls[0][0].resume(approval, undefined, { onToken: newToken });
+    expect(oldToken).toHaveBeenCalledOnce();
+    expect(newToken).toHaveBeenCalledOnce();
+    expect(mockTransport.runAgent.mock.calls[1][1].initialMessages).toEqual([]);
+    await expect(review.resume(approval)).rejects.toThrow("no longer active");
+    expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
+  });
+
+  it("discards a recovered review when the owner changes during its history response", async () => {
+    const { recoverMcpReviews } = await import("@/lib/agent/mcp-review-recovery");
+    publishValidatedAuthSessionOwner("user-1");
+    let resolve!: (value: unknown) => void;
+    const body = new Promise(done => { resolve = done; });
+    vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce({ ok: true,
+      json: () => body } as Response);
+    const pending = recoverMcpReviews({ vaultKey: TEST_VAULT_KEY, userId: "user-1",
+      conversationId: "thread-mcp", vaultOwnerToken: "owner-token", isCurrent: () => true, handlers: {} });
+    await vi.waitFor(() => expect(ApiService.getAgentChatHistory).toHaveBeenCalled());
+    publishValidatedAuthSessionOwner("different-owner");
+    resolve({ mcpReviews: [{ interruptId: "synthetic", reference: {} }] });
+    expect(await pending).toEqual([]);
   });
 
   it("publishes a review whose confirmation also arrived in a messages snapshot", async () => {

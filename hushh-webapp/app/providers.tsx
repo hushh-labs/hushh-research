@@ -50,7 +50,6 @@ import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
-import type { ProfilePaneLocation } from "@/lib/navigation/profile-pane";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
@@ -125,6 +124,7 @@ import {
   PROFILE_PANE_OPEN_EVENT,
   PROFILE_PANE_ROOT_LOCATION,
   type ProfilePaneOpenDetail,
+  type ProfilePaneLocation,
   openProfilePane,
   clearProfilePaneQuery,
   closeProfilePane,
@@ -274,9 +274,9 @@ function AppShellFrame({ children }: ProvidersProps) {
     () => resolveProfilePaneUrlState(searchParams),
     [searchParams],
   );
+  const profilePaneOpen = profilePaneEnabled && profilePaneUrlState.open;
   const profilePaneResumeLocation = profilePaneResume.ownerId === userId
     ? profilePaneResume.location : PROFILE_PANE_ROOT_LOCATION;
-  const profilePaneOpen = profilePaneEnabled && profilePaneUrlState.open;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow || hidesPersistentChrome;
   const isFoundationRoute = isFoundationPublicRoute(pathname);

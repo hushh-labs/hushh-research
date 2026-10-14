@@ -119,6 +119,29 @@ async def test_browser_task_unqualified_owner_and_replayed_request_are_refused(m
     await fixture.runtime.drain()
 
 
+async def test_current_owner_can_read_and_stop_after_original_grant_ends_but_cannot_resume(
+    monkeypatch,
+):
+    from dataclasses import replace
+
+    fixture = task_runtime_fixture(monkeypatch)
+    started = await approved_task(fixture)
+    task_id = started.binding.task_id
+    task = fixture.runtime._tasks[task_id]
+
+    async def ended():
+        raise BrowserRefused("BROWSER_AUTHORIZATION_EXPIRED")
+
+    task.access = replace(task.access, check=ended)
+    assert (await fixture.runtime.read(fixture.owner, task_id)).binding == started.binding
+    with pytest.raises(BrowserRefused, match="AUTHORIZATION_EXPIRED"):
+        await fixture.runtime.control(fixture.owner, task_id, "resume", started.control_epoch)
+    with pytest.raises(BrowserRefused, match="AUTHORIZATION_EXPIRED"):
+        await fixture.runtime.frame(fixture.owner, task_id)
+    stopped = await fixture.runtime.control(fixture.owner, task_id, "cancel", started.control_epoch)
+    assert stopped.phase == "cancelled" and task.closed
+
+
 async def test_browser_preallocation_cancel_and_unconfirmed_close_hold_update_permit(monkeypatch):
     fixture = task_runtime_fixture(monkeypatch)
     started = await fixture.runtime.start(fixture.owner, fixture.request)
@@ -301,11 +324,36 @@ async def test_browser_task_uncertain_effect_and_recovery_never_redispatch(monke
     with pytest.raises(BrowserRefused, match="CONTROL_UNAVAILABLE"):
         await fixture.runtime.input(fixture.owner, task_id, action)
     recovered = task_runtime_fixture(monkeypatch, log=fixture.log)
+    discovered = await recovered.runtime.list_tasks(recovered.owner)
+    assert len(discovered) == 1 and discovered[0].phase == "outcome_uncertain"
+    assert discovered[0].binding.task_id == task_id
+    assert not {"goal", "summary", "review", "fields", "frame", "approved_origins"} & set(
+        discovered[0].model_dump()
+    )
     state = await recovered.runtime.read(recovered.owner, task_id)
     assert state.phase == "outcome_uncertain" and state.control_owner == "stopped"
     with pytest.raises(BrowserRefused, match="RECOVERY_REQUIRES_OWNER"):
         await recovered.runtime.start(recovered.owner, recovered.request)
     assert recovered.launcher.calls == 0
+
+
+@pytest.mark.parametrize("operation", ["read", "list_tasks"])
+async def test_browser_metadata_refuses_owner_revoked_during_recovery(monkeypatch, operation):
+    fixture = task_runtime_fixture(monkeypatch)
+    replay = fixture.log.replay
+
+    async def revoke_during_replay():
+        records = await replay()
+        fixture.auth.revoked = True
+        return records
+
+    fixture.log.replay = revoke_during_replay
+    with pytest.raises(BrowserRefused, match="BROWSER_OWNER_REFUSED"):
+        if operation == "read":
+            await fixture.runtime.read(fixture.owner, "browser_" + "a" * 32)
+        else:
+            await fixture.runtime.list_tasks(fixture.owner)
+    assert fixture.launcher.calls == 0
 
 
 async def test_browser_routes_default_closed_and_input_validation_never_echoes_secrets(monkeypatch):
@@ -387,6 +435,10 @@ async def test_browser_routes_default_closed_and_input_validation_never_echoes_s
         assert accepted.status_code == 202
         task_id = accepted.json()["binding"]["task_id"]
         await fixture.runtime._tasks[task_id].worker
+        discovered = await client.get(path + "/tasks", headers=headers)
+        assert discovered.status_code == 200
+        assert discovered.json()[0]["binding"]["task_id"] == task_id
+        assert not {"goal", "review", "summary", "frame"} & set(discovered.json()[0])
         pinned = {**headers, "X-Browser-Pod-Incarnation": "epoch"}
         status = await client.get(path + "/tasks/" + task_id, headers=pinned)
         approved = await client.post(

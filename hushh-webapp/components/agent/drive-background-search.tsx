@@ -10,6 +10,7 @@ import { Card } from "@/lib/morphy-ux/card";
 import { ChevronDown, ChevronRight, X } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { ConnectorBrandMark } from "@/components/agent/connector-brand-mark";
 import { HelperText } from "@/components/app-ui/typography";
 import { dismissDriveSharingCard, isDriveSharingCardDismissed } from "@/lib/agent/drive-sharing-card-preferences";
@@ -109,17 +110,21 @@ export function DriveBackgroundSearches({ onUseInChat }: SearchSelectionProps = 
   if (!user || !isVaultUnlocked) return null;
   return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} ownerId={user.uid} getToken={getVaultOwnerToken} onUseInChat={onUseInChat} />;
 }
-export function DriveRecentSharing({ presentation = "card", active = true, onNeedsReviewChange }: {
+type DriveActivityPage = { open: boolean; onBack: () => void; onReady?: () => void };
+export function DriveRecentSharing({ presentation = "card", active = true, onNeedsReviewChange, page }: {
   presentation?: "card" | "sidebar"; active?: boolean; onNeedsReviewChange?: (count: number) => void;
+  /** The same recent-sharing owner supplies native History's bounded content. */
+  page?: DriveActivityPage;
 } = {}) {
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   if (!user || !isVaultUnlocked) return null;
   return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} ownerId={user.uid} getToken={getVaultOwnerToken}
-    sharingOnly sidebar={presentation === "sidebar"} active={active} onNeedsReviewChange={onNeedsReviewChange} />;
+    sharingOnly sidebar={presentation === "sidebar" || !!page} active={active} onNeedsReviewChange={onNeedsReviewChange} page={page} />;
 }
-function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, sidebar = false, active = true, onNeedsReviewChange }: OwnerProps &
-  SearchSelectionProps & { ownerId: string; sharingOnly?: boolean; sidebar?: boolean; active?: boolean; onNeedsReviewChange?: (count: number) => void }) {
+function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, sidebar = false, active = true, onNeedsReviewChange, page }: OwnerProps &
+  SearchSelectionProps & { ownerId: string; sharingOnly?: boolean; sidebar?: boolean; active?: boolean; onNeedsReviewChange?: (count: number) => void;
+    page?: DriveActivityPage }) {
   const owner = useOwnerGuard(getToken);
   const serial = useRef(0);
   const bulkSerial = useRef(0);
@@ -127,6 +132,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
   const [bulkShares, setBulkShares] = useState<DriveBulkShareView[]>([]);
   const [error, setError] = useState(false);
   const [bulkError, setBulkError] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(true);
   const seen = useRef(false);
   const seenBulk = useRef(false);
   const dismissed = useRef(new Set<string>());
@@ -155,6 +161,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
     const ticket = ++bulkSerial.current;
     const { token, guard: checkOwner } = owner();
     const guard = () => { checkOwner(); if (bulkSerial.current !== ticket) throw new DriveSharingError("superseded"); };
+    setBulkLoading(true);
     try {
       const next = await DriveSharingService.recentBulkShares(token, guard);
       guard();
@@ -169,6 +176,8 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
     } catch {
       try { guard(); } catch { return; }
       setBulkShares([]); setBulkError(seenBulk.current);
+    } finally {
+      try { guard(); setBulkLoading(false); } catch { /* A stale owner cannot finish a newer read. */ }
     }
   }, [owner, ownerId]);
   const dismiss = (share: DriveBulkShareView, returnFocusToComposer = true) => {
@@ -202,7 +211,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
     loadBulk, { enabled: active && sidebar && !selectedShareId });
   const detached = sharingOnly ? bulkShares : bulkShares.filter(share => !jobs.some(job => job.jobId === share.searchJobId));
   if (sidebar) {
-    if (!detached.length && (!bulkError || bulkErrorDismissed)) return null;
+    if (!page && !detached.length && (!bulkError || bulkErrorDismissed)) return null;
     const selected = detached.find(share => share.shareId === selectedShareId);
     const ordered = [...detached].sort((a, b) => Number(b.status === "review_ready") - Number(a.status === "review_ready"));
     const visible = showAllShares ? ordered : ordered.slice(0, 3);
@@ -213,8 +222,16 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
         sidebarElement.querySelector<HTMLInputElement>('input[aria-label="Search chats"]');
       target?.focus({ preventScroll: true });
     };
-    return <section className="mb-2 border-b border-[color:var(--one-chat-divider)] pb-2" aria-label="Drive sharing activity">
-      <h3 data-agent-history-section-label className="px-3 pb-1 pt-1.5 text-[13.5px] font-normal text-[color:var(--one-chat-meta)]">Drive sharing</h3>
+    const detail = selected ? <>
+      <DriveBulkShareReview key={selected.shareId} searchJobId={selected.searchJobId} initial={selected} getToken={getToken} />
+      <Button type="button" variant="muted" size="compact" className="self-start"
+        onClick={() => {
+          dismissingDetail.current = !page; setSelectedShareId(null); dismiss(selected, false);
+          if (!page) requestAnimationFrame(restoreSidebarFocus);
+        }} title="Hide this update without changing file access">Hide this update</Button>
+    </> : null;
+    const rows = <section className={page ? "p-4" : "mb-2 border-b border-[color:var(--one-chat-divider)] pb-2"} aria-label="Drive sharing activity">
+      {!page && <h3 data-agent-history-section-label className="px-3 pb-1 pt-1.5 text-[13.5px] font-normal text-[color:var(--one-chat-meta)]">Drive sharing</h3>}
       {bulkError && !bulkErrorDismissed ? <div className="px-3 py-2 text-xs text-muted-foreground">
         <p>Couldn’t load Drive activity.</p>
         <button type="button" className="min-h-11 font-medium text-foreground underline underline-offset-2"
@@ -243,20 +260,22 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
       })}</div>
       {ordered.length > 3 ? <button type="button" className="min-h-11 px-3 text-[12px] font-medium text-[color:var(--one-chat-meta)] hover:text-foreground"
         onClick={() => setShowAllShares(value => !value)}>{showAllShares ? "Show fewer updates" : `Show all ${ordered.length} updates`}</button> : null}
+      {page && !detached.length && !bulkError ? <HelperText role="status">{bulkLoading ? "Loading Drive sharing…" : "Nothing to review."}</HelperText> : null}
+    </section>;
+    if (page) return <NativeFeaturePage open={page.open} title="Drive sharing" owner={ownerId} layer="chat-drive-review"
+      context={JSON.stringify([snapshotVaultSessionEpoch(), selected?.shareId ?? "activity"])} onReady={page.onReady}
+      onBack={() => { if (selected) { setSelectedShareId(null); void loadBulk(); } else page.onBack(); }}>
+      {selected ? <div className="flex flex-col gap-3 p-4">{detail}</div> : rows}
+    </NativeFeaturePage>;
+    return <>{rows}
       <Dialog modal open={!!selected} onOpenChange={open => { if (!open) { setSelectedShareId(null); void loadBulk(); } }}>
         <DialogContent className="gap-3 p-4 sm:max-w-xl sm:p-5" srDescription="Google Drive sharing progress and available actions."
           onCloseAutoFocus={event => { if (dismissingDetail.current) { event.preventDefault(); dismissingDetail.current = false; restoreSidebarFocus(); } }}>
           <DialogTitle>Drive sharing</DialogTitle>
-          {selected ? <>
-            <DriveBulkShareReview key={selected.shareId} searchJobId={selected.searchJobId} initial={selected} getToken={getToken} />
-            <Button type="button" variant="muted" size="compact" className="self-start"
-              onClick={() => { dismissingDetail.current = true; setSelectedShareId(null); dismiss(selected, false);
-                requestAnimationFrame(restoreSidebarFocus); }}
-              title="Hide this update without changing file access">Hide this update</Button>
-          </> : null}
+          {detail}
         </DialogContent>
       </Dialog>
-    </section>;
+    </>;
   }
   if (!jobs.length && !error && !detached.length && (!bulkError || bulkErrorDismissed)) return null;
   return <div className={`mx-auto w-full max-w-4xl space-y-2 ${sharingOnly ? "max-h-[min(24rem,40dvh)] overflow-y-auto p-1" : ""}`}>

@@ -100,7 +100,11 @@ def test_an_azure_pod_states_its_version_one_capabilities(monkeypatch):
         "gmailPush": {"available": False, "reason": "requires_google_pubsub"},
         "webSearch": {"available": False, "reason": "requires_gemini_model"},
         "privateCommands": {"available": False, "reason": "requires_gemini_model"},
-        "aiSelection": {"version": 1, "providers": ["gemini", "openai"]},
+        "aiSelection": {
+            "version": 1,
+            "providers": ["gemini", "openai", "azure_openai"],
+            "defaultVerification": True,
+        },
     }
 
 

@@ -483,6 +483,205 @@ def test_private_mcp_ledger_binds_exact_terms_and_consumes_once_without_hub_hist
         )
 
 
+@pytest.fixture
+def private_review(db, monkeypatch):
+    from hushh_mcp.services import pod_binding_service, pod_mcp_approval
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore
+
+    monkeypatch.setattr(pod_binding_service, "hub_environment", lambda: "dev")
+    monkeypatch.setattr(
+        ActionDirectiveStore, "hmac_key", property(lambda _: b"synthetic-ledger-key")
+    )
+    principal = pod_mcp_approval.VerifiedOwnerPod(
+        "ha1_test", "pod@synthetic.iam.gserviceaccount.com"
+    )
+    terms = pod_mcp_approval.PodMcpTerms(
+        ownerId="u",
+        hushhId="ha1_test",
+        podKeyId="podk_test",
+        environment="dev",
+        epoch=1,
+        conversationId="private-thread",
+        connectorId="custom_test",
+        toolName="mcp_" + "a" * 40,
+        callId="call",
+        catalogRevision="rev1",
+        commitment="b" * 64,
+    )
+
+    def invoke(operation, terms, **kwargs):
+        return asyncio.run(
+            pod_mcp_approval.mutate_review(
+                operation,
+                pod_mcp_approval.PodMcpMutation(review=terms, **kwargs),
+                principal=principal,
+                db=db,
+            )
+        )
+
+    issued = invoke("issue", terms)
+    terms = pod_mcp_approval.PodMcpTerms.model_validate(issued["podReview"])
+    return invoke, terms, issued
+
+
+def test_private_review_restart_is_atomic_idempotent_and_requires_new_confirmation(
+    db, private_review
+):
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+    invoke, old, issued = private_review
+    confirmation = invoke("confirm", old, directiveId=issued["directiveId"])
+    current = old.model_copy(update={"epoch": 2})
+
+    def recover():
+        return invoke("rebind", current, previousReview=old, directiveId=issued["directiveId"])
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, repeated = list(pool.map(lambda _: recover(), range(2)))
+    assert first == repeated and first["expiresAt"] == issued["expiresAt"]
+    with pytest.raises(ActionDirectiveAuthorityError):
+        invoke("consume", old, directiveId=issued["directiveId"], receipt=confirmation["receipt"])
+    with pytest.raises(ActionDirectiveAuthorityError):
+        invoke(
+            "consume", current, directiveId=first["directiveId"], receipt=confirmation["receipt"]
+        )
+    fresh = invoke("confirm", current, directiveId=first["directiveId"])
+    # A lost recovery acknowledgement cannot reset a confirmed successor.
+    with pytest.raises(ActionDirectiveAuthorityError):
+        recover()
+    assert invoke(
+        "consume", current, directiveId=first["directiveId"], receipt=fresh["receipt"]
+    ) == {"status": "consumed"}
+    with pytest.raises(ActionDirectiveAuthorityError):
+        invoke(
+            "rebind",
+            current.model_copy(update={"epoch": 3}),
+            previousReview=current,
+            directiveId=first["directiveId"],
+        )
+    with db.engine.begin() as conn:
+        assert conn.execute(text("SELECT count(*) FROM one_action_directive_ledger")).scalar() == 2
+        assert conn.execute(text("SELECT count(*) FROM one_adk_sessions")).scalar() == 0
+
+
+@pytest.mark.parametrize(
+    "change", ["commitment", "conversationId", "epoch", "expired", "cancelled", "consumed"]
+)
+def test_private_review_recovery_cannot_broaden_or_replay(db, private_review, change):
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+    invoke, old, issued = private_review
+    current = old.model_copy(update={"epoch": 2})
+    if change in {"commitment", "conversationId", "epoch"}:
+        current = current.model_copy(
+            update={
+                change: {"commitment": "c" * 64, "conversationId": "other-thread", "epoch": 1}[
+                    change
+                ]
+            }
+        )
+    else:
+        assignments = {
+            "expired": "expires_at=clock_timestamp() - interval '1s'",
+            "cancelled": "state='cancelled',settlement_reason_code='owner_cancelled'",
+            "consumed": "state='confirmed',consumed_at=clock_timestamp()",
+        }
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE one_action_directive_ledger SET "
+                    + assignments[change]
+                    + " WHERE directive_id=:id"
+                ),
+                {"id": issued["directiveId"]},
+            )
+    with pytest.raises(ActionDirectiveAuthorityError):
+        invoke("rebind", current, previousReview=old, directiveId=issued["directiveId"])
+    with db.engine.begin() as conn:
+        assert conn.execute(text("SELECT count(*) FROM one_action_directive_ledger")).scalar() == 1
+
+
+@pytest.mark.parametrize("damage", ["missing", "changed_expiry", "changed_binding"])
+def test_lost_review_acknowledgement_requires_exact_existing_successor(db, private_review, damage):
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+    invoke, old, issued = private_review
+    current = old.model_copy(update={"epoch": 2})
+    recovered = invoke("rebind", current, previousReview=old, directiveId=issued["directiveId"])
+    with db.engine.begin() as conn:
+        statement = {
+            "missing": "DELETE FROM one_action_directive_ledger WHERE directive_id=:id",
+            "changed_expiry": "UPDATE one_action_directive_ledger SET expires_at=expires_at + interval '1s' WHERE directive_id=:id",
+            "changed_binding": "UPDATE one_action_directive_ledger SET slots_hmac='changed' WHERE directive_id=:id",
+        }[damage]
+        conn.execute(text(statement), {"id": recovered["directiveId"]})
+    with pytest.raises(ActionDirectiveAuthorityError):
+        invoke("rebind", current, previousReview=old, directiveId=issued["directiveId"])
+
+
+def test_rebind_insert_failure_rolls_back_original_cancellation(db, private_review):
+    invoke, old, issued = private_review
+
+    def fail_insert(_conn, _cursor, statement, _parameters, _context, _many):
+        if "INSERT INTO one_action_directive_ledger" in statement:
+            raise RuntimeError("Synthetic unavailable ledger")
+
+    event.listen(db.engine, "before_cursor_execute", fail_insert)
+    try:
+        with pytest.raises(RuntimeError, match="Synthetic"):
+            invoke(
+                "rebind",
+                old.model_copy(update={"epoch": 2}),
+                previousReview=old,
+                directiveId=issued["directiveId"],
+            )
+    finally:
+        event.remove(db.engine, "before_cursor_execute", fail_insert)
+    with db.engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT state,settlement_reason_code FROM one_action_directive_ledger")
+        ).one()
+        assert tuple(row) == ("issued", None)
+
+
+def test_rebind_checks_expiry_after_waiting_for_the_ledger_lock(db, private_review):
+    import time
+
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+    invoke, old, issued = private_review
+    waiting = threading.Event()
+
+    def observe(_conn, _cursor, statement, _parameters, _context, _many):
+        if "SELECT * FROM one_action_directive_ledger" in statement and "FOR UPDATE" in statement:
+            waiting.set()
+
+    event.listen(db.engine, "before_cursor_execute", observe)
+    try:
+        with db.engine.begin() as lock:
+            lock.execute(text("SELECT directive_id FROM one_action_directive_ledger FOR UPDATE"))
+            lock.execute(
+                text(
+                    "UPDATE one_action_directive_ledger SET expires_at=clock_timestamp() + interval '150 milliseconds'"
+                )
+            )
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    invoke,
+                    "rebind",
+                    old.model_copy(update={"epoch": 2}),
+                    previousReview=old,
+                    directiveId=issued["directiveId"],
+                )
+                assert waiting.wait(1)
+                time.sleep(0.2)
+                lock.commit()
+                with pytest.raises(ActionDirectiveAuthorityError, match="expired"):
+                    future.result(timeout=3)
+    finally:
+        event.remove(db.engine, "before_cursor_execute", observe)
+
+
 async def test_private_native_mcp_suspend_preview_confirm_resume(
     db, monkeypatch, tmp_path, request
 ):
@@ -596,6 +795,21 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
     owner.owner, owner.hushh_id, owner.log = owner_id, hushh_id, log
     owner.claims = {"user_id": owner_id, "hushh_id": hushh_id}
     owner.require_access = AsyncMock()
+    from hushh_mcp.services.pod_action_checkpoints import MCP_OBJECT, PodActionCheckpointStorage
+    from hushh_mcp.services.pod_mcp_pending import PodMcpPendingStore
+
+    def recovery_store():
+        return PodMcpPendingStore(
+            PodActionCheckpointStorage(
+                owner=owner_id,
+                hushh_id=hushh_id,
+                store=log._store,
+                require_access=owner.require_access,
+                slot=MCP_OBJECT,
+            )
+        )
+
+    owner.mcp_pending = recovery_store()
     owner.runtime = SimpleNamespace(owner_user_id=owner_id)
     owner.authority = SimpleNamespace(
         pod_key_id="podk_test",
@@ -676,11 +890,19 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         "token": "synthetic-browser-authority",
     }
     machine_requests = []
+    lose_rebind_response = True
     with bound_request_chat_key(owner_id), TestClient(app) as hub:
 
         def pod_post(path, *, json):
+            nonlocal lose_rebind_response
             machine_requests.append((path, deepcopy(json)))
-            return hub.post(path, json=json)
+            response = hub.post(path, json=json)
+            if path.endswith("/rebind") and response.status_code == 200 and lose_rebind_response:
+                from hushh_mcp.services.pod_hub_client import PodHubUnavailable
+
+                lose_rebind_response = False
+                raise PodHubUnavailable("Synthetic lost acknowledgement")
+            return response
 
         owner.mcp_approval = PodMcpApprovalPort(owner, client=SimpleNamespace(post=pod_post))
         first = [
@@ -706,24 +928,55 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         )
         reference = json.loads(encoded)["toolConfirmation"]["payload"]
         assert private_argument not in encoded
+        # Drop every request-local secret and reconstruct the keyed recovery
+        # adapter, native session repository and process epoch before review.
+        from hushh_mcp.one_adk import request_secrets
+        from hushh_mcp.one_adk.pod_mcp_restore import pending_reviews, restore_resume
+
+        request_secrets._values.clear()
+        owner.mcp_pending = recovery_store()
+        owner.sessions = EncryptedAdkSessionService(
+            repository=PodAdkSessionRepository(
+                projection=PodAdkSessionProjection(owner_id=owner_id, hushh_id=hushh_id, log=log),
+                require_access=owner.require_access,
+            )
+        )
+        owner.authority.epoch = 2
+        restored_session = await owner.sessions.get_session(
+            app_name="hussh_one", user_id=owner_id, session_id=thread
+        )
+        recovered_review = await pending_reviews(owner, restored_session)
+        assert len(recovered_review) == 1 and recovered_review[0]["interruptId"] == interrupt.id
+        assert private_argument not in json.dumps(recovered_review)
+        review_body = external_connectors.McpReviewRequest(
+            conversationId=thread,
+            toolName=tool_name,
+            arguments={},
+            pendingHandle=reference["pendingHandle"],
+            connectorConfiguration=configuration,
+            directiveId=reference["directiveId"],
+        )
+        from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await prepare_private_review(owner, connector, review_body)
+        owner.mcp_pending = recovery_store()
+        owner.authority.epoch = 3
         preview = await prepare_private_review(
             owner,
             connector,
-            external_connectors.McpReviewRequest(
-                conversationId=thread,
-                toolName=tool_name,
-                arguments={},
-                pendingHandle=reference["pendingHandle"],
-                connectorConfiguration=configuration,
-            ),
+            review_body,
         )
         assert preview["arguments"] == {"q": private_argument}
+        assert preview["directiveId"] != reference["directiveId"]
+        assert preview["expiresAt"] == reference["expiresAt"]
+        assert preview["replacesDirectiveId"] == reference["directiveId"]
         native.assert_not_awaited()
         confirmed = hub.post(
             f"/api/connectors/{connector}/mcp/confirm",
             json={
                 "podReview": preview["podReview"],
-                "directiveId": reference["directiveId"],
+                "directiveId": preview["directiveId"],
                 "confirmed": True,
             },
         )
@@ -731,31 +984,35 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         receipt = confirmed.json()["receipt"]
         with db.engine.connect() as conn:
             assert (
-                conn.execute(text("SELECT state FROM one_action_directive_ledger")).scalar_one()
+                conn.execute(
+                    text("SELECT state FROM one_action_directive_ledger WHERE directive_id=:id"),
+                    {"id": preview["directiveId"]},
+                ).scalar_one()
                 == "confirmed"
             )
         native.assert_not_awaited()
-        messages = next(
-            event.messages for event in reversed(first) if event.type == EventType.MESSAGES_SNAPSHOT
-        )
         approval = {
             key: reference[key]
             for key in ("directiveId", "connectorId", "toolName", "pendingHandle")
         }
+        approval["directiveId"] = preview["directiveId"]
         second = [
             event
             async for event in make_agent().run(
-                make_input(
-                    "resume",
-                    messages,
-                    approval={**approval, "receipt": receipt},
-                    resume=[
-                        ResumeEntry(
-                            interrupt_id=interrupt.id,
-                            status="resolved",
-                            payload={"confirmed": True},
-                        )
-                    ],
+                await restore_resume(
+                    owner,
+                    make_input(
+                        "resume",
+                        [],
+                        approval={**approval, "receipt": receipt},
+                        resume=[
+                            ResumeEntry(
+                                interrupt_id=interrupt.id,
+                                status="resolved",
+                                payload={"confirmed": True},
+                            )
+                        ],
+                    ),
                 )
             )
         ]
@@ -769,10 +1026,19 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         assert recovered is not None and private_argument not in recovered.model_dump_json()
         assert private_argument not in json.dumps(machine_requests)
         assert "synthetic-connector-secret" not in json.dumps(machine_requests)
-        assert [path.rsplit("/", 1)[-1] for path, _ in machine_requests] == ["issue", "consume"]
+        assert [path.rsplit("/", 1)[-1] for path, _ in machine_requests] == [
+            "issue",
+            "rebind",
+            "rebind",
+            "rebind",
+            "consume",
+        ]
         with db.engine.connect() as conn:
             assert (
-                conn.execute(text("SELECT state FROM one_action_directive_ledger")).scalar_one()
+                conn.execute(
+                    text("SELECT state FROM one_action_directive_ledger WHERE directive_id=:id"),
+                    {"id": preview["directiveId"]},
+                ).scalar_one()
                 == "consumed"
             )
             assert conn.execute(text("SELECT count(*) FROM one_adk_sessions")).scalar_one() == 0

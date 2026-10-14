@@ -23,6 +23,9 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
 from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypair
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 _UID = "firebase_uid_test_123"
 _PHONE = "+14255550133"
 

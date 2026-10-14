@@ -12,6 +12,75 @@ production acceptance are not established by isolated fixtures. Read the
 [readiness memo](../quality/adk-orchestration-docs-audit.md#acceptance-matrix)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
 
+## Shared Files — source pilot, not deployed acceptance
+
+Shared reuses this explorer and `agent_files`, with encryption in the unlocked
+browser. A random library key is wrapped under the existing vault key; the user
+identifier binds ownership and authenticated context, never supplies key material.
+Contents, names, folders, settings and index hints are encrypted. The hub transports
+bounded ciphertext under opaque names; it receives neither the library key nor a
+standing decryption grant. Authorization is checked independently of encryption.
+
+The pilot requires `HUSSH_SHARED_FILES_ENABLED`, an explicitly configured private
+`HUSSH_SHARED_FILES_BUCKET`, and dev-only migration 959. Flags default off. Verify
+uniform bucket access, public-access prevention and actual retention before use.
+Do not modify recovery/PKM prefixes or broad lifecycle rules. SQL stores only the
+owner resource inventory, library generation, mutation lease and opaque write
+receipts; large encrypted objects remain in object storage.
+
+A durable exclusive lease serializes hierarchy mutations across browser tabs.
+Conditional writes protect immutable chunks and metadata revisions. Uncertain
+provider writes retain their fence; account reset/deletion cannot claim erasure
+while they might still complete. Cleanup validates the exact owner prefix, deletes
+bounded version batches and waits for soft-deletion/retention to complete. Trash is
+reversible metadata, not physical deletion. Never drop inventory to bypass cleanup.
+
+Private Gemini and Azure keys are sealed directly to the admitted pod for validation
+and use; encrypted vault backup follows acceptance. A backup failure does not
+silently replace the accepted private connection.
+
+Returning to a private cloud AI default uses the owner-config action with a verified
+provider/model receipt; old images refuse PATCH without clearing a working key.
+
+Selected foreground organization requires explicit analysis consent. Only the
+selected UTF-8 file (at most 256 KiB) and its explicitly selected metadata reach
+managed Gemini. Sibling folder names are excluded, including from older-client
+requests; the server rejects a nonempty folder projection. The authored specialist proposes reversible changes; the browser rechecks
+consent, exclusions, revision and cancellation under the mutation lease before
+committing. Original bytes remain immutable. Closing/locking the browser interrupts
+foreground work; it does not become a background service. Automatic organization,
+scheduled private work, Computer Use and Puppy are unavailable in Shared.
+
+Passphrase changes rewrap the same vault key, so the existing library remains
+readable. A genuine vault-key replacement needs a separately qualified library-key
+rewrapping transition. Shared library enrollment and placement changes share an owner-scoped transactional
+lock. An active or unresolved Shared library blocks cloud setup and provisioning,
+even when the Files feature flag is disabled. No placement is silently changed.
+Shared-to-pod, reverse and cross-cloud Files moves remain
+unavailable until destination readability, identities, revisions, tombstones and
+byte integrity are proven before cutover; source cleanup is a separate receipt.
+
+Local SQL/crypto fixtures do not prove cloud IAM, retention or provider acceptance.
+Keep the pilot disabled until the exact combined candidate passes CI and governed
+dev setup, transfer, foreground consent, recovery and deletion rehearsals.
+
+```mermaid
+flowchart LR
+  B["Unlocked owner browser<br/>Shared Files source pilot"]
+  V["Existing vault custody<br/>wrapped random library key"]
+  H["Shared Files transport<br/>owner + generation + write fence"]
+  O["Private GCS bucket<br/>opaque encrypted objects"]
+  A["Files ADK task<br/>selected foreground projection (no sibling folder labels) only"]
+  M["Managed Gemini<br/>explicit processing consent"]
+  V -->|"unwrap in browser memory"| B
+  B -->|"ciphertext only"| H
+  H -->|"bounded conditional writes"| O
+  B -->|"selected revision + consent"| A
+  A --> M
+  A -->|"reversible proposal; no library key"| B
+  G["Disabled until dev privacy and lifecycle acceptance"] -.-> H
+```
+
 ## Visual Map
 
 Files uses encrypted objects in an isolated `files/v1` prefix beneath the owner's
@@ -116,6 +185,34 @@ rechecks consent and file revision. Duplicate delivery is safe, retries and mode
 calls are bounded, cancellation persists, and an expired uncertain execution requires
 review. History is paginated. A lost queue-delivery response leaves a recoverable
 pending-delivery record with an explicit retry; no autonomous outbox sweep is claimed.
+
+### Scheduled tasks — local source, not deployed acceptance
+
+One's **Scheduled tasks** view exposes approved work without keeping a pod awake.
+The first customer action is **Schedule organization** on a ready file. It reviews
+a one-time run in the owner's timezone against the existing Files analysis opt-in.
+The existing `agent_files` task specialist remains the semantic decision-maker.
+General goals and scheduled browser tasks are not registered execution templates.
+
+The sealed pod log owns the schedule, occurrence claim, cancellation and settlement.
+The due-time delivery contains identifiers only; an exact authenticated worker route
+checks current owner, pod incarnation, signed grant version and expiry. Exact file,
+analysis and agent revisions are rechecked inside Files mutation before creating work.
+A competing Files job is not adopted. Lost queue acknowledgements repair the same
+durable outbox; interrupted effects are not automatically repeated. Cancellation
+remains **Stopping current work** until execution settles. The update admission
+permit remains held through settlement.
+
+The GCP adapter reuses the owner-project Cloud Tasks queue and dedicated Files worker
+identity. Long-horizon delivery uses bounded metadata checkpoints, not inference or
+polling. Azure's queue does not yet provide a qualified due-time wake adapter; scheduling
+there returns unavailable. This source does not provision an always-running timer.
+Both clouds still need live queue/wake/idle acceptance for this slice.
+
+Scheduling cannot outlive the exact signed authorization or survive a replacement
+pod through an old grant. The UI shows the verified access deadline. Changes to the
+file, permission, binding or pod require review; this is not a standing unlimited
+agent permission. Existing settings, Files jobs and owner resources are preserved.
 
 ## Provisioning and on-demand operation
 

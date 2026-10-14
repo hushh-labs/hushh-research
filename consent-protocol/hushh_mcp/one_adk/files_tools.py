@@ -4,10 +4,37 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from hushh_mcp.services.pod_files.library import FilesRefused
 from hushh_mcp.services.pod_files.runtime import operation, require_files_access
+
+
+class ForegroundFilesPort(Protocol):
+    """Only the selected request projection, never a complete Shared library."""
+
+    async def list_files(self, parent: str, cursor: str) -> dict[str, Any]: ...
+    async def create_folder(self, name: str, parent: str, request_id: str) -> dict[str, Any]: ...
+    async def read_file(self, file_id: str) -> dict[str, Any]: ...
+    async def organize_file(
+        self, file_id: str, revision: int, operation_name: str, name: str, parent: str
+    ) -> dict[str, Any]: ...
+
+
+_foreground: ContextVar[ForegroundFilesPort | None] = ContextVar(
+    "files_foreground_port", default=None
+)
+
+
+@contextmanager
+def foreground_tools(port: ForegroundFilesPort):
+    """Request-scoped, owner-checked projection; never a standing Shared library."""
+    token = _foreground.set(port)
+    try:
+        yield
+    finally:
+        _foreground.reset(token)
+
 
 _job_target: ContextVar[str | None] = ContextVar("files_job_target", default=None)
 
@@ -23,6 +50,8 @@ def job_target(file_id: str):
 
 async def list_files(parent: str = "root", cursor: str = "") -> dict[str, Any]:
     """List one bounded page of the private library's folder metadata."""
+    if (port := _foreground.get()) is not None:
+        return await port.list_files(parent, cursor)
     try:
         await require_files_access()
         async with operation() as library:
@@ -47,6 +76,8 @@ async def list_files(parent: str = "root", cursor: str = "") -> dict[str, Any]:
 
 async def create_folder(name: str, parent: str, request_id: str) -> dict[str, Any]:
     """Create an empty organization folder; retain request_id when retrying."""
+    if (port := _foreground.get()) is not None:
+        return await port.create_folder(name, parent, request_id)
     try:
         await require_files_access()
         async with operation(mutation=True) as library:
@@ -74,6 +105,8 @@ async def read_file(file_id: str) -> dict[str, Any]:
     Other formats remain downloadable by the owner; this tool never executes,
     extracts archives, or substitutes a filename-based content classification.
     """
+    if (port := _foreground.get()) is not None:
+        return await port.read_file(file_id)
     try:
         await require_files_access()
         async with operation() as library:
@@ -108,6 +141,8 @@ async def organize_file(
     parent is a folder identifier from list_files or create_folder, never a path.
     Use the returned file revision for a subsequent change to the same file.
     """
+    if (port := _foreground.get()) is not None:
+        return await port.organize_file(file_id, revision, operation_name, name, parent)
     try:
         await require_files_access()
         if _job_target.get() is not None and _job_target.get() != file_id:

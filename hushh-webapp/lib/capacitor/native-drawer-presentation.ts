@@ -1,0 +1,256 @@
+import type { PluginListenerHandle } from "@capacitor/core";
+import {
+  NativeDrawerChoiceFence, sameNativeDrawer, validNativeDrawerProjection,
+  subscribeNativeDrawerIsolation, reconcileNativeDrawerIsolation, retainNativeDrawerIsolation,
+  nativeDrawerAcknowledged as acknowledged,
+  type HushhNativeDrawersPlugin, type NativeDrawerChoice, type NativeDrawerIdentity,
+  type NativeDrawerProjection, type NativeDrawerReceipt,
+} from "./native-drawers";
+
+export type NativeDrawerActions = {
+  rows: ReadonlyMap<string, (choice: NativeDrawerChoice) => void | Promise<void>>;
+  open: () => void;
+  close: () => void;
+  back?: () => void;
+};
+export type NativeDrawerPresentationPhase = "preparing" | "active" | "quarantined" | "retired";
+
+function receiptMatches(receipt: NativeDrawerReceipt, state: NativeDrawerProjection, phase: "active" | "retired") {
+  return receipt && sameNativeDrawer(receipt, state) && receipt.phase === phase &&
+    receipt.updateSequence === state.updateSequence && receipt.privacyGeneration === state.privacyGeneration;
+}
+
+/** One volatile presentation replica, not a feature controller. Authored row
+ * handles call the current React owner only after both sides validate a choice.
+ * No private projection is logged, persisted, or retained in an event queue. */
+export class NativeDrawerPresentation {
+  private readonly fence: NativeDrawerChoiceFence;
+  private current: { state: NativeDrawerProjection; actions: NativeDrawerActions } | null = null;
+  private pending: NativeDrawerProjection | null = null;
+  private inFlight: Promise<void> | null = null;
+  private handle: PluginListenerHandle | null = null;
+  private isolationHandle: PluginListenerHandle | null = null;
+  private listening = false;
+  private disposed = false;
+  private applied = 0;
+  private latestReceipt: NativeDrawerReceipt | null = null;
+  private highestUpdate = 0;
+  private seenChoice = 0;
+  private withdrawal: Promise<boolean> | null = null;
+  private phase: NativeDrawerPresentationPhase = "preparing";
+
+  constructor(
+    readonly identity: NativeDrawerIdentity,
+    private readonly plugin: HushhNativeDrawersPlugin,
+    private readonly ownerIsCurrent: () => boolean,
+    private readonly onPhase: (phase: NativeDrawerPresentationPhase) => void,
+    private readonly onApplied?: (state: NativeDrawerProjection) => void,
+  ) { this.fence = new NativeDrawerChoiceFence(identity); }
+
+  async listen(): Promise<boolean> {
+    if (this.disposed || this.listening) return false;
+    this.listening = true;
+    try {
+      const capability = await acknowledged(this.plugin.getCapabilities());
+      if (this.disposed) return false;
+      if (capability.contractVersion !== 1 || !capability.supported || !capability.wholePresentation ||
+          this.identity.family === "agent-profile" && capability.agentProfileMenu !== true) {
+        await this.retire();
+        return false; // No native body has been prepared; established web fallback is safe.
+      }
+      if (capability.terminalRefreshes === true) this.fence.enableTerminalRefreshes();
+      // Listener installation creates no view. If it arrives after retirement,
+      // remove that exact handle rather than leaking a callback into next owner.
+      const handle = await this.plugin.addListener("choice", event => { void this.choose(event); });
+      if (this.disposed) { await handle.remove(); return false; }
+      this.handle = handle;
+      const pendingIsolation = subscribeNativeDrawerIsolation(this.plugin);
+      let isolationRemoved = false;
+      const removeLateIsolation = (handle: PluginListenerHandle) => {
+        if (isolationRemoved) return;
+        isolationRemoved = true;
+        void handle.remove().catch(() => undefined);
+      };
+      void pendingIsolation.then(handle => { if (this.disposed) removeLateIsolation(handle); }).catch(() => undefined);
+      const isolation = await acknowledged(pendingIsolation);
+      if (this.disposed) { removeLateIsolation(isolation); return false; }
+      this.isolationHandle = isolation;
+      return true;
+    } catch {
+      if (!this.disposed) this.quarantine();
+      return false;
+    }
+  }
+
+  publish(state: NativeDrawerProjection, actions: NativeDrawerActions): boolean {
+    if (this.disposed || this.phase === "quarantined" || !this.handle || !this.isolationHandle) return false;
+    if (!this.ownerIsCurrent() || !validNativeDrawerProjection(state) || !sameNativeDrawer(this.identity, state) ||
+        state.sections.some(section => section.rows.some(row => [row.id, row.renameActionId, row.deleteActionId]
+          .some(id => id !== undefined && !actions.rows.has(id)))) ||
+        state.backEnabled && !actions.back) { this.quarantine(); return false; }
+    // Callers own their product state. Retain a bounded, immutable snapshot so
+    // a later render cannot mutate a pending private projection in place.
+    const snapshot: NativeDrawerProjection = { ...state,
+      sections: state.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row })) })) };
+    if (!this.fence.update(snapshot)) return false;
+    this.current = { state: snapshot, actions: { ...actions, rows: new Map(actions.rows) } };
+    this.highestUpdate = snapshot.updateSequence;
+    this.pending = snapshot;
+    this.pump();
+    return true;
+  }
+
+  refreshActions(actions: NativeDrawerActions): void {
+    if (!this.disposed && this.current && this.ownerIsCurrent()) {
+      this.current.actions = { ...actions, rows: new Map(actions.rows) };
+    }
+  }
+
+  private pump() {
+    if (this.inFlight || !this.pending || this.disposed || this.phase === "quarantined") return;
+    this.inFlight = this.drain().finally(() => { this.inFlight = null; this.pump(); });
+  }
+
+  private async drain(): Promise<void> {
+    while (this.pending && !this.disposed && this.phase !== "quarantined") {
+      const state = this.pending;
+      this.pending = null;
+      try {
+        const receipt = await acknowledged(this.plugin.apply(state));
+        if (this.disposed) return;
+        if (!receiptMatches(receipt, state, "active") || !this.ownerIsCurrent()) { this.quarantine(); return; }
+        this.latestReceipt = receipt;
+        if (this.current?.state.updateSequence === state.updateSequence) {
+          this.applied = state.updateSequence;
+          this.setPhase("active");
+          this.onApplied?.(state);
+        }
+      } catch {
+        // Apply may have succeeded without a receipt. Never reveal a duplicate
+        // web drawer or replay the request to resolve an uncertain delivery.
+        if (!this.disposed) this.quarantine();
+        return;
+      }
+    }
+  }
+
+  private async choose(event: NativeDrawerChoice): Promise<void> {
+    if (!this.disposed && !this.ownerIsCurrent()) { this.quarantine(); return; }
+    if (this.disposed || !this.current || event.sequence <= this.seenChoice) return;
+    const terminal = event.action === "close" || event.action === "open";
+    if (!this.fence.allows(event)) {
+      // Cancel the exact unconfirmed intent, never replay it against new rows.
+      if (event.action === "row" && Number.isSafeInteger(event.sequence) && sameNativeDrawer(event, this.identity) && event.updateSequence < this.current.state.updateSequence) {
+        this.seenChoice = event.sequence;
+        await this.settle(event, false);
+      }
+      else if (this.fence.terminalIsCurrent(event)) this.quarantine();
+      return;
+    }
+    this.seenChoice = event.sequence;
+    // A terminal intent can outrun its apply receipt. Await that one dispatch;
+    // do not drop it and strand a locally closed native drawer in isolation.
+    await this.inFlight;
+    const current = this.current;
+    if (this.disposed || this.phase !== "active" || !current || this.applied !== current.state.updateSequence ||
+        !this.fence.allows(event)) {
+      if (!this.disposed && current && event.action === "row" && sameNativeDrawer(event, this.identity)) await this.settle(event, false);
+      else if (!this.disposed && this.fence.terminalIsCurrent(event)) this.quarantine();
+      return;
+    }
+    const action = event.action === "row" ? current.actions.rows.get(event.rowId ?? "") : current.actions[event.action];
+    if (!action) return;
+    let invoked = false;
+    try {
+      const accepted = await this.fence.consume(event, () => acknowledged(this.plugin.confirmChoice(event)),
+        () => !this.disposed && this.phase === "active" && (terminal || this.current === current) && this.ownerIsCurrent(),
+        () => {
+          const owner = terminal ? this.current : current;
+          const latest = event.action === "row" ? owner?.actions.rows.get(event.rowId ?? "") : owner?.actions[event.action];
+          if (!latest) return;
+          invoked = true; return latest(event);
+        });
+      if (invoked) await this.settle(event, true);
+      else if (!accepted && event.action === "row") await this.settle(event, false);
+      if (!accepted && this.fence.terminalIsCurrent(event)) this.quarantine();
+    } catch {
+      if (invoked) await this.settle(event, false);
+      if (!invoked && !this.disposed && (this.fence.terminalIsCurrent(event) || !terminal && this.current === current)) this.quarantine();
+      // The owning feature reports operation failures. No raw provider error,
+      // private text or automatic retry belongs in this presentation adapter.
+    }
+  }
+
+  private async settle(event: NativeDrawerChoice, success: boolean): Promise<void> {
+    if (event.action !== "row" || !this.plugin.settleChoice || this.disposed || !this.ownerIsCurrent()) return;
+    try {
+      const result = await acknowledged(this.plugin.settleChoice({ ...this.identity,
+        sequence: event.sequence, privacyGeneration: event.privacyGeneration, success }));
+      if (!result.valid && !this.disposed && this.ownerIsCurrent()) this.quarantine();
+    } catch {
+      // An uncertain completion retires the presentation; it never repeats the operation.
+      if (!this.disposed && this.ownerIsCurrent()) this.quarantine();
+    }
+  }
+
+  private setPhase(phase: NativeDrawerPresentationPhase) {
+    if (this.phase === phase) return;
+    this.phase = phase;
+    this.onPhase(phase);
+  }
+  private quarantine() {
+    if (this.disposed || this.phase === "retired") return;
+    this.pending = null;
+    this.current = null;
+    this.fence.retire();
+    // Withdrawal is a targeted presentation cleanup, not a repeated operation.
+    // Unknown outcomes remain quarantined until actual native absence is proved.
+    try { this.setPhase("quarantined"); } finally { void this.retire(); }
+  }
+
+  async retire(): Promise<boolean> {
+    if (this.withdrawal) return this.withdrawal;
+    this.withdrawal = this.withdraw();
+    return this.withdrawal;
+  }
+  private async withdraw(): Promise<boolean> {
+    this.disposed = true;
+    this.fence.retire();
+    this.pending = null;
+    const highestUpdate = this.highestUpdate;
+    this.current = null; // Clear private bodies and feature callbacks immediately.
+    const handle = this.handle;
+    const isolationHandle = this.isolationHandle;
+    this.handle = null;
+    this.isolationHandle = null;
+    // Listener cleanup may stall; it must not delay native privacy withdrawal.
+    // A disposed callback cannot invoke an operation even if removal is late.
+    if (handle) void acknowledged(handle.remove()).catch(() => undefined);
+    // Keep public isolation metadata observable through withdrawal. Otherwise
+    // the final uncover event may be missed and base controls stay blocked.
+    // Native retirement tombstones this identity even before admission. Send
+    // withdrawal immediately; a delayed apply cannot revive the private body.
+    let reconciled = false;
+    try {
+      const receipt = highestUpdate > 0 ? await acknowledged(this.plugin.retire(this.identity)) : null;
+      // A newer queued projection may have been withdrawn before dispatch.
+      // Absence is proven by identity/retired phase, not its unapplied update.
+      if (highestUpdate > 0 && (!receipt || !sameNativeDrawer(receipt, this.identity) || receipt.phase !== "retired" ||
+          !Number.isSafeInteger(receipt.updateSequence) || receipt.updateSequence < 0 || receipt.updateSequence > highestUpdate ||
+          this.latestReceipt && receipt.updateSequence < this.latestReceipt.updateSequence)) {
+        this.setPhase("quarantined"); return false;
+      }
+      if (isolationHandle) await acknowledged(reconcileNativeDrawerIsolation(this.plugin));
+      reconciled = true;
+      this.latestReceipt = null;
+      this.setPhase("retired");
+      return true;
+    } catch { this.setPhase("quarantined"); return false; }
+    finally {
+      if (isolationHandle) {
+        if (reconciled) void acknowledged(isolationHandle.remove()).catch(() => undefined);
+        else retainNativeDrawerIsolation(this.plugin, isolationHandle);
+      }
+    }
+  }
+}

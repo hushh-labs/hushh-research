@@ -9,7 +9,6 @@ by the existing pod log and never authorize an automatic effect replay.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from collections.abc import Callable
@@ -49,9 +48,8 @@ from .task_contracts import (
     BrowserTaskSnapshot,
     Phase,
 )
-
-KIND = "browser_task_v1"
-_TERMINAL = {"completed", "unavailable", "outcome_uncertain", "cancelled"}
+from .task_recovery import KIND as KIND
+from .task_recovery import recover_browser_tasks
 
 
 @dataclass
@@ -173,48 +171,10 @@ class BrowserTaskRuntime:
     async def _hydrate(self) -> None:
         if self._hydrated:
             return
-        records = await self._log.replay()
-        if len(records) > 30000:
-            raise BrowserRefused("BROWSER_TASK_HISTORY_LIMIT")
-        recovered: dict[str, BrowserTaskSnapshot] = {}
-        requests: dict[str, str] = {}
-        for record in records:
-            if record.get("kind") != KIND:
-                continue
-            try:
-                payload = record["payload"]
-                if set(payload) != {"request_id", "snapshot"}:
-                    raise ValueError
-                snapshot = BrowserTaskSnapshot.model_validate_json(json.dumps(payload["snapshot"]))
-                if snapshot.binding.owner_id != self._owner or snapshot.binding.pod_id != self._pod:
-                    raise ValueError
-                request_id = payload["request_id"]
-                if not isinstance(request_id, str) or not 8 <= len(request_id) <= 128:
-                    raise ValueError
-                # Recovery records must never contain frames, goals, values or reviews.
-                if (
-                    snapshot.summary is not None
-                    or snapshot.review is not None
-                    or snapshot.approved_origins
-                ):
-                    raise ValueError
-            except (ValueError, KeyError, TypeError):
-                raise BrowserRefused("BROWSER_TASK_LOG_INVALID") from None
-            prior = recovered.get(snapshot.binding.task_id)
-            if prior and snapshot.revision <= prior.revision:
-                raise BrowserRefused("BROWSER_TASK_LOG_INVALID")
-            recovered[snapshot.binding.task_id] = snapshot
-            requests[request_id] = snapshot.binding.task_id
-        for task_id, snapshot in recovered.items():
-            recovered[task_id] = snapshot.model_copy(
-                update={
-                    "phase": snapshot.phase if snapshot.phase in _TERMINAL else "outcome_uncertain",
-                    "control_owner": "stopped",
-                    "code": "BROWSER_TASK_RECOVERED_NO_REPLAY",
-                    "revision": snapshot.revision + 1,
-                }
-            )
-        self._recovered, self._requests, self._hydrated = recovered, requests, True
+        self._recovered, self._requests = await recover_browser_tasks(
+            self._log, self._owner, self._pod
+        )
+        self._hydrated = True
 
     def _snapshot(self, task: _Task) -> BrowserTaskSnapshot:
         control = task.control
@@ -244,11 +204,15 @@ class BrowserTaskRuntime:
             {"request_id": task.request.request_id, "snapshot": snapshot.model_dump(mode="json")},
         )
 
-    async def _task(self, access: BrowserOwnerAccess, task_id: str) -> _Task:
+    async def _metadata_task(self, access: BrowserOwnerAccess, task_id: str) -> _Task:
         await self._access(access)
         task = self._tasks.get(task_id)
         if task is None:
             raise BrowserRefused("BROWSER_TASK_NOT_FOUND")
+        return task
+
+    async def _task(self, access: BrowserOwnerAccess, task_id: str) -> _Task:
+        task = await self._metadata_task(access, task_id)
         await task.access.check()
         await self._reviews.check_binding(task.binding)
         return task
@@ -470,10 +434,27 @@ class BrowserTaskRuntime:
         await self._access(access)
         async with self._lock:
             await self._hydrate()
+        await self._access(access)
         if task_id in self._recovered:
             return self._recovered[task_id]
-        task = await self._task(access, task_id)
+        task = await self._metadata_task(access, task_id)
         return self._snapshot(task)
+
+    async def list_tasks(self, access: BrowserOwnerAccess) -> list[BrowserTaskReceipt]:
+        """Bounded rediscovery; private goals, reviews and frames stay in their ports.
+
+        A recovered task is an uncertain receipt, never an executable browser
+        context. Current admission is required even to discover that receipt.
+        """
+        await self._access(access)
+        async with self._lock:
+            await self._hydrate()
+            snapshots = list(self._recovered.values()) + [
+                self._snapshot(task) for task in self._tasks.values()
+            ]
+            receipts = [self.delegation_receipt(item) for item in snapshots[-20:]]
+        await self._access(access)
+        return receipts
 
     async def frame(
         self, access: BrowserOwnerAccess, task_id: str
@@ -494,7 +475,13 @@ class BrowserTaskRuntime:
         operation: Literal["takeover", "resume", "cancel"],
         control_epoch: int,
     ) -> BrowserTaskSnapshot:
-        task = await self._task(access, task_id)
+        # Current owner control may stop old work after its original processing
+        # grant ends. It never renews that grant or permits more observation/input.
+        task = await (
+            self._metadata_task(access, task_id)
+            if operation == "cancel"
+            else self._task(access, task_id)
+        )
         async with task.operation:
             control = task.control
             if control_epoch != (control.control_epoch if control else 1):

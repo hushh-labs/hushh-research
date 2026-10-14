@@ -89,8 +89,22 @@ The first combined core run passed web-core and 19,071 protocol cases, but faile
 the unchanged Cloud Build argument-size gate. Extracting the identical native
 public-client resolver into its deploy-script owner restores the size contract;
 prebuilt deployments skip source loading and native secret discovery. Focused
-build contracts and Dev/UAT source-free negative controls pass. The completed
-candidate still requires its own core run, hosted CI and Dev release.
+build contracts and Dev/UAT source-free negative controls pass. Candidate
+`d1d7417c0922` passed canonical core in 622 seconds. Concurrent branch revision
+`e7005fca8c8b` is now being integrated normally before push; its native, AI and
+Files changes retain their existing authorities. The union preserves canonical
+migration head 348 and accepts only the separate private-lane 959 append. Focused
+build contracts pass 129 cases, and the consolidated Profile contracts pass 15
+cases with vault, financial-source and hosted-return exclusions retained. The
+combined candidate still requires core, hosted CI and Dev release.
+
+A read-only observation at `2026-10-14T04:31:05Z` established that both existing
+private Azure runtimes lack `APP_FRONTEND_ORIGIN`; the counterpart also lacks the
+public Sandbox test pin. The hub's correct Dev origin does not supply a pod's
+local OAuth callback. Fresh rendering and approved existing-pod configuration
+reconciliation must carry these validated public values. No SDK or webhook
+credential belongs in a private pod. This is a verified prerequisite for One's
+separate Stripe OAuth, not evidence that the OAuth route is missing.
 
 The accompanying source change adds **Manage payout account** inside the
 information-access withdrawal disclosure. Its empty-body authenticated

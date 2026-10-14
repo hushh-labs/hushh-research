@@ -11,6 +11,25 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   currentPodConnection: pod.currentPodConnection,
 }));
 
+it("requires owner app authority for scheduled work and permits only exact read/control methods", async () => {
+  const fetch = vi.fn(async () => Response.json({ tasks: [] }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic", role: "device", scopes: ["pod.status", "pod.act", "files.manage"] } };
+  pod.currentPodConnection.mockResolvedValue(connection);
+  await expect(ownerPodRequest("tasks", { method: "POST" }, ports)).rejects.toThrow("SCHEDULE_GRANT_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+  connection.session.role = "app";
+  await ownerPodRequest("tasks", { method: "POST" }, ports);
+  expect(fetch).toHaveBeenCalledOnce();
+  fetch.mockClear();
+  await expect(ownerPodRequest("tasks/control", { method: "GET" }, ports)).rejects.toThrow("SCHEDULE_ROUTE_REFUSED");
+  await expect(ownerPodRequest("tasks", { method: "DELETE" }, ports)).rejects.toThrow("SCHEDULE_ROUTE_REFUSED");
+  connection.session.scopes = ["pod.status", "pod.act"];
+  await expect(ownerPodRequest("tasks", { method: "POST" }, ports)).rejects.toThrow("SCHEDULE_GRANT_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("refuses a retired Stop before hosting dispatch and after deferred pod admission", async () => {
   let current = true;
   const fetch = vi.fn(async () => Response.json({ stopped: true }));

@@ -58,7 +58,10 @@ const list = (...items: (string | LegalInline[])[]): LegalBlock => ({
   kind: "list",
   items: items.map((item) => (typeof item === "string" ? [item] : item)),
 });
-const mail = { text: LEGAL_CONTACT_EMAIL, href: `mailto:${LEGAL_CONTACT_EMAIL}` };
+const mail = {
+  text: LEGAL_CONTACT_EMAIL,
+  href: `mailto:${LEGAL_CONTACT_EMAIL}`,
+};
 const privacyMail = {
   text: LEGAL_PRIVACY_EMAIL,
   href: `mailto:${LEGAL_PRIVACY_EMAIL}`,
@@ -165,11 +168,11 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "How One uses AI models",
     blocks: [
       p(
-        "One answers you with Google Gemini, running on Google Cloud Vertex AI. For each request, the model receives what that request needs: your message, relevant parts of your conversation, and, when relevant or when you ask, your memories and information from connected services or from people who shared with you. That can include sensitive information you asked One to use.",
+        "Shared uses Google Gemini. A private agent uses the AI connection you select, including the supported Google or Microsoft Azure connection. For each request, the model receives what that request needs: your message, relevant parts of your conversation, and, when relevant or when you ask, your memories and information from connected services or from people who shared with you. That can include sensitive information you asked One to use.",
       ),
       list(
         "Google processes these requests as our service provider under Google Cloud’s terms. Requests may be processed in any Google Cloud location, including the United States and the European Union.",
-        "When One searches the web for you, it uses Google Search through Vertex AI. The search can include your approximate location if you shared it with that request.",
+        "Where your selected AI connection supports Google Search, One uses it when searching the web for you. The search can include your approximate location if you shared it with that request.",
         "In Settings you can instead connect One to Gemini with your own key or your own Google Cloud project. Requests then go to Google under your own account, in the location you choose. Your key is stored in your vault.",
         "If you run your private agent in your own Microsoft Azure subscription, it can answer you with an Azure OpenAI model deployed in that subscription. Requests then go to Microsoft under your own Azure account and Microsoft’s terms, and Microsoft may process them in other Azure locations, depending on how the model is deployed.",
         "Where voice mode is available, your speech is streamed to Google’s Gemini Live model on Google Cloud Vertex AI in the United States, which transcribes it to understand and answer you. We do not store your audio or a transcript; we keep a short-lived session record, without your words, for up to two hours.",
@@ -252,13 +255,19 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       h("Disconnecting"),
       p(
         "You can disconnect in Profile, Connectors. Disconnecting Gmail deletes its tokens and stored receipts and revokes One’s access at Google. Disconnecting a single Google service stops One using it; to revoke all of One’s Google access, disconnect your Google account in One or at ",
-        { text: "myaccount.google.com/permissions", href: GOOGLE_PERMISSIONS_URL },
+        {
+          text: "myaccount.google.com/permissions",
+          href: GOOGLE_PERMISSIONS_URL,
+        },
         ". If One shared a Drive file for you, deleting your account does not undo that sharing in Drive.",
       ),
       h("Google API Services User Data Policy: Limited Use"),
       p(
         "Hussh One’s use and transfer to any other app of information received from Google APIs will adhere to the ",
-        { text: "Google API Services User Data Policy", href: LIMITED_USE_POLICY_URL },
+        {
+          text: "Google API Services User Data Policy",
+          href: LIMITED_USE_POLICY_URL,
+        },
         ", including the Limited Use requirements. In particular:",
       ),
       list(
@@ -506,9 +515,7 @@ const TERMS_SECTIONS: LegalSection[] = [
       p(
         "Your vault is encrypted with a key that is created on your device and unlocked with your passphrase, passkey, device biometrics, or recovery key. We never see that key. That is what keeps your vault private, and it also means we cannot reset your passphrase or recover your recovery key. If you lose every way to unlock your vault, the information encrypted with it cannot be recovered by you or by us.",
       ),
-      p(
-        "Do not use anyone else’s account without their permission.",
-      ),
+      p("Do not use anyone else’s account without their permission."),
     ],
   },
   {

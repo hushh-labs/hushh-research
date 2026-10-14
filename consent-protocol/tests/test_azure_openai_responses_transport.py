@@ -390,3 +390,73 @@ async def test_invalid_schema_refuses_before_provider_dispatch(schema) -> None:
 
 async def test_no_text_format_is_sent_when_no_schema_was_asked_negative_control() -> None:
     assert "text" not in (await _send(types.GenerateContentConfig())).body()
+
+
+async def test_owner_key_is_bound_to_azure_host_deployment_and_does_not_follow_redirects():
+    from hushh_mcp.runtime_providers import owner_azure_key
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest
+
+    server = _Server(_json(_message("synthetic answer")))
+    credential = owner_azure_key.credential_bundle(
+        endpoint=TOPOLOGY.endpoint, deployment=TOPOLOGY.deployment, api_key="synthetic-owner-key"
+    )
+    transport = owner_azure_key.build_transport(credential, http_client=server.client())
+    await transport._generate(
+        NeutralRequest(messages=[NeutralMessage(role="user", text="hello")]),
+        model=TOPOLOGY.deployment,
+    )
+    request = server.requests[0]
+    assert request.url.host == HOST
+    assert request.url.path == "/openai/v1/responses"
+    assert request.headers["authorization"] == "Bearer synthetic-owner-key"
+    assert "api-version" not in request.url.params
+    assert server.body()["model"] == TOPOLOGY.deployment
+    assert server.body()["store"] is False
+    assert "synthetic-owner-key" not in repr(
+        ProviderAdkModel(
+            model=TOPOLOGY.deployment,
+            provider="azure_openai",
+            runtime_mode="byok",
+            credential=credential,
+        )
+    )
+    for endpoint in (
+        "http://" + HOST,
+        "https://127.0.0.1/",
+        TOPOLOGY.endpoint + "proxy",
+        "https://user:pass@" + HOST,
+    ):
+        with pytest.raises(ValueError):
+            owner_azure_key.credential_bundle(
+                endpoint=endpoint, deployment=TOPOLOGY.deployment, api_key="synthetic"
+            )
+
+
+async def test_owner_azure_key_never_follows_a_credential_bearing_redirect():
+    from openai import APIStatusError
+
+    from hushh_mcp.runtime_providers import owner_azure_key
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest
+
+    server = _Server(
+        httpx.Response(302, headers={"location": "https://127.0.0.1/private"}),
+        _json(_message("unsafe")),
+    )
+    client = server.client()
+    client.follow_redirects = (
+        True  # Negative control: adapter must fence an unsafe injected client too.
+    )
+    credential = owner_azure_key.credential_bundle(
+        endpoint=TOPOLOGY.endpoint, deployment=TOPOLOGY.deployment, api_key="synthetic-key"
+    )
+    transport = owner_azure_key.build_transport(credential, http_client=client)
+    try:
+        with pytest.raises(APIStatusError):
+            await transport._generate(
+                NeutralRequest(messages=(NeutralMessage(role="user", text="hello"),)),
+                model=TOPOLOGY.deployment,
+            )
+        assert len(server.requests) == 1
+        assert server.requests[0].url.host == HOST
+    finally:
+        await client.aclose()

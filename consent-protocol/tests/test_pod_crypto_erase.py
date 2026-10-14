@@ -88,9 +88,18 @@ async def _never() -> PodCommitLog:  # pragma: no cover - a retry must not need 
 
 async def test_the_key_goes_first_and_every_chained_object_follows(store):
     log = await _agent(store)
+    from hushh_mcp.services.pod_action_checkpoints import (
+        CLOSED_CHECKPOINT,
+        COMMANDS_OBJECT,
+        MCP_OBJECT,
+    )
     from hushh_mcp.services.pod_recovery_projection import KEY as OWNER_PROJECTION
 
     await store.put_if_generation(OWNER_PROJECTION, b"sealed-projection-fixture", ABSENT)
+    prior_command = await store.put_if_generation(
+        COMMANDS_OBJECT, b"sealed-command-fixture", ABSENT
+    )
+    prior_mcp = await store.put_if_generation(MCP_OBJECT, b"sealed-mcp-fixture", ABSENT)
     recorded = _Recording(store)
     counts = await crypto_erase(
         store=recorded, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
@@ -111,6 +120,14 @@ async def test_the_key_goes_first_and_every_chained_object_follows(store):
     assert MEMORY_BANK_RECORD_KEY not in recorded.deleted
     assert await store.get(MEMORY_BANK_RECORD_KEY) == ERASED_MEMORY_RECORD
     assert OWNER.encode() not in ERASED_MEMORY_RECORD
+    assert await store.get(COMMANDS_OBJECT) == CLOSED_CHECKPOINT
+    assert COMMANDS_OBJECT not in recorded.deleted
+    assert await store.put_if_generation(COMMANDS_OBJECT, b"delayed-command", prior_command) is None
+    assert await store.put_if_generation(COMMANDS_OBJECT, b"delayed-command", ABSENT) is None
+    assert await store.get(MCP_OBJECT) == CLOSED_CHECKPOINT
+    assert MCP_OBJECT not in recorded.deleted
+    assert await store.put_if_generation(MCP_OBJECT, b"delayed-mcp", prior_mcp) is None
+    assert await store.put_if_generation(MCP_OBJECT, b"delayed-mcp", ABSENT) is None
 
 
 async def test_a_retry_after_a_crash_finishes_from_the_tombstone_without_the_key(store):

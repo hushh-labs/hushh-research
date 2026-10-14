@@ -2,18 +2,46 @@
 
 ## Status and evidence
 
-**2026-10-07 — disabled pilot; not a usable owner browser capability.**
+**2026-10-13 — disabled pilot; not a usable owner browser capability.**
 The committed information/session foundation is `f407f849b`. The resumed working
 candidate composes authenticated owner task routes, exact reviews, ephemeral
 preview, takeover and remembered-session controls with an isolated native ADK
 runner. One exposes only a metadata-returning task hand from a qualified runtime;
 its transcript never receives screenshots, selected values or website sessions.
 Neither cloud has a qualified launcher/bridge, so default startup provides no
-browser runtime. No owner pod or serving image changed in this implementation slice.
+browser runtime. Owner-admitted task rediscovery returns bounded metadata only. A current
+owner can inspect or stop an old task, but cannot renew its expired processing
+grant by reconnecting. Original authorization still gates frames, input and resume.
+Preview/review Back closes the feature layer before leaving chat; it never stops
+the task implicitly. Sealed recovery keeps uncertain effects uncertain rather than
+replaying them. No owner pod or serving image changed in this implementation slice.
 
 The [agent-development procedure](./agent-development.md) owns registration;
 the [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
 owns acceptance. Source checks are not cloud isolation or deployment evidence.
+
+### Latest controlled qualification
+
+The local slice is based on `22c7d3cac422`, frozen main `1d691714135e` and
+local ADK `63b4b60aac89`. Controlled headless Chromium passed persistent-cookie
+redirect/restore and refused unapproved recipients and frames. These fixtures
+contain synthetic information and prove neither cloud isolation nor owner custody.
+
+GCP's native worker still reports root identity; the attempted identity change was
+refused. A supported non-root Chromium sandbox and private bridge remain required.
+Do not substitute `--no-sandbox`, privileged execution or the private-agent container.
+Azure's current native API read back the exact synthetic source and deny/full/enforced
+policy, but execution admission returned 403. The observed personal-identity token
+was refused despite the temporary role.
+Supported Microsoft Entra execution admission remains unresolved; this receipt
+does not establish that every personal or guest identity is unsupported. A policy
+receipt does not qualify Chromium or the private bridge.
+The temporary sandbox, group, resource group and exact temporary role were removed
+and absence verified; the initial failed cleanup receipt is retained.
+
+No readiness receipt or owner installation was issued. Resolve supported cloud
+identity, memory-only broker transport, denied egress and teardown independently
+before enabling either adapter.
 
 ## Visual Map
 

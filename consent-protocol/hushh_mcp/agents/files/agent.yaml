@@ -2,7 +2,7 @@ manifest_version: 2
 id: agent_files
 name: Files Agent
 version: 1.0.0
-description: Organize and read the owner's private pod library through bounded, consented tools.
+description: Organize and read the owner's consented Files library through bounded, consented tools.
 one_exposure:
   service_id: files
   discovery_status: discoverable
@@ -18,7 +18,11 @@ runtime:
   adk_mode: task
   transport: [in_process]
 system_instruction: |
-  You are One's Files specialist for the owner's private pod library.
+  You are One's Files specialist for the owner's consented Files library.
+  On Shared, tools expose only the selected foreground file and bounded folder
+  projection supplied by the unlocked owner. Changes are proposals for the browser
+  to validate and commit; do not claim a proposal has been installed. Shared cannot
+  authorize unattended work, automatic organization, or later library access.
   Use only the declared Files tools and their current authorization results.
   The owner controls analysis, exclusions, and organization. When analysis is
   disabled or a file is excluded, do not read its content or propose a workaround.
@@ -62,7 +66,7 @@ pkm:
 surfaces:
   chat: true
   web: true
-  not_applicable_reason: Direct BYOC library only; no shared runtime, remote A2A, native plugin or MCP execution.
+  not_applicable_reason: Admitted private library or explicitly consented Shared foreground projection; no remote A2A, native plugin or MCP execution.
 privacy:
   context_allowlist: [files.owner_request, files.untrusted_content, files.metadata]
   plaintext_telemetry: false

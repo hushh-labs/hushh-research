@@ -204,6 +204,7 @@ async def test_the_hub_door_can_never_set_read_or_clear_the_selection(pod, owner
         client.put(PATH, json=_envelope(_now_ms()), headers=HUB),
         client.get(PATH, headers=HUB),
         client.delete(PATH, headers=HUB),
+        client.patch(PATH, headers=HUB),
         client.put(PATH, json=_envelope(_now_ms()), headers={**HUB, **OWNER_SESSION}),
     ):
         assert response.status_code == 403, response.request.method
@@ -416,3 +417,91 @@ def _opened(**fields: Any) -> Any:
         "selection_id": VECTOR["aad"]["selectionId"],
     }
     return OpenedSelection(**{**base, **fields})
+
+
+async def test_verified_default_refusal_preserves_the_working_owner_selection(
+    pod, owner_session, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.runtime_providers import azure_openai
+
+    await run_ai_selection_put(envelope=_envelope(NOW), check=_answers, now_ms=NOW, **_local())
+
+    async def refuse(**kwargs):
+        raise RuntimeError("synthetic provider refusal")
+
+    monkeypatch.setattr(
+        azure_openai, "owner_azure_model", lambda: ("azure_openai", "synthetic-deployment")
+    )
+    monkeypatch.setattr(
+        azure_openai,
+        "owner_azure_client",
+        lambda *args: SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=refuse))
+        ),
+    )
+    result = _client().patch(PATH, headers=OWNER_SESSION)
+    assert result.status_code == 422
+    assert pod_ai_selection.active_ai_selection().provider == "openai"
+    assert len(await _records(pod)) == 1
+
+
+@pytest.mark.parametrize("answer", [None, "", "synthetic response"])
+async def test_default_patch_requires_an_actual_response_and_no_configuration_body(
+    pod, owner_session, monkeypatch, answer
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.runtime_providers import azure_openai
+
+    await run_ai_selection_put(envelope=_envelope(NOW), check=_answers, now_ms=NOW, **_local())
+
+    async def reply(**kwargs):
+        return SimpleNamespace(text=answer)
+
+    monkeypatch.setattr(
+        azure_openai, "owner_azure_model", lambda: ("azure_openai", "synthetic-deployment")
+    )
+    monkeypatch.setattr(
+        azure_openai,
+        "owner_azure_client",
+        lambda *args: SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=reply))
+        ),
+    )
+    refused = _client().patch(PATH, json={"provider": "gemini"}, headers=OWNER_SESSION)
+    assert refused.status_code == 400
+    assert pod_ai_selection.active_ai_selection().provider == "openai"
+    result = _client().patch(PATH, headers=OWNER_SESSION)
+    if answer:
+        assert result.status_code == 200
+        assert result.json()["defaultProvider"] == "azure_openai"
+        assert result.json()["defaultModel"] == "synthetic-deployment"
+        assert pod_ai_selection.active_ai_selection() is None
+    else:
+        assert result.status_code == 422
+        assert pod_ai_selection.active_ai_selection().provider == "openai"
+
+
+async def test_default_verification_cannot_clear_a_key_without_authorized_model_access(
+    pod, owner_session, monkeypatch
+):
+    from unittest.mock import Mock
+
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.runtime_providers import azure_openai, factory
+
+    await run_ai_selection_put(envelope=_envelope(NOW), check=_answers, now_ms=NOW, **_local())
+    monkeypatch.setattr(azure_openai, "owner_azure_model", lambda: None)
+    monkeypatch.setattr("hushh_mcp.services.pod_platform.workload_platform", lambda: "gcp")
+    monkeypatch.setattr(runtime_settings, "pod_user_adc_enabled", lambda: False)
+    monkeypatch.setattr(runtime_settings, "pod_managed_model_enabled", lambda: False)
+    provider = Mock(side_effect=AssertionError("Unauthorized provider call"))
+    monkeypatch.setattr(factory, "build_managed_runtime_client", provider)
+    result = _client().patch(PATH, headers=OWNER_SESSION)
+    assert result.status_code == 409
+    assert result.json()["detail"]["code"] == "AI_DEFAULT_UNAVAILABLE"
+    provider.assert_not_called()
+    assert pod_ai_selection.active_ai_selection().provider == "openai"
+    assert len(await _records(pod)) == 1

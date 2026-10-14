@@ -50,7 +50,7 @@ export function hitAt(page: import("@playwright/test").Page, x: number, y: numbe
     if (element.closest("[data-agent-history-scrim]")) return "scrim";
     if (element.closest("[data-agent-history-drawer]")) return "panel";
     if (element.closest("[data-fixture-bottom-bar]")) return "bottom-bar";
-    if (element.closest("button")?.textContent === "Open drawer") return "header";
+    if (element.closest("header.agent-chat-header") || element.closest("button")?.textContent === "Open drawer") return "header";
     return element.tagName.toLowerCase();
   }, [x, y] as const);
 }

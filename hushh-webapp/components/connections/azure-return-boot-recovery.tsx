@@ -11,10 +11,18 @@ import {
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
 
+const RECOVERABLE_OWNER_ROUTES = new Set<string>([
+  ROUTES.HOME,
+  ROUTES.ONE_HOME,
+  ROUTES.ONE_FILES,
+  ROUTES.PROFILE_SOFTWARE_UPDATES,
+  ROUTES.ONE_SETUP_CLOUD_AZURE_RETURN,
+]);
+
 /**
  * A hidden browser tab can withhold React's streamed shell reveal while the
  * session above it has already verified. Recover once through Next's supported
- * navigation boundary; the mounted return page still owns the code exchange.
+ * navigation boundary; mounted pages still own unlock, approval and execution.
  * Mount above AppShell's Suspense, otherwise the recovery also waits for it.
  */
 export function AzureReturnBootRecovery() {
@@ -26,7 +34,8 @@ export function AzureReturnBootRecovery() {
 
   useEffect(() => {
     if (
-      pathname !== ROUTES.ONE_SETUP_CLOUD_AZURE_RETURN ||
+      !pathname ||
+      !RECOVERABLE_OWNER_ROUTES.has(pathname) ||
       !ownerId ||
       loading ||
       sessionVerificationRequired ||

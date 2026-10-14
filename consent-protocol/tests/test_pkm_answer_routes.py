@@ -682,3 +682,29 @@ async def test_invalid_period_fails_before_catalog_or_storage(monkeypatch, start
             period_end=end,
         )
     catalog.assert_not_called()
+
+
+async def test_composer_refuses_hosting_change_before_provider_dispatch(
+    monkeypatch, shared_hub_owner
+):
+    async def answerable(**kwargs):
+        shared_hub_owner.return_value = "byoc"
+        return {"approvedScopes": ["attr.travel.trips"], "modelProcessingConsented": True}
+
+    monkeypatch.setattr(routes, "_requests", lambda: Mock(assert_answerable=answerable))
+    composer = Mock()
+    monkeypatch.setattr(routes, "AnswerComposer", composer)
+    with pytest.raises(HTTPException) as error:
+        await routes.compose_answer(
+            uuid4(),
+            Response(),
+            {
+                "projection": {
+                    "memory": "synthetic",
+                    "values": {"attr.travel.trips": {"trips": [{"city": "Tokyo"}]}},
+                }
+            },
+            "owner",
+        )
+    assert error.value.status_code == 409
+    composer.assert_not_called()

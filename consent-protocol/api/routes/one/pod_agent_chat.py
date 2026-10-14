@@ -75,7 +75,7 @@ async def context(request: Request) -> PodChatContext:
 @router.get("/capabilities")
 async def capabilities(owner: PodChatContext = Depends(context)):
     # Discovery performs no model construction, turn admission or history write.
-    return _authenticated_capabilities
+    return {**_authenticated_capabilities, "podCommandCheckpointVersion": 1}
 
 
 def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, PodTurnRequest]:
@@ -161,6 +161,9 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
 @router.post("")
 async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
     try:
+        from hushh_mcp.one_adk.pod_mcp_restore import restore_resume
+
+        input = await restore_resume(owner, input)
         state, options = trusted_state(input, owner)
     except ValidationError:
         raise HTTPException(400, detail={"code": "POD_CHAT_REQUEST_INVALID"}) from None
@@ -259,6 +262,12 @@ async def history(
         or conversation_id in _ACTIVE_THREADS
         or turn_is_preparing(owner.owner, conversation_id)
     }
+    from hushh_mcp.one_adk.pod_mcp_restore import pending_reviews
+
+    result["mcpReviews"] = [
+        {"interruptId": value["interruptId"], "reference": value["reference"]}
+        for value in await pending_reviews(owner, session)
+    ]
     return result
 
 

@@ -21,6 +21,8 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
 )
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
 
 class _SpyBackend:
     """Captures the spec it was asked to build, which is the thing under test."""

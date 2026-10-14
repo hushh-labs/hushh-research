@@ -19,7 +19,11 @@ with pytest.MonkeyPatch.context() as _pod_import_env:
     _pod_import_env.setenv("HUSSH_POD_MODE", "1")
     import pod_server
 
-ADVERT = {"version": 1, "providers": ["gemini", "openai"]}
+ADVERT = {
+    "version": 1,
+    "providers": ["gemini", "openai", "azure_openai"],
+    "defaultVerification": True,
+}
 
 
 class _Request:
@@ -159,6 +163,13 @@ def test_the_provider_catalog_is_server_owned_and_signed_in_only():
                 "methods": ["own_key"],
                 "agentCapability": "openai",
                 "defaultModel": "gpt-5.6-luna",
+            },
+            {
+                "id": "azure_openai",
+                "name": "Azure AI",
+                "availability": "available",
+                "methods": ["own_key"],
+                "agentCapability": "azure_openai",
             },
             {"id": "anthropic", "name": "Claude", "availability": "coming_soon", "methods": []},
             {"id": "grok", "name": "Grok", "availability": "coming_soon", "methods": []},

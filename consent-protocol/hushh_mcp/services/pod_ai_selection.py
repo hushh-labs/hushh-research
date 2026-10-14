@@ -61,6 +61,7 @@ class AiSelection:
     issued_at_ms: int
     selection_id: str
     checked_at_ms: int
+    azure_endpoint: Optional[str] = None
 
 
 def _now_ms() -> int:
@@ -84,6 +85,7 @@ def _from_payload(payload: Mapping[str, Any]) -> Optional[AiSelection]:
             issued_at_ms=int(payload["issuedAtMs"]),
             selection_id=str(payload.get("selectionId") or ""),
             checked_at_ms=int(payload.get("checkedAtMs") or 0),
+            azure_endpoint=payload.get("azureEndpoint") or None,
         )
     except (KeyError, TypeError, ValueError):
         logger.warning("pod_ai_selection.stored_record_ignored")
@@ -170,6 +172,7 @@ async def record_ai_selection(
         issued_at_ms=opened.issued_at_ms,
         selection_id=opened.selection_id,
         checked_at_ms=checked_at_ms,
+        azure_endpoint=opened.azure_endpoint,
     )
 
     def build(_current: Optional[AiSelection], floor: int) -> tuple[dict, AiSelection]:
@@ -187,6 +190,7 @@ async def record_ai_selection(
             "issuedAtMs": selection.issued_at_ms,
             "selectionId": selection.selection_id,
             "checkedAtMs": selection.checked_at_ms,
+            "azureEndpoint": selection.azure_endpoint,
         }, selection
 
     recorded: AiSelection = await _append_against_snapshot(log, hushh_id=hushh_id, build=build)
@@ -194,12 +198,14 @@ async def record_ai_selection(
     return recorded
 
 
-async def clear_ai_selection(log: Any, *, hushh_id: str) -> None:
+async def clear_ai_selection(log: Any, *, hushh_id: str, expected_floor: int | None = None) -> None:
     """Remove the selection; idempotent. The replay floor survives the clear."""
     if log is None:
         raise AiSelectionStoreMissing("this pod has no durable store for its owner's selection")
 
     def build(current: Optional[AiSelection], floor: int) -> tuple[Optional[dict], None]:
+        if expected_floor is not None and floor != expected_floor:
+            raise AiSelectionRefused(STALE_SELECTION)
         if current is None:
             return None, None
         return {

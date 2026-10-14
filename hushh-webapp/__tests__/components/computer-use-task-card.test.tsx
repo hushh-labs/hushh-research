@@ -7,6 +7,8 @@ import { parseComputerUseSnapshot } from "@/lib/computer-use/direct-transport";
 import { createComputerUseCanvas } from "@/lib/computer-use/preview-canvas";
 import { ComputerUseClient } from "@/lib/services/computer-use-client";
 import { ComputerUseOwnerBridge } from "@/components/computer-use/computer-use-owner-bridge";
+import { PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const api = vi.hoisted(() => ({ getComputerUseAdmission: vi.fn(), ownerPodRequest: vi.fn(), owner: "owner" }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: api }));
@@ -39,12 +41,67 @@ function transport(): ComputerUseTransport {
 const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 beforeEach(() => {
   api.owner = "owner";
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({ clearRect: vi.fn(), drawImage: vi.fn() }) as unknown as CanvasRenderingContext2D);
   api.getComputerUseAdmission.mockReset().mockResolvedValue(null);
   api.ownerPodRequest.mockReset();
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("private browser control", () => {
+  it("Back closes preview before leaving chat without stopping the owner's task", async () => {
+    const api = transport();
+    const view = render(<ComputerUseTaskCard binding={binding} transport={api} route="/" />);
+    fireEvent.click(await screen.findByRole("button", { name: "View browser" }));
+    expect(screen.getByLabelText("Browser preview")).toBeTruthy();
+    act(() => { expect(unwindBackLayer("/")).toBe(true); });
+    expect(screen.queryByLabelText("Browser preview")).toBeNull();
+    expect(api.control).not.toHaveBeenCalled();
+    view.unmount();
+    expect(unwindBackLayer("/")).toBe(false);
+  });
+
+  it("keeps only schedule metadata and refuses a changed owner's late result", async () => {
+    api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod" });
+    const row = { id: "schedule_" + "a".repeat(32), title: "Organize test", capability: "agent_files.organize_file.v1",
+      revision: 2, state: "scheduled", repeat: "once", timezone: "UTC", next_run_at: 2000,
+      authorization_expires_at: 3000, last_run: null, terms: { private: "must-not-enter-view" } };
+    api.ownerPodRequest.mockResolvedValue(Response.json({ available: true, code: null, authorization_limit_at: 1000000, templates: [row.capability], tasks: [row] }));
+    const client = new PodScheduledTasksClient("owner");
+    expect(JSON.stringify(await client.status())).not.toContain("must-not-enter-view");
+    api.ownerPodRequest.mockImplementation(async () => { api.owner = "other"; return Response.json(row); });
+    await expect(client.organizeFile({ id: "b".repeat(32), name: "test" }, 2000, "request-id")).rejects.toThrow("SCHEDULE_RESPONSE_REFUSED");
+  });
+
+  it("bounds a stalled scheduler response without retrying the installation or request", async () => {
+    vi.useFakeTimers();
+    try {
+      api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod" });
+      api.ownerPodRequest.mockImplementation(() => new Promise(() => undefined));
+      const client = new PodScheduledTasksClient("owner");
+      const result = expect(client.status()).rejects.toThrow("SCHEDULE_RESPONSE_UNCONFIRMED");
+      await vi.advanceTimersByTimeAsync(45_000);
+      await result;
+      expect(api.ownerPodRequest).toHaveBeenCalledOnce();
+      expect(api.ownerPodRequest.mock.calls[0][1].signal.aborted).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("rediscovers current tasks but never admits recovered work from an old incarnation", async () => {
+    api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod", environment: "development" });
+    const wireBinding = { owner_id: "owner", pod_id: "pod", incarnation: "previous", task_id: "browser_" + "a".repeat(32), environment: "development" };
+    let phase = "outcome_uncertain";
+    api.ownerPodRequest.mockImplementation((path: string) => Promise.resolve(Response.json(path === "browser/capability"
+      ? { available: false, code: "BROWSER_DISABLED", owner_id: "owner", pod_id: "pod", incarnation: "current", environment: "development" }
+      : [{ binding: wireBinding, phase }])));
+    const client = new ComputerUseClient("owner");
+    expect(await client.tasks(new AbortController().signal)).toMatchObject([{ current: false, phase: "outcome_uncertain" }]);
+    phase = "running";
+    await expect(client.tasks(new AbortController().signal)).rejects.toThrow("BROWSER_TASK_RESPONSE_REFUSED");
+    wireBinding.owner_id = "another";
+    phase = "outcome_uncertain";
+    await expect(client.tasks(new AbortController().signal)).rejects.toThrow("BROWSER_TASK_RESPONSE_REFUSED");
+  });
+
   it("requires the takeover acknowledgement and refuses changed-owner responses", async () => {
     const api = transport();
     const controller = new ComputerUseTaskController(binding, api);

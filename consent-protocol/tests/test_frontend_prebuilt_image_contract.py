@@ -120,13 +120,39 @@ def test_image_build_accepts_only_registered_environment_origins(environment, pr
     # Run the actual catalog guard without cloud calls or writes to /workspace.
     guard = step[step.index('python3 - "${_DEPLOY_ENV}"') : step.index("\nPY_RP") + len("\nPY_RP")]
     guard = guard.replace("${_DEPLOY_ENV}", environment).replace("$$", "$")
-    allowed = _run(guard, env={"PASSKEY_RP_ID_VAL": f"{prefix}.{domain}"})
+    hostname = f"{prefix}.{domain}"
+    allowed = _run(
+        "set -e\n" + guard + '\nprintf "%s" "$PASSKEY_RP_ID_VAL"',
+        env={"PASSKEY_RP_ID_VAL": hostname},
+    )
     assert allowed.returncode == 0, allowed.stderr
+    assert allowed.stdout == hostname  # Validation must not change an existing RP.
     foreign_prefix = "one" if environment != "production" else "uat.one"
     for hostname in (f"{foreign_prefix}.{domain}", f"evil.{prefix}.{domain}"):
         refused = _run(guard, env={"PASSKEY_RP_ID_VAL": hostname})
         assert refused.returncode != 0
         assert "does not match the deployment environment" in refused.stderr
+
+
+@pytest.mark.parametrize("mutation", [None, "missing_legacy", "cross_environment"])
+def test_runtime_domain_guard_checks_the_catalog_not_removed_shell_branches(tmp_path, mutation):
+    script = (ROOT / "scripts/ci/runtime-contract-check.sh").read_text()
+    guard = script.split("<<'PY_LEGACY_RP'\n", 1)[1].split("\nPY_LEGACY_RP", 1)[0]
+    aliases = json.loads((ROOT / "hushh-webapp/lib/vault/passkey-domain-aliases.json").read_text())
+    if mutation == "missing_legacy":
+        aliases["production"].remove("one.hushh.ai")
+    elif mutation == "cross_environment":
+        aliases["uat"].append("one.hushh.ai")
+    catalog = tmp_path / "aliases.json"
+    catalog.write_text(json.dumps(aliases))
+    result = subprocess.run(  # noqa: S603 - actual repo guard, synthetic catalog
+        [sys.executable, "-c", guard, str(catalog)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    assert (result.returncode == 0) == (mutation is None), result.stderr
 
 
 @pytest.mark.parametrize("environment", ["dev", "uat"])
@@ -822,3 +848,58 @@ def test_web_build_values_are_defined_once_per_lane(lane: str) -> None:
     ):
         assert name not in deploy, f"{lane}: {name} must come from the start step only"
     assert "_LOCATION_MAP_DEMO=true" not in start
+
+
+def test_uat_and_production_verify_the_candidate_runs_the_pinned_digest() -> None:
+    for lane in ("uat", "production"):
+        names = [str(step.get("name") or "") for step in _workflow_steps(lane)]
+        verify = "Verify frontend candidate runs the pinned image digest"
+        assert names.index("Resolve deployed candidate revisions") < names.index(verify)
+        promote = next(name for name in names if name.startswith("Promote deployed revisions"))
+        assert names.index(verify) < names.index(promote)
+        run = str(_lane_step(lane, verify)["run"])
+        assert "spec.containers[0].image" in run
+        assert '"${deployed_image}" != "${EXPECTED_IMAGE_REFERENCE}"' in run
+
+
+@pytest.mark.parametrize(
+    "configured,expected",
+    [
+        ({}, {"python": "https://api.example.com", "developer": "https://api.example.com"}),
+        (
+            {"BACKEND_URL": "https://shared.example.com"},
+            {"python": "https://shared.example.com", "developer": "https://shared.example.com"},
+        ),
+        (
+            {
+                "BACKEND_URL": "https://shared.example.com",
+                "PYTHON_API_URL": "https://python.example.com",
+                "DEVELOPER_API_URL": "https://developer.example.com",
+            },
+            {"python": "https://python.example.com", "developer": "https://developer.example.com"},
+        ),
+    ],
+)
+def test_web_ci_build_binds_explicit_server_origins(configured, expected) -> None:
+    # Exercise the real CI adapter without building or contacting a backend.
+    # Public client configuration must never become server routing authority.
+    script = """
+source scripts/ci/web-common.sh
+npm() {
+  python3 -c 'import json,os; print(json.dumps({"python":os.environ.get("PYTHON_API_URL"),"developer":os.environ.get("DEVELOPER_API_URL")}))'
+}
+web_ci_build
+"""
+    result = _run(
+        script,
+        env={
+            "PYTHON_API_URL": "",
+            "DEVELOPER_API_URL": "",
+            "BACKEND_URL": "",
+            "NEXT_PUBLIC_BACKEND_URL": "https://client-only.example.com",
+            "NEXT_PUBLIC_DEVELOPER_API_URL": "https://client-only.example.com",
+            **configured,
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == expected

@@ -14,6 +14,8 @@ export type DockProjection = {
   mode: "text" | "voice";
   text: string;
   placeholder: string;
+  /** Authored public accessibility name; never inferred from a private context. */
+  editorLabel?: "Message One" | "Message Puppy";
   expanded: boolean;
   editable: boolean;
   sendEnabled: boolean;
@@ -62,9 +64,10 @@ export type DockEvent = DockIdentity & {
   action?: DockAction;
   attachmentId?: string;
 };
-export type NativeDockCapabilities = { contractVersion: number; supported: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean };
+export type NativeDockCapabilities = { contractVersion: number; supported: boolean; draftSnapshot?: boolean; coherentPresentation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean };
 export interface HushhNativeDockPlugin {
   getCapabilities(): Promise<NativeDockCapabilities>;
+  snapshotDraft(options: DockIdentity & { context: string; editorRevision: number; privacyGeneration: number }): Promise<{ valid: boolean; text?: string; editorRevision?: number; editRevision?: number }>;
   apply(options: DockState): Promise<DockAcknowledgement>;
   retire(options: DockIdentity & { preserveDraft?: boolean }): Promise<DockAcknowledgement>;
   suspend(options: DockIdentity): Promise<DockAcknowledgement>;
@@ -137,6 +140,11 @@ export class DockEventFence {
     if (!Number.isSafeInteger(editRevision) || editRevision !== this.editRevision + 1) return false;
     this.editRevision = editRevision;
     return true;
+  }
+  acknowledgeDraftSnapshot(editRevision: number): boolean {
+    if (!Number.isSafeInteger(editRevision) || editRevision < this.editRevision) return false;
+    this.editRevision = editRevision;
+    return true; // Read-only reconciliation, never action/sequence consumption.
   }
   accept(event: DockEvent, context: string, editorRevision = 0): boolean {
     if (!validDockEvent(event) || !sameDock(this.identity, event) || event.context !== context ||

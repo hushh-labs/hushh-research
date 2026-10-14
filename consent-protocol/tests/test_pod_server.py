@@ -81,6 +81,7 @@ def test_pod_surface_stays_within_reviewed_routes():
     # reject legitimate lifecycle endpoints and miss a forbidden replacement.
     allowed = (
         OWNER_REACHABLE_PATHS
+        | QUEUE_REACHABLE_PATHS
         | {
             "/",
             "/.well-known/agent-card.json",
@@ -372,6 +373,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/agent-chat/proposals/typed",
         "/api/one/pod/agent-chat/proposals/{command_id}",
         "/api/one/pod/agent-chat/proposals/{command_id}/settle",
+        "/api/one/pod/agent-chat/proposals/{command_id}/dispatch",
         "/api/one/pod/agent-chat/runs/{conversation_id}/queue",
         "/api/one/pod/agent-chat/runs/{conversation_id}/queue/{client_message_id}",
         "/api/one/pod/agent-chat/runs/{conversation_id}/stop",
@@ -409,6 +411,8 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/files/chunk",
         "/api/one/pod/files/complete",
         "/api/one/pod/files/mutate",
+        "/api/one/pod/tasks",
+        "/api/one/pod/tasks/control",
         "/api/one/pod/status",
         "/api/one/pod/config",
         "/api/one/pod/turn",
@@ -433,7 +437,7 @@ OWNER_REACHABLE_PATHS = frozenset(
 
 
 # Queue identity is checked at this exact route, never by an owner session.
-QUEUE_REACHABLE_PATHS = frozenset({"/api/one/pod/files/worker"})
+QUEUE_REACHABLE_PATHS = frozenset({"/api/one/pod/files/worker", "/api/one/pod/tasks/worker"})
 # Exact Pub/Sub OIDC identity is enforced at the route; it gets no owner session.
 PROVIDER_REACHABLE_PATHS = frozenset({"/api/one/pod/gmail/push"})
 

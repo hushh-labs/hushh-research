@@ -54,7 +54,7 @@ class NativeAPI:
     async def __call__(self, request):
         self.requests.append(request)
         path = request.url.path
-        if request.method == "PUT":
+        if request.method == "POST" and path.endswith("/sandboxes"):
             self.document = {**json.loads(request.content), "id": "synthetic-1", "state": "Running"}
             if self.lose == "create":
                 raise httpx.ReadError("synthetic lost response")
@@ -84,7 +84,10 @@ class NativeAPI:
             return httpx.Response(200, json=value)
         if request.method == "POST":
             assert path.endswith("/executeShellCommand")
-            assert json.loads(request.content) == {"command": probe._COMMAND}
+            assert json.loads(request.content) == {
+                "command": probe._COMMAND,
+                "containerName": probe._CONTAINER_NAME,
+            }
             self.exec_started.set()
             if self.hold_exec:
                 await asyncio.Future()
@@ -94,7 +97,7 @@ class NativeAPI:
                 200,
                 json=self.exec_response
                 if self.exec_response is not None
-                else {"exitCode": 0, "stdout": probe._MARKER, "stderr": ""},
+                else {"exitCode": 0, "stdout": probe._MARKER, "stderr": "", "executionTimeMs": 1},
             )
         raise AssertionError("Unexpected native request")
 
@@ -114,10 +117,10 @@ async def test_native_qualification_is_synthetic_metadata_and_not_browser_readin
     assert result.policy_verified and result.synthetic_execution_verified
     assert result.termination_confirmed and not result.private_bridge_verified
     assert result.code == "AZURE_BROWSER_BRIDGE_UNSUPPORTED"
-    assert set(credential.scopes) == {"https://dynamicsessions.io/.default"}
+    assert set(credential.scopes) == {"https://management.azuredevcompute.io/.default"}
     for request in api.requests:
         assert request.url.host == "management.eastus2.azuredevcompute.io"
-        assert request.url.params["api-version"] == "2026-02-01-preview"
+        assert request.url.params["api-version"] == "2026-09-01-preview"
         assert "/providers/" not in request.url.path
         assert request.headers["Authorization"] == "Bearer synthetic.host.only.token"
         assert b"synthetic.host.only.token" not in request.content
@@ -125,8 +128,15 @@ async def test_native_qualification_is_synthetic_metadata_and_not_browser_readin
             word in request.url.path
             for word in ("snapshot", "/stop", "/commit", "/resume", "/files")
         )
-    assert api.document["egressPolicy"] == {"defaultAction": "Deny", "trafficInspection": "Full"}
-    assert api.document["lifecycle"] == {"autoSuspendPolicy": {"enabled": False}}
+    assert api.document["egressPolicy"] == {
+        "defaultAction": "Deny",
+        "trafficInspection": "Full",
+        "enforcementMode": "Enforced",
+    }
+    assert api.document["lifecycle"] == {
+        "autoSuspendPolicy": {"enabled": False},
+        "autoDeletePolicy": {"enabled": False},
+    }
     assert not any(
         key in api.document for key in ("environment", "volumes", "ports", "connections")
     )
@@ -288,8 +298,10 @@ async def test_lost_effect_response_is_not_replayed_and_task_owned_resource_is_d
     result = await run(api)
     assert result.code == "AZURE_PROBE_TRANSPORT_UNCERTAIN"
     assert not result.synthetic_execution_verified and result.termination_confirmed
-    assert sum(r.method == "PUT" for r in api.requests) == 1
-    assert sum(r.method == "POST" for r in api.requests) == (1 if lost == "exec" else 0)
+    assert sum(r.method == "POST" and r.url.path.endswith("/sandboxes") for r in api.requests) == 1
+    assert sum(
+        r.method == "POST" and r.url.path.endswith("/executeShellCommand") for r in api.requests
+    ) == (1 if lost == "exec" else 0)
     assert sum(r.method == "DELETE" for r in api.requests) == 1
 
 
@@ -368,7 +380,9 @@ async def test_duplicate_or_oversized_provider_json_never_enters_execution():
             config(), credential=Credential(), transport=httpx.MockTransport(respond)
         )
         assert not result.synthetic_execution_verified and not result.termination_confirmed
-        assert not any(r.method == "POST" for r in calls)
+        assert not any(
+            r.method == "POST" and r.url.path.endswith("/executeShellCommand") for r in calls
+        )
 
 
 @pytest.mark.asyncio

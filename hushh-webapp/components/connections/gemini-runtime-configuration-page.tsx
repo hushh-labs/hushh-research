@@ -11,8 +11,6 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { PrivateAgentCard } from "@/components/connections/private-agent-card";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
-import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
-import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import setupStyles from "@/components/onboarding/setup/one-setup-hub.module.css";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -22,7 +20,11 @@ import {
   snapshotValidatedAuthSessionOwner,
 } from "@/lib/auth/session-owner";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { buildOneSetupRoute, resolveOneSetupReturnTo, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneSetupRoute,
+  resolveOneSetupReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { VaultService } from "@/lib/services/vault-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -37,7 +39,9 @@ type GeminiRuntimeConfigurationPageProps = {
   onSetupReadyChange?: (ready: boolean) => void;
 };
 
-export function GeminiRuntimeConfigurationPage(props: GeminiRuntimeConfigurationPageProps) {
+export function GeminiRuntimeConfigurationPage(
+  props: GeminiRuntimeConfigurationPageProps,
+) {
   const auth = useAuth();
   const owner = snapshotValidatedAuthSessionOwner();
   return (
@@ -193,73 +197,85 @@ function OwnerRuntimeConfigurationPage({
     { enabled: setupMode && !embedded },
   );
 
-  usePublishVoiceSurfaceMetadata(embedded ? null : {
-    screenId: setupMode ? "one_setup_connections" : "one_connections_settings",
-    title: setupMode ? "AI access setup" : "Gemini settings",
-    purpose: "Choose how the private agent reaches Gemini.",
-    actions:
-      setupMode && canContinue && !finishing
-        ? [
-            {
-              id: "finish_connections",
-              actionId: "setup.finish_connections",
-              label: "Finish AI access setup",
-              purpose: "Keep the selected runtime and return to setup.",
-            },
-          ]
-        : [],
-  });
+  usePublishVoiceSurfaceMetadata(
+    embedded
+      ? null
+      : {
+          screenId: setupMode
+            ? "one_setup_connections"
+            : "one_connections_settings",
+          title: setupMode ? "AI access setup" : "AI settings",
+          purpose: "Choose and verify the private agent’s AI connection.",
+          actions:
+            setupMode && canContinue && !finishing
+              ? [
+                  {
+                    id: "finish_connections",
+                    actionId: "setup.finish_connections",
+                    label: "Finish AI access setup",
+                    purpose: "Keep the selected runtime and return to setup.",
+                  },
+                ]
+              : [],
+        },
+  );
 
   const runtimeSettings = (
-        <GeminiRuntimeSettingsCard
-          userId={user?.uid}
-          vaultKey={vaultKey}
-          vaultOwnerToken={vaultOwnerToken}
-          needsVaultCreation={needsVaultCreation}
-          needsUnlock={needsUnlock}
-          onRequestVaultCreation={() => setUnlockOpen(true)}
-          onRequestVaultUnlock={() => setUnlockOpen(true)}
-          requiresExplicitSelection={setupMode}
-          initiallyConfigured={hasRuntimeChoice === true && (
-            setupChoice !== "byok_pending_vault" || isVaultUnlocked ||
-            Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
-          )}
-          onCanContinueChange={setupMode ? setCanContinue : undefined}
-          initialSetupChoice={setupChoice}
-          onSelectionReadyChange={
-            setupMode && user?.uid
-              ? async (choice) => {
-                  const owner = snapshotValidatedAuthSessionOwner();
-                  if (!mountedRef.current || !owner || owner.userId !== user.uid) return;
-                  const state =
-                    await PreVaultUserStateService.markOneRuntimeChoice(
-                      user.uid,
-                      choice,
-                    );
-                  if (!mountedRef.current || !isValidatedAuthSessionOwnerCurrent(owner)) return;
-                  setSetupChoice(state.oneRuntimeSetupChoice);
-                  setHasRuntimeChoice(true);
-                  if (choice === "hushh_managed_vertex") {
-                    PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid);
-                  }
-                }
-              : undefined
-          }
-          onPreVaultDraftStaged={
-            setupMode && user?.uid
-              ? (draft) =>
-                  PreVaultSensitiveDraftService.stageGeminiRuntime(
-                    user.uid,
-                    draft,
-                  )
-              : undefined
-          }
-          onPreVaultDraftCleared={
-            setupMode && user?.uid
-              ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
-              : undefined
-          }
-        />
+    <GeminiRuntimeSettingsCard
+      userId={user?.uid}
+      vaultKey={vaultKey}
+      vaultOwnerToken={vaultOwnerToken}
+      needsVaultCreation={needsVaultCreation}
+      needsUnlock={needsUnlock}
+      onRequestVaultCreation={() => setUnlockOpen(true)}
+      onRequestVaultUnlock={() => setUnlockOpen(true)}
+      requiresExplicitSelection={setupMode}
+      initiallyConfigured={
+        hasRuntimeChoice === true &&
+        (setupChoice !== "byok_pending_vault" ||
+          isVaultUnlocked ||
+          Boolean(
+            user?.uid &&
+            PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid),
+          ))
+      }
+      onCanContinueChange={setupMode ? setCanContinue : undefined}
+      initialSetupChoice={setupChoice}
+      onSelectionReadyChange={
+        setupMode && user?.uid
+          ? async (choice) => {
+              const owner = snapshotValidatedAuthSessionOwner();
+              if (!mountedRef.current || !owner || owner.userId !== user.uid)
+                return;
+              const state = await PreVaultUserStateService.markOneRuntimeChoice(
+                user.uid,
+                choice,
+              );
+              if (
+                !mountedRef.current ||
+                !isValidatedAuthSessionOwnerCurrent(owner)
+              )
+                return;
+              setSetupChoice(state.oneRuntimeSetupChoice);
+              setHasRuntimeChoice(true);
+              if (choice === "hushh_managed_vertex") {
+                PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid);
+              }
+            }
+          : undefined
+      }
+      onPreVaultDraftStaged={
+        setupMode && user?.uid
+          ? (draft) =>
+              PreVaultSensitiveDraftService.stageGeminiRuntime(user.uid, draft)
+          : undefined
+      }
+      onPreVaultDraftCleared={
+        setupMode && user?.uid
+          ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
+          : undefined
+      }
+    />
   );
 
   if (embedded) {
@@ -291,47 +307,8 @@ function OwnerRuntimeConfigurationPage({
       }}
     >
       <AppPageHeaderRegion>
-        {/* The provider marks used to live on a full-screen prologue with its
-            own Continue button — one extra screen and one extra tap in front of
-            a two-option choice. They carry the same "these are the models"
-            context here, inline, at zero cost. */}
-        {setupMode ? (
-          <ul
-            className="mb-4 flex flex-wrap items-center gap-2"
-            aria-label="AI providers"
-            data-runtime-provider-lane
-          >
-            {RUNTIME_PROVIDER_CATALOG.map((provider) => (
-              <li key={provider.id} className="relative">
-                <span
-                  className="inline-flex h-9 w-9 items-center justify-center"
-                  title={
-                    provider.availability === "available"
-                      ? `${provider.name} is available now`
-                      : `${provider.name} is coming soon`
-                  }
-                >
-                  {/* One size for every mark. The row gave each provider a
-                      36px slot but only Gemini was sized to it — the other four
-                      kept the mark's own 48px default, so they overflowed their
-                      slots and overlapped each other by 4px, which is why the
-                      logos looked cramped and Grok came out clipped. */}
-                  <RuntimeProviderMark
-                    provider={provider}
-                    className="h-9 w-9"
-                  />
-                </span>
-                <span className="sr-only">
-                  {provider.availability === "available"
-                    ? `${provider.name} is available now.`
-                    : `${provider.name} is coming soon.`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
         <PageHeader
-          title={setupMode ? "Choose your AI" : "Gemini settings"}
+          title={setupMode ? "Choose your AI" : "AI settings"}
           description={
             setupMode
               ? "Your pod's AI, or your own key."
@@ -344,7 +321,9 @@ function OwnerRuntimeConfigurationPage({
       {/* space-y-6 gives the Gemini and "Coming soon" groups the standard
           surface rhythm; without it the two SettingsGroups render flush and the
           "Coming soon" heading looks cramped against the Gemini card (#1940). */}
-      <AppPageContentRegion className={setupMode ? setupStyles.aiSelectionContent : "space-y-6"}>
+      <AppPageContentRegion
+        className={setupMode ? setupStyles.aiSelectionContent : "space-y-6"}
+      >
         {runtimeSettings}
         {/* Not shown during first-run setup: the person is still connecting the key
             the pod would run on, and offering to build one mid-flow would interrupt

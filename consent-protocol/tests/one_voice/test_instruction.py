@@ -236,6 +236,8 @@ def test_instruction_budget_is_calendar_stable_but_rejects_payload_growth(monkey
     caps = json.loads(benchmark["BUDGET_PATH"].read_text(encoding="utf-8"))
     growth = caps["instruction_chars"] - samples[0]["instruction_chars"] + 1
     config = instruction.voice_head_config()
+    caps = json.loads(Path(benchmark["BUDGET_PATH"]).read_text(encoding="utf-8"))
+    growth = max(0, caps["instruction_chars"] - samples[0]["instruction_chars"]) + 1
     monkeypatch.setattr(
         instruction,
         "voice_head_config",

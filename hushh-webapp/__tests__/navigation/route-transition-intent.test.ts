@@ -27,6 +27,9 @@ describe("route transition intent ownership", () => {
     beginRouteTransition("/one", () => undefined, "tap", "contextual", "selection");
     beginRouteTransition("/one/mail", () => undefined, "programmatic", "contextual", "selection");
     expect(feedback).toHaveBeenCalledOnce();
+    beginRouteTransition("/one?search=1", () => undefined, "search", "contextual", "selection");
+    expect(feedback).toHaveBeenCalledTimes(2);
+    expect(feedback).toHaveBeenLastCalledWith("selection", expect.any(String));
     window.history.replaceState(null, "", previousHref);
   });
 

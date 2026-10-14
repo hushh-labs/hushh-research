@@ -136,10 +136,10 @@ vi.mock("@/lib/services/direct-messages-service", async (importOriginal) => ({
       mocks.getConversationWithPerson(...args),
     getConversationMessages: (...args: unknown[]) =>
       mocks.getConversationMessages(...args),
+    getAttachment: (...args: unknown[]) => mocks.getAttachment(...args),
     markConversationRead: (...args: unknown[]) =>
       mocks.markConversationRead(...args),
     acknowledgeDelivery: (...args: unknown[]) => mocks.acknowledgeDelivery(...args),
-    getAttachment: (...args: unknown[]) => mocks.getAttachment(...args),
     openEvents: (...args: unknown[]) => mocks.openEvents(...args),
     sendMessage: (...args: unknown[]) => mocks.sendMessage(...args),
     editMessage: (...args: unknown[]) => mocks.editMessage(...args),
@@ -168,6 +168,12 @@ const visibleMessage = {
 
 function exposeLatestMessage() {
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
+  const measure = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+    if (this.dataset.testid === "direct-message-list") return new DOMRect(0, 0, 320, 400);
+    if (this.parentElement?.dataset.testid === "direct-message-list" && this === this.parentElement.lastElementChild) return new DOMRect(0, 399, 320, 1);
+    return measure.call(this);
+  });
   vi.stubGlobal("IntersectionObserver", class {
     constructor(private callback: IntersectionObserverCallback) {}
     observe(target: Element) {
@@ -194,6 +200,8 @@ function ConnectionThread() {
 function renderConnectionThread() {
   return render(<ConnectionThread />);
 }
+
+function connectionThread() { return <ConnectionThread />; }
 
 function DirectMessagesPage() {
   const params = new URLSearchParams(mocks.search);
@@ -240,11 +248,12 @@ describe("DirectMessagesPage", () => {
     });
     mocks.markConversationRead.mockResolvedValue({ readCount: 0, readAt: null });
     mocks.acknowledgeDelivery.mockReset().mockResolvedValue(undefined);
-    mocks.getAttachment.mockReset();
+    mocks.getAttachment.mockReset().mockResolvedValue(new Blob(["synthetic document"]));
     mocks.captureStart.mockReset().mockResolvedValue(undefined);
     mocks.captureCancel.mockReset().mockResolvedValue(undefined);
     mocks.captureFinish.mockReset(); mocks.captureInstances.length = 0;
     appInteractionCoordinator.handleLifecycle("active");
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic document"]));
     mocks.openEvents.mockImplementation(() => new Promise(() => undefined));
     mocks.morphyToast.error.mockReset();
     mocks.morphyToast.info.mockReset();
@@ -609,6 +618,38 @@ describe("DirectMessagesPage", () => {
     expect(mocks.markConversationRead).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["authentication", "response"] as const)(
+    "does not publish an attachment whose owner changes during %s",
+    async (phase) => {
+      mocks.getConversationMessages.mockResolvedValue({
+        conversation: mocks.conversation,
+        items: [{ ...visibleMessage, attachment: {
+          kind: "document", name: "synthetic.txt", mimeType: "text/plain", size: 18,
+        } }],
+        canSend: true, disconnectedNotice: null, nextBefore: null,
+      });
+      const createUrl = vi.fn(() => "blob:synthetic-document");
+      vi.stubGlobal("URL", class extends URL {
+        static createObjectURL = createUrl;
+        static revokeObjectURL = vi.fn();
+      });
+      const view = renderConnectionThread();
+      const download = await screen.findByRole("button", { name: "Download synthetic.txt" });
+      let finish!: (value: unknown) => void;
+      const pending = new Promise((resolve) => { finish = resolve; });
+      if (phase === "authentication") mocks.user.getIdToken.mockImplementationOnce(() => pending);
+      else mocks.getAttachment.mockImplementationOnce(() => pending);
+      fireEvent.click(download);
+      if (phase === "response") await waitFor(() => expect(mocks.getAttachment).toHaveBeenCalledTimes(1));
+      mocks.user = { uid: "viewer-2", getIdToken: vi.fn().mockResolvedValue("next-owner-token") };
+      view.rerender(connectionThread());
+      await act(async () => finish(phase === "authentication" ? "previous-owner-token" : new Blob(["synthetic document"])));
+      expect(mocks.getAttachment).toHaveBeenCalledTimes(phase === "authentication" ? 0 : 1);
+      expect(createUrl).not.toHaveBeenCalled();
+      expect(mocks.morphyToast.error).not.toHaveBeenCalled();
+    },
+  );
+
   it("searches the open thread and keeps voice access in the header", async () => {
     mocks.getConversationMessages.mockResolvedValue({
       conversation: mocks.conversation,
@@ -651,6 +692,23 @@ describe("DirectMessagesPage", () => {
 
     expect(screen.getByRole("button", { name: "Start voice call" })).toBeDisabled();
     expect(mocks.router.push).not.toHaveBeenCalled();
+  });
+
+  it("keeps encrypted card envelopes out of message previews, search, replies, and editing", async () => {
+    const content = 'hushh-wallet-card:v1:{"ciphertext":"synthetic-encrypted-payload"}';
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [{ id: "encrypted-card", conversationId: "conversation-1", senderIsViewer: true, content, createdAt: "2026-10-10T10:00:00Z", readAt: null, reactions: [] }], canSend: true, disconnectedNotice: null, nextBefore: null });
+    renderConnectionThread();
+    await screen.findByRole("region", { name: "Shared payment card" });
+    expect(document.body).not.toHaveTextContent(content);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    await screen.findByRole("menuitem", { name: "Reply" });
+    expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
+    expect(document.body).not.toHaveTextContent("synthetic-encrypted-payload");
+    fireEvent.click(screen.getByRole("button", { name: "Contact info" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), { target: { value: "synthetic-encrypted-payload" } });
+    expect(screen.queryByRole("region", { name: "Shared payment card" })).toBeNull();
   });
 
   it.each(["authentication", "response"] as const)(
@@ -1157,6 +1215,20 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(screen.queryByText("Replying to yourself")).not.toBeInTheDocument();
     expect(mocks.deleteMessage).not.toHaveBeenCalled();
+  });
+
+  it("erases account drafts before returning to a previously signed-in owner", async () => {
+    const view = renderConnectionThread();
+    const composer = await screen.findByRole("textbox", { name: "Message Ankit Kumar Singh" });
+    fireEvent.change(composer, { target: { value: "Synthetic owner A draft" } });
+    const originalOwner = mocks.user;
+    mocks.user = { uid: "viewer-2", getIdToken: vi.fn().mockResolvedValue("next-owner-token") };
+    view.rerender(<ConnectionThread />);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveValue(""));
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" }), { target: { value: "Synthetic owner B draft" } });
+    mocks.user = originalOwner;
+    view.rerender(<ConnectionThread />);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveValue(""));
   });
 
   it("settles Reply focus for the latest menu opening and preserves Escape focus return", async () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { nativeDrawerIsolation } from "./native-drawers";
 import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import type { NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -36,7 +37,10 @@ export type ChromeControlProjection = NativeControlAppearance & ChromeControl & 
   presentationGroup?: "profile" | "history";
   presentationOwnerEpoch?: string;
   presentationGeneration?: number;
+  contentPane?: NativeContentPaneIdentity;
 };
+export type NativeContentPaneIdentity = { documentId: string; ownerEpoch: string; generation: number; privacyGeneration: number };
+export type NativeContentPaneReceipt = NativeContentPaneIdentity & { phase: "active" | "retired" };
 export type ChromeProjection = ChromeIdentity & ChromeControlProjection;
 export type ChromeAcknowledgement = ChromeIdentity & {
   presentationApplied?: boolean;
@@ -44,6 +48,9 @@ export type ChromeAcknowledgement = ChromeIdentity & {
   frame?: ChromeFrame;
 };
 export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string; presentationGeneration?: number; presentationSequence?: number };
+/** Bounded local diagnostics only; never echo an identity, value or provider error. */
+export type ChromeChoiceOutcome = "applied" | "inactive" | "disabled" | "not-allowed" | "update-pending" |
+  "identity-stale" | "sequence-stale" | "value-refused" | "confirmation-refused" | "isolation-changed" | "uncertain";
 export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
 export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number; presentationApplied?: boolean };
 type ChromeGeometry = Pick<ChromeControlProjection, "frame" | "viewport" | "presentationGroup" | "presentationOwnerEpoch" | "presentationGeneration">;
@@ -62,6 +69,8 @@ export type NativeChromeCapabilities = {
   retainedControls?: boolean;
   panelPresentation?: boolean;
   contentBackedPresentation?: boolean;
+  coherentPresentation?: boolean;
+  ownedContentPane?: boolean;
   reservedPresentationRegions?: boolean;
   fullWindowOverlays?: boolean;
   /** Debug qualification: rectangular exposure of retained stationary chrome. */
@@ -71,6 +80,8 @@ export type NativeChromeCapabilities = {
 };
 
 export interface HushhNativeChromePlugin {
+  acquireContentPane(options: NativeContentPaneIdentity & { viewport: { width: number; height: number } }): Promise<NativeContentPaneReceipt>;
+  releaseContentPane(options: NativeContentPaneIdentity): Promise<NativeContentPaneReceipt>;
   setPresentationRegions(options: NativePresentationRegions): Promise<NativePresentationRegions>;
   interactionFeedback(options: { documentId: string; privacyGeneration: number; intentId: string; kind: "light" | "selection"; issuedAtMs: number }): Promise<{ played: boolean }>;
   applyPanelPose(options: NativePanelPose): Promise<NativePanelReceipt>;
@@ -88,6 +99,7 @@ export interface HushhNativeChromePlugin {
   confirmChoice(options: ChromeChoice): Promise<{ valid: boolean }>;
   addListener(eventName: "choiceRequested", listener: (event: ChromeChoice) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "invalidated", listener: () => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "readmissionRequested", listener: () => void): Promise<PluginListenerHandle>;
 }
 
 export const nativeChrome = registerPlugin<HushhNativeChromePlugin>("HushhNativeChrome");
@@ -194,7 +206,7 @@ export function chromeOwnerEpoch(owner: string | null, controlId: ChromeControlI
 }
 function retainedShape(projection: ChromeProjection | ChromeControlProjection) {
   const { kind, label, frame, viewport } = projection;
-  return JSON.stringify({ kind, label, frame, viewport,
+  return JSON.stringify({ kind, label, frame, viewport, contentPane: projection.contentPane,
     options: "options" in projection ? projection.options : undefined,
     bounds: projection.kind === "date" ? [projection.minimum, projection.maximum] : undefined,
     accent: projection.kind === "accent" ? [projection.fullTrigger, projection.palette] : undefined });
@@ -365,7 +377,10 @@ export class NativeChromeLease {
       geometry.presentationGeneration === this.projection.presentationGeneration &&
       (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).every((key) =>
         geometry.frame[key] === this.projection.frame[key]) &&
-      geometry.viewport.width === this.projection.viewport.width && geometry.viewport.height === this.projection.viewport.height;
+      geometry.viewport.width === this.projection.viewport.width &&
+      (geometry.viewport.height === this.projection.viewport.height ||
+        peekNativeChromeCapabilities()?.coherentPresentation === true &&
+        document.documentElement.classList.contains("kb-open"));
   }
   private acceptPreparation(ack: ChromeAcknowledgement): boolean {
     if (!matches(ack, this.projection, "prepared") || !ack.frame ||
@@ -452,13 +467,13 @@ export class NativeChromeLease {
   }
   /** Fence choices synchronously; only the latest acknowledged snapshot is usable.
    * A stale update failure cannot retire or overwrite a newer presentation. */
-  async update(presentation: ChromeUpdate): Promise<boolean> {
+  async update(presentation: ChromeUpdate, refreshAdmission = false): Promise<boolean> {
     if (!this.current || !this.inPlaceUpdates) return false;
     if (this.projection.kind !== "more" && !admittedValue(this.projection, presentation.value) ||
         this.projection.kind === "more" && presentation.value !== undefined) {
       throw new Error("NATIVE_CHROME_UPDATE_INVALID");
     }
-    if (this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation) &&
+    if (!refreshAdmission && this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation) &&
         JSON.stringify(this.appliedAdmission) === JSON.stringify(nativePresentationAdmission())) {
       // Admission already contains this snapshot. Waiting for activation must
       // not manufacture an update or recreate the native control afterward.
@@ -467,9 +482,9 @@ export class NativeChromeLease {
         this.matchesPresentation(presentation);
     }
     const updateSequence = ++this.requestedUpdate;
-    await this.activate();
-    if (!this.current || !this.active || updateSequence !== this.requestedUpdate) return false;
     try {
+      await this.activate();
+      if (!this.current || !this.active || updateSequence !== this.requestedUpdate) return false;
       const admission = nativePresentationAdmission();
       const ack = await bounded(nativeChrome.update({ ...this.projection, ...presentation, updateSequence, ...admission }));
       if (!this.current || updateSequence !== this.requestedUpdate) return false;
@@ -486,14 +501,17 @@ export class NativeChromeLease {
       throw error;
     }
   }
-  async choose(event: ChromeChoice, allowed: () => boolean, action: () => void): Promise<void> {
-    if (!this.active || !this.current || !this.projection.enabled || !allowed() ||
-        (this.inPlaceUpdates && (this.requestedUpdate !== this.appliedUpdate || event.updateSequence !== this.appliedUpdate)) ||
-        !matches({ ...event, phase: "active" }, this.projection, "active") ||
-        !Number.isSafeInteger(event.sequence) || event.sequence <= this.sequence) return;
-    if (!admittedValue(this.projection, event.value)) return;
+  async choose(event: ChromeChoice, allowed: () => boolean, action: () => void): Promise<ChromeChoiceOutcome> {
+    if (!this.active || !this.current) return "inactive";
+    if (!this.projection.enabled) return "disabled";
+    if (!allowed()) return "not-allowed";
+    if (this.inPlaceUpdates && (this.requestedUpdate !== this.appliedUpdate || event.updateSequence !== this.appliedUpdate)) return "update-pending";
+    if (!matches({ ...event, phase: "active" }, this.projection, "active")) return "identity-stale";
+    if (!Number.isSafeInteger(event.sequence) || event.sequence <= this.sequence) return "sequence-stale";
+    if (!admittedValue(this.projection, event.value)) return "value-refused";
     // Consume locally before awaiting: duplicate notifications cannot race.
     this.sequence = event.sequence;
+    const isolation = nativeDrawerIsolation();
     const { valid } = await bounded(nativeChrome.confirmChoice({
       documentId: event.documentId, ownerEpoch: event.ownerEpoch, controlId: event.controlId,
       revision: event.revision, sequence: event.sequence, privacyGeneration: event.privacyGeneration,
@@ -502,10 +520,14 @@ export class NativeChromeLease {
       ...(event.presentationSequence === undefined ? {} : { presentationSequence: event.presentationSequence }),
       ...(event.value === undefined ? {} : { value: event.value }),
     }));
-    if (valid && this.active && this.current && event.sequence === this.sequence &&
-        (!this.inPlaceUpdates || this.requestedUpdate === this.appliedUpdate && event.updateSequence === this.appliedUpdate) && allowed()) {
-      action();
-    }
+    if (!valid) return "confirmation-refused";
+    if (isolation.isolated || nativeDrawerIsolation().isolated || isolation.generation !== nativeDrawerIsolation().generation) return "isolation-changed";
+    if (!this.active || !this.current) return "inactive";
+    if (event.sequence !== this.sequence) return "sequence-stale";
+    if (this.inPlaceUpdates && (this.requestedUpdate !== this.appliedUpdate || event.updateSequence !== this.appliedUpdate)) return "update-pending";
+    if (!allowed()) return "not-allowed";
+    action();
+    return "applied";
   }
 }
 

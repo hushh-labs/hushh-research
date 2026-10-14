@@ -11,6 +11,7 @@ import { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
 import { ComputerUsePreview } from "./computer-use-preview";
 import { ComputerUseReview } from "./computer-use-review";
 import { ComputerUseSessions } from "./computer-use-sessions";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 const PHASE_COPY: Record<ComputerUsePhase, string> = {
   unavailable: "Browser unavailable on this private agent.",
@@ -22,9 +23,10 @@ const PHASE_COPY: Record<ComputerUsePhase, string> = {
 };
 
 /** Mount in One's task area with the current admitted pod transport. */
-export function ComputerUseTaskCard({ binding, transport }: {
+export function ComputerUseTaskCard({ binding, transport, route = "/" }: {
   binding: ComputerUseBinding;
   transport: ComputerUseTransport;
+  route?: string;
 }) {
   const { ownerId, podId, incarnation, taskId, environment } = binding;
   const controller = useMemo(() => new ComputerUseTaskController({ ownerId, podId, incarnation, taskId, environment }, transport),
@@ -33,6 +35,12 @@ export function ComputerUseTaskCard({ binding, transport }: {
   const mobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [reviewId, setReviewId] = useState<string | null>(null);
+  useBackLayer(route, reviewId ? 4 : open ? 3 : 0, () => {
+    if (reviewId) setReviewId(null);
+    else if (open) setOpen(false);
+    else return false;
+    return true;
+  });
 
   useEffect(() => {
     controller.connect();

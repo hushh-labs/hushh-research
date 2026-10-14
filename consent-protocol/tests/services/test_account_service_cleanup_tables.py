@@ -20,6 +20,13 @@ from tests.helpers.account_commerce_erasure import recording_connection as _db
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+pytestmark = pytest.mark.usefixtures("legacy_account_without_shared_files")
+
+
+def _legacy_table_exists(_conn, table):
+    return table != "shared_files_storage"
+
+
 def _assert_wallet_grants_erased_before_sources(conn):
     statements = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     for table in (
@@ -40,7 +47,7 @@ def test_delete_user_rows_if_table_exists_supports_pkm_data(monkeypatch):
     conn = MagicMock()
     params = {"user_id": "user_123"}
 
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     service._delete_user_rows_if_table_exists(conn, table_name="pkm_data", params=params)
 
@@ -65,7 +72,7 @@ def test_delete_user_rows_if_table_exists_skips_missing_table(monkeypatch):
 def test_delete_user_rows_if_table_exists_rejects_unsupported_table(monkeypatch):
     service = AccountService()
 
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     with pytest.raises(ValueError, match="Unsafe or unsupported cleanup table requested"):
         service._delete_user_rows_if_table_exists(
@@ -145,7 +152,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     conn = MagicMock()
     user_id = "user_delete_123"
 
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     def _delete_personal_agent_state(_conn, *, params, results):
         for table_name in (
@@ -435,7 +442,7 @@ def test_personal_agent_cleanup_blocks_provisioned_registry_and_byoc_without_par
 ):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     conn.execute.side_effect = [
         _mapped_result(
             {
@@ -580,7 +587,7 @@ def test_personal_agent_cleanup_is_a_noop_when_live_drift_tables_are_absent(monk
 def test_personal_agent_cleanup_fails_closed_for_orphaned_byoc_job(monkeypatch):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     conn.execute.side_effect = [
         _mapped_result(None),
         _mapped_result({"job": {"job_id": "job-123", "project_id": "project-123"}}),
@@ -630,7 +637,7 @@ def test_personal_agent_cleanup_fails_closed_when_deprovision_is_already_pending
 ):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     conn.execute.side_effect = [
         _mapped_result(
             {
@@ -752,7 +759,7 @@ def test_one_referral_cleanup_fails_closed_on_partial_migration_shape(monkeypatc
 def test_one_referral_cleanup_removes_cross_account_links_before_attribution(monkeypatch):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     results: dict[str, bool] = {}
 
     service._delete_one_referral_graph(
@@ -781,7 +788,7 @@ def test_one_referral_cleanup_removes_cross_account_links_before_attribution(mon
 async def test_ria_persona_delete_removes_restricting_legacy_retirement_first(monkeypatch):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
         result = await service._delete_ria_persona(
@@ -845,7 +852,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     conn = MagicMock()
     user_id = "user_reset_123"
 
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
         result = await service.reset_account(user_id)
@@ -992,7 +999,7 @@ def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
         return MagicMock()
 
     conn.execute.side_effect = execute
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     with (
         patch(
@@ -1125,7 +1132,7 @@ def _owned_circle_conn(monkeypatch, service, *, circle_rows):
         return MagicMock()
 
     conn.execute.side_effect = execute
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
     monkeypatch.setattr(
         "hushh_mcp.services.one_location_circle_service."
@@ -1263,7 +1270,7 @@ def test_owned_circle_cleanup_handles_owner_with_no_circles(monkeypatch):
 async def test_full_account_deletion_demotes_system_circle_before_deleting_it(monkeypatch):
     """End-to-end reproduction of the DELETE /api/account/delete regression."""
     service = AccountService()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
 
     def _skip_personal_agent_state(_conn, *, params, results):
@@ -1309,7 +1316,7 @@ async def test_full_account_deletion_demotes_system_circle_before_deleting_it(mo
 async def test_reset_account_demotes_system_circle_before_deleting_it(monkeypatch):
     """End-to-end reproduction of the POST /api/account/reset regression."""
     service = AccountService()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
 
     conn = _owned_circle_conn(
@@ -1485,7 +1492,7 @@ async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
 
 def _erasure_ready_service(monkeypatch):
     service = AccountService()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
     monkeypatch.setattr(
         service,
@@ -1748,7 +1755,7 @@ def test_account_reset_and_deletion_erase_pending_connector_reviews(monkeypatch)
     service = AccountService()
     assert "user_id = :user_id" in str(service._delete_by_user_queries["one_mcp_pending_calls"])
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_clear_external_connector_data", lambda *_args, **_kwargs: None)
     results: dict[str, bool] = {}
     service._clear_user_data_tables(conn, "user_123", results)

@@ -1,5 +1,5 @@
 "use client";
-import { ApiService } from "@/lib/services/api-service";
+import { filesRequest } from "./connection";
 import { FilesLocalError } from "./local-error";
 
 export type FileEntry = {
@@ -34,6 +34,7 @@ export type FilesSettings = {
   excluded: string[];
   backgroundAvailable?: boolean;
   backgroundProvider?: string | null;
+  foregroundOnly?: boolean;
 };
 export type OrganizationJob = {
   id: string;
@@ -49,7 +50,7 @@ async function json<T>(
   method = body === undefined ? "GET" : "POST",
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await ApiService.ownerPodRequest(`files/${path}`, {
+  const response = await filesRequest(path, {
     method,
     signal,
     headers: { "Content-Type": "application/json" },
@@ -151,7 +152,9 @@ export const FilesService = {
         signal,
       ));
     if (entry.size !== file.size || entry.originalName !== file.name)
-      throw new FilesLocalError("Choose the original file to resume this upload.");
+      throw new FilesLocalError(
+        "Choose the original file to resume this upload.",
+      );
     const chunkBytes = 4 * 1024 * 1024;
     // Verify the accepted prefix locally without retransmitting stored bytes.
     let chain = new Uint8Array(32);
@@ -185,8 +188,8 @@ export const FilesService = {
       offset += chunkBytes
     ) {
       signal.throwIfAborted();
-      const response = await ApiService.ownerPodRequest(
-        `files/chunk?${new URLSearchParams({ file_id: entry.id, index: String(offset / chunkBytes) })}`,
+      const response = await filesRequest(
+        `chunk?${new URLSearchParams({ file_id: entry.id, index: String(offset / chunkBytes) })}`,
         {
           method: "PUT",
           body: file.slice(offset, offset + chunkBytes),
@@ -197,7 +200,9 @@ export const FilesService = {
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
         if (result?.detail?.code) throw new Error(result.detail.code);
-        throw new FilesLocalError("Upload paused. Select the same file to resume.");
+        throw new FilesLocalError(
+          "Upload paused. Select the same file to resume.",
+        );
       }
       onProgress(Math.min(file.size, offset + chunkBytes));
     }
@@ -234,7 +239,9 @@ export const FilesService = {
     if (resume) {
       const saved = await resume.handle.getFile();
       if (saved.size !== offset)
-        throw new FilesLocalError("The partial download changed. Start a new download.");
+        throw new FilesLocalError(
+          "The partial download changed. Start a new download.",
+        );
       for (let position = 0; position < offset; position += CHUNK_BYTES) {
         signal.throwIfAborted();
         chain = await hashChunk(
@@ -245,7 +252,9 @@ export const FilesService = {
         );
       }
       if (hex(chain) !== resume.prefixHash)
-        throw new FilesLocalError("The partial download changed. Start a new download.");
+        throw new FilesLocalError(
+          "The partial download changed. Start a new download.",
+        );
     }
     const writer = handle
       ? await handle.createWritable({ keepExistingData: Boolean(resume) })
@@ -255,12 +264,14 @@ export const FilesService = {
       if (writer && offset) await writer.seek(offset);
       for (; offset < entry.size;) {
         signal.throwIfAborted();
-        const response = await ApiService.ownerPodRequest(
-          `files/chunk?${new URLSearchParams({ file_id: entry.id, index: String(offset / CHUNK_BYTES) })}`,
+        const response = await filesRequest(
+          `chunk?${new URLSearchParams({ file_id: entry.id, index: String(offset / CHUNK_BYTES) })}`,
           { signal },
         );
         if (!response.ok)
-          throw new FilesLocalError("Download interrupted. Resume to continue.");
+          throw new FilesLocalError(
+            "Download interrupted. Resume to continue.",
+          );
         const bytes = await response.arrayBuffer();
         if (bytes.byteLength !== Math.min(CHUNK_BYTES, entry.size - offset))
           throw new FilesLocalError("The download chunk was incomplete.");
@@ -271,7 +282,9 @@ export const FilesService = {
         offset += bytes.byteLength;
       }
       if (hex(chain) !== entry.receivedHash)
-        throw new FilesLocalError("The downloaded file failed its integrity check.");
+        throw new FilesLocalError(
+          "The downloaded file failed its integrity check.",
+        );
       if (writer) await writer.close();
       else {
         const url = URL.createObjectURL(

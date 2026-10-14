@@ -53,6 +53,7 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/files/analyze
 DELETE,GET,POST /api/one/world-model/jobs
 POST /api/one/world-model/complete
 POST /api/one/world-model/research
@@ -158,6 +159,7 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+POST /api/one/files/storage
 GET,POST /api/one/world-model/invitations
 DELETE /api/one/world-model/invitations/{invitation_id}
 POST /api/one/world-model/claims
@@ -182,6 +184,7 @@ GET /api/one/personal-agent/verification-keys
 POST /api/one/pod/consent/verify
 POST /api/one/pod/mcp-approval/consume
 POST /api/one/pod/mcp-approval/issue
+POST /api/one/pod/mcp-approval/rebind
 POST /api/one/u/{hushh_id}/chat-grants
 POST /api/one/u/{hushh_id}/memory/provider-consent
 POST /api/one/u/{hushh_id}/memory/revoke
@@ -193,6 +196,9 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [CIPHERTEXT]
+GET /api/one/files/storage
+GET /api/one/files/objects/{namespace}
+GET,PUT /api/one/files/objects/{namespace}/{object_id}
 POST /api/one/answer-requests/{request_id}/deliver
 GET /api/one/answer-requests/{request_id}/answer
 DELETE,PUT /api/one/circles/{circle}/chat/messages/{message}/reactions/{emoji}

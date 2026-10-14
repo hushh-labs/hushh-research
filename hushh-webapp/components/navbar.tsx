@@ -417,7 +417,7 @@ export const Navbar = ({
   }, [bottomNavScope, interactionIntents, navOptions]);
   const activeNav = (optimisticNav ?? routeActiveNav) as AppBottomNavKey;
 
-  const navigateTo = (value: string, nativeSelection = false) => {
+  const navigateTo = (value: string) => {
     if (busyOperations["portfolio_save"]) {
       toast.info("Saving to vault. Please wait until encryption completes.");
       return;
@@ -444,7 +444,7 @@ export const Navbar = ({
         : "one",
     );
     if (action.type === "command") {
-      openKaiCommandBar();
+      openKaiCommandBar({ feedback: "selection" });
       return;
     }
     if (action.type === "route") {
@@ -465,7 +465,7 @@ export const Navbar = ({
         scroll: false,
         source: "tap",
         transitionMode: "contextual",
-        ...(!nativeSelection && key !== activeNav ? { feedback: "selection" as const } : {}),
+        ...(key !== activeNav ? { feedback: "selection" as const } : {}),
       });
     }
   };
@@ -484,7 +484,7 @@ export const Navbar = ({
     appearance: nativeAppearance?.appearance ?? "light",
     accentHex: nativeAppearance?.accentHex ?? "",
     foregroundHex: nativeAppearance?.foregroundHex ?? "",
-    onSelect: value => navigateTo(value, true),
+    onSelect: navigateTo,
   });
 
   if (shellNavigationHidden || hideNavbar || useOnboardingChrome || !isAuthenticated || navOptions.length === 0) {

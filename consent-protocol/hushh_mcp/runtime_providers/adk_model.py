@@ -23,6 +23,7 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.utils.streaming_utils import StreamingResponseAggregator
 from google.genai import types
+from pydantic import Field
 
 from . import factory
 
@@ -36,7 +37,7 @@ class ProviderAdkModel(BaseLlm):
     """Expose one existing native provider transport as an ADK ``BaseLlm``."""
 
     provider: str
-    credential: str
+    credential: str = Field(repr=False, exclude=True)
     device_id: str | None = None
     puppy_catalog_version: str | None = None
     # Managed pod runtimes use workload ADC; BYOK and Puppy relay runtimes

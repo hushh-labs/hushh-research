@@ -813,7 +813,20 @@ class PersonalAgentProvisioningService:
                 "pod_key_wrapping_alg": pod_key.wrapping_alg if pod_key else None,
             }
             intent = {key: value for key, value in intent.items() if value is not None}
-            reservation = await self._registry.claim_provision(observed=observed, intent=intent)
+            from hushh_mcp.services.pod_files.contracts import FilesRefused  # noqa: PLC0415
+            from hushh_mcp.services.shared_files.registry import (
+                protect_placement_change,  # noqa: PLC0415
+            )
+
+            try:
+                async with protect_placement_change(user_id):
+                    reservation = await self._registry.claim_provision(
+                        observed=observed, intent=intent
+                    )
+            except FilesRefused:
+                raise PersonalAgentCloudNotAuthorizedError(
+                    "Shared Files must complete a qualified transfer before changing hosting. Nothing was moved."
+                ) from None
             phase = "reserved"
             substrate_receipt: Optional[dict[str, Any]] = None
             provision_release = configured_release(str(os.getenv("HUSSH_ONE_POD_IMAGE") or ""))

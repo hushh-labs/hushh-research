@@ -15,6 +15,7 @@ from hushh_mcp.services.pod_browser.information import InformationField
 from hushh_mcp.services.pod_browser.task_contracts import (
     BrowserCapability,
     BrowserOwnerAccess,
+    BrowserTaskReceipt,
     BrowserTaskRequest,
     BrowserTaskSnapshot,
 )
@@ -35,6 +36,8 @@ def no_store(response: Response) -> None:
 
 
 class PrivateBrowserRoute(APIRoute):
+    validation_refusal_code = "BROWSER_REQUEST_INVALID"
+
     def get_route_handler(self):
         handler = super().get_route_handler()
 
@@ -43,7 +46,7 @@ class PrivateBrowserRoute(APIRoute):
                 return await handler(request)
             except RequestValidationError:
                 # Default FastAPI errors echo input, which can be a password.
-                raise HTTPException(422, detail={"code": "BROWSER_REQUEST_INVALID"}) from None
+                raise HTTPException(422, detail={"code": self.validation_refusal_code}) from None
 
         return private_handler
 
@@ -214,6 +217,14 @@ async def create_task(request: Request, body: CreateTask, owner: InvokeOwner):
         raise refusal(exc) from None
     except PodUpgradeAdmissionRefused:
         raise refusal(BrowserRefused("BROWSER_DRAINING")) from None
+
+
+@router.get("/tasks", response_model=list[BrowserTaskReceipt])
+async def list_tasks(request: Request, owner: ObserveOwner):
+    try:
+        return await runtime(request).list_tasks(owner)
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
 
 
 @router.get("/tasks/{task_id}", response_model=BrowserTaskSnapshot)

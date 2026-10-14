@@ -6,6 +6,8 @@ tests/test_native_ship_artifact_workflows.py
 
 # Mail/Drive connector lifecycle: real PostgreSQL in the existing test-only CI service.
 tests/services/test_external_connector_lifecycle_postgres.py
+# Shared ciphertext writes cannot outlive account-erasure fencing.
+tests/services/test_shared_files_lifecycle_postgres.py
 tests/services/test_external_connector_credentials_service.py
 tests/services/test_external_connector_google_oauth.py
 # Curated (operator-registered) connector registration + OAuth, e.g. HubSpot.
@@ -617,6 +619,7 @@ tests/test_one_adk_text_runtime.py
 tests/test_pod_files_library.py
 tests/test_pod_files_routes.py
 tests/test_pod_files_jobs.py
+tests/test_pod_scheduled_tasks.py
 tests/test_pod_files_queue_recovery.py
 tests/test_pod_specialist_capability_matrix.py
 tests/test_pod_files_provisioning.py

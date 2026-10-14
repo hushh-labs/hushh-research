@@ -132,7 +132,19 @@ async def _tap(transport, card, *, proof: str | None = FRESH_PROOF):
     await transport.wait_for_frame(expected, count=next_count)
 
 
-async def test_reset_tap_issues_a_device_step_and_the_server_stamp_settles_it(doubles):
+@pytest.mark.parametrize("auth_delay", [0, 0.5], ids=["immediate-auth", "delayed-auth"])
+async def test_reset_tap_issues_a_device_step_and_the_server_stamp_settles_it(
+    doubles, monkeypatch, auth_delay
+):
+    if auth_delay:
+        original_auth = _ok_auth
+
+        async def delayed_auth(frame, claims):
+            await asyncio.sleep(auth_delay)
+            return await original_auth(frame, claims)
+
+        monkeypatch.setattr(f"{__name__}._ok_auth", delayed_auth)
+
     _life, account = doubles
     transport = FakeTransport([AUTH])
     fake = FakeLive([_tool_call("c1", "reset_account"), None])

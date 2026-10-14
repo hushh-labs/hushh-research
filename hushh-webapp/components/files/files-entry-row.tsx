@@ -34,6 +34,7 @@ import {
   type OrganizationJob,
 } from "@/lib/files/service";
 import type { FilesAction } from "./files-settings-panel";
+import { ScheduleFileDialog } from "@/components/scheduled-tasks/schedule-file-dialog";
 export type FileEdit = {
   entry?: FileEntry;
   operation: "rename" | "move" | "create";
@@ -82,6 +83,7 @@ export function FilesEntryRow({
     );
   }, [renaming, entry.id, entry.kind, entry.name]);
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [downloads, setDownloads] = useState<
     Record<string, DownloadCheckpoint>
   >({});
@@ -144,7 +146,7 @@ export function FilesEntryRow({
     entry.kind === "file" &&
     entry.state === "ready" &&
     settings?.analysis &&
-    settings.backgroundAvailable &&
+    (settings.backgroundAvailable || settings.foregroundOnly) &&
     !ancestorExcluded &&
     !settings.excluded.includes(entry.id)
   ) {
@@ -161,6 +163,11 @@ export function FilesEntryRow({
           "Organization requested",
           false,
         ),
+    });
+    actions.push({
+      id: "schedule",
+      label: "Schedule organization…",
+      onSelect: () => setScheduleOpen(true),
     });
   }
   actions.push({
@@ -326,6 +333,13 @@ export function FilesEntryRow({
               <MoreHorizontal className="size-5" aria-hidden="true" />
             </Button>
           }
+        />
+      )}
+      {scheduleOpen && (
+        <ScheduleFileDialog
+          file={entry}
+          open={scheduleOpen}
+          onOpenChange={setScheduleOpen}
         />
       )}
       <AlertDialog open={confirmTrash} onOpenChange={setConfirmTrash}>

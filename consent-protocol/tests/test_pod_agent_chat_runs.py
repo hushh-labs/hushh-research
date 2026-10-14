@@ -234,7 +234,7 @@ async def test_history_completion_race_stays_pending_until_fresh_read():
     async def read(**kwargs):
         # The save finishes after this read captured a user-only snapshot.
         _ACTIVE_THREADS.discard("conv-1")
-        return SimpleNamespace(events=[])
+        return SimpleNamespace(events=[], state={})
 
     owner = SimpleNamespace(owner="owner-a", sessions=SimpleNamespace(get_session=read))
     _ACTIVE_THREADS.add("conv-1")
@@ -270,7 +270,7 @@ async def test_history_preparation_reconnect_is_pending_only_for_exact_owner(
         runtime_scope=nullcontext,
         mcp_owner_admission=AsyncMock(return_value=True),
     )
-    session = SimpleNamespace(events=[]) if session_exists else None
+    session = SimpleNamespace(events=[], state={}) if session_exists else None
     sessions = SimpleNamespace(get_session=AsyncMock(return_value=session))
     owner = SimpleNamespace(owner=USER_ID, sessions=sessions)
     stream = transport.pod_chat_events(agent, _owner_input(), owner_id=USER_ID)

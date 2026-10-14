@@ -1,8 +1,9 @@
-#if DEBUG
+#if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
 import SwiftUI
 import UIKit
+import os
 
-/// Public, opt-in composition study. No product history, editor, routing,
+/// Public, opt-in composition study. No product history, private draft, routing,
 /// credentials, plugin actions or persistence enters this presentation.
 enum NativeHistoryQualification {
     static let argument = "--hushh-native-history-qualification"
@@ -12,57 +13,31 @@ enum NativeHistoryQualification {
     }
 }
 
-struct NativeHistoryQualificationMotion {
-    private(set) var generation = 0
-    private(set) var committedOpen = false
-    private(set) var progress: CGFloat = 0
-    private(set) var retired = false
-
-    @discardableResult mutating func begin(at progress: CGFloat) -> Int {
-        guard !retired else { return generation }
-        generation += 1
-        self.progress = min(1, max(0, progress))
-        return generation
-    }
-
-    mutating func move(to progress: CGFloat) {
-        guard !retired else { return }
-        self.progress = min(1, max(0, progress))
-    }
-
-    func destination(velocity: CGFloat, cancelled: Bool) -> Bool {
-        if cancelled { return committedOpen }
-        if abs(velocity) > 350 { return velocity > 0 }
-        return progress >= 0.5
-    }
-
-    @discardableResult mutating func commit(open: Bool, generation: Int) -> Bool {
-        guard !retired, generation == self.generation else { return false }
-        committedOpen = open
-        progress = open ? 1 : 0
-        return true
-    }
-
-    mutating func retire() {
-        generation += 1
-        retired = true
-    }
-}
+// The public study and product owner exercise the same cancellation/regrab gene.
+typealias NativeHistoryQualificationMotion = NativeDrawerMotion
 
 @available(iOS 26.0, *)
 final class NativeHistoryQualificationAppearance: ObservableObject {
     @Published var dark = false { didSet { changed?() } }
-    @Published var gold = false
+    @Published var gold = false { didSet { changed?() } }
+    @Published var messageMode = true { didSet { changed?() } }
+    @Published var agentSurface = "one" { didSet { changed?() } }
     var changed: (() -> Void)?
     var accent: Color { gold ? Color(red: 0.72, green: 0.49, blue: 0.14) : .blue }
 }
 
 /// All moving views and their material backdrop share this native owner.
-/// UIKit's owned over-full-screen presentation isolates the existing WK root;
-/// it is not a native plane coordinated with a moving React layer.
+/// The opaque, public-only fullscreen study has no backdrop dependency on WK.
+/// UIKit removes the covered root's views from the presentation hierarchy while
+/// retaining its controller/document; no React/native motion is coordinated.
 @available(iOS 26.0, *)
 final class NativeHistoryQualificationController: UIViewController, UIGestureRecognizerDelegate {
+    private final class FrameTarget: NSObject {
+        weak var owner: NativeHistoryQualificationController?
+        @objc func tick(_ display: CADisplayLink) { owner?.sampleFrame(display.timestamp) }
+    }
     let appearance = NativeHistoryQualificationAppearance()
+    let dock = NativeDockModel()
     private(set) var motion = NativeHistoryQualificationMotion()
     private(set) var baseHost: UIHostingController<NativeHistoryQualificationBase>!
     private(set) var drawerHost: UIHostingController<NativeHistoryQualificationDrawer>!
@@ -71,15 +46,26 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
     private var dragOrigin: CGFloat = 0
     private var lastSize: CGSize = .zero
     private var privacyObserver: NSObjectProtocol?
+    private let frameTarget = FrameTarget()
+    private var displayLink: CADisplayLink?
+    private var previousFrame: CFTimeInterval?
+    private var frameCount = 0, slowFrames = 0
+    private var maxFrameMs = 0.0, measuredMs = 0.0
+    private let motionLog = OSLog(subsystem: "ai.hushh.native-study", category: .pointsOfInterest)
     var onRetired: (() -> Void)?
 
     init() {
         super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .overFullScreen
+        modalPresentationStyle = .fullScreen
+        modalPresentationCapturesStatusBarAppearance = true
         isModalInPresentation = true
     }
 
     required init?(coder: NSCoder) { fatalError("Programmatic qualification only") }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        appearance.dark ? .lightContent : .darkContent
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -90,9 +76,23 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
         appearance.changed = { [weak self] in
             guard let self, !self.motion.retired else { return }
             self.overrideUserInterfaceStyle = self.appearance.dark ? .dark : .light
+            self.setNeedsStatusBarAppearanceUpdate()
+            self.dock.accent = self.appearance.gold ? UIColor(red: 0.72, green: 0.49, blue: 0.14, alpha: 1) : .systemBlue
+            self.dock.mode = self.appearance.messageMode ? "text" : "voice"
+            self.dock.placeholder = self.appearance.messageMode ? "Message One" : "Talk to One"
         }
-        baseHost = UIHostingController(rootView: NativeHistoryQualificationBase(appearance: appearance,
-            open: { [weak self] in self?.settle(open: true) }, exit: { [weak self] in self?.retire() }))
+        dock.mode = "text"
+        dock.placeholder = "Message One"
+        dock.editable = true
+        dock.visible = true
+        dock.interactionEnabled = true
+        dock.accent = .systemBlue
+        // Exercise the existing retained editor without installing a plugin,
+        // second product composer, transport, or submission authority. Sample
+        // actions have no application effect; text remains in this model only.
+        baseHost = UIHostingController(rootView: NativeHistoryQualificationBase(appearance: appearance, dock: dock,
+            open: { [weak self] in self?.settle(open: true) }, exit: { [weak self] in self?.retire() },
+            reset: { [weak self] in self?.resetPublicSamples() }))
         drawerHost = UIHostingController(rootView: NativeHistoryQualificationDrawer(appearance: appearance,
             close: { [weak self] in self?.settle(open: false) }))
         install(baseHost)
@@ -109,10 +109,16 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
         ) { [weak self] _ in
             if HushhSessionPrivacyShield.shared.snapshot().shielded { self?.retire() }
         }
+        frameTarget.owner = self
+        let display = CADisplayLink(target: frameTarget, selector: #selector(FrameTarget.tick(_:)))
+        display.isPaused = true
+        display.add(to: .main, forMode: .common)
+        displayLink = display
         applyPose(0)
     }
 
     deinit {
+        displayLink?.invalidate()
         if let privacyObserver { NotificationCenter.default.removeObserver(privacyObserver) }
     }
 
@@ -128,6 +134,7 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
         guard !motion.retired else { return }
         let geometryChanged = lastSize != view.bounds.size
         if geometryChanged {
+            finishFrameWindow()
             _ = motion.begin(at: motion.committedOpen ? 1 : 0)
             animator?.stopAnimation(true)
             animator = nil
@@ -175,6 +182,13 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
 
     func beginDrag() {
         guard !motion.retired else { return }
+        if previousFrame == nil {
+            previousFrame = CACurrentMediaTime()
+            displayLink?.isPaused = false
+            // SDK os_signpost_animation_interval_begin uses this exact tag.
+            // XCTest then records rendered animation hitches, not just time.
+            os_signpost(.begin, log: motionLog, name: "PublicDrawerMotion", signpostID: .exclusive, "isAnimation=YES")
+        }
         let width = max(1, drawerHost.view.bounds.width)
         let transform = drawerHost.view.layer.presentation()?.affineTransform() ?? drawerHost.view.transform
         let visible = min(1, max(0, 1 + transform.tx / width))
@@ -201,7 +215,9 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
             guard let self, self.motion.commit(open: open, generation: generation) else { return }
             self.animator = nil
             self.applyPose(target)
-            if open { UIAccessibility.post(notification: .screenChanged, argument: self.drawerHost.view) }
+            self.finishFrameWindow()
+            UIAccessibility.post(notification: .screenChanged,
+                argument: open ? self.drawerHost.view : self.baseHost.view)
         }
         animator = next
         next.startAnimation()
@@ -210,19 +226,31 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
     private func applyPose(_ progress: CGFloat) {
         drawerHost.view.transform = CGAffineTransform(translationX: -(1 - progress) * drawerHost.view.bounds.width, y: 0)
         scrim.alpha = progress * 0.24
-        scrim.isUserInteractionEnabled = progress > 0
-        baseHost.view.isUserInteractionEnabled = progress == 0
-        baseHost.view.accessibilityElementsHidden = progress != 0
-        drawerHost.view.isUserInteractionEnabled = progress > 0
-        drawerHost.view.accessibilityElementsHidden = progress == 0
+        // An animation block applies its target values immediately. The closing
+        // target is not proof that the visible drawer has finished retiring.
+        // Keep input and accessibility isolated until this generation completes.
+        let covered = progress > 0 || animator != nil
+        if dock.interactionEnabled == covered { dock.interactionEnabled = !covered }
+        if dock.editable == covered { dock.editable = !covered }
+        if covered, dock.editor?.isFirstResponder == true { dock.editor?.resignFirstResponder() }
+        scrim.isUserInteractionEnabled = covered
+        baseHost.view.isUserInteractionEnabled = !covered
+        baseHost.view.accessibilityElementsHidden = covered
+        drawerHost.view.isUserInteractionEnabled = covered
+        drawerHost.view.accessibilityElementsHidden = !covered
     }
 
     func retire() {
         guard !motion.retired else { return }
+        finishFrameWindow()
+        displayLink?.invalidate()
+        displayLink = nil
         motion.retire()
         animator?.stopAnimation(true)
         animator = nil
         view.endEditing(true)
+        dock.emit = nil
+        dock.clear()
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
         appearance.changed = nil
@@ -245,13 +273,69 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
         // Never restore captured WK eligibility or release the privacy shield.
         // UIKit retires modal isolation; existing owners keep their latest state.
     }
+
+    private func sampleFrame(_ timestamp: CFTimeInterval) {
+        guard !motion.retired, let previousFrame, timestamp > previousFrame else { return }
+        let interval = (timestamp - previousFrame) * 1000
+        self.previousFrame = timestamp
+        frameCount += 1
+        measuredMs += interval
+        maxFrameMs = max(maxFrameMs, interval)
+        if interval > 50 { slowFrames += 1 }
+    }
+
+    private func finishFrameWindow() {
+        guard previousFrame != nil else { return }
+        previousFrame = nil
+        displayLink?.isPaused = true
+        os_signpost(.end, log: motionLog, name: "PublicDrawerMotion", signpostID: .exclusive)
+        publishFrameReceipt()
+    }
+
+    private func resetPublicSamples() {
+        guard !motion.retired, motion.progress == 0, animator == nil, previousFrame == nil else { return }
+        dock.editor?.resignFirstResponder()
+        dock.consumeText()
+        frameCount = 0; slowFrames = 0; maxFrameMs = 0; measuredMs = 0
+        publishFrameReceipt()
+    }
+
+    private func publishFrameReceipt() {
+        // Public sample timings only; not a proxy for Instruments render hitches.
+        // Publish after settlement, never invalidate SwiftUI/AX on every frame.
+        let packet: [String: Double] = ["frames": Double(frameCount), "over50": Double(slowFrames),
+            "maxFrameMs": maxFrameMs, "measuredMs": measuredMs]
+        if let data = try? JSONSerialization.data(withJSONObject: packet, options: [.sortedKeys]),
+           let receipt = String(data: data, encoding: .utf8) { view.accessibilityValue = receipt }
+    }
+}
+
+@available(iOS 26.0, *)
+struct NativeHistoryQualificationButton: View {
+    @ObservedObject var appearance: NativeHistoryQualificationAppearance
+    @StateObject private var focus = ChromeFocusRequest()
+    let symbol: String
+    let label: String
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        if let theme = HushhNativeControlAppearance(appearance: appearance.dark ? "dark" : "light",
+            accentHex: appearance.gold ? "#b87d24" : "#007aff",
+            foregroundHex: appearance.dark ? "#ffffff" : "#000000") {
+            NativeChromeButton(label: label, controlId: identifier, symbol: symbol,
+                theme: theme, action: action, layout: { _ in }, focus: focus)
+        }
+    }
 }
 
 @available(iOS 26.0, *)
 struct NativeHistoryQualificationBase: View {
     @ObservedObject var appearance: NativeHistoryQualificationAppearance
+    @ObservedObject var dock: NativeDockModel
     let open: () -> Void
     let exit: () -> Void
+    let reset: () -> Void
 
     var body: some View {
         ZStack {
@@ -259,12 +343,20 @@ struct NativeHistoryQualificationBase: View {
             // Putting the dock below a ScrollView would only back it with canvas.
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Public fixture — not your Chat").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Public fixture — not your Chat").font(.subheadline).foregroundStyle(.primary)
+                    Button("Exit qualification", action: exit).frame(minHeight: 44)
+                        .accessibilityIdentifier("qualification-exit")
+                    Button("Reset public samples", action: reset).frame(minHeight: 44)
+                        .foregroundStyle(.primary)
+                        .accessibilityIdentifier("qualification-reset")
                     Picker("Fixture appearance", selection: $appearance.dark) {
                         Text("Light").tag(false); Text("Dark").tag(true)
                     }.pickerStyle(.segmented)
                     Picker("Fixture accent", selection: $appearance.gold) {
                         Text("Blue").tag(false); Text("Molten Gold").tag(true)
+                    }.pickerStyle(.segmented)
+                    Picker("Fixture dock mode", selection: $appearance.messageMode) {
+                        Text("Talk").tag(false); Text("Message").tag(true)
                     }.pickerStyle(.segmented)
                     ForEach(["A weekend idea", "A place to explore", "A simple dinner"], id: \.self) { title in
                         Text(title).font(.title2).frame(maxWidth: .infinity, minHeight: 140, alignment: .leading)
@@ -275,24 +367,22 @@ struct NativeHistoryQualificationBase: View {
             }
             VStack {
                 HStack {
-                    Button(action: open) { Image(systemName: "line.3.horizontal").frame(width: 44, height: 44) }
-                        .buttonStyle(.glass).accessibilityLabel("Open synthetic History")
-                        .accessibilityIdentifier("qualification-history-open")
+                    NativeHistoryQualificationButton(appearance: appearance, symbol: "line.3.horizontal",
+                        label: "Open synthetic History", identifier: "qualification-history-open", action: open)
                     Spacer()
                     Text("Native study").font(.headline)
                     Spacer()
-                    Button(action: exit) { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                        .buttonStyle(.glass).accessibilityLabel("Exit qualification")
-                        .accessibilityIdentifier("qualification-exit")
+                    if let theme = HushhNativeControlAppearance(appearance: appearance.dark ? "dark" : "light",
+                        accentHex: appearance.gold ? "#b87d24" : "#007aff",
+                        foregroundHex: appearance.dark ? "#ffffff" : "#000000") {
+                        // Reuse the product selector, not a decorative replica.
+                        // This choice is synthetic and grants no product action.
+                        NativeAgentSurfaceSelector(selected: appearance.agentSurface, width: 96, theme: theme,
+                            action: { appearance.agentSurface = $0 }, layout: { _ in })
+                    }
                 }
                 Spacer()
-                HStack(spacing: 0) {
-                    Text("Message One").foregroundStyle(.secondary).padding(.leading, 16)
-                    Spacer(minLength: 8)
-                    Image(systemName: "mic").font(.system(size: 18)).frame(width: 44, height: 44)
-                    Image(systemName: "arrow.up").font(.system(size: 18)).frame(width: 44, height: 44)
-                }.frame(height: 52).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26))
-                    .accessibilityLabel("Synthetic dock preview, no editor or voice operation")
+                NativeAgentDockView(model: dock)
                     .accessibilityIdentifier("qualification-dock")
             }.padding(16)
         }.background(.background).tint(appearance.accent)
@@ -308,11 +398,10 @@ struct NativeHistoryQualificationDrawer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("History").font(.largeTitle.bold())
+                NativeHistoryQualificationButton(appearance: appearance, symbol: "xmark",
+                    label: "Close synthetic History", identifier: "qualification-history-close", action: close)
+                Text("History").font(.title2.bold())
                 Spacer()
-                Button(action: close) { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                    .buttonStyle(.glass).accessibilityLabel("Close synthetic History")
-                    .accessibilityIdentifier("qualification-history-close")
             }
             Text("Synthetic conversations").foregroundStyle(.secondary)
             ScrollView {

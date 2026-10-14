@@ -1,11 +1,2194 @@
 {
+  "ai_shared_files_concurrent_payments_review_20261013": {
+    "entries": [
+      {
+        "after": 280,
+        "before": 232,
+        "key": "class_size|consent-protocol/hushh_mcp/services/scope_commerce/provider_accounts.py|ConnectOnboarding|class exceeds the advisory operon budget",
+        "review": "Incoming root8eae owner-bound payout management independently reviewed: strict caller body, current owner/source/mode binding, provider account and HTTPS Express URL checked before/after issuance, no-store, no login-link journaling. One cohesive method, one small adapter port and parametrized security controls. Exact integrated source ceiling; live Stripe acceptance unverified.",
+        "source_sha256": "b35b6fb4c638f8155a06e2adc342d87941e8661ed9eb271fd2f23213c17d62eb"
+      },
+      {
+        "after": 251,
+        "before": 248,
+        "key": "class_size|consent-protocol/hushh_mcp/services/scope_commerce/stripe_adapter.py|StripeScopeCommerceAdapter|class exceeds the advisory operon budget",
+        "review": "Incoming root8eae owner-bound payout management independently reviewed: strict caller body, current owner/source/mode binding, provider account and HTTPS Express URL checked before/after issuance, no-store, no login-link journaling. One cohesive method, one small adapter port and parametrized security controls. Exact integrated source ceiling; live Stripe acceptance unverified.",
+        "source_sha256": "b2c4a89610bb85d2499765e7384474b5473e77c0b889243f02fbb7239f0ab6c6"
+      },
+      {
+        "after": 559,
+        "before": 488,
+        "key": "module_size|consent-protocol/tests/test_scope_commerce_provider.py||module exceeds the advisory operon budget",
+        "review": "Incoming root8eae owner-bound payout management independently reviewed: strict caller body, current owner/source/mode binding, provider account and HTTPS Express URL checked before/after issuance, no-store, no login-link journaling. One cohesive method, one small adapter port and parametrized security controls. Exact integrated source ceiling; live Stripe acceptance unverified.",
+        "source_sha256": "453a6d1967990cb76f7f56c9af5c86bbf30a54cff3075acce3932c9c30842fb3"
+      }
+    ],
+    "evidence_revisions": [
+      "278049ef3f",
+      "8eae328a26"
+    ]
+  },
+  "ai_shared_files_core_fixture_review_20261013": {
+    "entries": [
+      {
+        "after": 1764,
+        "before": 1757,
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "review": "Read-only backend authority review: explicit absent-schema inventory and synthetic post-admission mechanics fixtures only. Real managed-create denial, SQL placement races, Files erasure and account-key fences remain independent. AccountService erasure logic moved behind the existing Files owner; source hotspot shrank. Exact test-module ceiling only.",
+        "source_sha256": "2f4d37de67664ec964b2321f144e4ed3dbf312299d058ea6b66edc6dd2a5050c"
+      },
+      {
+        "after": 536,
+        "before": 529,
+        "key": "module_size|consent-protocol/tests/test_gcp_backend.py||module exceeds the advisory operon budget",
+        "review": "Read-only backend authority review: explicit absent-schema inventory and synthetic post-admission mechanics fixtures only. Real managed-create denial, SQL placement races, Files erasure and account-key fences remain independent. AccountService erasure logic moved behind the existing Files owner; source hotspot shrank. Exact test-module ceiling only.",
+        "source_sha256": "efac39ba9f4f7eabac62b42328035d61c655965e1ef7bed39e6541005164cea2"
+      },
+      {
+        "after": 527,
+        "before": 525,
+        "key": "module_size|consent-protocol/tests/test_byoc_substrate.py||module exceeds the advisory operon budget",
+        "review": "Read-only backend authority review: explicit absent-schema inventory and synthetic post-admission mechanics fixtures only. Real managed-create denial, SQL placement races, Files erasure and account-key fences remain independent. AccountService erasure logic moved behind the existing Files owner; source hotspot shrank. Exact test-module ceiling only.",
+        "source_sha256": "694bac91e1dd7fbfe5969f1cda90a4f77328bafd5d2d7531a5062720a40578d1"
+      }
+    ],
+    "evidence_revision": "0c5bb18b7a"
+  },
+  "ai_shared_files_final_source_review_20261013": {
+    "candidate_parent": "018c8d6020",
+    "findings": [
+      {
+        "after": 2914,
+        "before": 2825,
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted.",
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a"
+      },
+      {
+        "after": 538,
+        "before": 530,
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted.",
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a"
+      },
+      {
+        "after": 460,
+        "before": 447,
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|provision|function exceeds the advisory gene budget",
+        "review": "Existing claim now holds the same placement admission lock as Shared enrollment; no cloud recreation or new authority.",
+        "source_sha256": "77bbca8a80dc803b6d30cd89ca416a01b110c993617cedb46023bb230aa56518"
+      },
+      {
+        "after": 274,
+        "before": 237,
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_clear_user_data_tables|function exceeds the advisory gene budget",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted.",
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a"
+      },
+      {
+        "after": 101,
+        "before": 98,
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|reset_account|function exceeds the advisory gene budget",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted.",
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a"
+      },
+      {
+        "after": 11054,
+        "before": 10954,
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "a48e15de90a93e51ab91560ba3089e124230d90ed4a233b148421c37d3f6d26b"
+      },
+      {
+        "after": 2997,
+        "before": 2907,
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "review": "Existing erasure/reset transaction retains authority; add Shared inventory reconciliation before deleting vault custody. FK and unsettled-write/receipt refusals preserve recovery. New cleanup leaf was extracted.",
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a"
+      },
+      {
+        "after": 2746,
+        "before": 2673,
+        "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "e09aeebfb1b4d25a4376c0f60347145faefafa5a28a8ec8a3795610a7ff3091b"
+      },
+      {
+        "after": 2597,
+        "before": 2520,
+        "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "5b5ac04d7d652a8371744f7f83e30f38b84a8de90877516a802998a944b57fd0"
+      },
+      {
+        "after": 2226,
+        "before": 2101,
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "77d13f591f43e8b6c8391eda638ea18c45fb65648a1086aef6912b561f49963b"
+      },
+      {
+        "after": 2080,
+        "before": 1967,
+        "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "c7747cadd6535c98fa58ac04a7df070f1a7a77034e517e8e77a85a0f2c982009"
+      },
+      {
+        "after": 1833,
+        "before": 1830,
+        "key": "module_size|consent-protocol/tests/test_personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
+        "review": "Legacy fixture models schema absence; live Shared lifecycle SQL checks remain independent.",
+        "source_sha256": "4f19c1af1e8a7547e665f4ada1b778e6c0e0f0ff4dd18e430bace3ed3139fcd5"
+      },
+      {
+        "after": 1714,
+        "before": 1543,
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "dadac5c1933c4d8fb28f41c9612a86f2254866a989cfa28f9cb44964244f97c5"
+      },
+      {
+        "after": 1267,
+        "before": 1107,
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "ba713e09e86b70564720483ae86c83e57b684543bdae98f638fb04a5428db37d"
+      },
+      {
+        "after": 1141,
+        "before": 1132,
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "0537b3e4a2ad19fc3084d509cb5e02b84569ca5187924a9ed8f130aa594e7996"
+      },
+      {
+        "after": 1028,
+        "before": 1005,
+        "key": "module_size|hushh-webapp/components/connections/gemini-runtime-settings-card.tsx||module exceeds the advisory operon budget",
+        "review": "Provider-aware placement, exact cloud-default receipt and Back preserve prior connection. Key-entry presentation and placement observation extracted; 1314 becomes 1028. Focused UI and type checks pass.",
+        "source_sha256": "8c2335d7725d9509a9a7468aa538b25f820f93f7f94b0968ea108bc3d24bb831"
+      },
+      {
+        "after": 1013,
+        "before": 695,
+        "key": "module_size|hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx||module exceeds the advisory operon budget",
+        "review": "Distinct Azure/Shared/pending placement, sealed private-key path, default verification, failure preservation and Back authority regressions; no markup snapshots.",
+        "source_sha256": "e7a301a10e8b5466af4e5cddcd513052611bbfbf146f5253f2e53d78d3e5e39a"
+      },
+      {
+        "after": 897,
+        "before": 687,
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "da1c075879826cd854458ecb6bd47922e385005326da6beeec7bcdde63c1c340"
+      },
+      {
+        "after": 862,
+        "before": 848,
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_recovery_postgres.py||module exceeds the advisory operon budget",
+        "review": "Restore exact incoming root source862; duplicated erasure tests removed, retained in dedicated retention owner.",
+        "source_sha256": "dfa22d1a54f36c1703d0896344655a77750245bcc3194c62761680d072cbbbae"
+      },
+      {
+        "after": 752,
+        "before": 712,
+        "key": "module_size|hushh-webapp/components/app-ui/native-chat-chrome.tsx||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "dfbb38bc3251fcabcabf47d490e90bd1b023db57dfc7f4bc940739122752b697"
+      },
+      {
+        "after": 736,
+        "before": 596,
+        "key": "module_size|consent-protocol/tests/test_pod_files_jobs.py||module exceeds the advisory operon budget",
+        "review": "Schedule lifecycle extracted into dedicated core owner. Retain owner-project/model negative controls and selected-projection privacy refusal; originals and jobs remain authoritative.",
+        "source_sha256": "7fce8874193c09faf410718f6fba792973b1b5aad9d8e99f79a6399644dbe8eb"
+      },
+      {
+        "after": 735,
+        "before": 728,
+        "key": "module_size|hushh-webapp/lib/legal/legal-documents.ts||module exceeds the advisory operon budget",
+        "review": "Narrow actual provider disclosure update; Azure managed identity and selected foreground Shared Files do not establish provider blindness.",
+        "source_sha256": "6236ae81cc5b7d4e2a5170903507b2a832322b58e81e30ed4b3b2ea448e39bc0"
+      },
+      {
+        "after": 716,
+        "before": 632,
+        "key": "module_size|hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "ec5756151e57622dd96d5a033e086218cb3e8228d609200e5d976e4bfd42ef01"
+      },
+      {
+        "after": 710,
+        "before": 684,
+        "key": "module_size|consent-protocol/tests/test_pkm_answer_routes.py||module exceeds the advisory operon budget",
+        "review": "Reviewed compatibility fixture adds BackgroundTasks wrapper required by incoming route; existing hosting-change negative retained.",
+        "source_sha256": "5f58bf54777d723b01cad8ceef1c244c391fe9f046a1fb19ffa6b0d1e2eef00a"
+      },
+      {
+        "after": 551,
+        "before": null,
+        "key": "module_size|hushh-webapp/e2e/profile-pane-close.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "b698a387f4df459ade4fb800ae37736fced40bb68768497970c600b5f8c75e44"
+      },
+      {
+        "after": 534,
+        "before": 528,
+        "key": "module_size|hushh-webapp/lib/capacitor/native-chrome.ts||module exceeds the advisory operon budget",
+        "review": "Frozen root/ADK composition retained independently reviewed authority/privacy/native behavior. Duplicate drawer helpers, duplicate read admission and stale owner-ref borrowing removed. Browser recovery, private receipt hooks, current visit fences, native owner/privacy gates and layouts remain distinct; final source receives this exact ceiling only.",
+        "source_sha256": "c37f7186214419a08e1160f6779a5b5acda3f180eb89281862b44c47116e3815"
+      },
+      {
+        "after": 507,
+        "before": null,
+        "key": "module_size|consent-protocol/tests/test_pod_ai_selection_doors.py||module exceeds the advisory operon budget",
+        "review": "New real negative control proves disabled model modes cannot probe central AI or clear saved key; strict default request and response tests retained.",
+        "source_sha256": "5b7ace9ba82f12de65df34f6313384c5f5372c1831e10eaa2452c572dbd9e211"
+      }
+    ],
+    "frozen_adk": "3501811eb6b",
+    "frozen_main": "a8ebcb86b2c",
+    "frozen_root": "465ed16fefb",
+    "review": "Narrow reviewed integrated-source ceilings after cohesive Files connection, key-entry, cloud-default verification, erasure and schedule-test extractions. Independent frontend/native/backend/privacy reviews informed parent decisions. Budgets, scanner, dependency-direction/import-initialization checks, multiplicity and unrelated slots unchanged; any subsequent growth still fails. Historical reviews remain historical. This is measured maintenance debt, not deployed acceptance."
+  },
+  "ai_shared_files_integration_review_20261013": {
+    "candidate": "ffcbc944e4",
+    "incoming": "465ed16fefb",
+    "lineage": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/runtime_providers/factory.py|ManagedGeminiRuntimeBinding|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "9041bfdaa05b9d95016650ccf20dcb81d38356f369681f68e813552d0d87f569"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|ActorIdentityService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "5093f524c2fd9f3b53fc2cfa5dea748ba61144dac63f871322f41f39bc1d8a0f"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/direct_messages_service.py|DirectMessagesService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "916ee2068df8ab63090005b6ce11052d66fcfc7efe296abab4771d1df2afd9e4"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|DriveBulkShareStore|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "925bceb33a063f8dfecfb6ed3a6cefb0bca5d629b3a0cc4323bb476354643c96"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_chat_service.py|DriveChatService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "62ed1ef5d07b3aafefb590b478744924b8a74f3d4a43c15d71e865824d0f0ca8"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|DriveIngestionStore|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "761ed050a848bc69fa2297ae61f014907b0f6bee31e91af8b3aa575b8ab114a7"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_live_reader.py|DriveLiveReader|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "c8f1d38bc710ead08d2f31258456dd87495e4bf2cd6c75077c97abc3b6f4fb13"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|DriveOwnerSearchService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_search_store.py|DriveOwnerSearchStore|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "89d16da7a804a69274288ac08b856060db4d536d07efad1b62fc1d6aeeedcbc7"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_owner_payout_service.py|DriveRequestOwnerPayoutService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "220a056368542121aa7c9fd80da0da2b2fe3415eec888a48da66dd2d77654a70"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|DriveRequestPaymentService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "450d9ccf64e228b5930ce074e54490ad58ca1ea01d4f4ad7601b98ec6179b103"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|DriveRequestPaymentStore|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "575042ac478065818313a5aceaa2f2b2dd13d4e3499fc13525b0069fad386f81"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py|DriveSharingCenterContributor|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "440aff17b496a9733e22c3edfc70869ce8fd6fc2c9795aa8b9816bf9a3ef0175"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_suggestion_service.py|DriveSuggestionService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "ae2ebef316c0c758d607c752cb1f1b7ea1aa3f5b723ff06b38b359953eb00829"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/feed_service.py|FeedService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "cc1d50d536fa77815ce32975c32353fefaed50a5fe0537eedf7d3a6612e1f3c6"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|GmailLiveReceiptsService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1d5861abe2e30d180725595c86903b90851a5d712fd1ab7f0498f4039e38e7b0"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|GoogleDriveAdapter|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "7d0ca410ee34074f9a88943c5f86cd4b46ec4c711f00e90dea00ff4b18a448d9"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py|GoogleDriveRestTransport|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "81c753c7cfe4523e379a9a4f9a1fa63d650cec041a7a1afea4cc08703e6ecd7d"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pkm_answer_payment_service.py|PkmAnswerPaymentService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "a1c4b15431be2e6e8016cea2a2a6e0d1159be8fa382a50d76d07b6a5d20acc18"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py|PkmAnswerRequestService|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "e7978fe76e5f1e3bd06d113c6e0b53dd558ddef6e538c6d001c96c77117c6831"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pkm_answer_work_worker.py|PkmAnswerWorkWorker|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1063efdd17f1342b38a9ad7adaaf7ad4b3bf5a4769b40847e3bf95d5fbbec43e"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|ProfileResearchJobs|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "967dc3e94a3278d443fc384bdc36d6ff734742fab31ca0f5c7efa39c60f388a3"
+      },
+      {
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestSpecialistTurn|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "ec740d03c1db04f05044659280772386f06867831446b829beb4a1287a24927d"
+      },
+      {
+        "key": "class_size|scripts/ci/test_cloudrun_retention.py|MaintenanceAuthorityTest|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "22b3a7a8abfc19d2467186836dfe37c4cc2161ab96d29f163684bd6f5896722f"
+      },
+      {
+        "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1a7e0e120411ee4093173316c639095d1930135c94b677b079032c6f749911e6"
+      },
+      {
+        "key": "function_size|consent-protocol/api/routes/one/agent_chat.py|_extract_state|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "e75c8fc2d175a7b8ac23e771d53693c5933b07a6d7ccf3d03e4cd99a43b32b49"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py|_one_roster_tools|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "89bd7fe98ee88e4b3d3446d426d01b93a6ba91129b25d79f7636c44e1e1abba6"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/mcp_pending_call.py|capture_pending_call|function exceeds the advisory gene budget",
+        "selection": "candidate exact",
+        "source_sha256": "dcf3ff5be88c5229bc3214d487d049607e5c2239980e67791df1e5a2baedf328"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_clear_user_data_tables|function exceeds the advisory gene budget",
+        "selection": "stricter composed",
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|claim_verified_phone|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "5093f524c2fd9f3b53fc2cfa5dea748ba61144dac63f871322f41f39bc1d8a0f"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|upsert_identity|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "5093f524c2fd9f3b53fc2cfa5dea748ba61144dac63f871322f41f39bc1d8a0f"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/app_intelligence_runtime.py|_compile_service_onboarding_workflows|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/direct_messages_service.py|list_conversations|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "916ee2068df8ab63090005b6ce11052d66fcfc7efe296abab4771d1df2afd9e4"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/direct_messages_service.py|list_messages|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "916ee2068df8ab63090005b6ce11052d66fcfc7efe296abab4771d1df2afd9e4"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/direct_messages_service.py|mark_as_read|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "916ee2068df8ab63090005b6ce11052d66fcfc7efe296abab4771d1df2afd9e4"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/direct_messages_service.py|send_message|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "916ee2068df8ab63090005b6ce11052d66fcfc7efe296abab4771d1df2afd9e4"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|_finalize_progressive_request|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "925bceb33a063f8dfecfb6ed3a6cefb0bca5d629b3a0cc4323bb476354643c96"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|approve|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "925bceb33a063f8dfecfb6ed3a6cefb0bca5d629b3a0cc4323bb476354643c96"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|create_review|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "925bceb33a063f8dfecfb6ed3a6cefb0bca5d629b3a0cc4323bb476354643c96"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "925bceb33a063f8dfecfb6ed3a6cefb0bca5d629b3a0cc4323bb476354643c96"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_chat_service.py|run_live_query|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "62ed1ef5d07b3aafefb590b478744924b8a74f3d4a43c15d71e865824d0f0ca8"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_live_reader.py|find|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "c8f1d38bc710ead08d2f31258456dd87495e4bf2cd6c75077c97abc3b6f4fb13"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_page|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_request_candidates|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|compile_request_queries|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|create_for_request|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|run_one|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_owner_payout_service.py|_advance_delivery|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "220a056368542121aa7c9fd80da0da2b2fe3415eec888a48da66dd2d77654a70"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|checkout|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "450d9ccf64e228b5930ce074e54490ad58ca1ea01d4f4ad7601b98ec6179b103"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|reserve|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "450d9ccf64e228b5930ce074e54490ad58ca1ea01d4f4ad7601b98ec6179b103"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|_ensure_ready|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "575042ac478065818313a5aceaa2f2b2dd13d4e3499fc13525b0069fad386f81"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|operation|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "575042ac478065818313a5aceaa2f2b2dd13d4e3499fc13525b0069fad386f81"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|payment_state|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "575042ac478065818313a5aceaa2f2b2dd13d4e3499fc13525b0069fad386f81"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_view.py|requester_payment_view|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "77b641009635e443b2b2bf122a2a25fa2d203eab181b5652a85227a47d568732"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py|_projection|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "440aff17b496a9733e22c3edfc70869ce8fd6fc2c9795aa8b9816bf9a3ef0175"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py|entry|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "440aff17b496a9733e22c3edfc70869ce8fd6fc2c9795aa8b9816bf9a3ef0175"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_retention.py|erase_drive_account_in_transaction|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "05f43c0e9ad89bc2d87ffe063edd210c207633806d3e0a7b8dfd433b5acc7db3"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|allow_request|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|approve_review|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|create_request|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|defer_trusted_search|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|owner_review|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|prepare_review|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_suggestion_service.py|run_one|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "ae2ebef316c0c758d607c752cb1f1b7ea1aa3f5b723ff06b38b359953eb00829"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|_project_messages|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "1d5861abe2e30d180725595c86903b90851a5d712fd1ab7f0498f4039e38e7b0"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|_validated_projection|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "1d5861abe2e30d180725595c86903b90851a5d712fd1ab7f0498f4039e38e7b0"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|detail|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "1d5861abe2e30d180725595c86903b90851a5d712fd1ab7f0498f4039e38e7b0"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|_get_private|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "7d0ca410ee34074f9a88943c5f86cd4b46ec4c711f00e90dea00ff4b18a448d9"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_service.py|get_referral_summary|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "8d242c490965ebb03d6569044bd1f23173b6150eb190948df8e32f07b9e8146a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_center_contributor.py|collect|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "2b5a4e1e09e4dbf88ec3ab0689c7324e638bdbe824e9c1ac83de96c730a76a96"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_center_contributor.py|read|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "2b5a4e1e09e4dbf88ec3ab0689c7324e638bdbe824e9c1ac83de96c730a76a96"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py|resolve_scopes|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "e7978fe76e5f1e3bd06d113c6e0b53dd558ddef6e538c6d001c96c77117c6831"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|_run|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "967dc3e94a3278d443fc384bdc36d6ff734742fab31ca0f5c7efa39c60f388a3"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|start|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "967dc3e94a3278d443fc384bdc36d6ff734742fab31ca0f5c7efa39c60f388a3"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/wallet_sharing_history.py|history|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "1736970e0bb70720cf8f883b1148c37b6e8cc3d308e86cf307d2a0ee7ada65cf"
+      },
+      {
+        "key": "function_size|consent-protocol/scripts/eval_drive_search_planner.py|evaluate|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "4a0e08ca7925528e2bebfb6ba5ee2c65ed2b1acdeb32df6c8ff781da56107e1e"
+      },
+      {
+        "key": "function_size|consent-protocol/scripts/verify_managed_vertex_runtime.py|main|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "e976245c452e6d1bf6a8530a2e2eaa15072d3bd488f18448c229bf415e3ef603"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_request_payment.py|test_document_payment_delivery_transfer_and_bank_payout_lifecycle|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "dcf065cb653845d4b1b9102fda5f55498c660c530731676803b6ecefbb76b756"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_request_payment.py|test_owner_allowed_request_pays_the_owner_price_without_trusted_membership|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "dcf065cb653845d4b1b9102fda5f55498c660c530731676803b6ecefbb76b756"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_sharing_store.py|sharing|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "bd72838b32253f1ddd802d5829ccf2b94c4e249afb7ddf601c4c5242825211e5"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_suggestion_recency.py|test_b_recency_prepares_private_metadata_review_without_content_or_index|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "9b714ee784ee51527194be4007b8308cf7f54edc78d1d773f21f42bf76472cbd"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_trusted_auto.py|test_committed_request_pages_reach_payment_and_sharing_before_next_page|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "24b8c59dee6b8fe1feebc5dc0a76443cd79b7d64c5da5e154fc8e566cd532d59"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py|test_two_accounts_ask_approve_pay_answer_and_fetch|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "6fcbbe9a2f7dc8f98de8a2e6ebbbbebce60cfc83da7d6e6ffe8b15e5011fc9ec"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_contact_sync_postgres_integration.py|test_signup_phone_survives_ria_deletion_and_passive_provider_conflict|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "e66c68e287747c880aaf5f10eddd2811ed292622a9ed46bb681f6e34c43d6440"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_direct_message_feed_projection_postgres.py|projection_db|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "d81cdeb2fda0572eb8b2c9ed28ec94abe8ca197cd61fc6bea4c53c95bb92ec33"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_managed_vertex_readiness_script.py|test_stalled_live_preserves_slower_command_verdicts|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "9eb24b33fa1a0b1a8e95cff055f1d469f3fb2259e81be7a686eb11d77fb19555"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|test_private_native_mcp_suspend_preview_confirm_resume|function exceeds the advisory gene budget",
+        "selection": "candidate exact",
+        "source_sha256": "74834532c98434b9f1c3cac5aac1070b4983f12b4e63383a89f79c3751d15a63"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_boundary.py|test_browser_routes_default_closed_and_input_validation_never_echoes_secrets|function exceeds the advisory gene budget",
+        "selection": "candidate exact",
+        "source_sha256": "a18695bb357a1b0b8aba02c3398dc15bca94b76fb2eea7a90c036af5fa95f823"
+      },
+      {
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_source_is_authorized_before_any_cloud_access|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "22b3a7a8abfc19d2467186836dfe37c4cc2161ab96d29f163684bd6f5896722f"
+      },
+      {
+        "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_post_release_checks_retained_capacity_without_next_candidate|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "1a7e0e120411ee4093173316c639095d1930135c94b677b079032c6f749911e6"
+      },
+      {
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|find_release|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "8fdb43b5d979c315c66a5581a7bfd33a525b311b037d89aea61535f2927ad6e6"
+      },
+      {
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|main|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "8fdb43b5d979c315c66a5581a7bfd33a525b311b037d89aea61535f2927ad6e6"
+      },
+      {
+        "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|main|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "42bdc755a0b21d0eb707a0b51db49d54783a6bbf0c3db5c63d850ae84b9fd3e1"
+      },
+      {
+        "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|probe_runtime|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "42bdc755a0b21d0eb707a0b51db49d54783a6bbf0c3db5c63d850ae84b9fd3e1"
+      },
+      {
+        "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|recover_interrupted|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "42bdc755a0b21d0eb707a0b51db49d54783a6bbf0c3db5c63d850ae84b9fd3e1"
+      },
+      {
+        "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|_build_backend_runtime_config|function exceeds the advisory gene budget",
+        "selection": "incoming exact",
+        "source_sha256": "edf045c5aa91cfcd963625ea5171e29ac41ccfbd49859a7b31f243352c538b06"
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/drive_sharing.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "f14c890e4da136e0814df8ae67faf97835f2120edbfc2e4e34df1b044a91f5b2"
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/kai/gmail.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "3bcfa8a2b5f8467ff763c8c71900eda51ecbf6c20bd523dc8fdd3d2d37032999"
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/one/agent_chat.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "e75c8fc2d175a7b8ac23e771d53693c5933b07a6d7ccf3d03e4cd99a43b32b49"
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/one/answer_requests.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "b160c49d0665b10b5edc50bdd2541e3eadc2748b6e66b359726c122051a9c7a4"
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/one/messages.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "3674506b29024df8ace03eb32e1df0648fc6bdeab6a25878fd509ee861a8cfad"
+      },
+      {
+        "key": "module_size|consent-protocol/db/migration_authority.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "04ee6100fd5ffbc8eac530179b3035dca4b76a69267837cba8fcb07bb614bb17"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/constants.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "522cd2237dc3a5fbe49fd57970acbd833e73589f344cb69d22bba179a0ce0c81"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "89bd7fe98ee88e4b3d3446d426d01b93a6ba91129b25d79f7636c44e1e1abba6"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "260781682c70782f4d53baf6a4bf4fab4e70c446e79cecb1124335bc0cbdf584"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "e733240836a2549a89204475390d38865471cb98bb9a4f3ac60e46a32e2d562a"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/actor_identity_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "5093f524c2fd9f3b53fc2cfa5dea748ba61144dac63f871322f41f39bc1d8a0f"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/app_intelligence_runtime.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/connection_graph_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "9b4c7916da5b6169eb88184210a4627af6748e821b307ac022c8d758b2ab5172"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/direct_messages_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "916ee2068df8ab63090005b6ce11052d66fcfc7efe296abab4771d1df2afd9e4"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "925bceb33a063f8dfecfb6ed3a6cefb0bca5d629b3a0cc4323bb476354643c96"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_chat_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "62ed1ef5d07b3aafefb590b478744924b8a74f3d4a43c15d71e865824d0f0ca8"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_live_reader.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "c8f1d38bc710ead08d2f31258456dd87495e4bf2cd6c75077c97abc3b6f4fb13"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "a45e2a0c2f7d599393fb54db06b250cd73d6d7dc20c9a7be1053ec183fc114df"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_store.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "89d16da7a804a69274288ac08b856060db4d536d07efad1b62fc1d6aeeedcbc7"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_owner_payout_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "220a056368542121aa7c9fd80da0da2b2fe3415eec888a48da66dd2d77654a70"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "450d9ccf64e228b5930ce074e54490ad58ca1ea01d4f4ad7601b98ec6179b103"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "575042ac478065818313a5aceaa2f2b2dd13d4e3499fc13525b0069fad386f81"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "440aff17b496a9733e22c3edfc70869ce8fd6fc2c9795aa8b9816bf9a3ef0175"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "465d73c490fe27e8234f4eeb04baab9d8673561b3c08ec7ef3475ec6da47bf2a"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_suggestion_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "ae2ebef316c0c758d607c752cb1f1b7ea1aa3f5b723ff06b38b359953eb00829"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/feed_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "cc1d50d536fa77815ce32975c32353fefaed50a5fe0537eedf7d3a6612e1f3c6"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1d5861abe2e30d180725595c86903b90851a5d712fd1ab7f0498f4039e38e7b0"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "7d0ca410ee34074f9a88943c5f86cd4b46ec4c711f00e90dea00ff4b18a448d9"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_referral_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "8d242c490965ebb03d6569044bd1f23173b6150eb190948df8e32f07b9e8146a"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_wallet_card_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "170c5ee3d05318475df0e22161e0286af87de11ed12c0c9ac47038de26c67678"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/pkm_answer_payment_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "a1c4b15431be2e6e8016cea2a2a6e0d1159be8fa382a50d76d07b6a5d20acc18"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "e7978fe76e5f1e3bd06d113c6e0b53dd558ddef6e538c6d001c96c77117c6831"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/pkm_answer_work_worker.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1063efdd17f1342b38a9ad7adaaf7ad4b3bf5a4769b40847e3bf95d5fbbec43e"
+      },
+      {
+        "key": "module_size|consent-protocol/server.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1725647a8334d3db565fff5d62233027473065b9c72d6d8e22867e5ab2ab5f39"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_actor_identity_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "566f8a20119bb68b71662d6e7dd6c440c8705b3c83f72c8f1839aedb76ccfacf"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_curated_connector_manifest.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "422996314a62b3da0c6572835e695e36b7e303ed12854480ab7b5a5bd16724fe"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_direct_messages_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "776ee70c397affd062dd324ea0c399024315763fed79fbdde77369a7c152019d"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_ingestion.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "7f10d3517cc14d6633f90c3da24307340e090fe211774ceaa53c032dd41e4f58"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_live_query.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "be83a1c484b2c4154e2256385545f75c86e8cfe5ff5103772415f141a17783cb"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_live_search_parity.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "d76095d9fb0fab996239b679d2c77e8f1438ec35c2513a0a3a493a0559d98e24"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "94ff9b038de2933c3f7e2e82b498603e62cdbb530d28208c76d7e473e8977e5a"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_payment.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "dcf065cb653845d4b1b9102fda5f55498c660c530731676803b6ecefbb76b756"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "3602b1e7752d9a80e7f486807acf8a9b9b72a53f68ed777a8ee6542f4dd6297b"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_sharing_store.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "bd72838b32253f1ddd802d5829ccf2b94c4e249afb7ddf601c4c5242825211e5"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_suggestion_recency.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "9b714ee784ee51527194be4007b8308cf7f54edc78d1d773f21f42bf76472cbd"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_trusted_auto.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "24b8c59dee6b8fe1feebc5dc0a76443cd79b7d64c5da5e154fc8e566cd532d59"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_external_connector_lifecycle_postgres.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "3d3ab73eade00bed4dc2ca58293e80db7c924fd599f7390dc97e97a3008307b4"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_feed_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "f2ad180f280eba8777e12813735a8a2b410a493a890f1b2b624fcdf5cb2f7fbf"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_gmail_receipt_live_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "c41a9fe77393eaa985b1fe6ac187dc7e8822998c4a7c0e5fbcc696eb36889022"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_google_drive_rest_transport.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "8971559bb296d724209a7aca72fd655b453ac14c57010c5880d1b22bbaa89ece"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_races_postgres.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "6f93a3b5b07bc16ade09a50474fa76f82a12d35eabb73838e54238f4b659ae08"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_recovery_postgres.py||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "618cb703e001e19abf29b708a7e28fe536bd92ad97ce993347de011cd562b4a1"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "6fcbbe9a2f7dc8f98de8a2e6ebbbbebce60cfc83da7d6e6ffe8b15e5011fc9ec"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_signed_settlement_postgres.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "9bccd73334c8f68371277481e285378dcb2205cedf0cf3283367ef268ad039f4"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_routes.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "258c8e780afcf60c260a61ed42517a9441aab83199c95f594d35626d9bc17171"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_business_suggestions.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "56586269c54b991339e9b9b4bfe84dbaadd367a7fc28b2745ce748a7c771583f"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_commerce_preview_target.py||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "2d1a87201e89f00323c1ca816b6a5f36e2df7e51ecc9efac70b66f75f1101e0e"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_contact_sync_postgres_integration.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "e66c68e287747c880aaf5f10eddd2811ed292622a9ed46bb681f6e34c43d6440"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_direct_message_feed_projection_postgres.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "d81cdeb2fda0572eb8b2c9ed28ec94abe8ca197cd61fc6bea4c53c95bb92ec33"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_documents_agent_a2a.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "5ce81dbeb78b36707ca340d794e3940d978e8b6ec484c4731e3f44bc7cb8cbba"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_drive_request_owner_payouts.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "ca812ca1a5ac298b6fb36647a055aa5437874b489dc31223dbf1f3125e6f4a05"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_drive_sharing_routes.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "9a25f8e438199a1c1867bb90c4f7bca4efa4125cea5027a00c7ca0f2f71ea5d5"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_external_connector_oauth_routes.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "4971a1f9cb85adbd68a70fe2679d71130b81adbf284b766fd6b0daa4f7c886d7"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "b8f63aa028056146260593f076aa431a5c3a9633f0d63512f73e0b39ff50cf72"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_migration_authority.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "ea970a99c165184b3181eca6173b33ce9d1cd94d149dc32a20048f6b1b86d51b"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_one_profile_research.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "591aaca40db1a1f4744d54854e37c229e521e0ce12c1895acb1357333d2b7d56"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_one_wallet_card_service.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "02103c86a6c2db2ae51f32d22c8f4086314f6f343f6b096b341e1c91c1a9a89a"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pkm_answer_routes.py||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "5f58bf54777d723b01cad8ceef1c244c391fe9f046a1fb19ffa6b0d1e2eef00a"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_binding_transactions.py||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "74834532c98434b9f1c3cac5aac1070b4983f12b4e63383a89f79c3751d15a63"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_browser_boundary.py||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "a18695bb357a1b0b8aba02c3398dc15bca94b76fb2eea7a90c036af5fa95f823"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_crypto_erase.py||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "7dad4ca37e40a77025a7bced6a852b4b42b80031501d7a855f93626ac3e2d448"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_files_jobs.py||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "ee7d15b7a506374320af62448b30f7e9796c05f5694e89b9266d4cd8867edee7"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_profile_research_jobs.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "4faa24c9797969ec3da623ffd508597a18f8d831b3967accc552584d4160aebe"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "b7e6b19f0df9892ad7dcafd60be1f5e89db1438d686fe64f69b777c8950a18b0"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "b26eb2d75c8939c7506e1cd459932f208360adfeeae13fdcba332959536f18f5"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "3fdb925bf727067b3c2e82e93daa8710bae0adcb4f468d623649aa51f5717bd3"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/agent-scope-discovery.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "eeabb1f37df1f394ae4a7bb85563f5f5eb5f20db780854fe7dbad897d9dac1fc"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "5029f8cce69194a37f39d4537d2a1134e2d9ac3331fe3f8f5ee38b48059fbff9"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/document-share-review.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "7cbd67055904d4589481590021f2f050bea243a4f4144c8460bef4db86e8ceec"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/feed-page-clear.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "d243c3c18142d8a67c43aa4e4e39952c130a766d692fc5272c3bd1b8072e00b1"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/gmail-recent-receipts.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1ece7e0b1b5512cf30e10cae53b3fc428ee8150f697948a792713251a8125ff9"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/one-location-agent-page.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "f4f4a520e5b61fb7a9cf475822634dfc3c20ee7f9b2427c8ed420978f8caedac"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/phone-verification-flow-interaction.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "bbfedb9bc704672243a7a0e4c07962d969b03c09b2497f1b0c3328ce4a7f4bb0"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/swipe-views.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "042053661bd7f584b04c7ae672c71d417c834a37d3fccf80bfb0db9e2d388ad6"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/answers/answer-read-session.test.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "c37935a411f706365ea51a8092b2e8988d3a10ecc14b30d16867e2d866f050cf"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/answers/answer-scope-isolation.test.ts||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "ab6b6497c2cc1026c611e40b5fbd857d0aafc092f2469f30f9fa1f9211674b53"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/feed-actionables-connection-dedup.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "16f993f9f76f3742cde998236507a61d29fcd26e97abc77fcb469591335fdab3"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-native-privacy-generation.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "bb86589511e8a4ecb72ea071c10104701aa1c1b03b6b060af14a761bac6e02d0"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "5824e462c22fccf3c631a8759284bee146dc76682dd5a620c2d5916587534e44"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1b8f85753de1beee730ba2aa5681cb1629b8ba2165f40d810047dff462759bc5"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/profile/gmail-receipt-presentation.test.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1536434aa94903dca6aa37f848ddac754033d69c053fd6730786fb0c0ae2aff0"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "c7747cadd6535c98fa58ac04a7df070f1a7a77034e517e8e77a85a0f2c982009"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/api-service-fetch.test.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "4b0a5e026389e0a444b69ed68da78634250c26f169ccdc8171faa9cf82ac7c68"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/auth-service.test.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "e9fec74f9144641c201d8f9a5a10eef1ccca0332231cb75d9f11e1fa89df53a9"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/drive-sharing-service.test.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "006f08939ad5622bb6b8d9ae592a29e2c95709f99d1015c6a36e336f7d99f591"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/pkm-write-coordinator.test.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "cecb860eac95c8ccf378617ed776773d7a3a86a2646b6b0b08fa8a5ab65fbc93"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/__tests__/email-draft-card.test.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "14be59a1f24a25412682273d258fbeadc83c458036ae8551de550a7d157d0181"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "2358ae8221c4e5969f5b398feaff41436f661b80a094713942268f90edea1168"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/agent-structured-experience.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "37a4d373ed33c1c2583e685b573a8baa0efc2ca434daefc5b0bc78b12352289e"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/agent-text-attachment-editor.tsx||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "f3f27a6825327cd1578a6109b77b958d1a00d5eb277f578911653f63cbc99510"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/agent-text-attachment-viewer.tsx||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "13f2530cab747ce3d7f9d98c5cd4461f1e42af61ee316dca1175a37583e49d04"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/connectors-panel.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "5f473b0ac883df081b84408af45fe7918e1357731655a1eaf75260d590bfe77b"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/drive-background-search.tsx||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "c98c8cad76d33b50efecb7657b22613966fa2b4674fc43103863434eb34b1f9b"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/email-draft-card.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "bcaa0afe18552a4d0371018c4dac7ba55961c92c40b5864689b25ae333b54bf0"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/hermes-chat-panel.tsx||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "4e63df4cfa3bbddfeac7e18667e58f324f0e9b8a44b275d76eae3339bb521d49"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/profile-research-card.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "9d9269172af6f64de9f8fc3454037cf7ebbc26648e67b860dabad047f210f75a"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/app-ui/native-chat-chrome.tsx||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "f68709d7b4c30a00c36c4c6dde8a538e544c27798c8b7a7d4a691486a9d15683"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/auth/phone-verification-flow.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1f3730e4a120df0780c2690e3e1c71d8df8879838d6834a3ca38727daecb5ce2"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/connections/person-profile-page.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "71a813527bf1bcdee3c70546e3aed177d6ffd339b0170eab85e85f74bf34a0f0"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/consent/document-share-review.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "b072e91114f301db10f265c2acd14c2868c11889a3abf28f9d274c9b6b91436a"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/consent/notification-provider.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "eb992ef02057c47a39c8b8739677fdf68dbf73c55d6f35a96af6032131f4f958"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "2e90a0cc3c5cc29eafe5888c78b9b1ad8ac6bdc7e1b043b166e5f6183b2ee86b"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/feed/feed-page.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "48ff43976c4e472d9953b6355758b9471d8dea4180802b77026a660417baff35"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/gmail/gmail-recent-receipts.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "a58979b960aad73297e3655b4471f8f86f2e9dad0811418e1ac54a663a77ce63"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/saved-locations-section.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "fccbafcf4b45135385636d0406d534f78f2231201336c8cb42b4ab89fca3415d"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/profile/profile-workspace-page.tsx||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "8c084fcb009c596de16cd6f290c7c4a60c2b7cdbe04422b5d7b299ae2bcd1aab"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "03be1ea68ea4bace97f77ed4e55764657aeb7fe98eedfe9c14d08c0e6bda7f4b"
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "b0876040280a6fdfb026e3b4f0a75e487477e020a6af1b930f0419cd211539a0"
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "4b9874a467470617d15a99dd3a500f72d9e65ad0956300ec91a31e4725994964"
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/direct-chat.layout.spec.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "75c637cb0f16d58c20c94de46595f8c93c58a169d883b31d38ee314a825bf89f"
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/settings-row-surface.layout.spec.ts||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "e0ff71fb7675c811c42d1d844276c5570e16aab438b50069d68f4a6e08086806"
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "92fc0be992949dc40f1bcd6da08cd2ff84c8c17871d890fe39df1fc6c05f2282"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/agent/location-command-runtime.ts||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "1add24b7ca876b999e568f3666e1242dda7d916b4eb1cd47b8d3d7aa2d29f59e"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/capacitor/index.ts||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "7090b111a005d75b4f77e767254464d748f7c640b8bf94a45947bf91eb45a9f9"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/capacitor/native-chrome.ts||module exceeds the advisory operon budget",
+        "selection": "candidate exact",
+        "source_sha256": "0924b94065075ee56178be321afb53115f4a34081dca0098e06a4ca975264112"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/feed/feed-item-renderers.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "62c22658ff067c20821bb3fb7a28e3561a79ea02276a2aa148f48dbd69d99487"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/feed/use-feed-actionables.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "8e61688a47660fc8e089c93c05c4212b36dd65a57998c4ce05761cfff7aa2701"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/firebase/auth-context.tsx||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "e82c6786afc9acaec51512f6606951ca370c8784b2cf130509508c5b11e70101"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/navigation/back-navigation-graph.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "d947ac2702a2bd495ff42caecdfb92bcb6f83a3ca74049a5b55b12ecf4ec933f"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/navigation/routes.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "d275e35541f2a95ffc41dd5303f2ba4ce154c725564a08974236e00c700fc5f7"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/observability/route-map.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "406a107517d410bc518192cfa5dcc2cb713123652a4d82f253b9889f50fa2121"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/one-location/location-bus.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "564c4cb2d2bc879152e56eee8953f1d3f00c42066cc9c8fe275d541f039c4198"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/one-location/service.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "f33434bd859de4bd9f6c39a06da4c1c505ad9ac006f777281c356f7226c09c3f"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/pkm/markdown-memory.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "a6006939e21792837b36c6ea1b799741ef81fd03875cc3fb10e4421ad0e0afca"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/pkm/memory-document.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "4226ddc3ab10ad9bae2b411621fd5086e1da07185c574dd6c87ff617526bed94"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/pkm/pkm-domain-resource.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "f810212c297f291f9e0ba00731fadbee159ff46fdc454ca77ef4e4d0edf73891"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/profile/gmail-receipt-presentation.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "6760a00274a053c859be6945a577535b31f8734eefa6ad7ab9f5b78c226293c5"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+        "selection": "stricter composed",
+        "source_sha256": "5b5ac04d7d652a8371744f7f83e30f38b84a8de90877516a802998a944b57fd0"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1cff7438fe9880bdaef93e209c637c6d93b642ae4db586bc881248fa515f3349"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/direct-messages-service.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "e4ef9c6ce5054dfaf37a6225a51aa7f297c96448c6c83687194474df08c6df9a"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/drive-sharing-service.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "e262f9d18d7dee3e396d559c61abbd5a9ff27362badca84d2cbe44ad6753bbf6"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/pkm-write-coordinator.ts||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "4a38c402a6f63cacaf57b6b1d2ffdd7c280507837a6c66a246cec80efc138234"
+      },
+      {
+        "key": "module_size|hushh-webapp/scripts/architecture/audit-cache-coherence.mjs||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "1feab9b89f648468767e1015a9c6ff8d2485de2a9c6be0af11832e990186c81b"
+      },
+      {
+        "key": "module_size|scripts/ci/runtime-capacity-budget.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "2f69d00d93869311aeedc551be24fb54b3a98a24f06b3c4b057f764140e9876b"
+      },
+      {
+        "key": "module_size|scripts/ci/test_cloudrun_retention.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "22b3a7a8abfc19d2467186836dfe37c4cc2161ab96d29f163684bd6f5896722f"
+      },
+      {
+        "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "8fdb43b5d979c315c66a5581a7bfd33a525b311b037d89aea61535f2927ad6e6"
+      },
+      {
+        "key": "module_size|scripts/ci/uat_one_chat_backend_release.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "42bdc755a0b21d0eb707a0b51db49d54783a6bbf0c3db5c63d850ae84b9fd3e1"
+      },
+      {
+        "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "8722a51516f6ddd14b9c1a5fd59e2a4f0ca834a5dd0785bc0f7edaf154be670d"
+      },
+      {
+        "key": "module_size|scripts/ops/sync_backend_runtime_secrets.py||module exceeds the advisory operon budget",
+        "selection": "incoming exact",
+        "source_sha256": "edf045c5aa91cfcd963625ea5171e29ac41ccfbd49859a7b31f243352c538b06"
+      }
+    ],
+    "rule": "Exact parent lineage selects reviewed parent ceilings; composed sources retain stricter ceilings pending narrow review. Historical source-qualified metadata is history. No global rebaseline or budget changes."
+  },
+  "browser_schedule_core_fixture_review_20261013": {
+    "findings": [
+      {
+        "after": 519,
+        "before": 511,
+        "key": "module_size|consent-protocol/tests/test_commerce_preview_target.py||module exceeds the advisory operon budget",
+        "reason": "Nearest existing core fixture now exercises explicit Shared admission or all four retained Stripe bindings after the integrated authority/deployment changes; no assertion, gate or negative control removed.",
+        "source_sha256": "2d1a87201e89f00323c1ca816b6a5f36e2df7e51ecc9efac70b66f75f1101e0e"
+      },
+      {
+        "after": 706,
+        "before": 704,
+        "key": "module_size|consent-protocol/tests/test_pkm_answer_routes.py||module exceeds the advisory operon budget",
+        "reason": "Nearest existing core fixture now exercises explicit Shared admission or all four retained Stripe bindings after the integrated authority/deployment changes; no assertion, gate or negative control removed.",
+        "source_sha256": "7cd0e775f974586074ae2a696d257b36e3490f0ba5e5d2d521bfe4437c61666a"
+      }
+    ],
+    "parent": "3b5a5ea84d4d08907ca3a06fd990fc4053cc8f4d",
+    "review": "Parent static review against owning admission guard and deployment executor; nearest combined route/recovery suites. Budgets, scanner and all unrelated ceilings unchanged."
+  },
+  "browser_schedule_integration_review_20261013": {
+    "candidate_parent": "22c7d3cac42201834bb313654349da065f04f3ae",
+    "findings": [
+      {
+        "after": 999,
+        "before": 914,
+        "classification": "retained_frozen_source",
+        "key": "class_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py|PkmAnswerRequestService|class exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "34fdd7b49b85bfc2894c46793ef5dbd01492d2bdbd2c131dabc246fb928eb138"
+      },
+      {
+        "after": 922,
+        "before": 817,
+        "classification": "retained_frozen_source",
+        "key": "class_size|consent-protocol/hushh_mcp/services/pkm_answer_payment_service.py|PkmAnswerPaymentService|class exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "95a98aed80b0afc6007030bd4f00d03ce4c19eb1110c86459ec0b0973af07ae6"
+      },
+      {
+        "after": 318,
+        "before": 314,
+        "classification": "retained_frozen_source",
+        "key": "class_size|consent-protocol/hushh_mcp/services/pkm_answer_work_worker.py|PkmAnswerWorkWorker|class exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "651ed4096f7d447c538d9176650677af6ecf960fa2fccc9e305babdb6b67fcbf"
+      },
+      {
+        "after": 258,
+        "before": null,
+        "classification": "retained_frozen_source",
+        "key": "class_size|consent-protocol/hushh_mcp/one_adk/pod_agui_context.py|PodChatContext|class exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "20d70d7f08bf82bb3f534cd1c85fd32eaa98fed52b167aa00e91025ba41dfa01"
+      },
+      {
+        "after": 257,
+        "before": 255,
+        "classification": "retained_frozen_source",
+        "key": "class_size|consent-protocol/tests/services/test_pkm_answer_races_postgres.py|TestRepeatedCheckoutThroughTheService|class exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "d06b55999d1fd98cf8ffede0f6b77924c7e9644fe66c9f9ff89f05de38535259"
+      },
+      {
+        "after": 361,
+        "before": 294,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|test_private_native_mcp_suspend_preview_confirm_resume|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "74834532c98434b9f1c3cac5aac1070b4983f12b4e63383a89f79c3751d15a63"
+      },
+      {
+        "after": 285,
+        "before": 256,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_payment_service.py|_settle_verified_event|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "95a98aed80b0afc6007030bd4f00d03ce4c19eb1110c86459ec0b0973af07ae6"
+      },
+      {
+        "after": 240,
+        "before": 213,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_payment_service.py|settle|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "95a98aed80b0afc6007030bd4f00d03ce4c19eb1110c86459ec0b0973af07ae6"
+      },
+      {
+        "after": 200,
+        "before": 91,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/tests/services/test_pkm_answer_signed_settlement_postgres.py|test_signed_dispatch_releases_exact_staged_answer_once|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "609ab4d8a6f78097e988eb6541fc63539f7a1c25c7fb49308f6dc7e9273a5138"
+      },
+      {
+        "after": 175,
+        "before": 119,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py|deliver|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "34fdd7b49b85bfc2894c46793ef5dbd01492d2bdbd2c131dabc246fb928eb138"
+      },
+      {
+        "after": 137,
+        "before": 94,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py|write|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "34fdd7b49b85bfc2894c46793ef5dbd01492d2bdbd2c131dabc246fb928eb138"
+      },
+      {
+        "after": 135,
+        "before": 134,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py|claim_answerable|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "34fdd7b49b85bfc2894c46793ef5dbd01492d2bdbd2c131dabc246fb928eb138"
+      },
+      {
+        "after": 126,
+        "before": 125,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py|read|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "34fdd7b49b85bfc2894c46793ef5dbd01492d2bdbd2c131dabc246fb928eb138"
+      },
+      {
+        "after": 120,
+        "before": 116,
+        "classification": "focused_boundary_extension",
+        "key": "function_size|consent-protocol/tests/test_pod_browser_boundary.py|test_browser_routes_default_closed_and_input_validation_never_echoes_secrets|function exceeds the advisory gene budget",
+        "review": "Nearest core suite adds current-owner discovery and post-await revocation. Existing route test is unchanged at function level.",
+        "same_frozen_sources": [],
+        "source_sha256": "a18695bb357a1b0b8aba02c3398dc15bca94b76fb2eea7a90c036af5fa95f823"
+      },
+      {
+        "after": 117,
+        "before": 115,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_work_worker.py|run_payouts|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "651ed4096f7d447c538d9176650677af6ecf960fa2fccc9e305babdb6b67fcbf"
+      },
+      {
+        "after": 100,
+        "before": 96,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_answer_payment_service.py|reserve|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "95a98aed80b0afc6007030bd4f00d03ce4c19eb1110c86459ec0b0973af07ae6"
+      },
+      {
+        "after": 90,
+        "before": null,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_mcp_recovery.py|rebind_review|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "f755420df0c5422e806aed625126f70843ebe54d1819cea44db5fdbf9570b80a"
+      },
+      {
+        "after": 88,
+        "before": 84,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/mcp_pending_call.py|capture_pending_call|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "774167d0ded1b46dbd760f2e84d99b02041b353262cada2f8c33f1ea0e6361c9"
+      },
+      {
+        "after": 84,
+        "before": 82,
+        "classification": "retained_frozen_source",
+        "key": "function_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py|test_two_accounts_ask_approve_pay_answer_and_fetch|function exceeds the advisory gene budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "a2e04b61d4992ea528e5bfa3b78b4389dbf03a31037472042442a1aa37e44b6a"
+      },
+      {
+        "after": 11032,
+        "before": 10954,
+        "classification": "focused_boundary_extension",
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "review": "Thin nine-line owner-keyed shelf and abort-fenced callback; task UI/transport remain dedicated small modules.",
+        "same_frozen_sources": [],
+        "source_sha256": "7e110bd8603ed2f53925edc42fa011eefa77ff12469fa34ed5459fb7622d1c9d"
+      },
+      {
+        "after": 2673,
+        "before": 2083,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "63b4b60aac89"
+        ],
+        "source_sha256": "b26eb2d75c8939c7506e1cd459932f208360adfeeae13fdcba332959536f18f5"
+      },
+      {
+        "after": 2520,
+        "before": 2519,
+        "classification": "focused_boundary_extension",
+        "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+        "review": "Private progress projection extracted into computer-use/chat-progress.ts; stable stream handler, exact-owner positive and negative controls.",
+        "same_frozen_sources": [],
+        "source_sha256": "0d2e7fcb2909bb6066bef31267d256edd12e3a6c908f1d8b6757cf2e1f940fbd"
+      },
+      {
+        "after": 2101,
+        "before": 2090,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "review": "Merged owner/visit fences, object URL custody and account-draft cleanup; no permission broadened.",
+        "same_frozen_sources": [],
+        "source_sha256": "4fa3fc8902415c71e62eee187f52028626f04fc2cff1c737415a1036596f4bf4"
+      },
+      {
+        "after": 1967,
+        "before": 1907,
+        "classification": "focused_boundary_extension",
+        "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
+        "review": "Nearest core suite adds owner/refusal and absence of browser goals/content in generic activity.",
+        "same_frozen_sources": [],
+        "source_sha256": "ca9ccf248f4a98375d47187f5c5b0aa87f53465d4f0f2040ef13e42ebd41de05"
+      },
+      {
+        "after": 1839,
+        "before": 1781,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/lib/agent/location-command-runtime.ts||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "1add24b7ca876b999e568f3666e1242dda7d916b4eb1cd47b8d3d7aa2d29f59e"
+      },
+      {
+        "after": 1543,
+        "before": 1436,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Retains reviewer layout pack and expands native-coherence/owner coverage.",
+        "same_frozen_sources": [],
+        "source_sha256": "caff4c0df6ffe662df9d4edf46eb6ee8e6dd6caa447b77dcec0d1102275ad562"
+      },
+      {
+        "after": 1226,
+        "before": 1182,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_races_postgres.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "d06b55999d1fd98cf8ffede0f6b77924c7e9644fe66c9f9ff89f05de38535259"
+      },
+      {
+        "after": 1133,
+        "before": 1122,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "review": "Composes native feature ownership behind existing wallet service/authorization boundaries.",
+        "same_frozen_sources": [],
+        "source_sha256": "8ba547a344a2d915582a6e9141b44f5d86688c5a832e736a032c9f7820a3791d"
+      },
+      {
+        "after": 1107,
+        "before": 1050,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "review": "Core negative controls for changed-owner late attachment and account drafts.",
+        "same_frozen_sources": [],
+        "source_sha256": "d5e36bf360ef81a7513a43f500c0fe3d4e3cadaae7b961245e4f585540e69811"
+      },
+      {
+        "after": 1085,
+        "before": 1077,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|hushh-webapp/lib/capacitor/index.ts||module exceeds the advisory operon budget",
+        "review": "Merged typed native feature contracts; no provider registration change.",
+        "same_frozen_sources": [],
+        "source_sha256": "7090b111a005d75b4f77e767254464d748f7c640b8bf94a45947bf91eb45a9f9"
+      },
+      {
+        "after": 1074,
+        "before": 984,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "34fdd7b49b85bfc2894c46793ef5dbd01492d2bdbd2c131dabc246fb928eb138"
+      },
+      {
+        "after": 1047,
+        "before": 1039,
+        "classification": "retained_frozen_source",
+        "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "3e0fd00360c9cdf6f41f99db97cd42ea2eff969e8319493bed1a325928c2fac5"
+      },
+      {
+        "after": 1045,
+        "before": 779,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/tests/test_pod_binding_transactions.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "74834532c98434b9f1c3cac5aac1070b4983f12b4e63383a89f79c3751d15a63"
+      },
+      {
+        "after": 1010,
+        "before": 896,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/hushh_mcp/services/pkm_answer_payment_service.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "95a98aed80b0afc6007030bd4f00d03ce4c19eb1110c86459ec0b0973af07ae6"
+      },
+      {
+        "after": 957,
+        "before": null,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/__tests__/lib/answers/answer-read-session.test.ts||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "99ff2b1d00a8b307a6596d2ca8c590dabe3e21e901ebd7ca35619e864aef1bb3"
+      },
+      {
+        "after": 920,
+        "before": 579,
+        "classification": "focused_boundary_extension",
+        "key": "module_size|consent-protocol/tests/test_pod_files_jobs.py||module exceeds the advisory operon budget",
+        "review": "Nearest real encrypted fixture suite adds revision mutation race, competing jobs, grant horizon, CAS/outbox/cancellation. Broken-code negative controls fail.",
+        "same_frozen_sources": [],
+        "source_sha256": "4b75da4dd17a0de8f35d4518b8bac1fc3dcac2190866b7858009a0a3201ef7b4"
+      },
+      {
+        "after": 917,
+        "before": 876,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|hushh-webapp/components/agent/agent-text-attachment-editor.tsx||module exceeds the advisory operon budget",
+        "review": "Merged native feature Back and async commit acceptance; owner/vault epoch fences and rejection retain edits.",
+        "same_frozen_sources": [],
+        "source_sha256": "f3f27a6825327cd1578a6109b77b958d1a00d5eb277f578911653f63cbc99510"
+      },
+      {
+        "after": 910,
+        "before": 858,
+        "classification": "focused_boundary_extension",
+        "key": "module_size|consent-protocol/tests/test_pod_browser_boundary.py||module exceeds the advisory operon budget",
+        "review": "Nearest core suite adds current-owner discovery and post-await revocation. Existing route test is unchanged at function level.",
+        "same_frozen_sources": [],
+        "source_sha256": "a18695bb357a1b0b8aba02c3398dc15bca94b76fb2eea7a90c036af5fa95f823"
+      },
+      {
+        "after": 863,
+        "before": 831,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "4241da482330e4fd5e865f0561dc156c299763a574950bed4a216e40c1ef89a3"
+      },
+      {
+        "after": 848,
+        "before": 678,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_recovery_postgres.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "ab19a6f9b48e3f0c7e0658c5d0a3e06e5d8868d4c426bfe0b3a6f77efe9078ec"
+      },
+      {
+        "after": 847,
+        "before": 785,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "a2e04b61d4992ea528e5bfa3b78b4389dbf03a31037472042442a1aa37e44b6a"
+      },
+      {
+        "after": 838,
+        "before": 812,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/lib/pkm/markdown-memory.ts||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "db0c674c6ebeb52d496adb415e5c0c1f81c0a02654c4d09a8a6e7cb3b0cf5778"
+      },
+      {
+        "after": 832,
+        "before": 814,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/components/agent/hermes-chat-panel.tsx||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "63b4b60aac89"
+        ],
+        "source_sha256": "4e63df4cfa3bbddfeac7e18667e58f324f0e9b8a44b275d76eae3339bb521d49"
+      },
+      {
+        "after": 776,
+        "before": 695,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py||module exceeds the advisory operon budget",
+        "review": "Retains RP/origin negative controls and adds immutable-digest/server-origin verification.",
+        "same_frozen_sources": [],
+        "source_sha256": "b8f63aa028056146260593f076aa431a5c3a9633f0d63512f73e0b39ff50cf72"
+      },
+      {
+        "after": 775,
+        "before": 759,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/hushh_mcp/services/pkm_answer_work_worker.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "651ed4096f7d447c538d9176650677af6ecf960fa2fccc9e305babdb6b67fcbf"
+      },
+      {
+        "after": 751,
+        "before": 712,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|hushh-webapp/components/app-ui/native-chat-chrome.tsx||module exceeds the advisory operon budget",
+        "review": "Keeps control operation authority distinct from preparation; epoch/document/geometry and retirement checks retained.",
+        "same_frozen_sources": [],
+        "source_sha256": "549d21be7bb1239c54ef3ed807cab402f0ed49055164522290fb9e61f40e9f44"
+      },
+      {
+        "after": 738,
+        "before": null,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/__tests__/lib/answers/answer-scope-isolation.test.ts||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "6db071145542b7d9a3782ba0db8bdea846a638bd2b2f7dc436b0e663f195be49"
+      },
+      {
+        "after": 704,
+        "before": null,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/tests/test_pkm_answer_routes.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "6f4a303edde861384d728bbdf12bef74f7bbdfd8c5c0023242f0cdec1cdecc8a"
+      },
+      {
+        "after": 694,
+        "before": null,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/__tests__/services/byoc-never-calls-hub-content.test.tsx||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "a5387e94ea575bc8dd8d32decb984ddda8b745535e66694600a7337fcba6809f"
+      },
+      {
+        "after": 687,
+        "before": 569,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/api/routes/one/answer_requests.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "ff997288c4a1fc1b46d1121966e06ec4876053305927b4b809b38c07b54ce1b4"
+      },
+      {
+        "after": 676,
+        "before": 657,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/components/agent/drive-background-search.tsx||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "63b4b60aac89"
+        ],
+        "source_sha256": "c98c8cad76d33b50efecb7657b22613966fa2b4674fc43103863434eb34b1f9b"
+      },
+      {
+        "after": 652,
+        "before": 577,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "63b4b60aac89"
+        ],
+        "source_sha256": "3fdb925bf727067b3c2e82e93daa8710bae0adcb4f468d623649aa51f5717bd3"
+      },
+      {
+        "after": 634,
+        "before": 616,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/components/agent/agent-text-attachment-viewer.tsx||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "63b4b60aac89"
+        ],
+        "source_sha256": "13f2530cab747ce3d7f9d98c5cd4461f1e42af61ee316dca1175a37583e49d04"
+      },
+      {
+        "after": 623,
+        "before": null,
+        "classification": "focused_boundary_extension",
+        "key": "module_size|hushh-webapp/lib/services/pod-app-access.ts||module exceeds the advisory operon budget",
+        "review": "Exact app-only method/scope route wall; Files mutation scope and device refusal covered by existing suite.",
+        "same_frozen_sources": [],
+        "source_sha256": "c40c9f5c7c2269834fa374300ef93db78e4085005fa437f210c607822f6f2151"
+      },
+      {
+        "after": 587,
+        "before": 582,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/lib/services/answer-request-service.ts||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "04acfe10fa1c869a18d8c7d1de5c4533bbb04e890786420267b813c892427639"
+      },
+      {
+        "after": 567,
+        "before": 558,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|hushh-webapp/e2e/settings-row-surface.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Adds action-target alignment checks to existing fixture.",
+        "same_frozen_sources": [],
+        "source_sha256": "e0ff71fb7675c811c42d1d844276c5570e16aab438b50069d68f4a6e08086806"
+      },
+      {
+        "after": 558,
+        "before": null,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_signed_settlement_postgres.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "609ab4d8a6f78097e988eb6541fc63539f7a1c25c7fb49308f6dc7e9273a5138"
+      },
+      {
+        "after": 549,
+        "before": 532,
+        "classification": "retained_frozen_source",
+        "key": "module_size|consent-protocol/tests/test_pod_crypto_erase.py||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "7dad4ca37e40a77025a7bced6a852b4b42b80031501d7a855f93626ac3e2d448"
+      },
+      {
+        "after": 528,
+        "before": 512,
+        "classification": "reviewed_frozen_composition",
+        "key": "module_size|hushh-webapp/lib/capacitor/native-chrome.ts||module exceeds the advisory operon budget",
+        "review": "Merged native choice acknowledgement and exact control/owner/document lifecycle checks.",
+        "same_frozen_sources": [],
+        "source_sha256": "0924b94065075ee56178be321afb53115f4a34081dca0098e06a4ca975264112"
+      },
+      {
+        "after": 520,
+        "before": null,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/lib/agent/location-command-private.ts||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851"
+        ],
+        "source_sha256": "3cd15b8c4dc1846e7e67cbadd33bb1d023dc9c395a0aa74284f3e442d92fdcec"
+      },
+      {
+        "after": 516,
+        "before": null,
+        "classification": "retained_frozen_source",
+        "key": "module_size|hushh-webapp/lib/pkm/memory-document.ts||module exceeds the advisory operon budget",
+        "review": "Immutable frozen inherited source. Read-only backend evidence and parent source review retain contracts and measured debt; no size-only restructuring.",
+        "same_frozen_sources": [
+          "5f55c851",
+          "1d691714135e"
+        ],
+        "source_sha256": "8f089a0dbac153703b5eb4dd072e5766c76e62bebc4bda7e827ea24de8788ffe"
+      }
+    ],
+    "frozen_adk": "63b4b60aac890d6f171591fec120511525f9189c",
+    "frozen_main": "1d691714135e8b3a09e8e4752a2a42413a568ee8",
+    "review": "Reconcile stale integrated measured-debt baseline only after source review. Browser recovery and scheduled control/journal/runner extracted first. Budgets, scanner, dependency/import gates, multiplicity and unrelated slots unchanged. Future growth is rejected. Not cloud or release acceptance. No moving-root source imported."
+  },
   "budgets": {
     "class_lines": 250,
     "function_lines": 80,
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2581,
+  "finding_count": 2588,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -185,7 +2368,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "AccountService",
-      "value": 2834
+      "value": 2914
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3650,7 +5833,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/mcp_pending_call.py",
       "symbol": "capture_pending_call",
-      "value": 84
+      "value": 88
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4217,7 +6400,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_clear_user_data_tables",
-      "value": 246
+      "value": 274
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4226,7 +6409,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 530
+      "value": 538
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4262,7 +6445,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "reset_account",
-      "value": 98
+      "value": 101
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7754,7 +9937,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "provision",
-      "value": 447
+      "value": 460
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12218,7 +14401,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": "test_private_native_mcp_suspend_preview_confirm_resume",
-      "value": 294
+      "value": 361
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12227,7 +14410,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_pod_browser_boundary.py",
       "symbol": "test_browser_routes_default_closed_and_input_validation_never_echoes_secrets",
-      "value": 116
+      "value": 120
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14225,7 +16408,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": null,
-      "value": 2916
+      "value": 2997
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16025,7 +18208,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": null,
-      "value": 1757
+      "value": 1764
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16709,7 +18892,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_byoc_substrate.py",
       "symbol": null,
-      "value": 525
+      "value": 527
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16745,7 +18928,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_commerce_preview_target.py",
       "symbol": null,
-      "value": 511
+      "value": 519
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16988,7 +19171,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
       "symbol": null,
-      "value": 824
+      "value": 905
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16997,7 +19180,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_gcp_backend.py",
       "symbol": null,
-      "value": 529
+      "value": 536
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17330,7 +19513,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_provisioning_service.py",
       "symbol": null,
-      "value": 1830
+      "value": 1833
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17429,7 +19612,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": null,
-      "value": 779
+      "value": 1045
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17438,7 +19621,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_browser_boundary.py",
       "symbol": null,
-      "value": 858
+      "value": 910
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17474,7 +19657,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_crypto_erase.py",
       "symbol": null,
-      "value": 532
+      "value": 549
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17483,7 +19666,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_files_jobs.py",
       "symbol": null,
-      "value": 596
+      "value": 736
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17942,7 +20125,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/capacitor/native-chrome.test.tsx",
       "symbol": null,
-      "value": 2083
+      "value": 2746
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17951,7 +20134,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx",
       "symbol": null,
-      "value": 577
+      "value": 652
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18041,7 +20224,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 1196
+      "value": 1267
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18095,7 +20278,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx",
       "symbol": null,
-      "value": 695
+      "value": 1013
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18554,7 +20737,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-chat-client.test.ts",
       "symbol": null,
-      "value": 2007
+      "value": 2080
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18923,7 +21106,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 10954
+      "value": 11054
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18950,7 +21133,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-text-attachment-editor.tsx",
       "symbol": null,
-      "value": 876
+      "value": 917
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18959,7 +21142,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-text-attachment-viewer.tsx",
       "symbol": null,
-      "value": 616
+      "value": 634
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18986,7 +21169,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/drive-background-search.tsx",
       "symbol": null,
-      "value": 657
+      "value": 676
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19013,7 +21196,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/hermes-chat-panel.tsx",
       "symbol": null,
-      "value": 814
+      "value": 832
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19067,7 +21250,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/app-ui/native-chat-chrome.tsx",
       "symbol": null,
-      "value": 712
+      "value": 752
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19202,7 +21385,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/gemini-runtime-settings-card.tsx",
       "symbol": null,
-      "value": 1005
+      "value": 1028
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19274,7 +21457,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 2203
+      "value": 2226
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19994,7 +22177,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/profile/profile-workspace-page.tsx",
       "symbol": null,
-      "value": 5046
+      "value": 5031
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20120,7 +22303,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 1132
+      "value": 1141
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20138,7 +22321,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
-      "value": 894
+      "value": 897
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20174,7 +22357,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1653
+      "value": 1714
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20237,7 +22420,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/settings-row-surface.layout.spec.ts",
       "symbol": null,
-      "value": 558
+      "value": 567
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20318,7 +22501,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/agent/location-command-runtime.ts",
       "symbol": null,
-      "value": 1781
+      "value": 1839
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20336,7 +22519,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/capacitor/index.ts",
       "symbol": null,
-      "value": 1077
+      "value": 1085
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20345,7 +22528,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/capacitor/native-chrome.ts",
       "symbol": null,
-      "value": 512
+      "value": 534
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20552,7 +22735,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/legal/legal-documents.ts",
       "symbol": null,
-      "value": 728
+      "value": 735
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20957,7 +23140,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/agent-chat-client.ts",
       "symbol": null,
-      "value": 2566
+      "value": 2597
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21362,7 +23545,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs",
       "symbol": null,
-      "value": 632
+      "value": 716
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22362,7 +24545,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pkm_answer_routes.py",
       "symbol": null,
-      "value": 684
+      "value": 710
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23236,6 +25419,74 @@
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": null,
       "value": 521
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/one_adk/pod_agui_context.py|PodChatContext|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/one_adk/pod_agui_context.py",
+      "ratchet_reason": "new finding",
+      "symbol": "PodChatContext",
+      "value": 258
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/pod_mcp_recovery.py|rebind_review|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/pod_mcp_recovery.py",
+      "ratchet_reason": "new finding",
+      "symbol": "rebind_review",
+      "value": 90
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/byoc-never-calls-hub-content.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/byoc-never-calls-hub-content.test.tsx",
+      "ratchet_reason": "new finding",
+      "symbol": null,
+      "value": 694
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/agent/location-command-private.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/agent/location-command-private.ts",
+      "ratchet_reason": "new finding",
+      "symbol": null,
+      "value": 520
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/services/pod-app-access.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/services/pod-app-access.ts",
+      "ratchet_reason": "new finding",
+      "symbol": null,
+      "value": 623
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/e2e/profile-pane-close.layout.spec.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/e2e/profile-pane-close.layout.spec.ts",
+      "symbol": null,
+      "value": 551
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_pod_ai_selection_doors.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_pod_ai_selection_doors.py",
+      "symbol": null,
+      "value": 507
     }
   ],
   "inspected_files": 6625,
@@ -37112,6 +39363,600 @@
     "source_qualification_sha256": "3eb3dfbd95727287977fa676e05b5efab03b2fb136561c0e09225cfe7044c892",
     "source_revision": "7c6f0fcebbaf98d4c5c75a83909a8cba1e4a2339",
     "verification": "25 nearest onboarding,451 Back cases,77 existing capacity/retention cases,typecheck and generated UI contracts pass. Full candidate core/CI and deployed acceptance remain required. Separate incoming UAT receipt gap has no Dev consumer."
+  },
+  "scope_commerce_concurrent_branch_union_20261014": {
+    "changes": [
+      {
+        "after": 258,
+        "before": null,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "class_size|consent-protocol/hushh_mcp/one_adk/pod_agui_context.py|PodChatContext|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/hushh_mcp/one_adk/pod_agui_context.py",
+        "source_git_blob": "efb28785bb717dd5519f4c261abdcad5391c534e",
+        "source_sha256": "20d70d7f08bf82bb3f534cd1c85fd32eaa98fed52b167aa00e91025ba41dfa01"
+      },
+      {
+        "after": 2914,
+        "before": 2834,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "source_git_blob": "aa5d1dc3221a4832cceb2f22b5ad80ed25d42040",
+        "source_sha256": "a1a14c7e6fce9a3648f73e445514ad489ac7be7957ca13d0ee744713a7b99607"
+      },
+      {
+        "after": 88,
+        "before": 84,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/mcp_pending_call.py|capture_pending_call|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/hushh_mcp/one_adk/mcp_pending_call.py",
+        "source_git_blob": "5b688c6c214e046e1e269f47ccbcd27ee8be934b",
+        "source_sha256": "dcf3ff5be88c5229bc3214d487d049607e5c2239980e67791df1e5a2baedf328"
+      },
+      {
+        "after": 274,
+        "before": 246,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_clear_user_data_tables|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "source_git_blob": "aa5d1dc3221a4832cceb2f22b5ad80ed25d42040",
+        "source_sha256": "a1a14c7e6fce9a3648f73e445514ad489ac7be7957ca13d0ee744713a7b99607"
+      },
+      {
+        "after": 538,
+        "before": 530,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "source_git_blob": "aa5d1dc3221a4832cceb2f22b5ad80ed25d42040",
+        "source_sha256": "a1a14c7e6fce9a3648f73e445514ad489ac7be7957ca13d0ee744713a7b99607"
+      },
+      {
+        "after": 101,
+        "before": 98,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|reset_account|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "source_git_blob": "aa5d1dc3221a4832cceb2f22b5ad80ed25d42040",
+        "source_sha256": "a1a14c7e6fce9a3648f73e445514ad489ac7be7957ca13d0ee744713a7b99607"
+      },
+      {
+        "after": 460,
+        "before": 447,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|provision|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
+        "source_git_blob": "488578d20710077b7a1db4912469ab0d03d4f927",
+        "source_sha256": "77bbca8a80dc803b6d30cd89ca416a01b110c993617cedb46023bb230aa56518"
+      },
+      {
+        "after": 90,
+        "before": null,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_mcp_recovery.py|rebind_review|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/hushh_mcp/services/pod_mcp_recovery.py",
+        "source_git_blob": "2b4bfdfb37d896e3ffa1a6b5707f39722cd9a598",
+        "source_sha256": "f755420df0c5422e806aed625126f70843ebe54d1819cea44db5fdbf9570b80a"
+      },
+      {
+        "after": 361,
+        "before": 294,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|test_private_native_mcp_suspend_preview_confirm_resume|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_pod_binding_transactions.py",
+        "source_git_blob": "a123bf46e785af95d21de7773056bcb35f78018c",
+        "source_sha256": "74834532c98434b9f1c3cac5aac1070b4983f12b4e63383a89f79c3751d15a63"
+      },
+      {
+        "after": 120,
+        "before": 116,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "function_size|consent-protocol/tests/test_pod_browser_boundary.py|test_browser_routes_default_closed_and_input_validation_never_echoes_secrets|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_pod_browser_boundary.py",
+        "source_git_blob": "b9d04decccc44d67a1ce952571c765f885bbb4dc",
+        "source_sha256": "a18695bb357a1b0b8aba02c3398dc15bca94b76fb2eea7a90c036af5fa95f823"
+      },
+      {
+        "after": 2997,
+        "before": 2916,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "source_git_blob": "aa5d1dc3221a4832cceb2f22b5ad80ed25d42040",
+        "source_sha256": "a1a14c7e6fce9a3648f73e445514ad489ac7be7957ca13d0ee744713a7b99607"
+      },
+      {
+        "after": 1764,
+        "before": 1757,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
+        "source_git_blob": "a1c1db7fb3030ad79c770bda4cd1ae9b4f21f68d",
+        "source_sha256": "2f4d37de67664ec964b2321f144e4ed3dbf312299d058ea6b66edc6dd2a5050c"
+      },
+      {
+        "after": 527,
+        "before": 525,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_byoc_substrate.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_byoc_substrate.py",
+        "source_git_blob": "676bc00ad3ff48ea10639b2db7ba1a027e8e2ba5",
+        "source_sha256": "694bac91e1dd7fbfe5969f1cda90a4f77328bafd5d2d7531a5062720a40578d1"
+      },
+      {
+        "after": 519,
+        "before": 511,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_commerce_preview_target.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_commerce_preview_target.py",
+        "source_git_blob": "d31a560c062079a724505353dee880f1acecd187",
+        "source_sha256": "2d1a87201e89f00323c1ca816b6a5f36e2df7e51ecc9efac70b66f75f1101e0e"
+      },
+      {
+        "after": 905,
+        "before": 824,
+        "classification": "bounded_composed_union_root824_plus_remote81",
+        "immutable_ceiling_source": null,
+        "key": "module_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+        "source_git_blob": "b5d33ca593cea1972d2d4cabb80d92494661df8b",
+        "source_sha256": "5a43f45f37972ea13604f29dc209a1e12e9c72f7f81800fb01a77e52044e86a3"
+      },
+      {
+        "after": 536,
+        "before": 529,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_gcp_backend.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_gcp_backend.py",
+        "source_git_blob": "0b6304b50a6b0ecb52f9807d139de90fb6b60680",
+        "source_sha256": "efac39ba9f4f7eabac62b42328035d61c655965e1ef7bed39e6541005164cea2"
+      },
+      {
+        "after": 1833,
+        "before": 1830,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_personal_agent_provisioning_service.py",
+        "source_git_blob": "56d7b93529603188dbceba436ac669b7b0d6f689",
+        "source_sha256": "7a319cabca3fab3f69df72cd6ff741560f626310d0158be7219f884cc6b072cc"
+      },
+      {
+        "after": 710,
+        "before": 684,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_pkm_answer_routes.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_pkm_answer_routes.py",
+        "source_git_blob": "afbe92b3ec5400120de10afee9471182da3949b6",
+        "source_sha256": "5f58bf54777d723b01cad8ceef1c244c391fe9f046a1fb19ffa6b0d1e2eef00a"
+      },
+      {
+        "after": 1045,
+        "before": 779,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_pod_binding_transactions.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_pod_binding_transactions.py",
+        "source_git_blob": "a123bf46e785af95d21de7773056bcb35f78018c",
+        "source_sha256": "74834532c98434b9f1c3cac5aac1070b4983f12b4e63383a89f79c3751d15a63"
+      },
+      {
+        "after": 910,
+        "before": 858,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_pod_browser_boundary.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_pod_browser_boundary.py",
+        "source_git_blob": "b9d04decccc44d67a1ce952571c765f885bbb4dc",
+        "source_sha256": "a18695bb357a1b0b8aba02c3398dc15bca94b76fb2eea7a90c036af5fa95f823"
+      },
+      {
+        "after": 549,
+        "before": 532,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_pod_crypto_erase.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_pod_crypto_erase.py",
+        "source_git_blob": "955d835d2066b1874783329e827a52685b4fbe4b",
+        "source_sha256": "7dad4ca37e40a77025a7bced6a852b4b42b80031501d7a855f93626ac3e2d448"
+      },
+      {
+        "after": 736,
+        "before": 596,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_pod_files_jobs.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_pod_files_jobs.py",
+        "source_git_blob": "473f8c15860f92af96d5f98f62c8f4470aae33cd",
+        "source_sha256": "7fce8874193c09faf410718f6fba792973b1b5aad9d8e99f79a6399644dbe8eb"
+      },
+      {
+        "after": 2746,
+        "before": 2083,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/__tests__/capacitor/native-chrome.test.tsx",
+        "source_git_blob": "3556a8191de611f8cf3f9f87b61c411a77b7fb9d",
+        "source_sha256": "e09aeebfb1b4d25a4376c0f60347145faefafa5a28a8ec8a3795610a7ff3091b"
+      },
+      {
+        "after": 652,
+        "before": 577,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx",
+        "source_git_blob": "3744e878dfa63ca3417a55b3c85ee8e1f66a4dde",
+        "source_sha256": "3fdb925bf727067b3c2e82e93daa8710bae0adcb4f468d623649aa51f5717bd3"
+      },
+      {
+        "after": 1267,
+        "before": 1196,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
+        "source_git_blob": "d6dd1ff16b5cf72cbd163e38492c51ce0f608aef",
+        "source_sha256": "ba713e09e86b70564720483ae86c83e57b684543bdae98f638fb04a5428db37d"
+      },
+      {
+        "after": 1013,
+        "before": 695,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx",
+        "source_git_blob": "4b5b6b924c013b5719e9e9f00f61cdd0144b6495",
+        "source_sha256": "e7a301a10e8b5466af4e5cddcd513052611bbfbf146f5253f2e53d78d3e5e39a"
+      },
+      {
+        "after": 2080,
+        "before": 2007,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/__tests__/services/agent-chat-client.test.ts",
+        "source_git_blob": "5145176a2ae2d8f74dd51b86e2c0361ff697df75",
+        "source_sha256": "c7747cadd6535c98fa58ac04a7df070f1a7a77034e517e8e77a85a0f2c982009"
+      },
+      {
+        "after": 694,
+        "before": null,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/__tests__/services/byoc-never-calls-hub-content.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/__tests__/services/byoc-never-calls-hub-content.test.tsx",
+        "source_git_blob": "0a676dd961e2dfaacfb2c8e6e49683601f6af8af",
+        "source_sha256": "a5387e94ea575bc8dd8d32decb984ddda8b745535e66694600a7337fcba6809f"
+      },
+      {
+        "after": 11054,
+        "before": 10954,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
+        "source_git_blob": "f8f706938fecb6b16b6d2fa78c1e5505c3498aaa",
+        "source_sha256": "f649792a13881d2f2e7ab555e1c6e97b3cb33a08c6ceed9032ce20ba058c2caa"
+      },
+      {
+        "after": 917,
+        "before": 876,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/agent/agent-text-attachment-editor.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/agent/agent-text-attachment-editor.tsx",
+        "source_git_blob": "3ef851c8d10b49e0e4d746ae32855f474ac52cca",
+        "source_sha256": "f3f27a6825327cd1578a6109b77b958d1a00d5eb277f578911653f63cbc99510"
+      },
+      {
+        "after": 634,
+        "before": 616,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/agent/agent-text-attachment-viewer.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/agent/agent-text-attachment-viewer.tsx",
+        "source_git_blob": "5e08da65ebf170ab9623b19ef5eaf95831be77c6",
+        "source_sha256": "13f2530cab747ce3d7f9d98c5cd4461f1e42af61ee316dca1175a37583e49d04"
+      },
+      {
+        "after": 676,
+        "before": 657,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/agent/drive-background-search.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/agent/drive-background-search.tsx",
+        "source_git_blob": "77aea8773e4d57e1d0156f264c175e3490262843",
+        "source_sha256": "c98c8cad76d33b50efecb7657b22613966fa2b4674fc43103863434eb34b1f9b"
+      },
+      {
+        "after": 832,
+        "before": 814,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/agent/hermes-chat-panel.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/agent/hermes-chat-panel.tsx",
+        "source_git_blob": "0ed2112ad57900ce729d58cb8c48da8e03f26552",
+        "source_sha256": "4e63df4cfa3bbddfeac7e18667e58f324f0e9b8a44b275d76eae3339bb521d49"
+      },
+      {
+        "after": 752,
+        "before": 712,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/app-ui/native-chat-chrome.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/app-ui/native-chat-chrome.tsx",
+        "source_git_blob": "12ece62fd515e420bdc7299b33eaeab2a965cbf2",
+        "source_sha256": "dfbb38bc3251fcabcabf47d490e90bd1b023db57dfc7f4bc940739122752b697"
+      },
+      {
+        "after": 1028,
+        "before": 1005,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/connections/gemini-runtime-settings-card.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/connections/gemini-runtime-settings-card.tsx",
+        "source_git_blob": "3508e2153a8780ad1c5ded8e34e0c45f431baab3",
+        "source_sha256": "8c2335d7725d9509a9a7468aa538b25f820f93f7f94b0968ea108bc3d24bb831"
+      },
+      {
+        "after": 2226,
+        "before": 2203,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
+        "source_git_blob": "352d141b22ca31228d8ba43b680032e138ba51b9",
+        "source_sha256": "77d13f591f43e8b6c8391eda638ea18c45fb65648a1086aef6912b561f49963b"
+      },
+      {
+        "after": 5031,
+        "before": 5046,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/profile/profile-workspace-page.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/profile/profile-workspace-page.tsx",
+        "source_git_blob": "4641a627cfe5960ad65a373e424ea376e1ae4fd5",
+        "source_sha256": "61742dab36d7e63fd31a75f6ba74b0f6e50509da75aeed76d334eb52bd810f43"
+      },
+      {
+        "after": 1141,
+        "before": 1132,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
+        "source_git_blob": "60aa7d267c6ac9bf0e28c60ba1ddbd9ddc7f9337",
+        "source_sha256": "0537b3e4a2ad19fc3084d509cb5e02b84569ca5187924a9ed8f130aa594e7996"
+      },
+      {
+        "after": 897,
+        "before": 894,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
+        "source_git_blob": "920545e2a3d64281a4b5f17d92ad4acac455daa2",
+        "source_sha256": "da1c075879826cd854458ecb6bd47922e385005326da6beeec7bcdde63c1c340"
+      },
+      {
+        "after": 1714,
+        "before": 1653,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
+        "source_git_blob": "b3a3dc99240fb03eda735ab2fa5b010c81252aff",
+        "source_sha256": "dadac5c1933c4d8fb28f41c9612a86f2254866a989cfa28f9cb44964244f97c5"
+      },
+      {
+        "after": 567,
+        "before": 558,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/e2e/settings-row-surface.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/e2e/settings-row-surface.layout.spec.ts",
+        "source_git_blob": "b06f7b915e2fdd3d13834a4b98a7bde053f257e5",
+        "source_sha256": "e0ff71fb7675c811c42d1d844276c5570e16aab438b50069d68f4a6e08086806"
+      },
+      {
+        "after": 520,
+        "before": null,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/lib/agent/location-command-private.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/lib/agent/location-command-private.ts",
+        "source_git_blob": "cf064c5266b1e9349700c33cb4c025cca60a16b6",
+        "source_sha256": "3cd15b8c4dc1846e7e67cbadd33bb1d023dc9c395a0aa74284f3e442d92fdcec"
+      },
+      {
+        "after": 1839,
+        "before": 1781,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/lib/agent/location-command-runtime.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/lib/agent/location-command-runtime.ts",
+        "source_git_blob": "81dae9fa189b0f48005d8b24585aa45770074710",
+        "source_sha256": "1add24b7ca876b999e568f3666e1242dda7d916b4eb1cd47b8d3d7aa2d29f59e"
+      },
+      {
+        "after": 1085,
+        "before": 1077,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/lib/capacitor/index.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/lib/capacitor/index.ts",
+        "source_git_blob": "6b22c79e83fc5ab3b285b4c2c583dabbb81762ee",
+        "source_sha256": "7090b111a005d75b4f77e767254464d748f7c640b8bf94a45947bf91eb45a9f9"
+      },
+      {
+        "after": 534,
+        "before": 512,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/lib/capacitor/native-chrome.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/lib/capacitor/native-chrome.ts",
+        "source_git_blob": "cbd23d85f4afbb1bcbb24dae395191895db177e0",
+        "source_sha256": "c37f7186214419a08e1160f6779a5b5acda3f180eb89281862b44c47116e3815"
+      },
+      {
+        "after": 735,
+        "before": 728,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/lib/legal/legal-documents.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/lib/legal/legal-documents.ts",
+        "source_git_blob": "d35c4add8868d3d92d21722ca4c2fff4429529e8",
+        "source_sha256": "6236ae81cc5b7d4e2a5170903507b2a832322b58e81e30ed4b3b2ea448e39bc0"
+      },
+      {
+        "after": 2597,
+        "before": 2566,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/lib/services/agent-chat-client.ts",
+        "source_git_blob": "97e4affcbe7c042cb7ce66cf01a73e9188bdb532",
+        "source_sha256": "5b5ac04d7d652a8371744f7f83e30f38b84a8de90877516a802998a944b57fd0"
+      },
+      {
+        "after": 623,
+        "before": null,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/lib/services/pod-app-access.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/lib/services/pod-app-access.ts",
+        "source_git_blob": "84a7ab7460f3e6de797274b89928cdd16b54c40d",
+        "source_sha256": "e295faad0f9f80090ab14550be43a67dea9301bce1e29a9b7cb7089aa5a2a3e8"
+      },
+      {
+        "after": 716,
+        "before": 632,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs",
+        "source_git_blob": "037cef0fbaa822349283c89fc3ce44c27ce42548",
+        "source_sha256": "ec5756151e57622dd96d5a033e086218cb3e8228d609200e5d976e4bfd42ef01"
+      },
+      {
+        "after": 551,
+        "before": null,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|hushh-webapp/e2e/profile-pane-close.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "hushh-webapp/e2e/profile-pane-close.layout.spec.ts",
+        "source_git_blob": "d331160c7fbcf89050349e60ac94eac54c5dba44",
+        "source_sha256": "b698a387f4df459ade4fb800ae37736fced40bb68768497970c600b5f8c75e44"
+      },
+      {
+        "after": 507,
+        "before": null,
+        "classification": "reviewed_remote_exact_source",
+        "immutable_ceiling_source": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+        "key": "module_size|consent-protocol/tests/test_pod_ai_selection_doors.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_pod_ai_selection_doors.py",
+        "source_git_blob": "36856445976d444582bc9ccd9f8b34b23ee7b205",
+        "source_sha256": "5b7ace9ba82f12de65df34f6313384c5f5372c1831e10eaa2452c572dbd9e211"
+      }
+    ],
+    "excluded_paid_down_rows": [
+      {
+        "action": "Keep root baseline; repaired root source exact, no current finding. Preserve remote review entry as historical evidence.",
+        "key": "class_size|consent-protocol/hushh_mcp/services/scope_commerce/provider_accounts.py|ConnectOnboarding|class exceeds the advisory operon budget",
+        "path": "consent-protocol/hushh_mcp/services/scope_commerce/provider_accounts.py",
+        "rank": 0,
+        "remote_ceiling": 280
+      },
+      {
+        "action": "Keep root baseline; repaired root source exact, no current finding. Preserve remote review entry as historical evidence.",
+        "key": "class_size|consent-protocol/hushh_mcp/services/scope_commerce/stripe_adapter.py|StripeScopeCommerceAdapter|class exceeds the advisory operon budget",
+        "path": "consent-protocol/hushh_mcp/services/scope_commerce/stripe_adapter.py",
+        "rank": 0,
+        "remote_ceiling": 251
+      },
+      {
+        "action": "Keep root baseline; repaired root source exact, no current finding. Preserve remote review entry as historical evidence.",
+        "key": "module_size|consent-protocol/tests/test_scope_commerce_provider.py||module exceeds the advisory operon budget",
+        "path": "consent-protocol/tests/test_scope_commerce_provider.py",
+        "rank": 0,
+        "remote_ceiling": 559
+      }
+    ],
+    "incoming_revision": "e7005fca8c8b719920a578c5a1867901dbb9b52a",
+    "rank_definition": "Group findings by exact key; within each key sort by descending numeric value, preserving every duplicate occurrence. occurrence_rank is the zero-based position in that group, matching the unchanged scanner. Apply replacements to the selected existing rank, append only when that rank is absent. Never collapse findings to a key/value dictionary.",
+    "review": "Independent source-qualified union:44existing occurrences+7new; one bounded prebuilt-test composition. Preserve prior ceilings, every review receipt, budgets, detector and future-growth gate. No blanket refresh.",
+    "review_artifact_sha256": "92cc8d8a7b824483e010d4458a7ee687dfc8f30f4ba6abb8cc79d5165ddf652f",
+    "source_revision": "d1d7417c092271cea6a0dd8e63e7c3c93f53e16c",
+    "verification": "129build cases,15Profile contracts,451Back cases and generated UI parity pass; zero composed architecture regressions. Full core/CI/Dev release remain required."
   },
   "scope_commerce_current_main_union_20261013": {
     "boundary_corrections": {

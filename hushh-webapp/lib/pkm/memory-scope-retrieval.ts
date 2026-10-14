@@ -1,6 +1,7 @@
 "use client";
 
 import { buildConsentExportForScope, createConsentExportReadSession } from "@/lib/consent/export-builder";
+import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
 import { currentPkmSourceEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { answerProfilePhotoUrl, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
 import { approvedScopesBackedBySoul, isOwnProfileNameScope, projectApprovedSoulFacts, SCOPE_PATH_TO_LABEL } from "@/lib/pkm/identity-memory-facts";
@@ -226,7 +227,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       const policyFailed = new Set(rebuild.filter(scope => scopeBlocked(scope, sources[scopeDomain(scope)]!)));
       const failed = new Set<string>(policyFailed);
       const originals = new Map<string, { payload: Record<string, unknown>; contentRevision: number | null; manifestRevision: number | null }>();
-      await Promise.all(rebuild.map(async scope => {
+      await settleWithConcurrency(rebuild, 4, async scope => {
         if (policyFailed.has(scope)) return;
         try {
           const result = await buildConsentExportForScope({ ...params, scope, readSession: sessionScopes.includes(scope) ? readSession : createConsentExportReadSession({ ...params, scopes: [scope] }) });
@@ -237,7 +238,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
               result.sourceContentRevision === undefined && !source.absent && hasStructuredCounterpart(scope, source)) throw new Error("Memory revision changed during rebuild");
           originals.set(scope, { payload: record(result.payload), contentRevision: result.sourceContentRevision ?? null, manifestRevision: result.sourceManifestRevision ?? null });
         } catch { failed.add(scope); }
-      }));
+      });
       valid();
       const soulScopes = rebuild.filter(usesSoul);
       let memory: Awaited<ReturnType<typeof loadMarkdownMemory>> = null;

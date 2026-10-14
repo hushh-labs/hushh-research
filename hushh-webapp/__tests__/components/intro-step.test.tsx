@@ -126,7 +126,19 @@ describe("IntroStep", () => {
     expect(result).toEqual({ status: "started", summary: "Opening sign-in.", routeAfter: "/login", screenAfter: "login" });
   });
 
-  it("keeps the public navigation to Research, Blog, and Developers", () => {
+  it("returns from the first story to welcome without starting authentication", () => {
+    const onLogin = vi.fn();
+    render(<IntroStep onLogin={onLogin} />);
+    expect(screen.getByRole("button", { name: "Create your One", exact: true })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
+    const first = screen.getByRole("region", { name: /^1 of 4:/ });
+    fireEvent.click(within(first).getByRole("button", { name: "Previous screen", exact: true }));
+    expect(screen.getByRole("button", { name: "Create your One", exact: true })).toBeVisible();
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    expect(onLogin).not.toHaveBeenCalled();
+  });
+
+  it("keeps the root public navigation to Research, Blog, and Developers", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
     const publicNav = screen.getByRole("navigation", { name: "Explore Hussh" });

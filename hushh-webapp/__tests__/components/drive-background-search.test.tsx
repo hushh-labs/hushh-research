@@ -72,6 +72,29 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("durable Drive search UI", () => {
+  it("reviews a bounded native activity page without preparing or approving another batch", async () => {
+    const completed = { ...bulkReview(), status: "completed" as const, canApprove: false, canStop: false,
+      counts: { total: 7, processed: 7, shared: 4, alreadyShared: 3, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 0 } };
+    state.bulk.recentBulkShares.mockResolvedValue([completed]);
+    state.bulk.bulkShareStatus.mockResolvedValue(completed);
+    const onBack = vi.fn();
+    render(<DriveRecentSharing active page={{ open: true, onBack }} />);
+    const page = await screen.findByRole("dialog", { name: "Drive sharing" });
+    expect(page.classList.contains("native-feature-page")).toBe(true);
+    fireEvent.click(await screen.findByRole("button", { name: "Files are ready. 7 of 7 available. View details" }));
+    await screen.findByText("7 of 7 files available");
+    expect(state.bulk.prepareBulkShare).not.toHaveBeenCalled();
+    expect(state.bulk.approveBulkShare).not.toHaveBeenCalled();
+    expect(state.bulk.stopBulkShare).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Back to Chat" }));
+    await screen.findByRole("button", { name: "Files are ready. 7 of 7 available. View details" });
+    expect(onBack).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Drive sharing" })).toBe(page);
+    fireEvent.click(screen.getByRole("button", { name: "Back to Chat" }));
+    expect(onBack).toHaveBeenCalledOnce();
+    expect(state.bulk.prepareBulkShare).not.toHaveBeenCalled();
+  });
+
   it("does not read or poll Drive sharing while the chat drawer is closed", async () => {
     const view = render(<DriveRecentSharing presentation="sidebar" active={false} />);
     expect(state.bulk.recentBulkShares).not.toHaveBeenCalled();

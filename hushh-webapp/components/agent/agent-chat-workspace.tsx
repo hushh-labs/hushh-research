@@ -16,7 +16,10 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useNativeHistoryPresentation } from "@/components/agent/native-history-presentation";
+import { HistoryConnectorsPage } from "@/components/agent/history-connectors-page";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, resumedAgentPkmCaptureMessageId, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
   applyOwnerConfirmedSave,
@@ -34,8 +37,10 @@ import {
   type ExplicitPkmSaveJobResult,
 } from "@/lib/pkm/pkm-save-job";
 import { isCommittedPkmSave, type AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
+import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/one-presence-avatar";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
+import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
   AgentConsentContinuationContext,
@@ -136,6 +141,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { EmailDraftCard, type GmailDraftSaveState } from "@/components/agent/email-draft-card";
 import { richEmailPlainText } from "@/components/agent/email-rich-text";
@@ -282,6 +288,7 @@ import {
   AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
 import { isChatKeyRefusal } from "@/lib/vault/one-chat-key";
+import { recoverMcpReviews } from "@/lib/agent/mcp-review-recovery";
 import {
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
@@ -1927,7 +1934,7 @@ export function AgentBubble({
   gmailInformationRequestAttachment?: ReactNode;
   driveMemoryReview?: ReactNode;
   /** "Edit and send again" on a sent paste: a new turn, never an edit of this one. */
-  onResendAttachment?: (index: number, editedText: string) => boolean | void;
+  onResendAttachment?: (index: number, editedText: string) => boolean | void | Promise<boolean | void>;
   onConfirmMemoryNeedsOwner?: (reviewedCards: readonly AgentPkmPreviewCard[]) => Promise<void>;
   /** Continue a paused or gapped memory save job for this message. */
   onRetryMemorySave?: () => Promise<void>;
@@ -2484,7 +2491,7 @@ export function chatHeaderSubtitle(input: {
   activeToolCalls: readonly ActiveToolCall[];
   statusText: string | null;
 }): string {
-  if (input.isPuppySurface) return "Separate conversation";
+  if (input.isPuppySurface) return "";
   const current = input.activeToolCalls.at(-1);
   if (current) return `${current.activity || current.label}…`;
   return input.statusText || IDLE_AGENT_SUBTITLE;
@@ -2494,6 +2501,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
   const isCanonicalChatRoute = pathname === ROUTES.HOME;
+  // Default compact during hydration: never flash a second header track on
+  // phones. Resizing retires the old Select instead of leaving an owned popup
+  // attached to a hidden trigger. Both placements use the same operation owner.
+  const hasInlineModelPicker = useMediaQuery("(min-width: 640px) and (min-height: 640px), (min-width: 960px)");
   const agentDockHost = useAgentDockHost();
   const agentDockFrame = useAgentDockFrame();
   const nativeDockPorts = useNativeDockPorts();
@@ -2700,6 +2711,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
+  const historyListOwner = useRef<{ auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null>(null);
   const puppyHistory = usePuppyConversations(user?.uid ?? null);
   const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
@@ -2752,6 +2764,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isOneProfileOpen, setIsOneProfileOpen] = useState(false);
   const oneProfileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
+  const [historyConnectorsReady, setHistoryConnectorsReady] = useState<string | null>(null);
+  const [historyConnectorExternalModal, setHistoryConnectorExternalModal] = useState(false);
+  const historyConnectorsOwner = JSON.stringify([user?.uid, vaultSessionEpoch]);
+  useLayoutEffect(() => {
+    if (!isHistoryDrawerOpen || drawerMode !== "connections") setHistoryConnectorsReady(null);
+  }, [isHistoryDrawerOpen, drawerMode]);
+  const openHistoryConnectors = useCallback(() => {
+    setDrawerMode("connections");
+    setIsHistoryDrawerOpen(true);
+  }, []);
   const handleHistoryDrawerOpenChange = useCallback((open: boolean) => {
     const next = transitionConnectionsDrawer(
       { open: isHistoryDrawerOpen, mode: drawerMode },
@@ -2760,9 +2782,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setIsHistoryDrawerOpen(next.open);
     setDrawerMode(next.mode);
   }, [drawerMode, isHistoryDrawerOpen]);
-  // Connectors is a Profile section. Every chat entry (the sidebar's
-  // Connectors, a card's "Open connectors") opens it in the Profile pane over
-  // this chat, and Back from there returns here with the draft untouched.
+  // Inline Chat cards use Profile's connector destination. History's footer
+  // uses its own leading presentation, reusing the same connector/OAuth owner.
+  // Neither path replaces the Chat workspace or its draft.
   const openConnectorSurface = useCallback((
     provider?: WorkspaceConnectorProvider,
     trigger?: HTMLButtonElement,
@@ -2904,6 +2926,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   } | null>(null);
   const [appActionBusy, setAppActionBusy] = useState(false);
   const [pendingMcpReviews, setPendingMcpReviews] = useState<McpChatReview[]>([]);
+  const [browserTasksRefresh, setBrowserTasksRefresh] = useState(0);
   // runAgentTurn and enqueuePrompt close over a render's state; this keeps their
   // view of the review card current.
   const pendingMcpReviewsRef = useRef(pendingMcpReviews);
@@ -2981,6 +3004,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [user?.uid, vaultSessionEpoch]);
   const driveReviewsPending = user && isVaultUnlocked && driveReviewSignal.ownerId === user.uid &&
     driveReviewSignal.epoch === vaultSessionEpoch ? driveReviewSignal.count : 0;
+  const [driveActivityPage, setDriveActivityPage] = useState<{ owner: string | null; epoch: number; open: boolean }>({ owner: null, epoch: -1, open: false });
+  const driveActivityPageOpen = driveActivityPage.open && driveActivityPage.owner === user?.uid &&
+    driveActivityPage.epoch === vaultSessionEpoch && isVaultUnlocked && !isPuppySurface;
   const [getAppOpen, setGetAppOpen] = useState(false);
   const getAppReturnFocusRef = useRef<HTMLElement | null>(null);
   // The installed app never offers to download itself.
@@ -3355,6 +3381,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const canPickOneModel = Boolean(
     modelPreference && modelPreference.choices.length > 1,
   );
+  const handleOneModelChange = (nextModel: string) => {
+    if (!modelPreference || !user || isPuppySurface) return;
+    const previous = modelPreference;
+    setModelPreference({ ...previous, effective_model: nextModel });
+    void (async () => {
+      try {
+        setModelPreference(await ModelPreferenceService.set(await user.getIdToken(), nextModel));
+      } catch { setModelPreference(previous); }
+    })();
+  };
   const statusText = useMemo(() => {
     // Every line below narrates One's turn, so in Puppy One a bare "Thinking"
     // or "Streaming" would report on an agent the reader is not looking at:
@@ -3805,6 +3841,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setWalletWidgets([]);
     updateConversationId(null, false);
     setConversations([]);
+    historyListOwner.current = null;
     setHistoryActionPendingId(null);
     setMessages([createGreetingMessage()]);
     setPendingAppAction(null);
@@ -4662,6 +4699,110 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   };
 
+  const restorePendingMcpReviews = useCallback(async (thread: string, token: string, effectCurrent: () => boolean) => {
+    const ownerId = user?.uid;
+    const key = vaultKeyRef.current;
+    if (!ownerId || !key || isPuppySurface) return;
+    const current = () => effectCurrent() && workspaceOwnerIdRef.current === ownerId &&
+      vaultKeyRef.current === key && conversationIdRef.current === thread;
+    const bindReview = (review: McpChatReview): McpChatReview => ({
+      ...review,
+      isCurrent: () => current() && review.isCurrent(),
+      resume: async (approval, signal) => {
+        if (!current() || !review.isCurrent() || signal?.aborted || streamAbortControllerRef.current) {
+          throw new Error("This review is no longer active.");
+        }
+        const controller = new AbortController();
+        const assistantId = `mcp-recovered-${crypto.randomUUID()}`;
+        const operationCurrent = () => current() && streamAbortControllerRef.current === controller;
+        const active = () => operationCurrent() && !controller.signal.aborted;
+        let stopping = false;
+        let running: Promise<void> | undefined;
+        const abort = () => controller.abort();
+        const settleMessage = (status: "done" | "error", fallback?: string) => setMessages(items => items.map(item =>
+          item.id === assistantId ? { ...item, status, text: item.text || fallback || "",
+            streamEvents: settleVisibleStreamEvents(item.streamEvents, status),
+          } : item));
+        const progress = (phase: "start" | "waiting" | "result", tool: AgentChatToolEvent) => {
+          if (!active()) return;
+          const event = agentToolEventToVisibleStreamEvent(phase, tool);
+          setMessages(items => items.map(item => item.id === assistantId ? {
+            ...item, streamEvents: upsertVisibleStreamEvent(item.streamEvents, event),
+          } : item));
+        };
+        const stop = async () => {
+          if (!active()) return;
+          stopping = true;
+          setMessages(items => items.map(item => item.id === assistantId ? {
+            ...item, status: "streaming", text: item.text || "Stopping…",
+          } : item));
+          setStoppableTurn(false);
+          controller.abort();
+          await running?.catch(() => undefined); // The resume owns authoritative settlement.
+        };
+        signal?.addEventListener("abort", abort, { once: true });
+        streamAbortControllerRef.current = controller;
+        stopActiveTurnRef.current = stop;
+        setStoppableTurn(true);
+        try {
+          running = review.resume(approval, controller.signal, {
+            onStart: () => {
+              if (!active()) return;
+              setIsChatLoading(true); setIsStreaming(true);
+              setMessages(items => items.some(item => item.id === assistantId) ? items : [...items,
+                { id: assistantId, role: "assistant", text: "", ...stampNow(), status: "streaming" }]);
+            },
+            onToken: delta => { if (active()) setMessages(items => items.map(item =>
+              item.id === assistantId ? { ...item, text: item.text + delta } : item)); },
+            onToolStart: tool => progress("start", tool),
+            onToolWaiting: tool => progress("waiting", tool),
+            onToolResult: tool => progress("result", tool),
+            onComplete: () => { if (active()) settleMessage("done"); },
+            onError: () => { if (active()) settleMessage("error",
+              "This connector outcome could not be verified. Reconnect before continuing."); },
+            onInterrupt: () => { if (active()) settleMessage("done"); },
+            onMcpReview: next => {
+              if (!active() || !next.isCurrent()) return;
+              const bound = bindReview(next);
+              setPendingMcpReviews(items => items.some(item =>
+                item.reference.directiveId === bound.reference.directiveId) ? items : [...items, bound]);
+            },
+          });
+          await running;
+          if (stopping && operationCurrent()) setMessages(items => items.map(item =>
+            item.id === assistantId ? { ...item, status: "done", text: item.text === "Stopping…" ? "Stopped." : item.text,
+              streamEvents: settleVisibleStreamEvents(item.streamEvents, "blocked"),
+            } : item));
+        } catch (error) {
+          if (operationCurrent()) setMessages(items => items.map(item => item.id === assistantId ? {
+            ...item, status: "error", streamEvents: settleVisibleStreamEvents(item.streamEvents, "error"), text: stopping
+              ? "Could not confirm that One stopped. Reconnect before continuing."
+              : "This connector outcome could not be verified. Reconnect before continuing.",
+          } : item));
+          throw error;
+        } finally {
+          signal?.removeEventListener("abort", abort);
+          if (stopActiveTurnRef.current === stop) stopActiveTurnRef.current = null;
+          if (streamAbortControllerRef.current === controller) {
+            streamAbortControllerRef.current = null;
+            if (current()) { setIsChatLoading(false); setIsStreaming(false); setStoppableTurn(false); }
+          }
+        }
+      },
+    });
+    const reviews = await recoverMcpReviews({ userId: ownerId, vaultKey: key,
+      vaultOwnerToken: token, conversationId: thread, isCurrent: current, handlers: {},
+      loadConnectorConfigurations: async () => (await loadCustomConnectorSnapshot({
+        userId: ownerId, vaultKey: key, vaultOwnerToken: token,
+      })).configurations,
+    });
+    if (current()) setPendingMcpReviews(existing => {
+      const retained = existing.filter(review => review.isCurrent());
+      return [...retained, ...reviews.filter(review => !retained.some(item =>
+        item.reference.directiveId === review.reference.directiveId)).map(bindReview)];
+    });
+  }, [isPuppySurface, user?.uid]);
+
   useEffect(() => {
     if (
       !hasChatAccess ||
@@ -4677,11 +4818,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     if (historyLoadKeyRef.current === loadKey) return;
     const restoreEpoch = historyRestoreEpochRef.current;
+    const historyOwner = snapshotValidatedAuthSessionOwner();
+    const historyVaultEpoch = snapshotVaultSessionEpoch();
     let cancelled = false;
     const cached = peekAgentChatHistoryCache(user.uid);
 
     const applySnapshot = async (snapshot: NonNullable<typeof cached>) => {
-      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
+      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current || !historyOwner || historyOwner.userId !== user.uid ||
+          !isValidatedAuthSessionOwnerCurrent(historyOwner) || !isVaultSessionEpochCurrent(historyVaultEpoch)) return;
+      historyListOwner.current = { auth: historyOwner, epoch: historyVaultEpoch };
       setConversations(snapshot.conversations);
       const selectedId = selectedInAppChat(user.uid);
       // A first turn the person left may not be in a cached list yet; its
@@ -4735,6 +4880,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (stillRunning) {
         setIsChatLoading(true);
         setIsStreaming(true);
+      } else {
+        void restorePendingMcpReviews(selectedId, vaultOwnerToken, () =>
+          !cancelled && restoreEpoch === historyRestoreEpochRef.current).catch(() => undefined);
       }
     };
 
@@ -4778,7 +4926,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [hasChatAccess, recoveryCheckedForUid, updateConversationId, user?.uid, vaultOwnerToken]);
+  }, [hasChatAccess, recoveryCheckedForUid, restorePendingMcpReviews, updateConversationId, user?.uid, vaultOwnerToken]);
 
   // A restored connector step carries only its opaque id. Label it with the
   // owner's own connector name from the vault, as the live row did; the
@@ -4830,6 +4978,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setMessages(current => preservePresentations
         ? mergePendingConsentMessages(nextMessages, current)
         : nextMessages);
+      void restorePendingMcpReviews(nextConversationId, token, isCurrent).catch(() => undefined);
       // Same-chat recovery must not erase local delivery receipts or proposals.
       if (preservePresentations) return;
       setEmailDraftOpen(false);
@@ -4844,6 +4993,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     [
       clearTranscriptProgrammaticScroll,
+      restorePendingMcpReviews,
       updateConversationId,
       user?.uid,
     ],
@@ -5043,6 +5193,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           force,
         });
         if (!stillCurrent()) return [];
+        historyListOwner.current = { auth: owner, epoch };
         setConversations(next.conversations);
         return next.conversations;
       } finally {
@@ -6441,6 +6592,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               offerQueuedPromptsToLiveTurn();
             }
           },
+          onBrowserTaskCreated: () => {
+            if (!streamAbortController.signal.aborted) setBrowserTasksRefresh((revision) => revision + 1);
+          },
           onQueuedInput: (notice) => {
             if (streamAbortController.signal.aborted) return;
             const settled = liveTurnQueueRef.current?.apply(notice);
@@ -6472,6 +6626,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 // name its product ("Checking Google Drive access…").
                 setActiveToolCalls(current => current.map(item => item.id === toolEvent.callId
                   ? { ...item, label: toolEvent.label, activity: toolEvent.activity,
+                    icon: agentActivityIconForTool(toolEvent.raw?.toolName),
                       brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) } : item));
               }
               upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("waiting", toolEvent));
@@ -8067,7 +8222,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const kept = await keepSecretsFromTurn([typedText, ...attachments.map((item) => item.text)]);
     if (!kept) {
       onRefused?.();
-      return;
+      return false;
     }
     const [submittedText = "", ...attachmentTexts] = kept;
     const submittedAttachments = attachments.map((item, index) =>
@@ -8078,16 +8233,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       driveSearchSelection,
       attachments: submittedAttachments,
     });
+    return true;
   };
 
   /** A sent message stays as it was; its edited paste goes out as a new turn. */
-  const resendTextAttachment = (message: AgentMessage, index: number, editedText: string) => {
+  const resendTextAttachment = async (message: AgentMessage, index: number, editedText: string) => {
     if (isVoiceConnecting || voiceActive) return false;
     const attachments = replaceTextAttachmentForResend(message.attachments ?? [], index, editedText);
     if (!attachments) return false;
+    const accepted = await enqueueGuardedTurn({ typedText: message.text, attachments, fromPaste: true });
+    if (!accepted) return false;
     transcriptUserScrollRef.current = false;
     scrollToSubmittedTurnRef.current = true;
-    void enqueueGuardedTurn({ typedText: message.text, attachments, fromPaste: true });
     return true;
   };
 
@@ -8704,9 +8861,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       className={sidebarClassName}
       collapsed={collapsed}
       mode={mode}
-      // The drawer now runs full height over the chat header (2026-09-28), so the
-      // header's hamburger-to-cross sits under the panel; the panel carries its
-      // own close control instead of leaving a modal with no visible way out.
+      // The full-height drawer owns Close at the same leading header slot as
+      // the underlying opener. It translates with the panel, never the Chat.
       hideCloseButton={false}
       closeControl={isHistoryDrawerOpen && onClose ? <NativeHistoryClose owner={renderedWorkspaceOwnerId}
         context={`${chatChromeContext}:${agentSurface}`} onClose={onClose} stationary /> : undefined}
@@ -8714,12 +8870,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
       onOpenConnectors={!isPuppySurface
-        ? (trigger) => openConnectorSurface(undefined, trigger)
+        ? (trigger) => { historyDrawerTriggerRef.current = trigger; openHistoryConnectors(); }
         : undefined}
       onOpenTodoList={!isPuppySurface ? () => router.push(ROUTES.ONE_TODOS) : undefined}
       onGetApp={offerGetApp ? openGetApp : undefined}
       getAppOpen={getAppOpen}
-      driveActivity={!isPuppySurface
+      driveActivity={!isPuppySurface && !customNativePresentationEnabled()
         ? <DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} /> : null}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
@@ -8727,6 +8883,33 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onDeleteConversation={isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation}
     />
   );
+  const nativeHistoryRenderer = useNativeHistoryPresentation({
+    owner: renderedWorkspaceOwnerId, vaultEpoch: vaultSessionEpoch,
+    ready: isCanonicalChatRoute && hasChatAccess && !authLoading && !sessionVerificationRequired && isVaultUnlocked,
+    disabled: !isPuppySurface && historyInteractionDisabled,
+    // Destination readiness withdraws the roster without touching Chat/drafts.
+    open: isHistoryDrawerOpen && (drawerMode === "chats" || historyConnectorsReady !== historyConnectorsOwner), surface: agentSurface,
+    conversations: isPuppySurface ? puppyConversations : historyListOwner.current &&
+      isValidatedAuthSessionOwnerCurrent(historyListOwner.current.auth) && isVaultSessionEpochCurrent(historyListOwner.current.epoch)
+      ? conversations : [],
+    selected: isPuppySurface ? puppyConversationId : conversationId,
+    pending: historyActionPendingId,
+    loading: !isPuppySurface && isLoadingHistory && conversations.length === 0,
+    create: handleSidebarCreateNewChat, select: handleSidebarSelectConversation,
+    rename: isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation,
+    remove: isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation,
+    setOpen: handleHistoryDrawerOpenChange,
+    openConnectors: openHistoryConnectors,
+    openDriveReview: () => { setDriveActivityPage({ owner: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch, open: true }); },
+    openTodoList: () => { handleHistoryDrawerOpenChange(false); router.push(ROUTES.ONE_TODOS); },
+  });
+  const historyConnectorsPage = !isPuppySurface && hasChatAccess && isVaultUnlocked ? <HistoryConnectorsPage
+    key={historyConnectorsOwner} owner={renderedWorkspaceOwnerId} context={historyConnectorsOwner}
+    native={customNativePresentationEnabled() && nativeHistoryRenderer !== "web"}
+    open={isHistoryDrawerOpen && drawerMode === "connections"}
+    onReady={() => setHistoryConnectorsReady(historyConnectorsOwner)}
+    onBack={() => setDrawerMode("chats")} onClose={() => handleHistoryDrawerOpenChange(false)}
+    onExternalModalChange={setHistoryConnectorExternalModal} /> : null;
   const getEmailDeliveryAuth = async (scope = emailScopeRef.current) => {
     const isCurrent = () => emailScopeRef.current === scope &&
       workspaceOwnerIdRef.current === scope.ownerId && isVaultSessionEpochCurrent(scope.epoch);
@@ -8846,6 +9029,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       context: conversationId ?? composerDraft.context,
       mode: "text", text: input,
       placeholder: chatOnboarding.composerPlaceholder ?? "Message One…",
+      editorLabel: "Message One",
       expanded: composerExpanded,
       editable: !recoveryInspectionPending && !isVoiceConnecting && !isHistoryDrawerOpen,
       sendEnabled: canSend,
@@ -9006,6 +9190,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         )}
       >
         <AgentConnectionsDrawer
+          historyRenderer={nativeHistoryRenderer}
           presentationKey={`${pathname}:${renderedWorkspaceOwnerId}:${agentSurface}:${isVaultUnlocked}`}
           gestureSurfaceRef={transcriptRef}
           gestureEnabled={isCanonicalChatRoute && hasChatAccess && !isPuppySurface}
@@ -9016,17 +9201,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           open={isHistoryDrawerOpen}
           onOpenChange={handleHistoryDrawerOpenChange}
           mode={drawerMode}
-          externalModalOpen={false}
+          externalModalOpen={historyConnectorExternalModal}
           chats={renderHistorySidebar(
             "h-full w-full",
             () => handleHistoryDrawerOpenChange(false),
             false,
             "mobile",
           )}
-          // Connectors opens in the Profile pane (openConnectorSurface), so
-          // this drawer only ever holds chat history.
-          connections={null}
+          connections={nativeHistoryRenderer === "web" ? historyConnectorsPage : null}
         />
+        {nativeHistoryRenderer !== "web" ? historyConnectorsPage : null}
+        {customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing
+          active={isHistoryDrawerOpen || driveActivityPageOpen} onNeedsReviewChange={onDriveNeedsReviewChange}
+          page={{ open: driveActivityPageOpen,
+            // Stage the bounded page while History still owns presentation.
+            // Its applied Back receipt, not a timer, releases the native menu.
+            onReady: () => { if (driveActivityPageOpen) handleHistoryDrawerOpenChange(false); },
+            onBack: () => {
+              setDriveActivityPage({ owner: null, epoch: -1, open: false });
+              handleHistoryDrawerOpenChange(true);
+            } }} /> : null}
 
         <section
           className={cn(
@@ -9036,19 +9230,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <div
             data-one-centered-header={!isPuppySurface ? "true" : undefined}
             className={cn(
-              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-4 pt-[var(--agent-chat-header-safe-top)] sm:px-5",
-              "h-[var(--agent-chat-header-height)] lg:px-6",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-[var(--agent-chat-header-inline-gutter)] pt-[var(--agent-chat-header-safe-top)]",
+              "h-[var(--agent-chat-header-height)]",
             )}
           >
-            {/* One keeps its centered identity and a smaller phone avatar with
-                the name beneath it. Puppy keeps
-                the compact history / clipped identity / actions row. */}
+            {/* Both agents share one compact identity/action row. */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
             <NativeHistoryOpener owner={renderedWorkspaceOwnerId}
               pendingAttention={driveReviewsPending}
               context={`${chatChromeContext}:${agentSurface}`}
-              eligible={isVaultUnlocked} open={isHistoryDrawerOpen}
+              eligible={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked} open={isHistoryDrawerOpen}
               showAttentionDot={!isPuppySurface}
               focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
               onActivate={(preferNativeFocus, trigger) => {
@@ -9061,11 +9253,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
             >
-              {/* One uses the same identity at a smaller phone size;
-                  Puppy keeps its compact inline identity. */}
+              {/* The shared mark/name track remains stable across agents. */}
               <div
                 data-agent-chat-brand-tile
-                className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"
+                className="grid h-11 w-11 shrink-0 place-items-center"
               >
                 {isPuppySurface ? (
                   <Laptop
@@ -9081,9 +9272,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-11 md:!size-[72px] !rounded-none !border-0 !bg-transparent !shadow-none hover:!bg-transparent focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                    className="!size-11 !border-transparent !bg-transparent !shadow-none hover:!bg-transparent focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
-                    <OnePresenceAvatar state={onePresenceState} />
+                    <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
                   </ShellActionSurface>
                 )}
               </div>
@@ -9120,27 +9311,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   rewrite the other agent's model with no visible consequence
                   on the screen being looked at. Gated, not merely hidden: the
                   write must not stay reachable from the on-device surface. */}
-              {canPickOneModel && modelPreference && !isPuppySurface ? (
+              {canPickOneModel && modelPreference && !isPuppySurface && hasInlineModelPicker ? (
                 <Select
                   value={modelPreference.effective_model}
-                  onValueChange={(nextModel) => {
-                    const previous = modelPreference;
-                    // Optimistic: the picker must not stall the header while the
-                    // write lands. A failure restores exactly what was showing.
-                    setModelPreference({ ...previous, effective_model: nextModel });
-                    void (async () => {
-                      try {
-                        if (!user) return;
-                        const saved = await ModelPreferenceService.set(
-                          await user.getIdToken(),
-                          nextModel,
-                        );
-                        setModelPreference(saved);
-                      } catch {
-                        setModelPreference(previous);
-                      }
-                    })();
-                  }}
+                  onValueChange={handleOneModelChange}
                 >
                   <SelectTrigger
                     data-testid="agent-chat-model-picker"
@@ -9148,13 +9322,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     // one when it is read out of context.
                     aria-label="One's model"
                     title={`Running ${modelPreference.effective_model}`}
-                    className="h-8 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
+                    className="h-11 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
                   >
                     {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
                         header cannot afford. The full label stays in the menu
                         and in the tooltip. */}
-                    <Cpu aria-hidden="true" className="agent-chat-model-icon hidden" />
+                    <Cpu aria-hidden="true" className="agent-chat-model-icon size-4 shrink-0" />
                     <span className="truncate">
                       {(
                         modelPreference.choices.find(
@@ -9181,12 +9355,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   compact paint and full 44px targets. Icons keep their names. */}
               <NativeChatChrome kind="agent-surface" owner={renderedWorkspaceOwnerId}
                 context={chatChromeContext}
-                eligible={isCanonicalChatRoute && hasChatAccess && !isHistoryDrawerOpen}
+                eligible={isCanonicalChatRoute && hasChatAccess && (customNativePresentationEnabled() || !isHistoryDrawerOpen)}
                 value={agentSurface} onValueChange={(next) => {
                   if (next === "puppy") enterPuppySurface();
                   else setAgentSurface(next);
                 }} focusRef={agentSurfaceFocusRef}
-                className="agent-chat-surface-control flex h-11 w-[88px] shrink-0 items-center justify-center sm:w-[116px]">
+                className="agent-chat-surface-control flex h-11 w-[94px] shrink-0 items-center justify-center sm:w-[116px]">
               <SegmentedControl
                 selectedButtonRef={agentSurfaceFocusRef}
                 variant="sliding"
@@ -9212,8 +9386,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     value: "puppy",
                     label: "Puppy",
                     icon: Laptop,
-                    accessibleLabel:
-                      "Puppy One, on your machine, with its own conversation",
+                    accessibleLabel: "Puppy One",
                   },
                 ]}
                 iconClassName="sm:hidden"
@@ -9248,7 +9421,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
+          <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
+            nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
+            modelControl={canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (
+              <Select value={modelPreference.effective_model} onValueChange={handleOneModelChange}>
+                <SelectTrigger aria-label="One's model" className="h-11 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper" className="z-[560]">
+                  {modelPreference.choices.map((choice) => <SelectItem key={choice.model_id} value={choice.model_id}>{choice.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            ) : null} />
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface
@@ -9824,6 +10008,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 vaultOwnerToken={vaultOwnerToken ?? null}
                 enabled={hasChatAccess && !isPuppySurface}
               />
+
+              {hasChatAccess && !isPuppySurface && user?.uid ? (
+                <ComputerUseActiveTasks key={user.uid} ownerId={user.uid} refreshKey={browserTasksRefresh} route={pathname || "/"} />
+              ) : null}
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
                 <McpCallReviewCard

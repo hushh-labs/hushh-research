@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
+import { profileMenuGroups } from "@/components/profile/profile-menu-model";
+
+const menuGroups = profileMenuGroups(true);
+const menuEntries = menuGroups.flatMap(group => group.entries);
 
 const profilePageSource = readFileSync(
   join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
@@ -52,8 +56,10 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain(
       "const openGmailPanel = () => router.push(ROUTES.GMAIL);",
     );
+    expect(menuGroups.find(group => group.id === "settings")?.title).toBe("Your settings");
+    expect(menuGroups.map(group => group.title)).not.toContain("Workspaces");
     expect(profilePageSource).toMatch(
-      /<SettingsGroup\s+title="Your settings"(?=[^>]*\sseparatorInset(?=\s|>))[^>]*>/,
+      /<SettingsGroup\s+[^>]*title=\{group.title\}(?=[^>]*\sseparatorInset(?=\s|>))[^>]*>/,
     );
     expect(profilePageSource).not.toContain("myDataRootBadge");
     expect(profilePageSource).not.toContain("accessRootBadge");
@@ -78,8 +84,14 @@ describe("profile workspace duplication contract", () => {
   it("makes document pricing and payouts reachable from Profile, including after vault creation", () => {
     const home = profilePageSource.split('const profileRootContent = (')[1]?.split('if (legacyProfileRedirectHref)')[0] ?? "";
     const memory = profilePageSource.split('const myDataContent = (')[1]?.split('const accessContent = (')[0] ?? "";
-    expect(home).toMatch(/title="Payments and earnings"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("payouts"\)\}/);
-    expect(home).toMatch(/title="Request pricing"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("request-pricing"\)\}/);
+    expect(menuEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "payouts", label: "Payments and earnings", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts" }),
+      expect.objectContaining({ id: "request-pricing", label: "Request pricing", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing" }),
+    ]));
+    const actions = profilePageSource.split("const menuActions")[1]?.split("const profileRootContent")[0] ?? "";
+    expect(actions).toContain('payouts: () => openVaultBackedPanel("payouts")');
+    expect(actions).toContain('"request-pricing": () => openVaultBackedPanel("request-pricing")');
+    expect(home).toContain("onClick={() => { void menuActions[entry.id](); }}");
     expect(memory).not.toContain("DocumentRequestPricingCard");
     expect(memory).not.toContain("DocumentPayoutAccountCard");
     expect(memory).not.toContain("DocumentBankPayoutStatusCard");
@@ -124,10 +136,10 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain('className="min-w-[148px]"');
     expect(profilePageSource).not.toContain('voiceControlId="profile_vault"');
     expect(profilePageSource).not.toContain("const openVaultSettingsRow");
-    expect(profilePageSource).toContain('voiceControlId="profile_security"');
-    expect(profilePageSource).toContain(
-      'voiceActionId="route.profile_security_panel"',
-    );
+    expect(profilePageSource).toMatch(/voiceControlId=\{[^}\n]*entry\.id === "security" \? "profile_security"/);
+    expect(profilePageSource).toMatch(/voiceActionId=\{[^}\n]*entry\.id === "security" \? "route.profile_security_panel"/);
+    expect(profilePageSource).toContain("security: openSecurityPanel");
+    expect(profilePageSource).toContain('const openSecurityPanel = () => openVaultBackedPanel("security")');
     expect(profilePageSource).not.toContain(
       'voiceActionId="route.profile_security"',
     );

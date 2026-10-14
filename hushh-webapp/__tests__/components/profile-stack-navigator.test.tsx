@@ -163,6 +163,22 @@ describe("ProfileStackNavigator", () => {
     expect(appRoot.scrollTo).not.toHaveBeenCalled();
   });
 
+  it("owns native detail scrolling without touching a retained web pane or Chat", () => {
+    const appRoot = mountScrollRoot("data-app-scroll-root");
+    const stalePane = mountScrollRoot("data-profile-pane-scroll-root");
+    const nativeRoot = mountScrollRoot("data-native-feature-scroll-root");
+    const view = render(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[]} resetScroll={false} />,
+      { container: nativeRoot.root });
+    nativeRoot.scrollTo.mockClear();
+    nativeRoot.root.scrollTop = 72;
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} resetScroll={false}
+      entries={[{ key: "preferences", title: "Preferences", content: <div>Public controls</div> }]} />);
+    expect(nativeRoot.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "auto" });
+    expect(appRoot.scrollTo).not.toHaveBeenCalled();
+    expect(stalePane.scrollTo).not.toHaveBeenCalled();
+    nativeRoot.root.remove();
+  });
+
   it("inherits the canonical app canvas instead of repainting a Profile background", () => {
     const source = readFileSync(
       join(process.cwd(), "components/profile/profile-stack-navigator.tsx"),

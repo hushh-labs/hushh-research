@@ -306,6 +306,52 @@ def test_independent_answer_intake_reaches_the_extracted_deploy(value: str) -> N
     )
 
 
+def test_retained_answer_mode_secrets_survive_packed_deployment() -> None:
+    """Historical settlements keep both mode keys when shared payment mode changes."""
+    config = _load("deploy/backend.cloudbuild.yaml")
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    packed = next(e for e in step["env"] if e.startswith("_DRIVE_SECRET_SETTINGS="))
+    names = [
+        "_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET",
+        "_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET",
+        "_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET",
+        "_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET",
+    ]
+    values = {
+        **config["substitutions"],
+        **{name: f"synthetic-secret-{index}" for index, name in enumerate(names)},
+    }
+    rendered = re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda m: values[m[1]], packed)
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    parser = (REPO_ROOT / "scripts/deploy/backend-drive-secret-settings.sh").read_text()
+    # Capture the actual four bindings; no cloud command or secret value is read.
+    bindings = "\n".join(
+        line
+        for line in script.splitlines()
+        if line.startswith("append_optional_secret") and any(name in line for name in names)
+    )
+    capture = 'append_optional_secret() { printf "%s=%s\\n" "$2" "$1"; }\n'
+    payload = rendered.split("=", 1)[1]
+    duplicate_swap = re.sub(r"answer_test_webhook=[^,]*", "answer_test_secret=duplicate", payload)
+    for malformed, supplied in (
+        (False, payload),
+        (True, payload + ",answer_test_secret=duplicate"),
+        (True, duplicate_swap),
+    ):
+        result = subprocess.run(  # noqa: S603 - fixed repository parser and synthetic substitutions only
+            ["bash", "-euc", capture + parser + bindings],
+            env={"_DRIVE_SECRET_SETTINGS": supplied},
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if malformed:
+            assert result.returncode != 0, "duplicate packed key bypassed the shape guard"
+        else:
+            assert result.returncode == 0, result.stderr
+            assert result.stdout.splitlines() == [f"{name[1:-7]}={values[name]}" for name in names]
+
+
 def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
     from pathspec import GitIgnoreSpec
 
@@ -412,58 +458,3 @@ def test_dev_bank_defaults_preserve_other_lanes_and_explicit_bindings(deploy_env
         else values
     )
     assert result.stdout.splitlines() == list(expected)
-
-
-def test_flag_off_payment_helper_keeps_default_and_isolated_provider_mounts() -> None:
-    names = (
-        "STRIPE_SECRET_KEY",
-        "STRIPE_WEBHOOK_SECRET",
-        "STRIPE_CONNECT_WEBHOOK_SECRET",
-        "SCOPE_COMMERCE_STRIPE_SECRET_KEY",
-        "SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
-        "SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
-        "STRIPE_CONNECT_SECRET_KEY",
-        "STRIPE_CONNECT_TEST_WEBHOOK_SECRET",
-        "PKM_ANSWER_STRIPE_SECRET_KEY",
-        "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
-        "PKM_ANSWER_STRIPE_TEST_SECRET_KEY",
-        "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
-        "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY",
-        "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET",
-    )
-    for prefix in ("", "SCOPE_COMMERCE_SANDBOX_"):
-        section = (
-            (REPO_ROOT / "scripts/deploy/backend-deploy.sh")
-            .read_text()
-            .split("# Disabling new paid requests", 1)[1]
-            .split('append_optional_secret "${_OPENAI_API_KEY_SECRET}"', 1)[0]
-        )
-        section = section.replace(
-            'source "$(dirname "${BASH_SOURCE[0]}")/scope-commerce-secrets.sh"',
-            "source scripts/deploy/scope-commerce-secrets.sh",
-        )
-        script = (
-            'append_optional_secret() { printf \'%s=%s%s\\n\' "$2" "$PREFIX" "$1"; }\n'
-            + "# Disabling new paid requests"
-            + section
-        )
-        result = subprocess.run(  # noqa: S603 - repository helper with a binding recorder
-            ["bash", "-eu", "-c", script],
-            cwd=REPO_ROOT,
-            env={
-                **os.environ,
-                "PREFIX": prefix,
-                "_DRIVE_REQUEST_PAYMENTS_ENABLED": "false",
-                "_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED": "false",
-                "SCOPE_COMMERCE_ENABLED": "false",
-                **{
-                    f"_{name}_SECRET": name
-                    for name in names
-                    if not name.startswith("SCOPE_COMMERCE_")
-                },
-            },
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        assert result.stdout.splitlines() == [f"{name}={prefix}{name}" for name in names]

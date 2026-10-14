@@ -45,6 +45,19 @@ def selection_model(provider: str, model: Optional[str], *, gemini_default: str)
 
 def selection_client(selection: Any) -> Any:
     """The client a turn on ``selection`` will use, built the same way."""
+    if selection.provider == "azure_openai":
+        from hushh_mcp.runtime_providers.owner_azure_key import (  # noqa: PLC0415
+            build_transport,
+            credential_bundle,
+        )
+
+        return build_transport(
+            credential_bundle(
+                endpoint=selection.azure_endpoint or "",
+                deployment=selection.model or "",
+                api_key=selection.api_key,
+            )
+        )
     if selection.provider == "openai":
         from hushh_mcp.runtime_providers.owner_openai import (  # noqa: PLC0415
             OWNER_OPENAI_MODE,
@@ -162,3 +175,50 @@ __all__ = [
     "selection_client",
     "selection_model",
 ]
+
+
+async def verify_cloud_default(*, gemini_default: str) -> dict[str, str | int]:
+    """Probe only a default admitted by the same model authority as pod chat."""
+    import time  # noqa: PLC0415
+
+    from google.genai import types  # noqa: PLC0415
+
+    from hushh_mcp.runtime_providers import azure_openai  # noqa: PLC0415
+    from hushh_mcp.runtime_providers.factory import build_managed_runtime_client  # noqa: PLC0415
+    from hushh_mcp.services.pod_ai_selection import AiSelectionRefused  # noqa: PLC0415
+
+    azure = azure_openai.owner_azure_model()
+    if azure:
+        provider, model = azure
+        client = azure_openai.owner_azure_client(provider, "user_azure_mi")
+    else:
+        from hushh_mcp.services.pod_platform import workload_platform  # noqa: PLC0415
+
+        if workload_platform() == "azure":
+            raise ValueError("AZURE_MODEL_TOPOLOGY_INVALID")
+        from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+            pod_managed_model_enabled,
+            pod_user_adc_enabled,
+        )
+
+        # Verification has the same default authority as ordinary turns;
+        # fleet configuration alone must not discard an owner's key.
+        if not (pod_user_adc_enabled() or pod_managed_model_enabled()):
+            raise AiSelectionRefused("AI_DEFAULT_UNAVAILABLE")
+        provider, model = "gemini", gemini_default
+        client = build_managed_runtime_client(provider)
+    response = await asyncio.wait_for(
+        client.aio.models.generate_content(
+            model=model,
+            contents="Reply with OK.",
+            config=types.GenerateContentConfig(max_output_tokens=16),
+        ),
+        timeout=8,
+    )
+    if not isinstance(getattr(response, "text", None), str) or not response.text.strip():
+        raise ValueError("PROVIDER_EMPTY_RESPONSE")
+    return {
+        "defaultProvider": provider,
+        "defaultModel": model,
+        "checkedAtMs": int(time.time() * 1000),
+    }

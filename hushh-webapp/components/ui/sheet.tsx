@@ -416,7 +416,7 @@ function useBottomSheetDragDismiss({
           surface.style.willChange = ""
           // Preserve the settled open state rather than replaying the entry animation.
           surface.style.animation = "none"
-        }, duration)
+        })
       }
 
       const cancelled = event.type === "pointercancel" || event.type === "lostpointercapture"
@@ -442,7 +442,6 @@ function useBottomSheetDragDismiss({
         })
         return
       }
-
       settle()
     },
     [enabled, onOpenChange, cancelSettlement],

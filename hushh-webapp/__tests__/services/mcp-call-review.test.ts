@@ -127,6 +127,7 @@ describe("ephemeral MCP review", () => {
     expect(JSON.parse(request!.body as string)).toEqual({
       conversationId: "synthetic-thread", toolName: reference.toolName,
       pendingHandle: reference.pendingHandle, arguments: {},
+      directiveId: reference.directiveId,
     });
   });
 

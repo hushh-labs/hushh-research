@@ -5,6 +5,7 @@ import { useNativeNavigation, useNativeNavigationOverlayRef, useNativeNavigation
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { measureNativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerIsolation } from "@/lib/capacitor/native-drawers";
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: vi.fn(() => true) }));
 
 const bridge = vi.hoisted(() => ({
@@ -98,6 +99,45 @@ describe("native navigation presentation boundary", () => {
     select(before); expect(action).not.toHaveBeenCalled();
     expect(bridge.regions).not.toHaveBeenCalled();
     view.unmount();
+  });
+
+  it("keeps native tabs materially present beneath a whole native drawer without the legacy clipping protocol", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true,
+      columnLayout: true, wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
+    const action = vi.fn();
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: action }));
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    const before = lastState();
+    const overlay = render(<Overlay />);
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: false }));
+    select(before);
+    expect(action).not.toHaveBeenCalled();
+    overlay.unmount();
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: true }));
+    expect(bridge.regions).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("rejects a pre-drawer tap even if native confirmation arrives after a complete isolation cycle", async () => {
+    let isolate!: (state: NativeDrawerIsolation) => void;
+    const handle = await subscribeNativeDrawerIsolation({
+      getCapabilities: async () => nativeDrawerIsolation(),
+      addListener: async (_, callback) => { isolate = callback; return { remove: async () => undefined }; },
+    });
+    const before = nativeDrawerIsolation().generation;
+    let confirm!: (result: { valid: boolean }) => void;
+    bridge.confirmSelection.mockImplementationOnce(() => new Promise(resolve => { confirm = resolve; }));
+    const action = vi.fn();
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: action }));
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    select(lastState());
+    isolate({ generation: before + 1, isolated: true });
+    isolate({ generation: before + 2, isolated: false });
+    await act(async () => { confirm({ valid: true }); });
+    expect(action).not.toHaveBeenCalled();
+    view.unmount();
+    await handle.remove();
   });
 
   it.each(["web", "android"])("does not replace or call the native bar on %s", async (platform) => {

@@ -13,7 +13,7 @@ export function BottomNavigationSurface({ native, value, options, onValueChange 
   if (native.reserved ?? native.ready) return <div aria-hidden="true" data-native-navigation-reservation
     className="w-full pointer-events-none" style={{ height: native.height }} />;
   return <div className="w-full min-w-0 pointer-events-auto">
-    <SegmentedPill size="default" layout="stacked" hitArea="segment" ripple={false}
+    <SegmentedPill hapticFeedback={false} size="default" layout="stacked" hitArea="segment" ripple={false}
       value={value} options={options} onValueChange={onValueChange} ariaLabel="Route navigation"
       className={cn(
         "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",

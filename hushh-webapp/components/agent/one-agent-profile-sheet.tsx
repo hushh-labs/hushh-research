@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { User } from "firebase/auth";
@@ -44,6 +44,10 @@ import { isFeedIdAtOrBefore } from "@/lib/feed/feed-pagination";
 import { readFeedClearedThroughId } from "@/lib/feed/feed-clear-watermark";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ROUTES } from "@/lib/navigation/routes";
+import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
+import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 
 import styles from "./one-agent-profile-sheet.module.css";
 import { OnePresenceAvatar, type OnePresenceState } from "./one-presence-avatar";
@@ -167,17 +171,60 @@ function ProfileCards({ close }: { close: () => void }) {
   );
 }
 
-export function OneAgentProfileSheet({
-  open,
-  onOpenChange,
-  triggerRef,
-  presenceState = "connected",
-}: {
+type OneAgentProfileProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
+  modelControl?: ReactNode;
+  nativeReady?: boolean;
   presenceState?: OnePresenceState;
-}) {
+};
+
+/** One's presentation is independent of the account Profile lease. The same
+ * native drawer owner handles its scrim/motion, while Feed and Memory retain
+ * their existing React operations and private information boundaries. */
+function NativeOneAgentProfile({ open, onOpenChange, modelControl, nativeReady = false, presenceState = "connected" }: OneAgentProfileProps) {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [section, setSection] = useState<"feed" | "profile" | null>(null);
+  const [prepared, setPrepared] = useState<string | null>(null);
+  const epoch = snapshotVaultSessionEpoch();
+  const context = JSON.stringify([user?.uid, epoch, section]);
+  const close = () => onOpenChange(false);
+  useEffect(() => { if (!open) { setSection(null); setPrepared(null); } }, [open]);
+  const renderer = useNativeDrawerPresentation({ family: "agent-profile", owner: user?.uid ?? null,
+    vaultEpoch: epoch, ready: nativeReady && !!user, title: "One",
+    open: open && (!section || prepared !== context),
+    project: () => ({ sections: [{ id: "one-sections", rows: [
+      { id: "one-feed", label: "Feed", symbol: "newspaper", enabled: nativeReady, chevron: true },
+      { id: "one-profile", label: "Profile", symbol: "person.crop.circle", enabled: nativeReady, chevron: true },
+    ] }], actions: { open: () => undefined, close, rows: new Map([
+      ["one-feed", () => setSection("feed")], ["one-profile", () => setSection("profile")],
+    ]) } }) });
+  const navigate = (href: string) => { close(); router.push(href); };
+  if (!open) return null;
+  if (renderer === "web") return <WebOneAgentProfile open onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} />;
+  return section ? <NativeFeaturePage pane open title={section === "feed" ? "Feed" : "One"}
+    owner={user?.uid ?? null} context={context} backLabel="Back to One profile" closeLabel="Close One profile"
+    onReady={() => setPrepared(context)} onBack={() => { setSection(null); setPrepared(null); }} onClose={close}>
+    <div className={styles.scroll}>
+      {section === "feed" && user ? <OneFeedPreview user={user} onNavigate={navigate} /> :
+        <>{modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}<ProfileCards close={close} /></>}
+    </div>
+  </NativeFeaturePage> : null;
+}
+
+export function OneAgentProfileSheet(props: OneAgentProfileProps) {
+  return nativeDrawersPlatformEligible() ? <NativeOneAgentProfile {...props} /> : <WebOneAgentProfile {...props} />;
+}
+
+function WebOneAgentProfile({
+  open,
+  onOpenChange,
+  triggerRef,
+  modelControl,
+  presenceState = "connected",
+}: OneAgentProfileProps) {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const identity = usePkmDomainResource({
@@ -240,6 +287,7 @@ export function OneAgentProfileSheet({
             One profile and activity.
           </SheetDescription>
         </div>
+        {modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}
         <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
           <TabsList
             className={styles.tabList}

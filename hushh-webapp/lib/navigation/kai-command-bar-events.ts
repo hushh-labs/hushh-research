@@ -9,11 +9,12 @@ export const KAI_COMMAND_BAR_TOGGLE_EVENT = "kai:command-bar:toggle";
 export type KaiCommandBarIntent = "finance_stock_analysis";
 
 export type KaiCommandBarOpenRequest = {
+  feedback?: "selection";
   intent?: KaiCommandBarIntent;
   initialQuery?: string;
 };
 
-export function setKaiCommandBarOpen(open: boolean): void {
+export function setKaiCommandBarOpen(open: boolean, feedback?: "selection"): void {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   if (isKaiCommandBarOpen(url.searchParams) === open) return;
@@ -26,6 +27,7 @@ export function setKaiCommandBarOpen(open: boolean): void {
     scroll: false,
     source: "search",
     transitionMode: "contextual",
+    ...(open && feedback ? { feedback } : {}),
   });
 }
 

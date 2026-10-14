@@ -14,8 +14,9 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { FilesActivationPanel } from "./files-activation-panel";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { useFilesConnection } from "@/lib/files/use-files-connection";
 import { ApiService } from "@/lib/services/api-service";
-import { FilesLocalError } from "@/lib/files/local-error";
+import { FilesLocalError, transientFilesRead } from "@/lib/files/local-error";
 import { ROUTES } from "@/lib/navigation/routes";
 import { FilesToolbar } from "./files-toolbar";
 import { FilesMoveDialog, FilesDetailsDialog } from "./files-workspace-dialogs";
@@ -30,19 +31,11 @@ import {
   type FilesSettings,
 } from "@/lib/files/service";
 
-function transientFilesRead(error: unknown): boolean {
-  if (error instanceof TypeError) return true;
-  return (
-    error instanceof Error &&
-    /^(?:FILES_UNAVAILABLE|POD_DIRECT_UNAVAILABLE|ENDPOINT_UNAVAILABLE):(429|502|503|504)$/.test(
-      error.message,
-    )
-  );
-}
 
 export function FilesWorkspace() {
   const { user } = useAuth();
-  const { vaultKey } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
+  const { hosting, connectionError } = useFilesConnection(user?.uid, vaultKey, vaultOwnerToken);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [folders, setFolders] = useState([{ id: "root", name: "Files" }]);
   const [cursor, setCursor] = useState("");
@@ -63,7 +56,9 @@ export function FilesWorkspace() {
   const work = useRef(new AbortController());
   const actionPending = useRef(false);
   const parent = folders[folders.length - 1]?.id ?? "root";
-  const available = Boolean(user?.uid && vaultKey);
+  const available = Boolean(
+    user?.uid && vaultKey && vaultOwnerToken && hosting,
+  );
   const visibleEntries = entries.filter((entry) =>
     entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
   );
@@ -122,14 +117,16 @@ export function FilesWorkspace() {
             setMessage(
               error instanceof Error && error.message === "FILES_NOT_ENABLED"
                 ? "Files is not enabled on this pod. Review setup below."
-                : "Your private Files library is not connected. Check your BYOC pod and software version.",
+                : hosting === "shared"
+                  ? "Files storage is temporarily unavailable. Try again later."
+                  : "Your private Files library is not connected. Check Hosting and Software updates.",
             );
         })
         .finally(() => {
           if (!signal.aborted) setLoading(false);
         });
     return () => work.current.abort();
-  }, [available, user?.uid, load]);
+  }, [available, user?.uid, load, hosting]);
 
   useEffect(() => {
     setFolders([{ id: "root", name: "Files" }]);
@@ -143,7 +140,10 @@ export function FilesWorkspace() {
     void ApiService.getPersonalAgentStatus()
       .then((status) => {
         if (!cancelled) {
-          setFilesActivationAvailable(status.filesActivationAvailable === true);
+          setFilesActivationAvailable(
+            status.hostingMode !== "shared" &&
+              status.filesActivationAvailable === true,
+          );
         }
       })
       .catch(() => {
@@ -250,11 +250,19 @@ export function FilesWorkspace() {
       <AppPageContentRegion>
         {!available ? (
           <p className="text-sm text-muted-foreground">
-            Unlock your vault to open Files.
+            {connectionError ||
+              (vaultKey && vaultOwnerToken
+                ? "Checking your Files connection…"
+                : "Unlock your vault to open Files.")}
           </p>
         ) : (
           <div className="min-w-0">
             <section className="min-w-0 space-y-3" aria-label="File explorer">
+              {connectionError ? (
+                <p role="alert" className="text-sm text-muted-foreground">
+                  {connectionError}
+                </p>
+              ) : null}
               {message ? (
                 <div className="rounded-2xl border p-5 space-y-3">
                   <p role="status">{message}</p>

@@ -22,6 +22,7 @@ const MAX_PROVIDERS = 32;
 const CONFIGURABLE_HERE: Readonly<Record<string, readonly string[]>> = {
   gemini: ["own_key"],
   openai: ["own_key"],
+  azure_openai: ["own_key"],
 };
 
 export type ResolvedRuntimeProvider = {
@@ -43,23 +44,39 @@ function resolveEntry(raw: unknown): ResolvedRuntimeProvider | null {
   const id = typeof value.id === "string" ? value.id : "";
   if (!/^[a-z0-9_]{1,64}$/.test(id)) return null;
   const mark = knownEntry(id);
-  const name = typeof value.name === "string" && value.name.trim() && value.name.length <= 80
-    ? value.name.trim()
-    : mark?.name ?? id;
-  const methods = Array.isArray(value.methods) ? value.methods.filter((m): m is string => typeof m === "string") : [];
-  const supported = (CONFIGURABLE_HERE[id] ?? []).some((method) => methods.includes(method));
-  const state = value.availability === "coming_soon"
-    ? "coming_soon"
-    : value.availability === "available" && supported ? "configurable" : "newer_version";
-  const defaultModel = typeof value.defaultModel === "string" && value.defaultModel.trim()
-    ? value.defaultModel.trim().slice(0, 200)
-    : null;
+  const name =
+    typeof value.name === "string" &&
+    value.name.trim() &&
+    value.name.length <= 80
+      ? value.name.trim()
+      : (mark?.name ?? id);
+  const methods = Array.isArray(value.methods)
+    ? value.methods.filter((m): m is string => typeof m === "string")
+    : [];
+  const supported = (CONFIGURABLE_HERE[id] ?? []).some((method) =>
+    methods.includes(method),
+  );
+  const state =
+    value.availability === "coming_soon"
+      ? "coming_soon"
+      : value.availability === "available" && supported
+        ? "configurable"
+        : "newer_version";
+  const defaultModel =
+    typeof value.defaultModel === "string" && value.defaultModel.trim()
+      ? value.defaultModel.trim().slice(0, 200)
+      : null;
   return { id, name, state, defaultModel, mark };
 }
 
 /** Parse a C5 payload; null when it is not a usable catalog. */
-export function resolveRuntimeProviderCatalog(payload: unknown): ResolvedRuntimeProvider[] | null {
-  const providers = payload && typeof payload === "object" ? (payload as { providers?: unknown }).providers : null;
+export function resolveRuntimeProviderCatalog(
+  payload: unknown,
+): ResolvedRuntimeProvider[] | null {
+  const providers =
+    payload && typeof payload === "object"
+      ? (payload as { providers?: unknown }).providers
+      : null;
   if (!Array.isArray(providers)) return null;
   const seen = new Set<string>();
   const resolved: ResolvedRuntimeProvider[] = [];
@@ -83,16 +100,24 @@ export function staticRuntimeProviderCatalog(): ResolvedRuntimeProvider[] {
 }
 
 /** Cache-first load; a failed read falls back to the static list without caching it. */
-export async function loadRuntimeProviderCatalog(): Promise<ResolvedRuntimeProvider[]> {
+export async function loadRuntimeProviderCatalog(): Promise<
+  ResolvedRuntimeProvider[]
+> {
   try {
     const token = await ApiService.getFirebaseIdToken();
     const response = await ApiService.apiFetch("/api/one/runtime/providers", {
       method: "GET",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-    const resolved = response.ok ? resolveRuntimeProviderCatalog(await response.json()) : null;
+    const resolved = response.ok
+      ? resolveRuntimeProviderCatalog(await response.json())
+      : null;
     if (!resolved) return staticRuntimeProviderCatalog();
-    CacheService.getInstance().set(RUNTIME_PROVIDER_CATALOG_CACHE_KEY, resolved, CACHE_TTL.MEDIUM);
+    CacheService.getInstance().set(
+      RUNTIME_PROVIDER_CATALOG_CACHE_KEY,
+      resolved,
+      CACHE_TTL.MEDIUM,
+    );
     return resolved;
   } catch {
     return staticRuntimeProviderCatalog();

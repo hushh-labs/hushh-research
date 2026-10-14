@@ -189,8 +189,9 @@ jobs:
           predicate-quantifier: 'some-with-excludes'
           # scripts/ci is split by the lane that executes each script.
           # The web lanes run nothing under scripts/ci except orchestrate.sh
-          # and the web-*.sh scripts it dispatches (web-common.sh included),
-          # so those alone schedule them. Every other script, including any
+          # and the web-*.sh scripts it dispatches. The shared web-common.sh
+          # helper also schedules backend contracts that exercise its fixtures.
+          # Every other script, including any
           # added later, stays on the backend side, which covers the protocol,
           # MCP and integration lanes and every deploy script the protocol
           # tests exercise. orchestrate.sh dispatches both sides and is in both.
@@ -213,7 +214,11 @@ jobs:
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
               - 'scripts/ci/**'
-              - '!scripts/ci/web-*.sh'
+              - '!scripts/ci/web-check.sh'
+              - '!scripts/ci/web-core-check.sh'
+              - '!scripts/ci/web-full-check.sh'
+              - '!scripts/ci/web-full-suite-check.sh'
+              - '!scripts/ci/web-targeted-check.sh'
             ios:
               - 'scripts/ci/resolve-ios-packages.sh'
               - 'hushh-webapp/ios/**'

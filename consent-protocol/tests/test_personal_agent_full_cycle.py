@@ -23,6 +23,9 @@ from hushh_mcp.services.personal_agent_reconcile_worker import (
 from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypair
 from tests.test_personal_agent_provisioning_service import FakeGrant, FakeRegistry
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 _OWNER_A = "firebase_uid_cycle_A"
 _OWNER_B = "firebase_uid_cycle_B"
 _PHONE = "+14255550177"

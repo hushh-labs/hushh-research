@@ -135,3 +135,27 @@ def test_the_guard_allows_this_repository_as_it_stands() -> None:
         "the guard refuses the current tree, so either the pod architecture is "
         f"missing right now or the guard is over-firing:\n{result.stderr}"
     )
+
+
+def test_merge_line_scanner_preserves_literal_signals_and_refusals(tmp_path: Path) -> None:
+    # Regex metacharacters are source text, not patterns. Missing additions and
+    # accidentally restored deletions must survive the batched optimization.
+    values = {
+        "base": "remove owner[0].verify()\n",
+        "upstream": "require owner[1].verify()\n",
+        "target": "remove owner[0].verify()\n",
+        "diff": "-remove owner[0].verify()\n+require owner[1].verify()\n",
+    }
+    for name, value in values.items():
+        (tmp_path / name).write_text(value)
+    scanner = _REPO / "scripts/git/merge_line_match.py"
+    result = subprocess.run(  # noqa: S603 - repository-owned literal scanner, fixed argv
+        ["python3", str(scanner), str(tmp_path), "10"], capture_output=True, text=True, check=True
+    )
+    assert "missing\trequire owner[1].verify()" in result.stdout
+    assert "restored\tremove owner[0].verify()" in result.stdout
+    (tmp_path / "target").write_text(values["upstream"])
+    passed = subprocess.run(  # noqa: S603 - repository-owned literal scanner, fixed argv
+        ["python3", str(scanner), str(tmp_path), "10"], capture_output=True, text=True, check=True
+    )
+    assert passed.stdout == "added\t1\ndeleted\t1\n"

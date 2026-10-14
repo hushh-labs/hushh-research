@@ -254,6 +254,68 @@ def test_preview_keeps_authority_gates_and_checks_bindings_before_promotion():
     )
 
 
+def test_flag_off_payment_helper_keeps_default_and_isolated_provider_mounts() -> None:
+    # Execute the actual helper with a binding recorder; no cloud reads/writes.
+    for prefix in ("", "SCOPE_COMMERCE_SANDBOX_"):
+        section = (
+            (ROOT / "scripts/deploy/backend-deploy.sh")
+            .read_text()
+            .split("# Disabling new paid requests", 1)[1]
+            .split('append_optional_secret "${_OPENAI_API_KEY_SECRET}"', 1)[0]
+        )
+        section = section.replace(
+            'source "$(dirname "${BASH_SOURCE[0]}")/scope-commerce-secrets.sh"',
+            "source scripts/deploy/scope-commerce-secrets.sh",
+        )
+        script = (
+            'append_optional_secret() { printf \'%s=%s%s\\n\' "$2" "$PREFIX" "$1"; }\n'
+            + "# Disabling new paid requests"
+            + section
+        )
+        result = subprocess.run(  # noqa: S603 - repository helper with a binding recorder
+            ["bash", "-eu", "-c", script],
+            cwd=ROOT,
+            env={
+                **os.environ,
+                "PREFIX": prefix,
+                "_DRIVE_REQUEST_PAYMENTS_ENABLED": "false",
+                "_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED": "false",
+                "SCOPE_COMMERCE_ENABLED": "false",
+                "_STRIPE_SECRET_KEY_SECRET": "STRIPE_SECRET_KEY",
+                "_STRIPE_WEBHOOK_SECRET_SECRET": "STRIPE_WEBHOOK_SECRET",
+                "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET": "STRIPE_CONNECT_WEBHOOK_SECRET",
+                "_STRIPE_CONNECT_SECRET_KEY_SECRET": "STRIPE_CONNECT_SECRET_KEY",
+                "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "STRIPE_CONNECT_TEST_WEBHOOK_SECRET",
+                "_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET": "PKM_ANSWER_STRIPE_SECRET_KEY",
+                "_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET": "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
+                "_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET": "PKM_ANSWER_STRIPE_TEST_SECRET_KEY",
+                "_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET": "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
+                "_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET": "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY",
+                "_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET": "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET",
+            },
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        names = (
+            "STRIPE_SECRET_KEY",
+            "STRIPE_WEBHOOK_SECRET",
+            "STRIPE_CONNECT_WEBHOOK_SECRET",
+            "SCOPE_COMMERCE_STRIPE_SECRET_KEY",
+            "SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
+            "SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
+            "STRIPE_CONNECT_SECRET_KEY",
+            "STRIPE_CONNECT_TEST_WEBHOOK_SECRET",
+            "PKM_ANSWER_STRIPE_SECRET_KEY",
+            "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
+            "PKM_ANSWER_STRIPE_TEST_SECRET_KEY",
+            "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
+            "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY",
+            "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET",
+        )
+        assert result.stdout.splitlines() == [f"{name}={prefix}{name}" for name in names]
+
+
 def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     """Existing paid-required requests still need Checkout and signed webhooks."""
     backend_build = (ROOT / "deploy/backend.cloudbuild.yaml").read_text()

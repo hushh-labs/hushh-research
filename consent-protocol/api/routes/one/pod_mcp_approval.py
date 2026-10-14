@@ -35,3 +35,8 @@ async def issue(request: Request, body: PodMcpMutation, authorization: str | Non
 @router.post("/consume")
 async def consume(request: Request, body: PodMcpMutation, authorization: str | None = Header(None)):
     return await apply(request, body, authorization, "consume")
+
+
+@router.post("/rebind")
+async def rebind(request: Request, body: PodMcpMutation, authorization: str | None = Header(None)):
+    return await apply(request, body, authorization, "rebind")
