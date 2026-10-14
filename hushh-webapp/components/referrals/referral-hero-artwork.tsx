@@ -20,6 +20,8 @@ const AGENTS = [
   { label: "Messages", Icon: MessageSquareIcon, color: "var(--app-accent)", example: "Make dinner plans." },
 ] as const;
 
+const ARTWORK_FONT_FAMILY = '"Plus Jakarta Sans", system-ui, sans-serif';
+
 const REWARD_PATH = "M1000 370 C1010 430 1065 490 1145 535";
 const ORBIT_SECONDS = 60;
 const AGENT_STEP_DEGREES = 360 / AGENTS.length;
@@ -192,14 +194,14 @@ export function ReferralHeroArtworkSvg({
       </g>
       <path d={REWARD_PATH} fill="none" stroke="#ffffff" strokeWidth={4} strokeDasharray="1 12" strokeLinecap="round" />
       <path d="M958 436 Q1010 442 1037 425" fill="none" stroke="#ffffff" strokeWidth={3} strokeDasharray="1 11" strokeLinecap="round" opacity={0.85} />
-      <g fontFamily="Arial, sans-serif" transform="translate(880 165)">
+      <g fontFamily={ARTWORK_FONT_FAMILY} transform="translate(880 165)">
         <rect y={5} width={300} height={100} rx={24} fill="#5278aa" fillOpacity={0.08} />
         <rect className="referral-example-card" width={300} height={100} rx={24} fill="#ffffff" stroke="#d7e6f7" strokeWidth={1.5} />
         {AGENTS.map(({ label, Icon, color, example }, index) => (
           <g key={label} className="referral-agent-example" data-selected={selectedExample === index} style={{ animationDelay: exampleDelay(index) }}>
             <Icon x={18} y={30} size={38} weight="regular" color={color} />
             <text x={70} y={35} fill="#526881" fontSize={20}>{label}</text>
-            <text x={70} y={70} fill="#172d47" fontSize={23} fontWeight={600}>{example}</text>
+            <text x={70} y={70} fill="#172d47" fontSize={23} fontWeight={400}>{example}</text>
           </g>
         ))}
       </g>
@@ -208,13 +210,13 @@ export function ReferralHeroArtworkSvg({
         <circle cy={3} r={29} fill="#8a5b11" fillOpacity={0.14} />
         <circle r={27} fill={`url(#${goldId})`} stroke="#b67b1b" strokeWidth={2} />
         <circle r={22} fill="none" stroke="#fff2b9" strokeWidth={1.5} />
-        <text y={10} textAnchor="middle" fill="#89590c" fontFamily="Arial, sans-serif" fontSize={31} fontWeight={600}>$</text>
+        <text y={10} textAnchor="middle" fill="#89590c" fontFamily={ARTWORK_FONT_FAMILY} fontSize={31} fontWeight={600}>$</text>
       </g>
-      <g className="referral-reward-receipt" fontFamily="Arial, sans-serif">
+      <g className="referral-reward-receipt" fontFamily={ARTWORK_FONT_FAMILY}>
         <rect x={1370} y={365} width={215} height={82} rx={24} fill="#ffffff" fillOpacity={0.97} />
         <circle cx={1396} cy={391} r={13} fill="#24bf4b" />
         <CheckIcon x={1385} y={380} size={22} weight="regular" color="#ffffff" />
-        <text x={1420} y={400} fill="#17232d" fontSize={34} fontWeight={700}>+$10</text>
+        <text x={1420} y={400} fill="#17232d" fontSize={34} fontWeight={600}>+$10</text>
         <text x={1420} y={427} fill="#4a5763" fontSize={18}>Received</text>
       </g>
       <ellipse cx={1200} cy={440} rx={485} ry={365} fill="none" stroke="#7ca9dc" strokeOpacity={0.7} strokeWidth={2} />
@@ -230,7 +232,7 @@ export function ReferralHeroArtworkSvg({
                     <circle r={55} fill="#ffffff" />
                     <circle r={54} fill="none" stroke={color} strokeOpacity={selectedExample === index ? 0.65 : 0.18} strokeWidth={2} />
                     <Icon x={-22} y={-34} size={44} weight="regular" color={color} />
-                    <text y={32} textAnchor="middle" fill="#34465b" fontFamily="Arial, sans-serif" fontSize={20} fontWeight={500}>
+                    <text y={32} textAnchor="middle" fill="#34465b" fontFamily={ARTWORK_FONT_FAMILY} fontSize={20} fontWeight={400}>
                       {label}
                     </text>
                   </g>

@@ -3,7 +3,7 @@
 
 PR Validation runs two web lanes as matrices to shorten the critical path:
 
-* ``Web Targeted Contracts`` as a ``node`` leg and two native Playwright
+* ``Web Targeted Contracts`` as a ``node`` leg and three native Playwright
   browser shards (``WEB_TARGETED_PART`` and ``PLAYWRIGHT_SHARD``), and
 * ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
 * 100 KB editor latency as a required macOS browser job, outside Linux's
@@ -16,7 +16,7 @@ drives the real scripts with a stub ``npm`` that records what would have run,
 so the assertion is about the scripts' behaviour, not about their text.
 
 With web dependencies installed, ``--collect-browser-shards`` also uses native
-Playwright ``--list`` to prove that both shards partition every browser command
+Playwright ``--list`` to prove that all three shards partition every browser command
 selected for this diff. It never starts a browser or runs test hooks.
 """
 
@@ -242,9 +242,9 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         r'- part: (node|browser)\n\s+label: ([\w-]+)\n\s+shard: "([^"]*)"', targeted
     )
     assert [(part, shard) for part, _, shard in entries] == [
-        ("node", ""), ("browser", "1/2"), ("browser", "2/2")
-    ], "run node once and both browser shards"
-    assert len({label for _, label, _ in entries}) == 3, "matrix names must be unique"
+        ("node", ""), ("browser", "1/3"), ("browser", "2/3"), ("browser", "3/3")
+    ], "run node once and all three browser shards"
+    assert len({label for _, label, _ in entries}) == 4, "matrix names must be unique"
     assert 'name: "Web Targeted Contracts (${{ matrix.label }})"' in targeted
     assert "name: web-targeted-npm-audit-report-${{ matrix.label }}" in targeted
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
@@ -361,21 +361,23 @@ def collect_browser_shards() -> None:
         for argv, env in selected:
             first_command = first_command or (argv, env)
             baseline = identities(collect(argv, env, None), None)
-            left = identities(collect(argv, env, "1/2"), "1/2")
-            right = identities(collect(argv, env, "2/2"), "2/2")
+            shards = [
+                identities(collect(argv, env, f"{index}/3"), f"{index}/3")
+                for index in (1, 2, 3)
+            ]
             assert baseline, f"empty baseline: {pack} {argv}"
-            assert not left & right, f"overlapping shards: {pack} {argv}"
-            assert left | right == baseline, f"missing or added tests: {pack} {argv}"
+            assert sum(map(len, shards)) == len(set().union(*shards)), f"overlapping shards: {pack} {argv}"
+            assert set().union(*shards) == baseline, f"missing or added tests: {pack} {argv}"
             proof.append({"pack": pack, "argv": argv, "unsharded": len(baseline),
-                          "shards": [len(left), len(right)]})
+                          "shards": [len(shard) for shard in shards]})
 
     assert first_command is not None
     argv, env = first_command
     baseline = identities(collect(argv, env, None), None)
     for valid in ("", "1/1"):
         assert identities(collect(argv, env, valid), valid) == baseline
-    invalid = ("0/2", "3/2", "1/0", "a/b", "1", "1/2/2", "01/2", "1/2.5",
-               " 1/2", "1/2 ", "1/9007199254740992")
+    invalid = ("0/3", "4/3", "1/0", "a/b", "1", "1/3/3", "01/3", "1/3.5",
+               " 1/3", "1/3 ", "1/9007199254740992")
     for bad in invalid:
         proc = collect(argv, env, bad)
         assert proc.returncode != 0 and "PLAYWRIGHT_SHARD must be current/total" in proc.stderr, bad

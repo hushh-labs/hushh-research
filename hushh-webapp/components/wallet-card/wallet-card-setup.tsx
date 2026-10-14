@@ -244,7 +244,7 @@ export function WalletCardSetup({
           onClick={() => setOptionalOpen((open) => !open)}
         >
           <span className="min-w-0">
-            <span className="block text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]">
+            <span className="block text-[13px] font-normal leading-[1.22] text-[color:var(--app-primary-label)]">
               {WALLET_CARD_OWNER_COPY.optionalDisclosure}
             </span>
           </span>

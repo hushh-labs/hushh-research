@@ -335,6 +335,8 @@ describe("exact-file document review", () => {
     state.review.mockResolvedValue(partial({ revision: 3, paymentRequired: true, agentPackage: agentPackage() }));
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Edit price" }));
+    expect(await screen.findByRole("dialog", { name: "Set a price" })).toBeVisible();
+    await act(async () => {});
     expect(screen.getByRole("dialog", { name: "Set a price" })).toBeVisible();
     state.review.mockResolvedValue(partial({ revision: 4, paymentRequired: true,
       agentPackage: agentPackage({ revision: 3, digest: "c".repeat(64), summary: "A different package." }) }));

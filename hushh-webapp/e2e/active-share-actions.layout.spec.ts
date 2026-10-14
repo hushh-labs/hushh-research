@@ -257,7 +257,7 @@ test.describe("production Manage sharing comparison and Now banner", () => {
         return color;
       })(),
     }));
-    expect(style.font).toContain("InterVariable");
+    expect(style.font).toContain("Plus Jakarta Sans");
     expect(style.accent).toBeTruthy();
     expect(style.fill).toBe(style.accent);
     const surface = await page.getByTestId("one-location-live-share").evaluate((node) => {
