@@ -11,7 +11,10 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const name = searchParams.get("name");
-    const limit = searchParams.get("limit") || "10";
+    const rawLimit = Number.parseInt(searchParams.get("limit") || "10", 10);
+    const limit = Number.isFinite(rawLimit)
+       ? Math.min(Math.max(rawLimit, 1), 50)
+       : 10;
 
     if (!name) {
       return NextResponse.json(
