@@ -30,6 +30,7 @@ permissions:
   # — the workflow never touches a branch.
   contents: write
   checks: read
+  actions: read
   id-token: write
 
 env:

@@ -14,6 +14,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+import yaml
+
 SCRIPT = pathlib.Path(__file__).with_name("cloudrun-retention.py")
 SPEC = importlib.util.spec_from_file_location("cloudrun_retention", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -1864,6 +1866,30 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     deploy.index("google-github-actions/auth@"),
                 )
                 self.assertIn("group: deploy-" + environment, source)
+                workflow = yaml.safe_load(source)
+
+                def check_actions_read(document):
+                    permissions = document["jobs"]["deploy"].get(
+                        "permissions", document.get("permissions", {})
+                    )
+                    self.assertEqual(permissions.get("actions"), "read")
+                    guards = [step for step in document["jobs"]["deploy"]["steps"]
+                              if "--check-mutations" in step.get("run", "")]
+                    self.assertEqual(len(guards), 1)
+                    self.assertEqual(guards[0].get("env", {}).get("GH_TOKEN"),
+                                     "${{ secrets.GITHUB_TOKEN }}")
+
+                check_actions_read(workflow)
+                missing_read = copy.deepcopy(workflow)
+                missing_read["jobs"]["deploy"]["permissions"] = {"contents": "read"}
+                with self.assertRaises(AssertionError):
+                    check_actions_read(missing_read)
+                missing_token = copy.deepcopy(workflow)
+                for step in missing_token["jobs"]["deploy"]["steps"]:
+                    if "--check-mutations" in step.get("run", ""):
+                        step["env"].pop("GH_TOKEN")
+                with self.assertRaises(AssertionError):
+                    check_actions_read(missing_token)
 
     def test_production_does_not_restore_older_settled_receipt_before_newer_uncertain_one(self):
         runs = {n: self.trusted_source(n, "capacity-maintenance.yml") for n in (10, 20)}
