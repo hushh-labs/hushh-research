@@ -35,6 +35,7 @@ from datetime import datetime
 from typing import Any, Callable, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from google.adk.models.llm_response import LlmResponse
 from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.consent.pii_sanitizer import mask_email
@@ -153,7 +154,18 @@ _STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 _STATE_TIMEZONE = "hussh:timezone"
 _STATE_DOCUMENT_CLOCK_RECEIPT = "temp:hussh:document_clock_receipt"
 _STATE_DOCUMENT_PERIOD_CLARIFICATION = "hussh:document_period_clarification"
+_STATE_DOCUMENT_PERIOD_REPLY = "temp:hussh:document_period_reply"
 _STATE_CONVERSATION_ID = "hussh:conversation_id"
+
+_DOCUMENT_PERIOD_QUESTIONS = {
+    "year": "Which year should I use?",
+    "day_month_order": "Do these dates use day/month or month/day?",
+    "requested_period": "What date range should the documents cover?",
+    "owner_timezone": "Which timezone should I use?",
+    "relative_anchor": "What dates should this period cover?",
+    "relative_window": "Do you mean complete calendar periods or a range ending today?",
+    "complete_period": "What complete start and end dates should I use?",
+}
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
@@ -3249,6 +3261,70 @@ def _pending_document_period(tool_context: ToolContext, user_id: str, person_ref
         return None
 
 
+def _document_period_question(context: Any) -> str | None:
+    """Read only a host-selected question bound to this authenticated input."""
+    from hushh_mcp.one_adk.document_period_assessment import user_texts_sha256
+
+    reply = context.state.get(_STATE_DOCUMENT_PERIOD_REPLY)
+    if not isinstance(reply, dict):
+        return None
+    user_id = context.state.get(_STATE_USER_ID)
+    invocation_id = getattr(context, "invocation_id", None)
+    session_id = getattr(getattr(context, "session", None), "id", None)
+    if (
+        not user_id
+        or not invocation_id
+        or not session_id
+        or reply.get("user_id") != user_id
+        or reply.get("invocation_id") != invocation_id
+        or reply.get("session_id") != session_id
+        or reply.get("user_texts_sha256")
+        != user_texts_sha256(_document_request_user_texts(context))
+    ):
+        return None
+    dimension = reply.get("missing_dimension")
+    return _DOCUMENT_PERIOD_QUESTIONS.get(dimension) if isinstance(dimension, str) else None
+
+
+def _latch_document_period_question(context: Any, user_id: str, dimension: str) -> str:
+    from hushh_mcp.one_adk.document_period_assessment import user_texts_sha256
+
+    question = _DOCUMENT_PERIOD_QUESTIONS[dimension]
+    context.state[_STATE_DOCUMENT_PERIOD_REPLY] = {
+        "user_id": user_id,
+        "session_id": getattr(getattr(context, "session", None), "id", None),
+        "invocation_id": getattr(context, "invocation_id", None),
+        "user_texts_sha256": user_texts_sha256(_document_request_user_texts(context)),
+        "missing_dimension": dimension,
+    }
+    return question
+
+
+def document_period_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
+    """Finish a validated date question without another model/tool retry loop."""
+    question = _document_period_question(callback_context)
+    if question is None:
+        return None
+    from google.genai import types
+
+    from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
+    from hushh_mcp.one_adk.queued_input import STOPPED_ANSWER, current_run, registry
+
+    run = current_run()
+    if run is not None and registry.stop_requested(run.owner_id, run.conversation_id, run.run_id):
+        return LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text=STOPPED_ANSWER)]),
+            turn_complete=True,
+        )
+    guarded_response = before_external_read_model(callback_context, llm_request)
+    if guarded_response is not None:
+        return guarded_response
+    return LlmResponse(
+        content=types.Content(role="model", parts=[types.Part(text=question)]),
+        turn_complete=True,
+    )
+
+
 async def propose_document_request(
     person: str,
     purpose: str,
@@ -3283,6 +3359,9 @@ async def propose_document_request(
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    question = _document_period_question(tool_context)
+    if question is not None:
+        return {"status": "needs_clarification", "message": question}
     try:
         person_ref, display_name = await asyncio.to_thread(
             _resolve_person_for_information,
@@ -3326,8 +3405,17 @@ async def propose_document_request(
             candidate_end=period_end or None,
         )
         assessment = result.assessment
-        if result.status == "clarify" and assessment is not None:
-            missing_dimension = assessment.missing_dimension
+        if (
+            result.status in {"clarify", "clock_required", "timezone_required"}
+            and assessment is not None
+        ):
+            missing_dimension = (
+                "relative_anchor"
+                if result.status == "clock_required"
+                else "owner_timezone"
+                if result.status == "timezone_required"
+                else assessment.missing_dimension
+            )
             if missing_dimension is None:
                 return {"status": "failed", "reason": "invalid_response"}
             if missing_dimension == "relative_anchor" and receipt is None:
@@ -3341,7 +3429,9 @@ async def propose_document_request(
                 tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = None
                 return {
                     "status": "needs_clarification",
-                    "message": "What complete start and end dates should I use?",
+                    "message": _latch_document_period_question(
+                        tool_context, user_id, "complete_period"
+                    ),
                 }
             session_id = getattr(getattr(tool_context, "session", None), "id", None)
             tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = {
@@ -3354,17 +3444,11 @@ async def propose_document_request(
                     asked_missing_dimension=missing_dimension,
                 ).model_dump(),
             }
-            questions = {
-                "year": "Which year should I use?",
-                "day_month_order": "Do these dates use day/month or month/day?",
-                "requested_period": "What date range should the documents cover?",
-                "owner_timezone": "Which timezone should I use?",
-                "relative_anchor": "What dates should this period cover?",
-                "relative_window": "Do you mean complete calendar periods or a range ending today?",
-            }
             return {
                 "status": "needs_clarification",
-                "message": questions[missing_dimension],
+                "message": _latch_document_period_question(
+                    tool_context, user_id, missing_dimension
+                ),
                 "nextStep": "Ask only this question. Keep the requested person and documents.",
             }
         if result.status == "candidate_mismatch":

@@ -3787,7 +3787,7 @@
             "mode": "hushh_managed_vertex",
             "name": "gemini-default",
             "provider": "gemini",
-            "thinking_level": "low"
+            "thinking_level": "medium"
           },
           "name": "Document period",
           "outputs": [],

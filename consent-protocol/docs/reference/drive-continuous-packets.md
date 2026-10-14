@@ -34,6 +34,12 @@ saved preferences. The gene still checks that the timezone expresses the request
 A clarification retains bounded original text only for the immediately following
 user turn in the same conversation, for the same resolved person. The next answer
 must supply current evidence; replacement requests discard superseded details.
+Once a question is determined, the host returns it directly without another model
+call. The question is bound to the authenticated owner, session, invocation and
+current text; a repeated tool call cannot overwrite its continuation context.
+Stop still takes precedence, and queued answers remain available for the next turn.
+Missing clock authority has a typed recovery: fetch the current clock or ask for
+the timezone, without accepting the assessor's unsupported relative date bounds.
 Model failure produces no card. These provenance checks do not prove semantic
 correctness: model replay separately grades date decisions, visible questions,
 follow-up handling, failures and the additional assessment latency.

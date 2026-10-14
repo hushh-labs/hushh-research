@@ -135,6 +135,8 @@ class DocumentPeriodResult:
     status: Literal[
         "supported",
         "clarify",
+        "clock_required",
+        "timezone_required",
         "candidate_mismatch",
         "timeout",
         "unavailable",
@@ -143,6 +145,19 @@ class DocumentPeriodResult:
     ]
     assessment: DocumentPeriodAssessment | None = None
     reason: str | None = None
+
+
+class PeriodClockAuthorityRequired(ValueError):
+    """A model-declared relative period lacks the required host clock authority."""
+
+    def __init__(
+        self,
+        status: Literal["clock_required", "timezone_required"],
+        assessment: DocumentPeriodAssessment,
+    ) -> None:
+        super().__init__(status)
+        self.status = status
+        self.assessment = assessment
 
 
 def _calendar_date(value: str | None) -> date:
@@ -209,12 +224,12 @@ def validate_period_assessment(
     ):
         raise ValueError("supported continuation requires current-message evidence")
     if parsed.decision == "supported" and parsed.basis == "relative":
-        if (
-            clock_receipt is None
-            or not _clock_matches_current_text(clock_receipt, current_user_texts, invocation_id)
-            or clock_receipt.time_zone_source not in {"owner", "request"}
-        ):
+        if clock_receipt is None:
+            raise PeriodClockAuthorityRequired("clock_required", parsed)
+        if not _clock_matches_current_text(clock_receipt, current_user_texts, invocation_id):
             raise ValueError("relative period requires this owner's current trusted clock")
+        if clock_receipt.time_zone_source == "utc_fallback":
+            raise PeriodClockAuthorityRequired("timezone_required", parsed)
     return parsed
 
 
@@ -360,6 +375,8 @@ async def assess_document_period(
             pending_context=pending_context,
         )
     except Exception as error:
+        if isinstance(error, PeriodClockAuthorityRequired):
+            return DocumentPeriodResult(error.status, error.assessment, "relative_clock_authority")
         if _timeout(error):
             return DocumentPeriodResult("timeout", reason="assessment_timed_out")
         if isinstance(error, ValueError):

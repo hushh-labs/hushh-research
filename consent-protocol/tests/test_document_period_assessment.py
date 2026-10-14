@@ -354,6 +354,81 @@ async def test_exact_candidate_supported(model_seam):
     assert result.status == "supported"
 
 
+@pytest.mark.parametrize(
+    "source,status", [(None, "clock_required"), ("utc_fallback", "timezone_required")]
+)
+@pytest.mark.asyncio
+async def test_relative_clock_authority_has_typed_outcome_without_rewriting_model(
+    model_seam, monkeypatch, source, status
+):
+    output = periods.DocumentPeriodAssessmentOutput.model_validate(
+        model_assessment(basis="relative")
+    )
+    calls = []
+
+    async def run(*args, **kwargs):
+        calls.append(kwargs)
+        return output
+
+    monkeypatch.setattr(periods, "run_single_turn", run)
+    receipt = clock(time_zone_source=source, time_zone="UTC") if source else None
+    result = await assess(clock_receipt=receipt)
+    assert result.status == status
+    assert result.reason == "relative_clock_authority"
+    assert result.assessment.decision == "supported"
+    assert result.assessment.basis == "relative"
+    assert result.assessment.period_start == output.period_start
+    assert result.assessment.period_end == output.period_end
+    assert len(calls) == 1
+    assert calls[0]["timeout_seconds"] == 12
+
+
+@pytest.mark.parametrize("source", [None, "utc_fallback"])
+@pytest.mark.asyncio
+async def test_unverified_relative_quote_cannot_become_clock_clarification(
+    model_seam, monkeypatch, source
+):
+    output = model_assessment(basis="relative")
+    output["source_refs"][0]["quote"] = "not in the current authenticated message"
+
+    async def run(*args, **kwargs):
+        return output
+
+    monkeypatch.setattr(periods, "run_single_turn", run)
+    receipt = clock(time_zone_source=source, time_zone="UTC") if source else None
+    result = await assess(clock_receipt=receipt)
+    assert result.status == "invalid_response"
+    assert result.assessment is None
+
+
+@pytest.mark.asyncio
+async def test_absolute_assessment_does_not_require_timezone_from_fallback(model_seam):
+    result = await assess(clock_receipt=clock(time_zone_source="utc_fallback", time_zone="UTC"))
+    assert result.status == "supported"
+    assert result.assessment.basis == "absolute"
+
+
+@pytest.mark.asyncio
+async def test_missing_absolute_year_keeps_model_clarification_with_fallback(
+    model_seam, monkeypatch
+):
+    output = model_assessment(
+        decision="clarify",
+        basis=None,
+        period_start=None,
+        period_end=None,
+        missing_dimension="year",
+    )
+
+    async def run(*args, **kwargs):
+        return output
+
+    monkeypatch.setattr(periods, "run_single_turn", run)
+    result = await assess(clock_receipt=clock(time_zone_source="utc_fallback", time_zone="UTC"))
+    assert result.status == "clarify"
+    assert result.assessment.missing_dimension == "year"
+
+
 @pytest.mark.asyncio
 async def test_clock_ids_not_sent_to_model(model_seam):
     await assess(clock_receipt=clock())

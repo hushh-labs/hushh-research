@@ -1599,7 +1599,7 @@ def _period_assessment(words, start=None, end=None, *, basis="absolute", missing
         "period_start": start,
         "period_end": end,
         "missing_dimension": missing,
-        "source_spans": [{"message_index": index, "start": 0, "end": len(words), "quote": words}],
+        "source_refs": [{"message_index": index, "quote": words}],
     }
 
 
@@ -1694,6 +1694,9 @@ async def test_document_request_accepts_only_same_invocation_queued_user_dates(
             queued_event(kind="other"),
             queued_event(author="model"),
         ]:
+            # Each rejected source is a fresh turn; a valid clarification now
+            # terminates its own turn and cannot be retried by the model.
+            context = _document_context(current)
             context.session.events = [event]
             period_model[0].append(
                 _period_assessment(current, basis=None, missing="requested_period")
@@ -1703,6 +1706,7 @@ async def test_document_request_accepts_only_same_invocation_queued_user_dates(
             assert [row["text"] for row in period_model[1][-1]["current_user_messages"]] == [
                 current
             ]
+        context = _document_context(current)
         context.session.events = [queued_event()]
         period_model[0].append(_period_assessment(date_words, "2026-09-29", "2026-10-01", index=1))
         ready = await action_tools.propose_document_request("Rahul", "statements", context)
@@ -1754,7 +1758,7 @@ async def test_document_request_preserves_independently_assessed_dates_without_c
     "source",
     ["invented", "empty", "whitespace", "model", "tool", "thought", "too_long", "cross_message"],
 )
-async def test_document_request_rejects_ungrounded_assessment_spans(period_model, source):
+async def test_document_request_rejects_ungrounded_assessment_references(period_model, source):
     excerpt = "September 1 to October 9, 2026"
     context = _document_context(excerpt)
     if source == "invented":
@@ -1931,12 +1935,10 @@ async def test_document_period_year_reply_preserves_host_bound_original_range(pe
         context.invocation_id = "reply-invocation"
         context.user_content = types.Content(role="user", parts=[types.Part(text="2026")])
         value = _period_assessment("2026", "2026-02-03", "2026-05-11")
-        value["source_spans"].append(
+        value["source_refs"].append(
             {
                 "source": "pending",
                 "message_index": 0,
-                "start": 0,
-                "end": len(original),
                 "quote": original,
             }
         )
@@ -2043,12 +2045,10 @@ async def test_explicit_timezone_reply_uses_request_clock_without_changing_prefe
         assert "hussh:timezone" not in context.state
         year = actual["date"][:4]
         value = _period_assessment(reply, year + "-01-01", year + "-12-31", basis="relative")
-        value["source_spans"].append(
+        value["source_refs"].append(
             {
                 "source": "pending",
                 "message_index": 0,
-                "start": 0,
-                "end": len(original),
                 "quote": original,
             }
         )
@@ -2116,6 +2116,250 @@ async def test_actual_clock_receipt_is_bound_to_current_text_and_hidden_from_mod
     assert visible["date"] == actual["date"]
     assert "invocation_id" not in visible
     assert "user_texts_sha256" not in visible
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("queued_action", [None, "answer", "stop"])
+async def test_document_period_question_ends_real_runner_without_model_retry(
+    period_model, monkeypatch, queued_action
+):
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+
+    from hushh_mcp.one_adk import agent_tree, document_period_assessment, queued_input
+
+    words = "Ask Rahul for statements from February 3 through May 11"
+    period_model[0].append(_period_assessment(words, missing="year"))
+    registry = queued_input.QueuedInputRegistry()
+    monkeypatch.setattr(queued_input, "registry", registry)
+    if queued_action == "stop":
+        assess = document_period_assessment.run_single_turn
+
+        async def stop_during_assessment(*args, **kwargs):
+            result = await assess(*args, **kwargs)
+            registry.request_stop("user_1", "session_1")
+            return result
+
+        monkeypatch.setattr(document_period_assessment, "run_single_turn", stop_during_assessment)
+
+    class RequestModel(BaseLlm):
+        calls: int = 0
+
+        async def generate_content_async(self, llm_request, stream=False):
+            self.calls += 1
+            assert self.calls == 1, "a terminal period question must not call the model again"
+            if queued_action:
+                receipt = registry.enqueue("user_1", "session_1", "period-answer-2026", "2026")
+                assert receipt.status == "queued"
+            yield LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                name="propose_document_request",
+                                args={"person": "Rahul", "purpose": "statements"},
+                            )
+                        )
+                    ],
+                )
+            )
+
+    model = RequestModel(model="fixture")
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Prepare the requested document review."
+    agent.tools = [action_tools.propose_document_request]
+    sessions = InMemorySessionService()
+    await sessions.create_session(
+        app_name="one", user_id="user_1", session_id="session_1", state=_state()
+    )
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    with _document_boundary():
+        async with queued_input.run_scope(
+            "user_1", "session_1", "period-run", accepting=True
+        ) as key:
+            events = [
+                event
+                async for event in runner.run_async(
+                    user_id="user_1",
+                    session_id="session_1",
+                    new_message=types.Content(role="user", parts=[types.Part(text=words)]),
+                )
+            ]
+            settlement = queued_input.settle(key)
+    final_text = [
+        part.text
+        for event in events
+        if event.is_final_response()
+        for part in (event.content.parts if event.content else []) or []
+        if part.text
+    ]
+    expected = (
+        queued_input.STOPPED_ANSWER if queued_action == "stop" else "Which year should I use?"
+    )
+    assert final_text == [expected]
+    assert model.calls == 1 and len(period_model[1]) == 1
+    session = await sessions.get_session(app_name="one", user_id="user_1", session_id="session_1")
+    assert session.state[action_tools._STATE_DOCUMENT_PERIOD_CLARIFICATION]["context"][
+        "original_user_texts"
+    ] == [words]
+    assert settlement.delivered == ()
+    assert settlement.returned == (("period-answer-2026",) if queued_action else ())
+    assert not any(
+        (event.custom_metadata or {}).get("kind") == QUEUED_INPUT_KIND for event in session.events
+    )
+    assert not any(key.startswith(action_tools._STATE_PENDING_DIRECTIVE) for key in session.state)
+
+
+@pytest.mark.asyncio
+async def test_document_period_repeated_tool_preserves_question_and_pending_context(period_model):
+    words = "Ask Rahul for statements from February 3 through May 11"
+    context = _document_context(words)
+    period_model[0].append(_period_assessment(words, missing="year"))
+    with _document_boundary():
+        first = await action_tools.propose_document_request("Rahul", "statements", context)
+        saved = json.dumps(
+            context.state[action_tools._STATE_DOCUMENT_PERIOD_CLARIFICATION], sort_keys=True
+        )
+        repeated = await action_tools.propose_document_request(
+            "Rahul", "statements", context, period_start="1999-01-01", period_end="1999-12-31"
+        )
+    assert repeated == {"status": "needs_clarification", "message": first["message"]}
+    assert len(period_model[1]) == 1
+    assert (
+        json.dumps(context.state[action_tools._STATE_DOCUMENT_PERIOD_CLARIFICATION], sort_keys=True)
+        == saved
+    )
+    assert "clientRequestId" not in repeated
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["owner", "session", "invocation", "text", "queued_text"])
+async def test_document_period_question_does_not_cross_input_boundaries(period_model, change):
+    from google.adk.models.llm_request import LlmRequest
+
+    words = "Ask Rahul for statements from February 3 through May 11"
+    context = _document_context(words)
+    period_model[0].append(_period_assessment(words, missing="year"))
+    with _document_boundary():
+        await action_tools.propose_document_request("Rahul", "statements", context)
+    if change == "owner":
+        context.state[STATE_USER_ID] = "another-owner"
+    elif change == "session":
+        context.session.id = "another-session"
+    elif change == "invocation":
+        context.invocation_id = "another-invocation"
+    elif change == "text":
+        context.user_content = types.Content(role="user", parts=[types.Part(text="Use 2026")])
+    else:
+        context.session.events.append(
+            Event(
+                invocation_id=context.invocation_id,
+                author="user",
+                content=types.Content(role="user", parts=[types.Part(text="Use 2026")]),
+                custom_metadata={"kind": QUEUED_INPUT_KIND},
+            )
+        )
+    assert action_tools.document_period_before_model(context, LlmRequest()) is None
+
+
+@pytest.mark.asyncio
+async def test_document_period_terminal_reply_preserves_external_read_failure_barrier(period_model):
+    from google.adk.models.llm_request import LlmRequest
+
+    from hushh_mcp.one_adk.external_read_boundary import STATE_DRIVE_READ_OUTCOME
+
+    words = "Ask Rahul for statements from February 3 through May 11"
+    context = _document_context(words)
+    period_model[0].append(_period_assessment(words, missing="year"))
+    with _document_boundary():
+        await action_tools.propose_document_request("Rahul", "statements", context)
+    context.state[STATE_DRIVE_READ_OUTCOME] = {
+        "invocation": context.invocation_id,
+        "outcome": "connect_required",
+    }
+    response = action_tools.document_period_before_model(context, LlmRequest())
+    assert response is not None
+    assert response.content.parts[0].text != "Which year should I use?"
+    assert response.turn_complete is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_fallback_clock", [False, True])
+async def test_supported_relative_model_output_requires_host_clock_or_timezone(
+    period_model, has_fallback_clock
+):
+    words = "Ask Rahul for statements for this entire calendar year"
+    context = _document_context(words)
+    if has_fallback_clock:
+        clock = await action_tools.get_current_time(context)
+        assert clock["time_zone_source"] == "utc_fallback"
+    period_model[0].append(_period_assessment(words, "2026-01-01", "2026-12-31", basis="relative"))
+    with _document_boundary():
+        result = await action_tools.propose_document_request("Rahul", "statements", context)
+    assert "clientRequestId" not in result
+    if has_fallback_clock:
+        assert result["status"] == "needs_clarification"
+        assert result["message"] == "Which timezone should I use?"
+        pending = context.state[action_tools._STATE_DOCUMENT_PERIOD_CLARIFICATION]["context"]
+        assert pending == {
+            "original_user_texts": [words],
+            "asked_missing_dimension": "owner_timezone",
+        }
+    else:
+        assert result["status"] == "clock_required"
+        assert action_tools._STATE_DOCUMENT_PERIOD_REPLY not in context.state
+        assert action_tools._STATE_DOCUMENT_PERIOD_CLARIFICATION not in context.state
+        context.state["hussh:timezone"] = "UTC"
+        clock = await action_tools.get_current_time(context)
+        year = clock["date"][:4]
+        period_model[0].append(
+            _period_assessment(words, year + "-01-01", year + "-12-31", basis="relative")
+        )
+        with _document_boundary():
+            ready = await action_tools.propose_document_request("Rahul", "statements", context)
+        assert ready["status"] == "proposal_ready"
+        assert ready["purpose"]["periodStart"] == year + "-01-01"
+        assert ready["purpose"]["periodEnd"] == year + "-12-31"
+        assert len(period_model[1]) == 2
+
+
+@pytest.mark.asyncio
+async def test_document_period_context_limit_asks_complete_dates_once(period_model):
+    from google.adk.models.llm_request import LlmRequest
+
+    words = "I still need Rahul's statements"
+    context = _document_context(words)
+    original = "Ask Rahul for statements from February 3 through May 11"
+    context.session.events = [
+        Event(
+            invocation_id="previous-request",
+            author="user",
+            content=types.Content(role="user", parts=[types.Part(text=original)]),
+        )
+    ]
+    context.state[action_tools._STATE_DOCUMENT_PERIOD_CLARIFICATION] = {
+        "user_id": "user_1",
+        "person_ref": PERSON_REF,
+        "session_id": context.session.id,
+        "invocation_id": "previous-request",
+        "context": {"original_user_texts": [original] * 17, "asked_missing_dimension": "year"},
+    }
+    period_model[0].append(_period_assessment(words, missing="year"))
+    with _document_boundary():
+        first = await action_tools.propose_document_request("Rahul", "statements", context)
+        repeat = await action_tools.propose_document_request("Rahul", "statements", context)
+    assert first["status"] == repeat["status"] == "needs_clarification"
+    assert (
+        first["message"] == repeat["message"] == "What complete start and end dates should I use?"
+    )
+    assert context.state[action_tools._STATE_DOCUMENT_PERIOD_CLARIFICATION] is None
+    assert len(period_model[1]) == 1
+    response = action_tools.document_period_before_model(context, LlmRequest())
+    assert response.content.parts[0].text == first["message"]
+    assert response.turn_complete is True
 
 
 @pytest.mark.asyncio

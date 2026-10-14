@@ -165,7 +165,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
-      thinking_level: low
+      thinking_level: medium
     runtime:
       kind: adk
       adk_mode: single_turn
