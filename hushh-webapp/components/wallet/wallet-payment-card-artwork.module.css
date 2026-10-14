@@ -49,7 +49,7 @@
   min-width: 0;
   overflow: hidden;
   font-size: 5cqw;
-  font-weight: 700;
+  font-weight: 400;
   line-height: 1.2;
   letter-spacing: -0.025em;
   text-overflow: ellipsis;
@@ -117,8 +117,9 @@
 .caption {
   margin-bottom: 1.2cqw;
   color: inherit;
+  font-family: var(--font-mono, ui-monospace), monospace;
   font-size: 2.8cqw;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -128,7 +129,7 @@
   max-width: 100%;
   overflow: hidden;
   font-size: 3.8cqw;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;

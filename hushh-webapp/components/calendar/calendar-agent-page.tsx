@@ -671,7 +671,7 @@ export function CalendarAgentPage({
             </div>
 
             <div className="space-y-[var(--page-header-copy-gap)]">
-              <h2 className="text-2xl sm:text-[26px] font-bold tracking-tight text-foreground">
+              <h2 className="text-2xl sm:text-[26px] font-semibold tracking-tight text-foreground">
                 {connected ? "Google Calendar" : "Connect Google Calendar"}
               </h2>
 

@@ -36,7 +36,7 @@ for (const dark of [false, true]) {
         if (step === 1) {
           const heading = preview.getByRole("heading", { name: "Your private AI agent for everyday life." });
           await expect(heading).toBeVisible();
-          await expect(heading).toHaveCSS("font-family", /InterVariable/);
+          await expect(heading).toHaveCSS("font-family", /Plus Jakarta Sans/);
         }
         const story = preview.locator(".ao-slide");
         const cta = step === 1

@@ -425,6 +425,7 @@ function UnlockedDocumentReview({
   const [error, setError] = useState<string | null>(null);
   const [trustFuture, setTrustFuture] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
+  const openedPricePackageKey = useRef<string | null>(null);
   const [allowError, setAllowError] = useState<string | null>(null);
   // Deny is irreversible: a second tap confirms, as on the Feed row.
   const denyConfirm = useArmedAction();
@@ -812,6 +813,9 @@ function UnlockedDocumentReview({
 
   const review = snapshot?.review;
   const agentPackage = snapshot?.status.direction === "incoming" ? review?.agentPackage : undefined;
+  const packageDecisionKey = agentPackage
+    ? `${agentPackage.revision}:${agentPackage.digest ?? ""}`
+    : null;
   const removal = snapshot?.revocation;
   const search = review?.search;
   const bulkShare = review?.bulkShare;
@@ -944,11 +948,15 @@ function UnlockedDocumentReview({
   useEffect(() => {
     if (!ownerDecision) setPriceOpen(false);
   }, [ownerDecision]);
-  // A new exact package needs a fresh owner decision, even if both are ready.
+  // Keep an opened sheet tied to its exact package. A newly loaded package must
+  // not close a sheet that the owner just opened for that same package.
   useEffect(() => {
-    setPriceOpen(false);
-    setAllowError(null);
-  }, [agentPackage?.revision, agentPackage?.digest]);
+    if (priceOpen && openedPricePackageKey.current !== packageDecisionKey) {
+      setPriceOpen(false);
+      setAllowError(null);
+    }
+  }, [packageDecisionKey, priceOpen]);
+  useEffect(() => setAllowError(null), [packageDecisionKey]);
   const locked = activity !== "idle" && activity !== "finding_files";
   const canApprove =
     !finding &&
@@ -1007,6 +1015,7 @@ function UnlockedDocumentReview({
   };
   const openPriceSheet = () => {
     denyConfirm.disarm();
+    openedPricePackageKey.current = packageDecisionKey;
     setAllowError(null);
     setPriceOpen(true);
   };

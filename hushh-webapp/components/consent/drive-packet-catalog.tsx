@@ -127,11 +127,11 @@ function PacketCard({ packet, owner, token, guard, onChanged }: {
     packet.state === "ready" ? "Ready" : packet.state === "incomplete" ? "Incomplete" : "Unable to verify";
   return <article className="min-w-0 text-sm">
     <SettingsRow title={packet.title} description={`${packet.coverageSummary} · ${packet.documentCount} ${packet.documentCount === 1 ? "document" : "documents"}`}
-      trailing={<span className="tabular-nums">{formatDocumentRequestPrice(owner && amount !== null ? amount : packet.priceCents)}</span>} />
+      trailing={<span className="font-semibold tabular-nums">{formatDocumentRequestPrice(owner && amount !== null ? amount : packet.priceCents)}</span>} />
     <div className="space-y-2 px-4 pb-2">
     {(state !== "Ready" || packet.gaps.length > 0) && <p className="text-xs text-muted-foreground">{state}{packet.gaps.length > 0 ? ` · ${packet.gaps[0]}` : ""}</p>}
     {owner ? <>
-      {editingPrice && <label className="block text-xs text-muted-foreground">Price
+      {editingPrice && <label className="block text-xs font-semibold text-muted-foreground">Price
         <div className="mt-1 flex items-center gap-2"><span aria-hidden="true">$</span><Input aria-label={`Price for ${packet.title}`} inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} disabled={busy} className="min-h-11 max-w-40" /></div>
       </label>}
       {amount === null && <p className="text-xs" role="status">Enter $0.50–$500, up to two decimal places.</p>}

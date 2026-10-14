@@ -216,7 +216,7 @@ function StyleSettingsOfferView({ experience }: { experience: StyleSettingsOffer
         {describeOwnerStyleProposal(experience.proposed).map((row) => (
           <div key={row.label} className="flex min-h-11 items-center justify-between gap-4 py-2">
             <dt className="text-sm text-muted-foreground">{row.label}</dt>
-            <dd className="min-w-0 truncate text-sm font-medium text-foreground">{row.value}</dd>
+            <dd className="min-w-0 truncate text-sm font-normal text-foreground">{row.value}</dd>
           </div>
         ))}
       </dl>
