@@ -8,6 +8,7 @@ vi.mock("@/lib/services/api-service", () => ({
 
 import { FeedService } from "@/lib/services/feed-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -81,6 +82,37 @@ describe("FeedService", () => {
     expect(mockApiFetch.mock.calls[2][0]).toBe("/api/one/feed/clear");
     expect(JSON.parse(String(mockApiFetch.mock.calls[2][1].body))).toEqual({
       up_to_id: "9007199254740993",
+    });
+  });
+
+  it("keeps a dismissed row gone after sign-out and same-account sign-in", async () => {
+    const serverItems = new Map<string, { id: string }>([["42", { id: "42" }]]);
+    mockApiFetch.mockImplementation(async (path: string, init: RequestInit) => {
+      if (path === "/api/one/feed/42/dismiss") {
+        expect(init.headers).toMatchObject({ Authorization: "Bearer session-one" });
+        serverItems.delete("42");
+        return jsonResponse({ status: "ok", dismissal_token: "dismissal-42" });
+      }
+      expect(path).toBe("/api/one/feed");
+      return jsonResponse({
+        items: [...serverItems.values()],
+        next_cursor: null,
+        unread_count: serverItems.size,
+      });
+    });
+
+    const first = await FeedService.list({ idToken: "session-one", userId: "user-1" });
+    expect(first.items.map((item) => item.id)).toEqual(["42"]);
+    await FeedService.dismiss({ idToken: "session-one", userId: "user-1", itemId: "42" });
+    expect((await FeedService.list({ idToken: "session-one", userId: "user-1" })).items).toEqual([]);
+
+    CacheSyncService.onAuthSignedOut("user-1");
+    serverItems.set("43", { id: "43" });
+    const nextSession = await FeedService.list({ idToken: "session-two", userId: "user-1" });
+    expect(nextSession.items.map((item) => item.id)).toEqual(["43"]);
+    expect(mockApiFetch.mock.calls.filter(([path]) => path === "/api/one/feed")).toHaveLength(3);
+    expect(mockApiFetch.mock.lastCall?.[1].headers).toMatchObject({
+      Authorization: "Bearer session-two",
     });
   });
 

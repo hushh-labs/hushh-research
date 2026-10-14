@@ -1270,7 +1270,7 @@ def maintenance_due(
     release_run_id: int | None = None,
     restore: bool = True,
 ) -> bool:
-    """Avoid settled cron work; wake UAT drains even before their deadline."""
+    """Inspect only changed, unfinished or due retention receipts."""
     if restore:
         restore_state(repository, directory, environment=environment)
     receipt = directory / "completed.json"
