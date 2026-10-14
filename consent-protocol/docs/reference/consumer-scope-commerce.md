@@ -26,6 +26,387 @@ complete Sandbox/live financial acceptance, native browser returns, or legal/tax
 approval. Signed capital and the first requester funding settlement on shared Dev
 are separately verified below; they do not prove a consumer purchase or payout.
 
+### Latest main composition — 2026-10-13 UTC
+
+The subsequent integration merges main `519a8bac6cdf` normally into the same
+infrastructure branch at `7c6f0fcebbaf`. It preserves the incoming capacity
+workflows and responsive onboarding, the existing final authentication button,
+early voice refusal, and the canonical theme tokens. All 25 nearest onboarding
+component cases and 451 Back cases pass; type checking and regenerated Back,
+Search, action and topology verification pass. The preceding exact candidate
+`c5628d9ff6ef` passed canonical core in 592 seconds. The newly composed candidate
+still requires its own core, hosted CI and Dev release evidence.
+The independent source review qualifies exactly 17 inherited capacity/retention
+measurement spans; all 2567 previous occurrences, review history, detector and
+budgets remain intact. All 77 existing capacity/retention cases pass. Measurement
+qualification does not establish UAT behavior or Sandbox financial acceptance.
+
+Main's following referral-replay fix `bea28e6d40f8` is merged normally at
+`88c984f8825d`; all 42 migration-authority cases pass against an owned synthetic
+PostgreSQL cluster. The 308-entry release manifest, head 348, all 14 task SQL
+bodies, active private SQL and original preservation receipt remain unchanged.
+The exact-source review qualifies five inherited measurement spans while
+preserving the prior 17-span review and all history. The adapter changes only
+the pinned historical referral replay, preserves policy rows and references,
+and creates no migration receipts or new policy activation. Its observed UAT
+v3 policy still requires the owning release lane's exact owner attestation;
+synthetic fixture validation does not supply that approval.
+
+The incoming UAT capacity work has a separate recovery gap: PR #7920 adds a
+third deployment job, while the hygiene-only retention verifier admits exactly
+the historical two-job receipt. A tag-cleanup-only failure on the new workflow
+can therefore remain blocked. This fails closed and has no Dev workflow
+consumer. Preserve the incoming implementation; the UAT capacity/retention owner
+must prove both historical and current job receipts with failure controls before
+claiming that recovery complete. This finding does not authorize a second UAT
+implementation or rollout in the shared-Dev payment lane.
+
+The fresh read-only observation at `2026-10-14T00:58:52Z` confirms that the primary
+already selected Azure subscription ending `052f9`, which is enabled and has
+its target resource group and registered Container Apps provider. One still
+records the prior failed registration job and a pending, unbound private agent;
+the counterpart's private Azure binding remains provisioned. The supported
+setup-page Retry preserves the existing subscription and Files selection and
+renews the owner's Microsoft authorization. A failed worker retains no delegated
+credential for a credentialless restart. Current source accepts regional
+registration in progress and retains later resource admission. Azure CLI access
+does not substitute for the owner callback. The existing Chrome transport still
+refuses this client with HTTP 403, without any browser or tab changes.
+
+The same infrastructure branch now composes main `06180616be38`, including its
+Personal World Model and canonical managed-AI profiles. Main migrations 335–336
+remain intact; the seven unaccepted task registrations move to 342–348 with
+identical forward/rollback SQL. Release and schema contracts use head 348;
+private migrations and the original preservation receipt remain unchanged.
+The immediately preceding candidate `78e118a69a76` passed canonical core in
+585 seconds. The new composition has passed 201 focused backend checks,
+66 frontend checks, 451 Back cases, 123 Files/Azure/runtime-provider cases,
+12 Chromium/WebKit layout cases, type checking and regenerated UI contracts;
+its completed-candidate core and hosted CI are still required.
+
+The subsequent main Wallet presentation update `bd4e93bec540` is also merged
+normally on this branch. Its Profile typography and icons retain the branch's
+owner/vault retirement guards and receipt-only copy history; all 57 affected
+frontend cases pass, with zero architecture regressions. The canonical financial
+rehearsal now opens Payments and earnings and its existing withdrawal/refund
+disclosures, reusing signed funding receipts rather than submitting them again.
+
+Main's subsequent onboarding update `ae85461ceb8e` is merged normally on the
+same branch. The composed flow retains early voice refusal, exact invitation
+returns and authentication boundaries, and restores the final sign-in action's
+shared button primitive. The three nearest component contracts pass 25 cases;
+all 451 Back cases, generated UI verification, type checking and the 157-screen
+cache contract pass. The architecture ratchet reports zero regressions.
+
+Core exposed two configuration-verification defects before completion. Files
+project selection now uses its canonical runtime-settings getter with identical
+custody and explicitly approved Dev-bridge validation; 160 focused cases pass.
+The deployment secret parser recognizes shell empty-default bindings, with 12
+focused cases and a negative control proving missing-lane enforcement. Existing
+secret omission policy, gate authority and architecture budgets are unchanged.
+The verification clone's main reference is aligned to the root repository for
+the final exact-candidate run; earlier failed attempts remain failure evidence.
+The getter now returns an explicit string when both project variables are unset;
+67 focused cases, focused type checking and its configuration ownership gate pass.
+The independent review retains the existing 1383-line measurement and all prior
+architecture findings; no ceiling or authority policy changes.
+
+The fresh read-only Dev observation at `2026-10-14T00:09:51Z` still serves source
+`49074b1f72a1`, preserves all 59 private migration receipts with no baseline,
+and records two funding payments, zero purchases and zero withdrawals. A
+headless counterpart check proves normal authentication and vault unlock;
+navigation to the consolidated payment destination timed out on this older
+release. It is not warm payment-screen acceptance. The existing shared Chrome
+connection refuses this client with HTTP 403; no browser restart, tab closure,
+credential extraction or financial action was performed by these checks.
+The follow-up uses the authored Payments pane destination, preserving exact
+arrival and owner/vault continuity. It verifies warm vault continuity, but the
+new consolidated heading remains unverified on the older serving source. The
+canonical financial rehearsal uses this same ordinary pane destination while
+retaining the exact opaque hosted-return URL and financial admission checks.
+A primary headless read at `2026-10-14T00:31Z` confirms the same selected Azure
+subscription and failed provisioning job; no subscription reselection or
+provider flow was submitted. IAM-authenticated Monitoring verifies all 17
+aggregate metrics at `2026-10-14T00:26:19Z`, with fresh worker/provider observations,
+zero backing shortfall, zero unbalanced journals and zero receipt failures.
+
+Research now uses existing private-placement admission before checkpoint reads,
+provider dispatch and result release. Invitation requests revalidate the owner
+and vault session after asynchronous key preparation; claims evaluate expiry
+after database lock waits. Exact owner-token lineage uses the claim's current
+transaction. Owner-GCP ADC follows the rendered owner project and matching CMEK
+custody, while shared managed AI retains the environment profile. Files binding
+retains the capability's explicitly approved Dev model bridge
+and rejects generic, mismatched or malformed project overrides; the general
+model factory remains pinned to its verified runtime topology. The immutable
+incoming source fails the corresponding placement, invitation-retirement,
+expiry and owner-ADC regression controls. Account reset retains financial
+fences and performs one sealed-packet purge.
+
+The read-only owner-target Azure observation on 2026-10-13 finds the primary's
+selected subscription enabled with all six providers registered, but its setup
+remains failed with `PROVIDER_REGISTRATION_PENDING` and no deployed private
+runtime or usable vault. Selection is retained; a fresh owner-bound Azure return
+is required because its provisioning credential was memory-only. The
+counterpart's private runtime and vault remain active. Existing two funding
+settlements and the $5 Sandbox Topup must not be repeated. Reviewer purchases,
+withdrawals and One's authenticated Stripe account/balance reads remain
+unverified. These source checks do not complete financial acceptance.
+
+### Main integration verification — 2026-10-13 UTC
+
+The current continuation integrates main `03fb1e66eeff` on the same
+infrastructure branch. Main Drive migrations 332–334 remain intact; the seven
+unaccepted task registrations move from 332–338 to 335–341 with identical
+forward and rollback SQL. Schema contracts use head 341. The read-only Dev
+observation at `2026-10-13T21:08:57.998900+00:00` confirms the same 59 private
+receipts, no accepted canonical 327–341 entries and no baseline. It still records
+two funding payments, zero purchases and zero withdrawals; settled funding and
+capital must not be repeated.
+
+Incoming Drive collection, facts and packet workers now use the existing private
+placement admission before claiming work, obtaining credentials or reading
+information, and revalidate it at processing boundaries. Owner-self packet
+catalog reads have the same guard; the existing consented cross-owner listing
+authority remains separate. All 224 nearest backend checks pass; the tightened
+nine-case boundary check passes, while all eight private/unknown refusal cases
+fail against the immutable unguarded incoming source. Locked-dependency frontend
+checks pass 196 cases, and the combined Back pack passes 450 cases. The next core
+run exposed schema column-order drift and phone fixtures missing the current
+ownership lookup. Restored canonical ordering and narrowly corrected fixtures
+pass 250 focused checks, preserving occupied-number and owner-mismatch controls.
+The erasure inventory now proves seven existing Drive FK cascades. A separate
+reset gap is corrected in the existing cleanup transaction: sealed packet keys,
+versions and listings are erased after financial fences; 34 packet/retention
+checks pass, and the immutable predecessor fails the reset negative control.
+Candidate `19aec8b2ccca` passes the complete core bundle: 18,991 protocol cases,
+1,122 PostgreSQL cases, web-core, MCP package and integration/PKM gates. The four
+newer main commits add Wallet fixes without migration or Stripe changes; their
+merged validation passes 43 frontend and 73 backend cases. A keyboard-only
+focus bar preserves the icon-only Next control's visible focus while ordinary
+navigation remains plain. Candidate `cf015e024143` also passes canonical core:
+19,007 protocol and 1,122 PostgreSQL cases, plus web-core, MCP and integration.
+Hosted full Vitest shards, web-core and Android pass; targeted browser checks
+expose a duplicated synthetic AuthService export and an obsolete Wallet History
+selector, while the Node leg exposes stale generated Feed markup. The focused
+corrections preserve the complete synthetic auth boundary and named History
+panel assertions; Feed markup is regenerated from the real component. Main's
+subsequent recipient-view privacy fix is included, with 27 nearest cases passing.
+The affected browser checks pass 34 cases, followed by all six Wallet cases
+against the final named selector. Back remains 450 passing cases; architecture
+reports zero new or worsened findings without baseline changes. Candidate
+`7bb280ddcdd2` passes the complete local core bundle in 555 seconds: 19,007
+protocol cases, 1,122 PostgreSQL cases, web-core, MCP and integration. Hosted
+full Vitest shards, protocol, web-core, Android, MCP and integration pass. Both
+failed browser shards expose the same stale sprite-renderer assumptions after main's native Rive
+integration: its test passes a wrapper to canvas APIs and its fixture omits
+the committed RIV/WASM assets. All four affected Chromium/WebKit cases fail
+on the unchanged candidate. The bounded fixture correction serves exact local
+assets and samples the entire DPR-sized canvas without changing its buffer;
+it retains state, geometry, transparency, animation, HD fallback and lifecycle
+pause/resume checks. All four corrected cases pass in 7.6 seconds. Fresh
+exact-candidate core/CI and Dev/financial/OAuth acceptance remain required.
+
+Read-only observations at `2026-10-13T22:37:23.750278+00:00` retain all 59
+private migration receipts and zero baselines. All 56 active private manifest
+entries match their applied hashes; the extra 937–939 rows remain historical
+consumer-MCP receipts. Shared Dev uses release replay, which validates shape
+without writing canonical migration receipts. Monitoring at
+`2026-10-13T22:37:20.971659+00:00` verifies the enabled reconciliation scheduler
+and fresh provider observations, with zero journal imbalance, backing shortfall
+or receipt failures. Primary Azure setup still reports
+`PROVIDER_REGISTRATION_PENDING` with no vault; provider registration now reads
+Registered, but a fresh owner OAuth return remains necessary. The counterpart's
+private Azure runtime is verified at installed source `e04b76c61433`.
+Its authenticated Stripe catalog remains documentation-only and unverified;
+SDK account receipts do not establish One's OAuth or account-tool acceptance.
+
+The preceding continuation integrated main `460a68d4b908` through normal merge
+`49d29b86ac99` on the preserved infrastructure branch. Main migrations 327–331
+remain intact; the seven task registrations move from 327–333 to 332–338 with
+all fourteen forward/rollback bodies byte-identical. Active consumers and schema
+contracts use head 338. Read-only target evidence at
+`2026-10-13T17:38:33.037952+00:00` finds 59 applied private-Dev receipts (900–958),
+no accepted canonical 291 or 327–338 entries, and no baseline. The original
+preservation receipt remains unchanged. Release replay and schema checks remain
+required; this source relocation does not authorize rewriting accepted history.
+Main migration 330 has no rollback registration, an inherited recovery gap.
+
+The combined `39a5477aca6a` core run passed 18,870 protocol cases and exposed
+five missing route classifications, one missing Shared-placement test fixture
+and an unused frontend test import. The narrow corrections retain production
+admission and all permission-write negative controls. Feed presentation controls
+are owner metadata authority; delivery acknowledgements and invitation rotation
+remain person-to-person network operations. All 97 nearest checks pass. Fresh
+combined core and hosted CI remain required before Dev deployment.
+
+Candidate `80df81d7e2ce` passed canonical core in 587 seconds. The combined
+source preserves separate scope, document and answer financial contracts and
+fixes obsolete Memory publication after bounded encrypted-write retries. Consent
+stream errors are read before transport cleanup; unconfigured receipt logos keep
+merchant domains out of implicit third-party requests. Focused negative controls
+and fresh combined core/CI qualify these boundaries before deployment.
+
+Latest Memory reads distinguish stable absence from repeated invalidation and
+reject exhausted retries; vault retirement stops further reads. Background
+refreshes consume failures at the existing service boundary. Wallet QR revocation
+retains transactional old-link refusal and activity reset while fencing delayed
+authentication and settlement to the current owner visit and card surface.
+Forty-eight nearest cases and nine handoff cases pass. Broken controls permit
+retired QR writes, publish late success, or leave two background rejections
+unhandled. These source checks do not establish provider financial acceptance.
+The Memory interface retains **Saved** and **Add** with exact-scope sharing and
+pricing in Saved; private memory.md remains excluded from commercial exports.
+
+The continuation incorporates main `4d067d6ce126` through the existing branch.
+Search preserves curated presentation order while projecting labels, aliases,
+discovery and availability from the generated action contracts. Payment aliases
+remain reachable; signed-out payment navigation and destinations requiring an
+unselected client remain blocked. All 66 nearest checks pass; the five discovery
+and guard regressions fail against the incoming copied catalog.
+
+Candidate `fc086b8b1449` passed the full local core bundle in 542 seconds. Hosted
+frontend, browser, iOS and Android checks passed; protocol CI exposed a
+nondeterministic receipt test that changed only ignored Base64 padding bits.
+The corrected fixture flips an authenticated ciphertext byte. All 65 nearest
+receipt cases pass; a fixed synthetic nonce reproduces the previous failure,
+and bypassing authentication fails the corrected test. Production receipt
+authorization is unchanged. The combined candidate requires fresh core and CI.
+
+Shared Dev serves backend `49074b1f72a1` and frontend `e04b76c61433` at full
+traffic, observed at `2026-10-13T10:02:19Z`. A read-only headless counterpart
+journey at `2026-10-13T11:02:12Z` follows the authored payouts-pane redirect,
+renders its heading and preserves the unlocked owner vault. The previous
+path-only expectation incorrectly treated this redirect as failed navigation.
+This establishes pane access, not the newer payment interface or financial
+acceptance. Monitoring observations are fresh; no reviewer purchase or payout
+is claimed by these checks.
+
+The continuation incorporates main `f34f995d16d2` through a normal merge on the
+existing infrastructure branch. Its answer-resolution lease remains migration
+326; this lane's registrations move from 326–332 to 327–333 with identical
+forward and rollback SQL. The target-bound Dev readback at
+`2026-10-13T06:51:06.907108+00:00` found no accepted canonical 326–333 receipts or
+baseline. The original preservation receipt remains unchanged; a separate
+relocation receipt records the verified mapping. Generated release contracts
+use head 333. Release-time receipt checks remain authoritative.
+
+The browser database upgrades either shipped version-2 layout to version 3,
+retaining ciphertext, onboarding stores and durable-resource generation fences.
+Its single database-opening owner preserves blocked-upgrade and version-change
+closure; the existing cache API remains compatible. Private-pod chat uses the
+same closed receipt-tool admission as shared chat, with owner/conversation-bound
+encrypted continuation checks before agent construction. These are source and
+focused regression findings, not deployed reviewer acceptance. Funding and
+capital are not repeated; purchases, payouts and One's authenticated Stripe
+reads still require runtime evidence.
+
+Focused checks pass 29 encrypted-cache cases, 17 private-pod route cases,
+98 chat-client cases and 170 affected receipt/native cases. Removing either
+owner or conversation identity guard fails the valid-continuation regression;
+retaining version 2 fails both cache-upgrade controls. Independent review
+qualifies 48 inherited main/composed architecture occurrences, preserving the
+unchanged detector, budgets, duplicate occurrences and unrelated measurements.
+The database and admission leaves introduce no new size finding. Full core,
+hosted CI and exact-candidate Dev verification remain required.
+
+Latest main `3d30e32f4618` is also integrated normally, preserving current avatar
+and wallet presentation. Recipient-bound Profile sharing and Wallet-wide Manage
+controls remain reachable alongside card history; these distinct authorities
+are not replaced by the preview carousel. UTF-8 punctuation is normalized, and
+the incoming `wallet.add` graph revision has an explicit authored retirement.
+The current-owner artwork fence remains intact. The read-only headless
+counterpart probe verifies normal authentication, visible vault unlock and
+private Azure placement; its pod model diagnostic returns 503, so provider
+reachability and deployed private Memory execution remain unverified.
+
+The combined core run identified outdated private-stream test owners, an
+unclassified answer-resolution retry and an unused avatar import. The corrected
+fixtures assert both owner-access checks; the retry is classified as the existing
+person-to-person request flow, which processes requester questions and public
+scope labels without granting information access. The nearest ingress and
+inventory/resolver checks pass 63 and 36 cases respectively. Required full core
+and hosted CI must pass on the corrected candidate before deployment.
+
+The full core bundle passes on `42f90f3cb47c` (540 seconds), including 18,675
+parallel protocol cases, 1,028 PostgreSQL cases and the selected PKM upgrade gate.
+Its hosted browser jobs expose an obsolete inline History anchor after the
+imported native opener changed. The corrected fixture reads the authored opener
+and fails on missing or ambiguous anchors; all 40 affected Chromium/WebKit cases
+pass, including the existing geometry negative controls.
+The combined Profile contract follows the canonical Payments and earnings
+composition while retaining one bank-return owner and source-specific answer
+returns. Circle chat lifecycle assertions wait for initialization and retirement
+effects; their connection-count guarantees are unchanged. Both nearest files
+pass all 11 cases. Required gates are retained.
+
+Dev's owner-authorized private model diagnostic reports a relay `ReadTimeout`.
+The relay's five-second status budget was shorter than uncached identity
+acquisition (10 seconds) followed by the provider probe (20 seconds). Diagnostics
+now use a 35-second network-phase budget; ordinary status reads retain five
+seconds, registry-selected addresses, authentication and redirect refusal.
+All 23 nearest relay/diagnostic/timeout cases pass, and restoring the short
+diagnostic budget fails the regression. This source correction still requires
+exact-candidate core/CI and deployed provider verification; a later healthy Azure
+replica does not establish request-time model access.
+
+Normal integration of main `1d691714135e` retains the existing infrastructure
+branch, prepared-answer settlement ownership and timed scope-access authority.
+The combined interface continues to use one Payments and earnings destination;
+funds stay attributed to their original subsystems. Scope funding and the tagged
+capital receipts are reconciled before any new provider action.
+
+Focused checks pass 186 provider/answer cases and 123 retrieval/review cases.
+Memory schemas are normalized and validated before Azure provider dispatch,
+without changing model choice or private-owner placement. Failed materialized
+exports cannot be replaced by a matching private fact; wildcard projections
+retain eligible siblings while excluding blocked leaves. Existing encrypted
+slices must carry current admission qualification or rebuild. Removing each
+materialized-export, leaf or legacy-slice guard fails its protected regression.
+Real deployed provider behavior remains to be verified.
+
+The prior candidate `9644d2ecdd` passed its non-browser CI jobs, but its browser
+job exhausted 30 minutes and failed a stale History inset assertion. Required
+browser coverage now uses three validated shards, preserving all engine lists,
+retries and the aggregate gate. Actual collection proves disjoint, complete
+partitions of 664 Chromium, 586 WebKit and 158 mobile Chromium cases. Node checks
+and Mermaid rendering execute once. Focused History and preference geometry
+checks pass in Chromium and WebKit. Full core, terminal hosted CI, Dev promotion,
+reviewer purchase/payout receipts and One's authenticated Stripe reads remain
+required before issue #7587 can close.
+
+The continuation also integrates main `b2e22e286b08` through a normal merge,
+preserving Drive's explicit owner-review requirement before automatic sharing or
+new Checkout. No migration registration or SQL changed between the two incoming
+main revisions. All 447 Back cases, UI contract verification and 108 affected
+web cases pass. The bounded Drive run passed 585 cases and exposed one synthetic
+fixture without a hosting selection; the corrected fixture and nearest migration
+suite pass all 35 cases without changing production placement enforcement.
+Existing trigger and constraint replay assertions moved intact into the existing
+migration test owner. Independent review qualifies 52 inherited Drive size spans;
+all unrelated measurements, duplicate occurrences, budgets and future-growth
+checks remain enforced. The combined candidate still requires full core and
+terminal hosted CI before Dev promotion and financial acceptance.
+
+Answer payout onboarding now uses the same fenced hosted-return mechanism while
+retaining its distinct settlement owner and mode. Correlated answer and document
+returns use separate opaque markers; neither refreshes scope onboarding. Warm
+returns preserve the initiating vault session, while cold returns require normal
+authentication and unlock and offer answer-specific fresh-link recovery. Bank
+management retires a prepared destination after owner or vault changes. Focused
+checks pass 198 backend cases and 117 web cases across six suites; type checking
+and architecture regression checks pass. Removing the pending-management
+retirement guard fails its focused regression without changing source files.
+All 447 Back cases pass after contract regeneration. Full core, hosted CI and
+deployed warm/cold behavior remain completion gates.
+
+The bounded authored workflow predecessor list retains the committed
+`9644d2ecdd` branch history after main integration. Its eight workflow definitions
+match the current definitions; its qualified revision policies contain every
+surviving contribution from the replaced predecessor. Existing exact retirements,
+ancestor admission, semantic checks and the eight-reference limit remain intact.
+Generated mirrors are derived from this authored list rather than patched.
+
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
@@ -88,9 +469,10 @@ Latest-main integration preserves prepared-answer payment ownership. Incoming
 profile-review normalization now retains model citations and semantic metadata
 so the existing owner-selection fidelity gate can reject mismatches. All 128
 structure-agent cases pass; the three focused fidelity cases fail on the actual
-incoming predecessor. Soul-backed answers use exact domain-bound scopes, admit
-alternate facts only after successful empty canonical exports, preserve current
-structured values and combine parent-wildcard facts. All 66 answer/identity/cache
+incoming predecessor. At that earlier checkpoint, Soul-backed answers used exact domain-bound scopes
+and retained structured values. Incoming main now permits current owner-labelled
+facts after successful canonical admission or verified absence; the leaf and
+failed-materialized-export checks above bound that behavior. All 66 answer/identity/cache
 cases pass. Shared synthetic fixtures retain the original assertions without
 duplicate test setup. No migration or financial-source authority changed.
 
@@ -219,7 +601,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/327_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/343_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -564,7 +946,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/327_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/343_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 

@@ -28,6 +28,7 @@ def _item(source_id: str = "gmail_live_source.sig") -> dict:
     return {
         "id": -1,
         "source_id": source_id,
+        "durable_source_ref": "grs1_" + "a" * 40,
         "receipt_key": source_id,
         "source_kind": "gmail_live",
         "gmail_message_id": "provider-message-id",
@@ -39,6 +40,7 @@ def _item(source_id: str = "gmail_live_source.sig") -> dict:
         "from_email": "receipts@myntra.com",
         "order_id": "ORDER-100",
         "amount": 100.0,
+        "amount_decimal": "100.00",
         "currency": "INR",
         "receipt_date": "2026-10-04T00:00:00+00:00",
         "gmail_internal_date": "2026-10-04T00:00:00+00:00",
@@ -102,16 +104,16 @@ def test_scan_is_sealed_bounded_and_no_store(monkeypatch):
     service = MagicMock()
     service.scan = AsyncMock(
         return_value={
-            "items": [],
+            "items": [_item()],
             "page": 1,
             "per_page": 6,
-            "returned_count": 0,
+            "returned_count": 1,
             "has_more": False,
             "coverage": {
                 "source": "gmail_live",
-                "listed_count": 0,
-                "candidate_count": 0,
-                "matched_count": 0,
+                "listed_count": 1,
+                "candidate_count": 1,
+                "matched_count": 1,
                 "pages_scanned": 1,
                 "max_messages": 6,
                 "max_pages": 10,
@@ -142,6 +144,8 @@ def test_scan_is_sealed_bounded_and_no_store(monkeypatch):
     )
 
     assert response.status_code == 200
+    assert response.json()["items"][0]["durable_source_ref"] == _item()["durable_source_ref"]
+    assert response.json()["items"][0]["amount_decimal"] == "100.00"
     assert response.headers["cache-control"] == "private, no-store"
     assert response.headers["pragma"] == "no-cache"
     kwargs = service.scan.await_args.kwargs
@@ -242,6 +246,68 @@ def test_live_receipt_request_bounds_reject_before_service(monkeypatch):
     assert oversized.status_code == 422
     service.scan.assert_not_awaited()
     service.detail.assert_not_awaited()
+
+
+def _coverage(**overrides: object) -> dict:
+    base = {
+        "source": "gmail_live",
+        "listed_count": 1,
+        "candidate_count": 1,
+        "matched_count": 1,
+        "pages_scanned": 1,
+        "max_messages": 6,
+        "max_pages": 10,
+        "reached_limit": False,
+        "query_scope": "receipt_signals_all_mail_except_spam_trash",
+        "rejection_counts": {"missing_receipt_signal": 0, "extractor_not_receipt": 0},
+        "evidence_counts": {
+            "gmail_category": 0,
+            "subject_signal": 0,
+            "body_signal": 0,
+            "verified_merchant": 0,
+            "order_candidate": 0,
+            "total_candidate": 0,
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+def test_scan_classifies_a_response_shape_mismatch_instead_of_crashing(monkeypatch, caplog):
+    # A regression seen live on UAT: one extracted item failed the response
+    # model's schema (observed via Cloud Run logs landing inside FastAPI's
+    # own serialize_response, outside this route's try/except), which this
+    # route previously returned as an opaque, unclassified 500 -- a shape the
+    # frontend's retry logic cannot distinguish from a dependency crash, so it
+    # gave up without retrying. A currency outside the declared Literal set
+    # reproduces the same response-model mismatch deterministically.
+    bad_item = _item()
+    bad_item["currency"] = "CAD"
+    bad_item["merchant_name"] = "private-merchant-name"
+    service = MagicMock()
+    service.scan = AsyncMock(
+        return_value={
+            "items": [bad_item],
+            "page": 1,
+            "per_page": 6,
+            "returned_count": 1,
+            "has_more": False,
+            "coverage": _coverage(),
+        }
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+    monkeypatch.setattr(gmail, "_revalidate_live_receipt_access", AsyncMock())
+
+    response = TestClient(_app(), raise_server_exceptions=False).post(
+        "/gmail/receipts/scan", json={"user_id": "owner"}
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == {
+        "code": "GMAIL_RECEIPT_INVALID_RESPONSE",
+        "message": "Gmail returned an invalid receipt response.",
+    }
+    assert "private-merchant-name" not in response.text + caplog.text
 
 
 def test_live_receipt_errors_do_not_echo_provider_or_mailbox_values(monkeypatch, caplog):

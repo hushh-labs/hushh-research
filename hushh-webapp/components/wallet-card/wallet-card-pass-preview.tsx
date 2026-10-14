@@ -30,12 +30,12 @@ export function WalletCardPassPreview({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
+        "mx-auto grid w-full max-w-md grid-cols-[minmax(0,1fr)_128px] overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
         className,
       )}
       data-testid="wallet-card-pass-preview"
     >
-      <div className="border-b border-border/60 px-5 py-4">
+      <div className="col-start-1 min-w-0 px-4 pt-4 pb-2">
         <div className="min-w-0">
           <div className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
             Hussh One
@@ -52,7 +52,7 @@ export function WalletCardPassPreview({
       </div>
 
       {auxiliary.length > 0 ? (
-        <dl className="flex flex-wrap gap-x-8 gap-y-3 px-5 pt-4">
+        <dl className="col-start-1 flex min-w-0 flex-wrap gap-x-4 gap-y-2 px-4 pb-4">
           {organisation.trim() ? (
             <div className="min-w-0">
               <dt className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -76,7 +76,7 @@ export function WalletCardPassPreview({
         </dl>
       ) : null}
 
-      <div className="px-5 py-4">
+      <div className="col-start-2 row-start-1 row-span-2 self-center py-4 pr-4">
         {shareUrl ? (
           <div className="mx-auto w-full max-w-[184px]">
             <WalletCardQr value={shareUrl} label="Your Wallet Profile QR code" />

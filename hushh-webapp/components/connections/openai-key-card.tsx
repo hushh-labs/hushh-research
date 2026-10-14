@@ -5,19 +5,12 @@ import {
   useEffect,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { HelperText } from "@/components/app-ui/typography";
+import { OwnerKeyContent, type KeyNotice } from "./owner-key-content";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
-import {
-  SpinnerGapIcon as Loader2,
-  TrashIcon as Trash2,
-} from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import {
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
@@ -28,10 +21,8 @@ import {
 } from "@/lib/connections/gemini-runtime-configuration";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
-import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { normalizeAiSelection } from "@/lib/one/ai-selection-seal";
-import { ROUTES } from "@/lib/navigation/routes";
 import {
   agentUpdateApprovalToast,
   approveAgentUpdate,
@@ -76,7 +67,7 @@ export type OpenAiKeyCardProps = {
   provider?: "openai" | "azure_openai";
 };
 
-type Notice = { tone: "error" | "status"; text: string } | null;
+type Notice = KeyNotice;
 
 export function OpenAiKeyCard(props: OpenAiKeyCardProps) {
   // A typed key and owner-specific results must not survive an account switch.
@@ -106,7 +97,6 @@ function OwnerOpenAiKeyCard({
   const statusId = `${provider}-key-status`;
   const [endpoint, setEndpoint] = useState("");
   const [deployment, setDeployment] = useState("");
-  const router = useRouter();
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -358,191 +348,6 @@ function OwnerOpenAiKeyCard({
     inUse && selection?.lastFailure
       ? aiSelectionRefusalMessage(selection.lastFailure, providerName)
       : null;
-  let body: ReactNode;
-  if (!readiness) {
-    body = (
-      <HelperText role="status" className="inline-flex items-center gap-1.5">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-        Checking your private agent…
-      </HelperText>
-    );
-  } else if (readiness.kind === "unknown") {
-    body = (
-      <>
-        <HelperText role="status">
-          We couldn’t check your private agent.
-        </HelperText>
-        <Button type="button" variant="link" onClick={() => void load()}>
-          Try again
-        </Button>
-      </>
-    );
-  } else if (readiness.kind === "no_agent") {
-    body = (
-      <>
-        <HelperText>
-          Your own key runs on your private agent, so Hussh never holds it.
-        </HelperText>
-        <Button
-          type="button"
-          variant="link"
-          onClick={() => router.push(ROUTES.ONE_SETUP_CLOUD)}
-        >
-          Set up your private agent
-        </Button>
-      </>
-    );
-  } else if (readiness.kind === "agent_pending") {
-    body = (
-      <HelperText>
-        Your private agent isn’t ready yet. Your own key works once it is.
-      </HelperText>
-    );
-  } else if (readiness.kind === "needs_update") {
-    const { installable, working } = readiness.update;
-    body = (
-      <>
-        <HelperText role="status">{`Your agent needs an update to use ${providerName}.`}</HelperText>
-        {working ? (
-          <HelperText>
-            Your agent is updating now. Come back when it finishes.
-          </HelperText>
-        ) : installable ? (
-          <Button
-            type="button"
-            variant="none"
-            effect="fade"
-            onClick={() => void approveUpdate()}
-            disabled={busy !== null}
-          >
-            {busy === "updating" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-            ) : null}
-            Update your agent
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="link"
-            onClick={() => router.push(ROUTES.PROFILE_SOFTWARE_UPDATES)}
-          >
-            Check for updates
-          </Button>
-        )}
-      </>
-    );
-  } else if (!vault) {
-    body = (
-      <>
-        <HelperText>{`Unlock your vault to use your own ${providerName} key.`}</HelperText>
-        <Button type="button" variant="link" onClick={requestVault}>
-          {needsVaultCreation ? "Create your vault" : "Unlock your vault"}
-        </Button>
-      </>
-    );
-  } else {
-    body = (
-      <>
-        {lastFailure ? (
-          <HelperText
-            role="alert"
-            className="text-destructive"
-          >{`Your agent’s last check failed. ${lastFailure}`}</HelperText>
-        ) : null}
-        {provider === "azure_openai" ? (
-          <>
-            <Input
-              aria-label="Azure AI endpoint"
-              placeholder="https://your-resource.openai.azure.com/"
-              value={endpoint}
-              onChange={(event) => setEndpoint(event.target.value)}
-              disabled={busy !== null}
-            />
-            <Input
-              aria-label="Azure AI deployment"
-              placeholder="Deployment name"
-              value={deployment}
-              onChange={(event) => setDeployment(event.target.value)}
-              disabled={busy !== null}
-            />
-          </>
-        ) : null}
-        <Input
-          type="password"
-          autoComplete="off"
-          value={draftKey}
-          onChange={(event) => {
-            setDraftKey(event.target.value);
-            setNotice(null);
-          }}
-          placeholder={
-            inUse
-              ? `Paste a new ${providerName} API key`
-              : `Paste a ${providerName} API key`
-          }
-          disabled={busy !== null}
-          aria-label={`${providerName} API key`}
-          aria-invalid={notice?.tone === "error"}
-          aria-describedby={statusId}
-        />
-        <HelperText
-          as="div"
-          className="min-h-5"
-          id={statusId}
-          role={notice?.tone === "error" ? "alert" : "status"}
-          aria-live="polite"
-        >
-          {busy === "checking" ? (
-            <span className="inline-flex items-center gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              {`Your agent is checking this key with ${providerName}…`}
-            </span>
-          ) : notice ? (
-            <span
-              className={
-                notice.tone === "error" ? "text-destructive" : undefined
-              }
-            >
-              {notice.text}
-            </span>
-          ) : defaultModel ? (
-            `Your agent checks the key with ${providerName}, then uses ${defaultModel}.`
-          ) : (
-            `Your agent checks the key with ${providerName} before using it.`
-          )}
-        </HelperText>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="blue-gradient"
-            onClick={() => void checkAndUse()}
-            disabled={busy !== null}
-          >
-            {busy === "checking" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-            ) : null}
-            Check and use
-          </Button>
-          {hasSavedKey || inUse ? (
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              onClick={() => void remove()}
-              disabled={busy !== null}
-            >
-              {busy === "removing" ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-              ) : (
-                <Trash2 className="mr-2 h-4 w-4" aria-hidden />
-              )}
-              Remove key
-            </Button>
-          ) : null}
-        </div>
-      </>
-    );
-  }
 
   return (
     <SettingsGroup
@@ -567,7 +372,7 @@ function OwnerOpenAiKeyCard({
         testId={`profile-${provider}-key-row`}
       />
       <div className="space-y-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-        {body}
+        <OwnerKeyContent readiness={readiness} providerName={providerName} busy={busy} vault={Boolean(vault)} needsVaultCreation={needsVaultCreation} lastFailure={lastFailure} provider={provider} endpoint={endpoint} deployment={deployment} draftKey={draftKey} notice={notice} defaultModel={defaultModel} statusId={statusId} hasSavedKey={hasSavedKey} inUse={inUse} load={load} approveUpdate={approveUpdate} requestVault={requestVault} setEndpoint={setEndpoint} setDeployment={setDeployment} setDraftKey={setDraftKey} setNotice={setNotice} checkAndUse={checkAndUse} remove={remove} />
       </div>
     </SettingsGroup>
   );

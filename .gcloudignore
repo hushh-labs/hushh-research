@@ -96,6 +96,7 @@ assets/
 # last-match-wins -- so do not move this above that line.
 !scripts/deploy/backend-deploy.sh
 !scripts/deploy/backend-model-settings.sh
+!scripts/deploy/backend-drive-secret-settings.sh
 !scripts/deploy/commerce-preview-bindings.sh
 !scripts/deploy/scope-commerce-secrets.sh
 !scripts/deploy/pod-release-env.sh

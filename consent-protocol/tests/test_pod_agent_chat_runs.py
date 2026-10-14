@@ -120,6 +120,114 @@ def _owner():
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
 
 
+@pytest.mark.parametrize("changed_schema", [False, True])
+async def test_receipt_tools_use_the_same_closed_contract_in_the_private_pod(changed_schema):
+    from ag_ui.core import Tool
+
+    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES, receipt_tool_declaration
+
+    turn = _turn()
+    turn.tools = [
+        Tool.model_validate(receipt_tool_declaration(name)) for name in RECEIPT_TOOL_NAMES
+    ]
+    if changed_schema:
+        turn.tools[0].parameters = {"type": "object", "additionalProperties": True}
+        with pytest.raises(HTTPException) as refused:
+            pod_agent_chat.trusted_state(turn, _owner())
+        assert refused.value.status_code == 400
+        assert refused.value.detail == {"code": "AGENT_TOOL_NOT_ADMITTED"}
+        return
+    state, _ = pod_agent_chat.trusted_state(turn, _owner())
+    assert state["hussh:user_id"] == "owner-a"
+
+
+@pytest.mark.parametrize(
+    "session_owner,session_id",
+    [
+        ("owner-a", "conv-1"),
+        ("other-owner", "conv-1"),
+        ("owner-a", "other-thread"),
+    ],
+)
+async def test_receipt_continuation_is_bound_to_the_private_owner_and_thread(
+    session_owner, session_id
+):
+    import json
+    import time
+
+    from ag_ui.core import ToolMessage
+    from google.genai import types
+
+    from hushh_mcp.one_adk.receipt_client_tools import STATE_RECEIPT_PENDING, _digest
+    from tests.test_receipt_client_tools import NAME, QUERY, RESULT
+
+    call_id = "opaque-call"
+    owner = _owner()
+    owner.require_access = AsyncMock()
+    session = SimpleNamespace(
+        user_id=session_owner,
+        id=session_id,
+        state={
+            "pending_tool_calls": [call_id],
+            STATE_RECEIPT_PENDING: {
+                call_id: {
+                    "operation": NAME,
+                    "digest": _digest(QUERY),
+                    "issued_at": time.time(),
+                }
+            },
+        },
+        events=[
+            SimpleNamespace(
+                content=types.Content(
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(id=call_id, name=NAME, args={}),
+                        )
+                    ]
+                )
+            )
+        ],
+    )
+    owner.sessions = SimpleNamespace(get_session=AsyncMock(return_value=session))
+    owner.build_agent = AsyncMock()
+    turn = _turn(
+        receiptToolResults=[
+            {
+                "toolCallId": call_id,
+                "toolName": NAME,
+                "request": QUERY,
+                "result": RESULT,
+            }
+        ]
+    )
+    turn.messages.append(
+        ToolMessage(
+            id="opaque-result",
+            role="tool",
+            tool_call_id=call_id,
+            content=json.dumps(
+                {"schema": "receipt_result.v1", "operation": NAME, "ephemeral_result": True}
+            ),
+        )
+    )
+    if session_owner == owner.owner and session_id == turn.thread_id:
+        response = await pod_agent_chat.chat(turn, owner)
+        assert response.status_code == 200
+        owner.build_agent.assert_awaited_once()
+    else:
+        with pytest.raises(HTTPException) as refused:
+            await pod_agent_chat.chat(turn, owner)
+        assert refused.value.status_code == 403
+        assert refused.value.detail == {"code": "POD_CHAT_RECEIPT_NOT_ADMITTED"}
+        owner.build_agent.assert_not_awaited()
+    owner.sessions.get_session.assert_awaited_once_with(
+        app_name=pod_agent_chat.ONE_APP_NAME,
+        user_id="owner-a",
+        session_id="conv-1",
+    )
+
+
 async def test_history_completion_race_stays_pending_until_fresh_read():
     from hushh_mcp.one_adk.pod_agui_lifetime import _ACTIVE_THREADS
 

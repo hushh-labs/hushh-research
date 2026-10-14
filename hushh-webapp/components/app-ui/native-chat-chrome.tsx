@@ -722,7 +722,7 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
   return <NativeChatChrome kind="history" owner={owner} pendingAttention={pendingAttention}
     context={context} eligible={eligible && (retainedBase || !open)} style={{ visibility: open && !retainedBase ? "hidden" : undefined }}
     onActivate={() => onActivate(true)} focusRef={focusRef} ref={ref}
-    className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
+    className="agent-chat-history-control relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
     <ShellActionSurface variant="icon" id="one-chat-history-trigger" ref={focusRef}
       // Pointer entry may return to acknowledged native focus. Keyboard and
       // ambiguous activation retain the DOM focus target until explicit blur.

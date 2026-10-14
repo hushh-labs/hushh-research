@@ -10,8 +10,8 @@ after any route's authored Back case changes; do not hand-edit this file.
 
 ## Visual Map
 
-150 authored routes, 12 of them section/app
-roots. 8 routes additionally branch on query (an action sheet,
+151 authored routes, 12 of them section/app
+roots. 9 routes additionally branch on query (an action sheet,
 a tab, a detail view) -- those sub-flows are counted on their edge label, not
 drawn individually, so the diagram reads as the hierarchy rather than every
 authored test fixture. See the JSON contract directly for the full
@@ -181,6 +181,7 @@ flowchart TD
   r_ria_profile["/ria/profile"]
   r_people_personRef(["/people/[personRef]"])
   r_products_hushh_tech_launch["/products/hushh-tech/launch"]
+  r_one_profile_world_model["/one/profile/world-model"]
 
   r_ria_clients_sample["/ria/clients/sample"]
 
@@ -277,4 +278,5 @@ flowchart TD
   r_research -->|push| r_root
   r_research_protocol -->|push| r_root
   r_ria_profile -->|push| r_one
+  r_one_profile_world_model -->|push, +1 case| r_one_profile
 ```

@@ -19,6 +19,9 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./wallet-saved-card-sharing.module.css";
 
+// Present the existing API limit before the owner submits their selection.
+const MAX_CARD_SHARE_RECIPIENTS = 20;
+
 export function WalletSavedCardSharing({ card, getContext, disabled, showHistory = true }: {
   card: Pick<WalletCardSummary, "cardId">; getContext: (cardId: string) => CardShareContext | null; disabled: boolean; showHistory?: boolean;
 }) {
@@ -27,7 +30,8 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
   const [query, setQuery] = useState("");
   const [recipients, setRecipients] = useState<CardAccessRecipient[]>([]);
   const [selected, setSelected] = useState<Record<string, CardAccessRecipient>>({});
-  const [duration, setDuration] = useState<5 | 10 | 15>(10);
+  const selectedCount = Object.keys(selected).length;
+  const [duration, setDuration] = useState<15 | 60 | 120>(15);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -142,7 +146,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
   const send = async () => {
     const base = getContext(card.cardId);
     const refs = Object.keys(selected).sort();
-    if (!base || !refs.length || sending.current || stateFailed || !state) return;
+    if (!base || !refs.length || refs.length > MAX_CARD_SHARE_RECIPIENTS || sending.current || stateFailed || !state) return;
     const requestGeneration = generation.current;
     const context = { ...base, isCurrent: () => requestGeneration === generation.current && base.isCurrent() };
     const fingerprint = JSON.stringify([base.userId, card.cardId, refs, duration]);
@@ -225,13 +229,14 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
             {loading ? <p role="status">Finding connections…</p> : failed ? <Button variant="secondary" onClick={() => setRecipientRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-[13px]">
               <Avatar className="size-8"><AvatarImage src={recipient.photoUrl || undefined} alt="" /><AvatarFallback>{recipient.displayName.slice(0, 1)}</AvatarFallback></Avatar>
               <span className="min-w-0 flex-1 break-words">{recipient.displayName}{recipient.trusted ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><ProfilePaneSecurityIcon size={14} />Trusted Circle</span> : null}</span>
-              <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy}
-                onCheckedChange={checked => setSelected(previous => { const next = { ...previous }; if (checked === true) next[recipient.personRef] = recipient; else delete next[recipient.personRef]; return next; })} />
+              <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy || (selectedCount >= MAX_CARD_SHARE_RECIPIENTS && !selected[recipient.personRef])}
+                onCheckedChange={checked => setSelected(previous => { const next = { ...previous }; if (checked === true) { if (Object.keys(previous).length < MAX_CARD_SHARE_RECIPIENTS) next[recipient.personRef] = recipient; } else delete next[recipient.personRef]; return next; })} />
             </label>)}
             {!loading && !failed && !recipients.length ? <p className="py-3 text-xs text-muted-foreground">No connections found.</p> : null}
             {hasMore ? <p className="text-xs text-muted-foreground">Search by name to find more connections.</p> : null}
           </div>
-          <fieldset><legend className="mb-2 text-[13px]">Access time</legend><div className="flex gap-2">{([5, 10, 15] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes} minutes</Button>)}</div></fieldset>
+          <p role="status" className="text-xs text-muted-foreground">{selectedCount} of {MAX_CARD_SHARE_RECIPIENTS} connections selected. Share with up to {MAX_CARD_SHARE_RECIPIENTS} at a time.</p>
+          <fieldset><legend className="mb-2 text-[13px]">Access time</legend><div className="flex gap-2">{([15, 60, 120] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes === 15 ? "15 minutes" : minutes === 60 ? "1 hour" : "2 hours"}</Button>)}</div></fieldset>
           <p className="text-xs text-muted-foreground">People outside your Trusted Circle verify their identity before viewing. CVV and PIN stay private.</p>
         </div>
       </SettingsDetailPanel>

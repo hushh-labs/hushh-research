@@ -82,6 +82,7 @@ import {
   type DriveChatRecoveryReason,
 } from "@/lib/agent/drive-oauth-chat-recovery";
 import { TrustedDocumentRules } from "@/components/consent/trusted-document-rules";
+import { DriveCollectionPanel } from "@/components/agent/drive-collection-panel";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
 import { PrivateOwnerConnectorsPanel } from '@/components/connections/private-owner-connectors-panel';
 import { CatalogConnectorDetails } from '@/components/agent/catalog-connector-details';
@@ -2533,6 +2534,7 @@ function OwnerConnectorsPanel({
                   </p>}
                 </div>
               )}
+              {drive?.profile === "live" && drive.status === "connected" && <DriveCollectionPanel backgroundEnabled={liveBackground} />}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <details className="group rounded-2xl bg-foreground/5 text-sm">
                   <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-medium [&::-webkit-details-marker]:hidden">

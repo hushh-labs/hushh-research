@@ -32,6 +32,7 @@ MAX_FILE_LIST_PAGE_SIZE = 100
 ERROR_RESPONSE_LIMIT = 16 * 1024
 RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 CONTENT_LIMIT = 4 * 1024 * 1024
+LIVE_COLLECTION_CONTENT_LIMIT = 32 * 1024 * 1024
 DEADLINE_SECONDS = 20
 MAX_SELECTION = 25
 SELECTED_POLICY = {
@@ -73,8 +74,8 @@ SHARE_METADATA_FIELDS = (
 # Metadata-only live read for a file with no readable text (a video, an image,
 # an archive, a folder): what it is and where to open it, never its bytes.
 FACT_FIELDS = (
-    "id,name,mimeType,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,trashed,"
-    "capabilities(canShare),clientEncryptionDetails(encryptionState)"
+    "id,name,mimeType,version,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,trashed,"
+    "capabilities(canShare,canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
 )
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = (
@@ -85,6 +86,21 @@ LIST_FIELDS = (
 # Drive sorts each key ascending unless told "desc"; live results are newest
 # first by the file time the owner asked about. modifiedTime is the default and
 # the time sort Drive optimizes on large collections.
+COLLECTION_FILE_FIELDS = (
+    "id,name,mimeType,version,modifiedTime,createdTime,size,md5Checksum,trashed,"
+    "capabilities(canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
+)
+COLLECTION_LIST_FIELDS = f"nextPageToken,incompleteSearch,files({COLLECTION_FILE_FIELDS})"
+CHANGES_FIELDS = f"nextPageToken,newStartPageToken,changes(fileId,removed,changeType,driveId,file({COLLECTION_FILE_FIELDS}))"
+COLLECTION_QUERY = "trashed = false and mimeType != 'application/vnd.google-apps.folder'"
+
+
+def _page_token(value: str) -> str:
+    if not isinstance(value, str) or not 1 <= len(value) <= 2048 or any(ord(c) < 32 for c in value):
+        raise DriveReadError("invalid_argument")
+    return value
+
+
 LIST_ORDERS = frozenset({"recency desc", "modifiedTime desc", "createdTime desc"})
 LIST_FIXED = {
     "fields": LIST_FIELDS,
@@ -274,6 +290,10 @@ class GoogleDriveAdapter:
         operation = (
             "list"
             if path == "/files"
+            else "changes"
+            if path == "/changes"
+            else "changes_start"
+            if path == "/changes/startPageToken"
             else "list_drives"
             if path == "/drives"
             else "account"
@@ -346,6 +366,54 @@ class GoogleDriveAdapter:
         # supply an origin, arbitrary query, mutation, or unbounded response.
         if path == "/about":
             allowed = params == {"fields": "user(permissionId,emailAddress,me)"}
+        elif path == "/changes/startPageToken":
+            allowed = params == {"fields": "startPageToken", "supportsAllDrives": "true"}
+        elif path == "/changes":
+            allowed = (
+                params.get("fields") == CHANGES_FIELDS
+                and params.get("pageSize") == "100"
+                and all(
+                    params.get(key) == "true"
+                    for key in ("supportsAllDrives", "includeItemsFromAllDrives", "includeRemoved")
+                )
+                and params.get("spaces") == "drive"
+                and set(params)
+                == {
+                    "fields",
+                    "pageSize",
+                    "pageToken",
+                    "supportsAllDrives",
+                    "includeItemsFromAllDrives",
+                    "includeRemoved",
+                    "spaces",
+                }
+                and 1 <= len(params.get("pageToken", "")) <= 2048
+            )
+        elif path == "/files" and params.get("fields") == COLLECTION_LIST_FIELDS:
+            allowed = (
+                params.get("q") == COLLECTION_QUERY
+                and params.get("pageSize") == "100"
+                and params.get("supportsAllDrives") == "true"
+                and params.get("includeItemsFromAllDrives") == "true"
+                and (
+                    params.get("corpora") == "user"
+                    and "driveId" not in params
+                    or params.get("corpora") == "drive"
+                    and FILE_ID.fullmatch(params.get("driveId", "")) is not None
+                )
+                and set(params)
+                <= {
+                    "fields",
+                    "q",
+                    "pageSize",
+                    "supportsAllDrives",
+                    "includeItemsFromAllDrives",
+                    "corpora",
+                    "driveId",
+                    "pageToken",
+                }
+                and len(params.get("pageToken", "")) <= 2048
+            )
         elif path == "/files":
             allowed = (
                 all(
@@ -389,7 +457,14 @@ class GoogleDriveAdapter:
             )
         else:
             allowed = False
-        if not allowed or limit not in {METADATA_LIMIT, CONTENT_LIMIT}:
+        if (
+            not allowed
+            or limit not in {METADATA_LIMIT, CONTENT_LIMIT, LIVE_COLLECTION_CONTENT_LIMIT}
+            or (
+                limit == LIVE_COLLECTION_CONTENT_LIMIT
+                and not (params.get("alt") == "media" or path.endswith("/export"))
+            )
+        ):
             raise DriveReadError("operation_not_allowed")
         if not isinstance(access_token, str) or not 1 <= len(access_token) <= 16384:
             raise DriveReadError("reconnect_required")
@@ -617,8 +692,10 @@ class GoogleDriveAdapter:
         capabilities = result.get("capabilities")
         if capabilities is not None and (
             not isinstance(capabilities, dict)
-            or capabilities.get("canShare") is not None
-            and type(capabilities["canShare"]) is not bool
+            or any(
+                capabilities.get(key) is not None and type(capabilities[key]) is not bool
+                for key in ("canShare", "canDownload", "canAccessViaGenAi")
+            )
         ):
             raise DriveReadError("provider_response_invalid")
         encryption = result.get("clientEncryptionDetails")
@@ -634,7 +711,7 @@ class GoogleDriveAdapter:
             "modifiedTime": modified if isinstance(modified, str) and len(modified) <= 64 else None,
             **{
                 key: result[key]
-                for key in ("createdTime", "driveId", "resourceKey")
+                for key in ("version", "createdTime", "driveId", "resourceKey")
                 if isinstance(result.get(key), str)
             },
             "size": int(size)
@@ -642,8 +719,14 @@ class GoogleDriveAdapter:
             else None,
             "viewUrl": link if isinstance(link, str) and link.startswith("https://") else None,
             **(
-                {"capabilities": {"canShare": capabilities["canShare"]}}
-                if isinstance(capabilities, dict) and "canShare" in capabilities
+                {
+                    "capabilities": {
+                        key: capabilities[key]
+                        for key in ("canShare", "canDownload", "canAccessViaGenAi")
+                        if key in capabilities
+                    }
+                }
+                if isinstance(capabilities, dict)
                 else {}
             ),
             **(
@@ -744,6 +827,61 @@ class GoogleDriveAdapter:
             )
         )
 
+    async def collection_start_token(self, *, access_token: str) -> str:
+        result = _decode_json(
+            await self._get(
+                "/changes/startPageToken",
+                access_token=access_token,
+                params={"fields": "startPageToken", "supportsAllDrives": "true"},
+                limit=METADATA_LIMIT,
+            )
+        )
+        try:
+            return _page_token(result.get("startPageToken"))
+        except DriveReadError:
+            raise DriveReadError("provider_response_invalid") from None
+
+    async def collection_files(
+        self, *, access_token: str, page_token: str | None = None, drive_id: str | None = None
+    ) -> dict[str, Any]:
+        params = {
+            "fields": COLLECTION_LIST_FIELDS,
+            "q": COLLECTION_QUERY,
+            "pageSize": "100",
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+            "corpora": "user",
+        }
+        if page_token is not None:
+            params["pageToken"] = _page_token(page_token)
+        if drive_id is not None:
+            if not isinstance(drive_id, str) or not FILE_ID.fullmatch(drive_id):
+                raise DriveReadError("invalid_argument")
+            params.update(corpora="drive", driveId=drive_id)
+        return _decode_json(
+            await self._get(
+                "/files", access_token=access_token, params=params, limit=METADATA_LIMIT
+            )
+        )
+
+    async def collection_changes(self, *, access_token: str, page_token: str) -> dict[str, Any]:
+        return _decode_json(
+            await self._get(
+                "/changes",
+                access_token=access_token,
+                params={
+                    "fields": CHANGES_FIELDS,
+                    "pageSize": "100",
+                    "pageToken": _page_token(page_token),
+                    "supportsAllDrives": "true",
+                    "includeItemsFromAllDrives": "true",
+                    "includeRemoved": "true",
+                    "spaces": "drive",
+                },
+                limit=METADATA_LIMIT,
+            )
+        )
+
     async def list_drives(
         self, *, access_token: str, page_size: int = 25, page_token: str | None = None
     ) -> dict[str, Any]:
@@ -764,32 +902,38 @@ class GoogleDriveAdapter:
         )
 
     async def read_live_bytes(
-        self, *, file_id: str, mime_type: str, access_token: str
+        self, *, file_id: str, mime_type: str, access_token: str, max_bytes: int = CONTENT_LIMIT
     ) -> tuple[str, bytes]:
         """Content of a file the owner's live grant can read (export for Docs/Slides/Sheets)."""
+        if max_bytes not in {CONTENT_LIMIT, LIVE_COLLECTION_CONTENT_LIMIT}:
+            raise DriveReadError("invalid_argument")
         export_mime = LIVE_EXPORTS.get(mime_type)
         if not export_mime:
             content = await self._get(
                 _file_path(file_id),
                 access_token=access_token,
                 params={"alt": "media", "supportsAllDrives": "true"},
-                limit=CONTENT_LIMIT,
+                limit=max_bytes,
             )
             return mime_type, content
         try:
-            return export_mime, await self._export(file_id, export_mime, access_token)
+            return export_mime, await self._export(
+                file_id, export_mime, access_token, max_bytes=max_bytes
+            )
         except DriveReadError as error:
             fallback = LIVE_EXPORT_FALLBACKS.get(mime_type)
             if not fallback or str(error) not in _LIVE_EXPORT_FALLBACK_CODES:
                 raise
-        return fallback, await self._export(file_id, fallback, access_token)
+        return fallback, await self._export(file_id, fallback, access_token, max_bytes=max_bytes)
 
-    async def _export(self, file_id: str, export_mime: str, access_token: str) -> bytes:
+    async def _export(
+        self, file_id: str, export_mime: str, access_token: str, *, max_bytes: int = CONTENT_LIMIT
+    ) -> bytes:
         return await self._get(
             _file_path(file_id) + "/export",
             access_token=access_token,
             params={"mimeType": export_mime},
-            limit=CONTENT_LIMIT,
+            limit=max_bytes,
         )
 
     async def fetch_content(

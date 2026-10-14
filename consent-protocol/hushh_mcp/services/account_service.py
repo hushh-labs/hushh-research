@@ -1588,9 +1588,18 @@ class AccountService:
             results["shared_files_storage"] = True
 
         self._clear_external_connector_data(conn, user_id, results, permanent=False)
+        if self._table_exists(conn, "pwm_claim_invitations"):
+            conn.execute(
+                text(
+                    "DELETE FROM pwm_claim_invitations WHERE inviter_user_id=:user_id OR recipient_user_id=:user_id"
+                ),
+                params,
+            )
+            results["pwm_claim_invitations"] = True
         self._delete_optional_user_tables(
             conn,
             table_names=[
+                "one_adk_sessions",
                 "one_action_directive_ledger",
                 "pod_lifecycle_events",
                 "one_mcp_pending_calls",
@@ -2219,6 +2228,7 @@ class AccountService:
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
+                        "one_adk_sessions",
                         "one_action_directive_ledger",
                         "webauthn_credentials",
                         "webauthn_challenges",
@@ -2235,7 +2245,6 @@ class AccountService:
                         "google_service_grants",
                         "google_provider_connections",
                         "one_agent_message_feedback",
-                        "one_adk_sessions",
                         "one_email_kyc_preferences",
                         "one_kyc_client_connectors",
                         "one_location_nearby_check_in_preferences",

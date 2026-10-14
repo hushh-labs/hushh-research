@@ -37,6 +37,10 @@ def _service() -> DriveRequestPaymentService:
 
 def _http(error: Exception) -> HTTPException:
     code = str(error) if isinstance(error, DriveSharingError) else "payment_unavailable"
+    if code in {"request_already_accessible", "package_existing_access_requires_review"}:
+        return HTTPException(
+            status_code=409, detail={"code": code}, headers={"Cache-Control": "no-store"}
+        )
     known = {
         "request_unavailable": (404, "This request is unavailable."),
         "invalid_argument": (422, "Check the request ID."),

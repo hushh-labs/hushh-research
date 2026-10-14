@@ -20,6 +20,8 @@ import {
   DOCUMENT_REQUEST_PRICE_PRESETS_CENTS,
   formatDocumentRequestPrice,
   parseWholeDollarPrice,
+  parseDocumentRequestPrice,
+  isValidWholeDollarRequestPriceCents,
   isValidDocumentRequestPriceCents,
 } from "@/lib/consent/document-request-price";
 import { Button } from "@/lib/morphy-ux/button";
@@ -27,6 +29,8 @@ import { cn } from "@/lib/utils";
 
 export interface DocumentRequestPriceSheetProps {
   open: boolean;
+  /** Drive permits cents; answer requests retain their whole-dollar policy. */
+  moneyPolicy?: "legacy_whole_dollars" | "drive_cents";
   /** Who pays: a name or an email. A generic label reads "The requester". */
   requesterLabel: string;
   purpose?: string | null;
@@ -74,7 +78,8 @@ export interface DocumentRequestPriceSheetProps {
 
 /** The same rule, in the same words, as the server's invalid_payment_amount. */
 export const DOCUMENT_REQUEST_PRICE_RULE =
-  "Choose a whole-dollar price from $1 to $500.";
+  "Choose a price from $0.50 to $500.";
+const LEGACY_PRICE_RULE = "Choose a whole-dollar price from $1 to $500.";
 
 // 44px targets, the same chip grammar as the Location duration ladder: a fixed
 // four-cell row on a phone (all four fit at 320px), content-width chips from sm.
@@ -118,7 +123,7 @@ function RequestTerm({ label, value }: { label: string; value: string }) {
 
 /**
  * Allow for a document request from outside the Trusted circle. The owner
- * sets what the requester pays; nothing is searched or shared before that.
+ * sets what the requester pays before sharing.
  */
 export function DocumentRequestPriceSheet(
   props: DocumentRequestPriceSheetProps,
@@ -142,6 +147,7 @@ export function DocumentRequestPriceSheet(
 
 function PriceSheet({
   settlement,
+  moneyPolicy = "legacy_whole_dollars",
   open,
   requesterLabel,
   purpose,
@@ -160,7 +166,9 @@ function PriceSheet({
   onSubmit,
   onCancel,
 }: DocumentRequestPriceSheetProps) {
-  const startingAmount = isValidDocumentRequestPriceCents(initialAmountCents)
+  const validPrice = moneyPolicy === "drive_cents"
+    ? isValidDocumentRequestPriceCents : isValidWholeDollarRequestPriceCents;
+  const startingAmount = validPrice(initialAmountCents)
     ? initialAmountCents
     : DEFAULT_DOCUMENT_REQUEST_PRICE_CENTS;
   const startingPreset = DOCUMENT_REQUEST_PRICE_PRESETS_CENTS.some(
@@ -176,7 +184,8 @@ function PriceSheet({
   const customInputId = useId();
   const customRuleId = useId();
 
-  const customCents = parseWholeDollarPrice(customText);
+  const customCents = moneyPolicy === "drive_cents"
+    ? parseDocumentRequestPrice(customText) : parseWholeDollarPrice(customText);
   const customInvalid =
     choice === "custom" && customText.trim() !== "" && customCents === null;
   const amountCents = !paymentRequired
@@ -275,7 +284,7 @@ function PriceSheet({
             <FormLabel as="p" id={priceLabelId}>
               Price
             </FormLabel>
-            {isValidDocumentRequestPriceCents(estimateCents) ? (
+            {validPrice(estimateCents) ? (
               <HelperText>
                 Requester saw an estimate of{" "}
                 {formatDocumentRequestPrice(estimateCents)}
@@ -326,10 +335,10 @@ function PriceSheet({
                     id={customInputId}
                     // Opening Custom is asking to type the amount.
                     autoFocus
-                    inputMode="numeric"
+                    inputMode={moneyPolicy === "drive_cents" ? "decimal" : "numeric"}
                     autoComplete="off"
                     enterKeyHint="done"
-                    placeholder="Whole dollars"
+                    placeholder={moneyPolicy === "drive_cents" ? "Amount in USD" : "Whole dollars"}
                     value={customText}
                     disabled={busy}
                     aria-invalid={customInvalid}
@@ -344,7 +353,7 @@ function PriceSheet({
                 </InputGroup>
                 {customInvalid ? (
                   <HelperText id={customRuleId} role="alert">
-                    {DOCUMENT_REQUEST_PRICE_RULE}
+                    {moneyPolicy === "drive_cents" ? DOCUMENT_REQUEST_PRICE_RULE : LEGACY_PRICE_RULE}
                   </HelperText>
                 ) : null}
               </div>

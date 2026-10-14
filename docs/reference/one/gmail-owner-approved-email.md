@@ -60,6 +60,16 @@ email, One opens an in-memory editable card containing To, Cc, Bcc, Subject,
 and Message. There is no composer mail shortcut. If the vault is not unlocked,
 the existing vault dialog opens instead.
 
+Asking to share the owner's saved details with an email address follows this
+same drafting path, not a request for another person's information. A supplied
+address is used directly; no platform connection is required. For a named
+circle member, One reads the owner's current active connections and fills the
+unambiguous actual email into the visible draft. Ambiguous people or unavailable
+addresses need clarification, never a guessed or masked recipient. Requested
+facts come only from the supplied Soul.md. Partial recipient/subject prefills
+survive automatic body completion. This never sends mail or creates a consent
+grant; the owner reviews the visible draft and taps Send.
+
 1. One’s explicit request opens the draft and sends only that instruction to
    `POST /api/one/email/draft`, which returns structured draft fields and
    `missing_details`. It cannot send mail and is not persisted as agent-chat

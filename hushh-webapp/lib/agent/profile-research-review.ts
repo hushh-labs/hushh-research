@@ -23,6 +23,8 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 
 export const PROFILE_RESEARCH_SOURCE = "profile_research_review";
 export type ProfileReviewSession = {
+  worldModel?: boolean;
+  draftId?: string;
   userId: string;
   vaultKey: string;
   vaultOwnerToken: string;
@@ -316,6 +318,8 @@ export async function saveProfileReview(
   if (selectedCardIds.size > 0 && committed.size === selectedCardIds.size) {
     await session.assertCurrent();
     await ProfileResearchService.complete({
+      worldModel: session.worldModel,
+      draftId: session.draftId,
       vaultKey: session.vaultKey,
       vaultOwnerToken: session.vaultOwnerToken,
       commits: review.cards

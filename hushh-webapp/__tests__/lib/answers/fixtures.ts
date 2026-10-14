@@ -27,9 +27,38 @@ vi.mock("@/lib/services/answer-request-service", () => ({
   },
 }));
 export const loadMarkdownMemory = vi.fn();
+export const refreshIdentityForSession = vi.fn();
+vi.mock("@/lib/services/account-identity-service", () => ({
+  AccountIdentityService: { refreshIdentityForSession: (...args: unknown[]) => refreshIdentityForSession(...args) },
+}));
 vi.mock("@/lib/pkm/markdown-memory", () => ({
   loadMarkdownMemory: (...a: unknown[]) => loadMarkdownMemory(...a),
+  peekMarkdownMemory: () => undefined,
 }));
+let exportedRevision: number | null = 7;
+let exportedManifestRevision: number | null = null;
+let soulRevision: number | null = null;
+vi.mock("@/lib/pkm/memory-document-store", () => ({
+  readMemoryDocumentProjection: async () => null,
+  readMemoryScopeSourceRevisions: async ({ domains }: { domains: string[] }) => Object.fromEntries(domains.map(domain => [domain, {
+    domain, contentRevision: domain === "one_memory" ? soulRevision : exportedRevision,
+    manifestRevision: domain === "one_memory" ? null : exportedManifestRevision,
+    manifestFingerprint: null, absent: domain === "one_memory" ? soulRevision === null : exportedRevision === null,
+    readablePaths: [], hasCanonicalDob: false,
+  }])),
+  persistMemoryScopeSlices: async ({ beforeEffect }: { beforeEffect: () => Promise<void> }) => beforeEffect(),
+}));
+
+export function setSoulMemory(memory: { markdown: string; dataVersion?: number; [key: string]: unknown } | null) {
+  soulRevision = memory?.dataVersion ?? null;
+  loadMarkdownMemory.mockResolvedValue(memory);
+}
+
+export function setScopeProjection(projection: { payload: Record<string, unknown>; sourceContentRevision?: number; sourceManifestRevision?: number }) {
+  exportedRevision = projection.sourceContentRevision ?? 7;
+  exportedManifestRevision = projection.sourceManifestRevision ?? null;
+  buildConsentExportForScope.mockResolvedValue(projection);
+}
 export const encrypt = vi.fn();
 vi.mock("@/lib/one-marketplace/encryption", () => ({
   encryptSliceForRecipient: (...a: unknown[]) => encrypt(...a),
@@ -50,13 +79,19 @@ export const work = (overrides: Partial<AnswerableWork> = {}): AnswerableWork =>
 export const params = { userId: "owner-A", vaultKey: "key", vaultOwnerToken: "token" };
 
 export function resetAnswerFixture() {
+  exportedRevision = 7;
+  exportedManifestRevision = null;
+  soulRevision = null;
   buildConsentExportForScope.mockReset();
   getStaleFirst.mockReset();
   answerable.mockReset();
   compose.mockReset();
   deliver.mockReset();
   loadMarkdownMemory.mockReset();
-  loadMarkdownMemory.mockResolvedValue(null);
+  refreshIdentityForSession.mockReset().mockResolvedValue({
+    user_id: "owner-A", display_name: "Synthetic Ava", photo_url: "https://example.test/avatar.jpg",
+  });
+  setSoulMemory(null);
   encrypt.mockReset().mockResolvedValue({ sealed: "ciphertext" });
   compose.mockResolvedValue({ answerMode: "projection", answer: null });
   deliver.mockResolvedValue(undefined);

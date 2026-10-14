@@ -366,3 +366,18 @@ async def test_summary_push_has_no_file_or_account_identifiers(shared_hub_owner)
     assert "recipient@example.com" not in str(calls[0][1])
     store.settle_notification.assert_awaited_once()
     assert store.settle_notification.await_args.kwargs["delivered"] is True
+
+
+@pytest.mark.asyncio
+async def test_package_grant_checks_evaluated_version_before_any_permission_write(shared_hub_owner):
+    worker, store, adapter = _worker()
+    job = _job()
+    job["file"].update(packageDigest="a" * 64, sourceVersion="7", contentFingerprint="b" * 64)
+    adapter.inspect_shareable.side_effect = DrivePermissionError("source_changed")
+    await worker._grant(job)
+    assert adapter.inspect_shareable.await_args.kwargs["expected_version"] == "7"
+    assert adapter.inspect_shareable.await_args.kwargs["metadata_only"] is False
+    adapter.list_permissions.assert_not_awaited()
+    adapter.create_reader.assert_not_awaited()
+    store.mark_dispatching.assert_not_awaited()
+    assert store.release.await_args.kwargs["error"] == "source_changed"

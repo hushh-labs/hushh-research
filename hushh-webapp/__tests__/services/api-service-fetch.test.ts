@@ -54,6 +54,7 @@ vi.mock("@/lib/services/auth-service", () => ({
   AuthService: {
     getIdToken: vi.fn(),
     getCurrentUser: vi.fn(),
+    isUatPhoneTestVerificationId: (id?: string) => String(id ?? "").startsWith("uat-test-phone:"),
   },
 }));
 
@@ -130,6 +131,21 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch.mock.calls[1][1]?.credentials).toBe("include");
   });
 
+
+  it.each(["ios", "android"])("preserves authenticated attachment bytes on %s and keeps JSON refusals readable", async platform => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue(platform);
+    const bytes = new Uint8Array([0, 255, 137, 80, 78, 71, 13, 10, 128]);
+    capacitorMocks.request.mockResolvedValueOnce({ status: 200, headers: { "content-type": "application/octet-stream" },
+      data: btoa(String.fromCharCode(...bytes)) });
+    const response = await ApiService.apiFetch("/api/one/messages/conversations/c/messages/m/attachment", { responseType: "arraybuffer", headers: { Authorization: "Bearer synthetic-token" } });
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(capacitorMocks.request).toHaveBeenCalledWith(expect.objectContaining({ responseType: "arraybuffer" }));
+    capacitorMocks.request.mockResolvedValueOnce({ status: 403, headers: { "Content-Type": "application/json" }, data: { detail: { message: "Unavailable" } } });
+    const refused = await ApiService.apiFetch("/api/one/messages/conversations/c/messages/m/attachment", { responseType: "arraybuffer" });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ detail: { message: "Unavailable" } });
+  });
   beforeEach(() => {
     googlePlacement.mockResolvedValue(false);
     vi.clearAllMocks();
@@ -1534,6 +1550,23 @@ describe("ApiService.apiFetch", () => {
       verification_id: "uat-test-phone:abc123",
       reason: undefined,
     });
+  });
+
+  it.each([
+    { success: true, reason: "uat_phone_test_not_configured_or_not_allowlisted" },
+    { success: true, eligible: "false", reason: "uat_phone_test_not_configured_or_not_allowlisted" },
+    { success: true, eligible: true, verification_id: " " },
+    { success: true, eligible: true, verification_id: "firebase-session" },
+    { success: false, eligible: true, verification_id: "uat-test-phone:abc123" },
+  ])("rejects malformed phone-test eligibility instead of authorizing fallback: %j", async (body) => {
+    mockFetch.mockResolvedValueOnce(jsonResponse(body));
+    expect(await ApiService.startUatPhoneTestVerification("+16505550101", "firebase-id-token")).toEqual({ success: false, eligible: false, reason: "uat_phone_test_start_invalid_response" });
+  });
+
+  it("retains an explicit successful nonallowlisted phone-test fallback", async () => {
+    const body = { success: true, eligible: false, reason: "uat_phone_test_not_configured_or_not_allowlisted" };
+    mockFetch.mockResolvedValueOnce(jsonResponse(body));
+    expect(await ApiService.startUatPhoneTestVerification("+16505550101", "firebase-id-token")).toMatchObject(body);
   });
 
   it("confirms UAT phone test verification without a Firebase phone token", async () => {

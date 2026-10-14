@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { createUiSourceIndex } from './ui-source-index.mjs';
 import { verifyBackNavigation } from './verify-back-navigation.mjs';
 import { syncSearchContracts } from '../voice/sync-search-contracts.mjs';
+import { verifySearchCatalog } from '../search/verify-search-catalog.mjs';
 
 export async function runUiChecks(checks) {
   const results = await Promise.all(checks.map(async ([name, run]) => {
@@ -28,6 +29,7 @@ export async function verifyUiContracts(root, started = performance.now()) {
   const ok = await runUiChecks([
     ['Back hierarchy, coverage and freshness', () => verifyBackNavigation(root, false, index)],
     ['Search coverage and freshness', () => syncSearchContracts(root, true, index)],
+    ['Search catalog coverage', () => { if (!verifySearchCatalog()) throw new Error('see output above; update lib/search/search-suggestions-catalog.ts'); }],
     ['Surface map', () => checkScript(root, 'scripts/architecture/generate-surface-map.mjs')],
     ['Action gateway', () => checkScript(root, 'scripts/voice/generate-kai-action-gateway.mjs')],
     ['Siri action contract', () => checkScript(root, 'scripts/native/verify-siri-action-contract.mjs')],

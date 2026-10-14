@@ -1,7 +1,7 @@
 {
   "schema_version": "one.capability_graph_evolution.v1",
   "workflow_predecessor_refs": [
-    "812deaae16c26eccf4b80509021931d5cc467952",
+    "e9ea37292c0c976391bb1e55f17f2e7c445e82e2",
     "fb9614f34871e11a3702c80c8879dc2b0f8051cd",
     "3e248fc4bf04df28bf677bcc6402b64d9015098f",
     "a3a88680182db2f4c71acf0363a8aaab54fd2b58",
@@ -855,6 +855,38 @@
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:wallet.add",
       "from_revision": "df37a235665ef89d",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:wallet.add",
+      "from_revision": "d96de7a17419d091",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:wallet.add",
+      "from_revision": "9d5d8ccd75c7d202",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.gmail.sync_now",
+      "from_revision": "2b3e32824cb9d1c4",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_receipts",
+      "from_revision": "2b3e32824cb9d1c4",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"

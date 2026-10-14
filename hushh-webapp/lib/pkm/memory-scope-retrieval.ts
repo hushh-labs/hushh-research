@@ -2,7 +2,7 @@
 
 import { buildConsentExportForScope, createConsentExportReadSession } from "@/lib/consent/export-builder";
 import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
-import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { currentPkmSourceEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { answerProfilePhotoUrl, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
 import { approvedScopesBackedBySoul, isOwnProfileNameScope, projectApprovedSoulFacts, SCOPE_PATH_TO_LABEL } from "@/lib/pkm/identity-memory-facts";
 import { loadMarkdownMemory, peekMarkdownMemory } from "@/lib/pkm/markdown-memory";
@@ -36,6 +36,8 @@ export interface ApprovedMemoryRetrievalParams extends MemoryProjectionSession {
   /** Fresh canonical account read used only when account facts contribute to a staged answer. */
   readOwnerIdentity?: () => Promise<{ displayName?: string | null; photoUrl?: string | null } | null>;
   now?: Date;
+  assertActive?: () => void;
+  onRefreshTiming?: (started: number) => void;
 }
 
 const CANONICAL_DOB = "attr.identity.identity_profile.date_of_birth";
@@ -100,9 +102,11 @@ function hasStructuredCounterpart(scope: string, source: MemoryScopeSourceRevisi
   const path = scopePath(scope).replace(/\.\*$/, "");
   return (source.readablePaths ?? []).some(leaf => leaf === path || leaf.startsWith(`${path}.`));
 }
-function scopeBlocked(scope: string, source: MemoryScopeSourceRevision): boolean {
-  const path = scopePath(scope).replace(/\.\*$/, "");
+function pathBlocked(path: string, source: MemoryScopeSourceRevision): boolean {
   return (source.blockedPaths ?? []).some(blocked => path === blocked || path.startsWith(`${blocked}.`));
+}
+function scopeBlocked(scope: string, source: MemoryScopeSourceRevision): boolean {
+  return pathBlocked(scopePath(scope).replace(/\.\*$/, ""), source);
 }
 function freshnessMetadata(slices: ReadonlyMap<string, MemoryScopeSlice>): ApprovedMemoryRetrieval["sourceFreshness"] {
   return Object.fromEntries([...slices].map(([scope, slice]) => {
@@ -128,10 +132,13 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
   const unavailable = (failed: readonly string[] = scopes): ApprovedMemoryRetrieval => ({ projections: [], unavailableScopes: [...failed], sourceManifestRevisions: {}, builtAt, complete: false, sourceFreshness: {}, assertCurrent: async () => { throw new Error("Memory sources unavailable"); } });
   if (!params.vaultKey || !params.vaultOwnerToken || scopes.some(scope => !/^attr\.[a-z0-9_]+(?:\.[a-z0-9_*]+)+$/.test(scope))) return unavailable();
   const epoch = snapshotVaultSessionEpoch();
-  const sourceEpoch = currentPkmInvalidationEpoch(params.userId);
+  const domains = [...new Set(scopes.flatMap(scope => dependencies(scope)))].sort();
+  const fencedDomains = scopes.includes("attr.professional.profile.*") ? [...domains, "identity"] : domains;
+  const sourceEpoch = currentPkmSourceEpoch(params.userId, fencedDomains);
   const valid = () => {
+    params.assertActive?.();
     if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
-    if (currentPkmInvalidationEpoch(params.userId) !== sourceEpoch) throw new Error("Memory sources changed during retrieval");
+    if (currentPkmSourceEpoch(params.userId, fencedDomains) !== sourceEpoch) throw new Error("Memory sources changed during retrieval");
     if (!params.now && scopes.some(isAgeScope) && new Date().toISOString().slice(0, 10) !== date) throw new Error("Age changed during retrieval");
   };
   try {
@@ -142,7 +149,6 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       return [scope, Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")] as const;
     })));
     valid();
-    const domains = [...new Set(scopes.flatMap(scope => dependencies(scope)))].sort();
     const [stored, sources] = await Promise.all([
       readMemoryDocumentProjection(params), readMemoryScopeSourceRevisions({ ...params, domains }),
     ]);
@@ -162,10 +168,10 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       // The encrypted projection's own save bumps the PKM epoch. Capture the
       // epoch only after its final source verification, then retain the exact
       // source snapshots for remote-change checks after asynchronous model work.
-      const verifiedEpoch = currentPkmInvalidationEpoch(params.userId);
+      const verifiedEpoch = currentPkmSourceEpoch(params.userId, domains);
       const captured = new Map([...slices].map(([scope, slice]) => [scope, structuredClone(slice)]));
       const checkSession = () => {
-        if (!complete || !isVaultSessionEpochCurrent(epoch) || currentPkmInvalidationEpoch(params.userId) !== verifiedEpoch)
+        if (!complete || !isVaultSessionEpochCurrent(epoch) || currentPkmSourceEpoch(params.userId, domains) !== verifiedEpoch)
           throw new Error("Memory sources changed before staging");
         if (!params.now && scopes.some(isAgeScope) && new Date().toISOString().slice(0, 10) !== date)
           throw new Error("Age changed before staging");
@@ -207,12 +213,13 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
     for (const scope of scopes) {
       const slice = stored?.scopeSlices?.[scope];
       const current = dependencies(scope, sources).map(domain => sources[domain]!);
-      if (!scopeBlocked(scope, sources[scopeDomain(scope)]!) && slice?.scope === scope && record(slice.payload) === slice.payload && sameSources(slice.sources, current) &&
+      if (!scopeBlocked(scope, sources[scopeDomain(scope)]!) && slice?.admissionVersion === 2 && slice.scope === scope && record(slice.payload) === slice.payload && sameSources(slice.sources, current) &&
           slice.accountFingerprint === accountFingerprints.get(scope) &&
           slice.freshnessDate === (requiresAgeDerivation(scope, sources) ? date : null)) slices.set(scope, slice);
       else rebuild.push(scope);
     }
     if (rebuild.length) {
+      const refreshStarted = performance.now();
       const includeDob = rebuild.some(scope => requiresAgeDerivation(scope, sources)) && sources.identity?.hasCanonicalDob === true;
       const materializedScopes = rebuild.filter(scope => hasStructuredCounterpart(scope, sources[scopeDomain(scope)]!) && !isAnswerProfilePhotoScope(scope));
       const sessionScopes = [...new Set([...materializedScopes, ...(includeDob ? [CANONICAL_DOB] : [])])];
@@ -248,7 +255,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       // Neither a labelled override nor a derived fact may resurrect them.
       const labelled = new Map([...readLabelledSoulFacts(memory?.markdown)].filter(([label]) => !deleted.has(label)));
       const facts = projectApprovedSoulFacts({ approvedScopes: rebuild, markdown: memory?.markdown, now })
-        .filter(fact => !deleted.has(soulFactKey(fact.sourceLabel)));
+        .filter(fact => !deleted.has(soulFactKey(fact.sourceLabel)) && !pathBlocked(fact.relativePath, sources[scopeDomain(fact.scope)]!));
       let birth: string | null = labelled.get("date of birth")?.value ?? null;
       let ageRevision = memory?.dataVersion ?? null;
       let ageManifestRevision: number | null = null;
@@ -275,8 +282,9 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
         if (memory && usesSoul(scope)) {
           // A successfully checked Soul source can settle the synthetic optional
           // identity selectors even when no structured counterpart exists.
-          // Soul may supplement a successful read or an absent counterpart.
-          // It cannot conceal a failed canonical export of a readable field.
+          // A failed materialized export remains unavailable even when another
+          // document contains a matching fact. Only confirmed absent selectors
+          // or a successful exact export admit the owner-labelled projection.
           if (original || !hasStructuredCounterpart(scope, sources[domain]!)) failed.delete(scope);
           const removed = SCOPE_PATH_TO_LABEL.filter(([, label]) => deleted.has(soulFactKey(label))).map(([path]) => path);
           if (deleted.has("sex")) removed.push("profile.sex");
@@ -289,11 +297,11 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
           if (isOwnProfileNameScope(scope) && labelled.has("legal name")) {
             setPath(payload, scopePath(scope), labelled.get("legal name")!.value); contentRevision = memory.dataVersion ?? null; manifestRevision = null;
           }
-          if (isLegacySexScope(scope) && (labelled.has("sex") || deleted.has("sex")) &&
+          if (isLegacySexScope(scope) && !pathBlocked("profile.sex", sources[domain]!) && (labelled.has("sex") || deleted.has("sex")) &&
               (scope !== "attr.professional.profile.*" || getPath(payload, "profile.sex") !== undefined)) {
             setPath(payload, "profile.sex", deleted.has("sex") ? undefined : labelled.get("sex")!.value); contentRevision = memory.dataVersion ?? null; manifestRevision = null;
           }
-          for (const path of agePaths(scope).filter(path => scope !== "attr.professional.profile.*" || getPath(payload, path) !== undefined)) {
+          for (const path of agePaths(scope).filter(path => !pathBlocked(path, sources[domain]!) && (scope !== "attr.professional.profile.*" || getPath(payload, path) !== undefined))) {
             setPath(payload, path, age === null ? undefined : String(age));
             contentRevision = ageRevision; manifestRevision = ageManifestRevision;
           }
@@ -310,18 +318,20 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
           contentRevision = null; manifestRevision = null;
         }
         if (failed.has(scope)) continue;
-        slices.set(scope, { scope, payload, contentRevision, manifestRevision, sources: dependencies(scope, sources).map(dependency => sources[dependency]!),
+        slices.set(scope, { admissionVersion: 2, scope, payload, contentRevision, manifestRevision, sources: dependencies(scope, sources).map(dependency => sources[dependency]!),
           accountFingerprint: accountFingerprints.get(scope) ?? null, freshnessDate: requiresAgeDerivation(scope, sources) ? date : null, builtAt });
       }
       valid();
       const replacements = rebuild.map(scope => slices.get(scope)).filter((slice): slice is MemoryScopeSlice => Boolean(slice));
       if (replacements.length) {
         await persistMemoryScopeSlices({ ...params, slices: replacements, beforeEffect: async () => { valid(); } });
+        params.onRefreshTiming?.(refreshStarted);
+        // Recheck authoritative revisions after persisting the derived slice.
         // The derived write changes the global PKM epoch itself. Fence a fresh
         // revision check after that write rather than rejecting our own save.
-        const verificationEpoch = currentPkmInvalidationEpoch(params.userId);
+        const verificationEpoch = currentPkmSourceEpoch(params.userId, domains);
         const verified = await readMemoryScopeSourceRevisions({ ...params, domains });
-        if (!isVaultSessionEpochCurrent(epoch) || currentPkmInvalidationEpoch(params.userId) !== verificationEpoch ||
+        if (!isVaultSessionEpochCurrent(epoch) || currentPkmSourceEpoch(params.userId, domains) !== verificationEpoch ||
             [...slices].some(([scope, slice]) => !sameSources(slice.sources, dependencies(scope, verified).map(domain => verified[domain]!)))) return unavailable();
       }
       if (!isVaultSessionEpochCurrent(epoch) || !params.now && scopes.some(isAgeScope) && new Date().toISOString().slice(0, 10) !== date) return unavailable();

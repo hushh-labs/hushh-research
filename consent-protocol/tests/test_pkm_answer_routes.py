@@ -4,9 +4,13 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException, Response
+from fastapi import BackgroundTasks, HTTPException, Response
 
 from api.routes.one import answer_requests as routes
+
+
+async def _create_answer_request(*args, **kwargs):
+    return await routes.create_answer_request(*args, **kwargs, background_tasks=BackgroundTasks())
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +64,7 @@ async def test_request_intake_survives_paused_payments_but_checkout_does_not(mon
 
     gates = await routes.answer_requests_available(Response(), "requester")
     assert (gates["enabled"], gates["requests"], gates["payments"]) == (False, True, False)
-    assert await routes.create_answer_request(
+    assert await _create_answer_request(
         Response(),
         {"ownerUserId": "owner", "question": "Which flights do you prefer?"},
         "requester",
@@ -146,7 +150,7 @@ async def test_unset_request_flag_opens_intake_with_payments_off(monkeypatch):
 
     gates = await routes.answer_requests_available(Response(), "requester")
     assert (gates["requests"], gates["payments"]) == (True, False)
-    assert await routes.create_answer_request(
+    assert await _create_answer_request(
         Response(),
         {"ownerUserId": "owner", "question": "Which flights do you prefer?"},
         "requester",
@@ -165,7 +169,7 @@ async def test_request_kill_switch_closes_intake_even_with_payments_live(monkeyp
     requests = Mock(create=AsyncMock(), approve=AsyncMock())
     monkeypatch.setattr(routes, "_requests", lambda: requests)
     for call in (
-        lambda: routes.create_answer_request(
+        lambda: _create_answer_request(
             Response(),
             {"ownerUserId": "owner", "question": "Which flights do you prefer?"},
             "requester",
@@ -562,7 +566,7 @@ async def test_public_person_reference_resolves_before_active_connection_admissi
     monkeypatch.setattr(routes, "PersonProfileService", lambda: identity)
     requests = Mock(create=AsyncMock(return_value={"requestId": "synthetic-request"}))
     monkeypatch.setattr(routes, "_requests", lambda: requests)
-    result = await routes.create_answer_request(
+    result = await _create_answer_request(
         Response(),
         {"personRef": public_ref, "question": "Which flights do you prefer?"},
         "requester",
@@ -582,7 +586,7 @@ async def test_missing_public_profile_never_admits_or_falls_back_to_reference_as
     requests = Mock(create=AsyncMock())
     monkeypatch.setattr(routes, "_requests", lambda: requests)
     with pytest.raises(HTTPException) as error:
-        await routes.create_answer_request(
+        await _create_answer_request(
             Response(),
             {"personRef": str(uuid4()), "question": "Which flights do you prefer?"},
             "requester",
@@ -599,7 +603,7 @@ async def test_invalid_or_ambiguous_public_target_is_rejected(monkeypatch, body)
     identity = Mock()
     monkeypatch.setattr(routes, "PersonProfileService", identity)
     with pytest.raises(HTTPException) as error:
-        await routes.create_answer_request(
+        await _create_answer_request(
             Response(), {**body, "question": "Which flights do you prefer?"}, "requester"
         )
     assert error.value.status_code == 422
@@ -618,7 +622,7 @@ async def test_create_preserves_question_and_optional_period(monkeypatch, period
     question = "What did you spend on travel in January 2026?"
     requests = Mock(create=AsyncMock(return_value={"requestId": str(uuid4())}))
     monkeypatch.setattr(routes, "_requests", lambda: requests)
-    await routes.create_answer_request(
+    await _create_answer_request(
         Response(), {"ownerUserId": "owner", "question": question, **period}, "requester"
     )
     requests.create.assert_awaited_once_with(
@@ -635,7 +639,7 @@ async def test_invalid_date_types_are_not_silently_dropped(monkeypatch, value):
     requests = Mock(create=AsyncMock(side_effect=routes.AnswerRequestError("invalid_period")))
     monkeypatch.setattr(routes, "_requests", lambda: requests)
     with pytest.raises(HTTPException) as error:
-        await routes.create_answer_request(
+        await _create_answer_request(
             Response(),
             {
                 "ownerUserId": "owner",

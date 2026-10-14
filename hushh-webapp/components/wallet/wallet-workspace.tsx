@@ -13,6 +13,7 @@
  * States and the reveal rule live in `lib/wallet/wallet-view-state.ts`.
  */
 
+import profileStyles from "@/components/profile/profile-your-account.module.css";
 import {
   useCallback,
   useDeferredValue,
@@ -42,7 +43,7 @@ import {
   PageTitle,
   TYPOGRAPHY_CLASSNAMES,
 } from "@/components/app-ui/typography";
-import { Lock, Plus } from "@/components/icons";
+import { Lock } from "@/components/icons";
 import { ProfilePaneSearchIcon } from "@/components/profile/profile-pane-icons";
 import {
   AlertDialog,
@@ -469,6 +470,24 @@ export function WalletWorkspace() {
       if (isCurrent()) setReferralErrorVisit(visit);
     }
   }, [user, profileVisit]);
+  const revokeReferral = useCallback(async (slug: string) => {
+    const context = vaultContext();
+    const visit = profileVisit;
+    const revision = cardActionScopeRef.current.revision;
+    const isCurrent = () => profileVisitRef.current === visit &&
+      cardActionScopeRef.current.revision === revision && document.visibilityState !== "hidden" &&
+      activeOwnerIdRef.current === context?.userId && getVaultOwnerTokenRef.current() === context?.vaultOwnerToken;
+    if (!user || !context || !isCurrent()) throw new Error("Unlock your vault to revoke access.");
+    const idToken = await user.getIdToken();
+    if (!isCurrent()) throw new Error("Your session changed.");
+    ++referralReadRevision.current;
+    const summary = await ReferralService.rotateShareLink({ idToken, slug });
+    if (!isCurrent()) throw new Error("Your session changed.");
+    // Only the current visit may retire pre-mutation reads.
+    ++referralReadRevision.current;
+    setReferralState({ visit, summary });
+    setReferralErrorVisit(null);
+  }, [user, vaultContext, profileVisit]);
   useEffect(() => { void loadReferral(); }, [loadReferral]);
   const { connected: referralConnected } = useReferralStream(user, loadReferral);
   useEffect(() => {
@@ -738,10 +757,9 @@ export function WalletWorkspace() {
         setRemovingCardId(cardId);
         if (!prefersReducedMotion()) await new Promise((resolve) => setTimeout(resolve, 220));
         if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-        const index = cards.findIndex((card) => card.cardId === cardId);
-        setSelectedDeckCardId((current) => (current ?? cards[0]?.cardId) === cardId
-          ? cards[index + 1]?.cardId ?? cards[index - 1]?.cardId ?? null
-          : current);
+        // Return to the overview after removal. A neighboring card must be
+        // explicitly opened before loading its number or sharing context.
+        setSelectedDeckCardId(null);
       }
       cardReadRevision.current += 1;
       setCardSnapshot((previous) => {
@@ -789,16 +807,6 @@ export function WalletWorkspace() {
       data-testid="one-wallet-done"
     >
       Done
-    </Button>
-  ) : hasCards ? (
-    <Button
-      variant="secondary"
-      size="compact"
-      onClick={() => dispatch({ type: "open_add" })}
-      data-testid="one-wallet-add"
-    >
-      <Plus aria-hidden="true" />
-      Add card
     </Button>
   ) : null;
 
@@ -867,7 +875,6 @@ export function WalletWorkspace() {
             actionsInlineMobile
             titleRole="agent"
             className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-            // Keep the same action track across tabs and loading states.
             actions={
               <span className="flex h-11 items-center sm:h-[53px]" data-slot="wallet-header-action">
                 {headerAction}
@@ -895,7 +902,7 @@ export function WalletWorkspace() {
           />
 
           {introductionOpen ? (
-            introductionLoading ? <div role="status" className="py-6 text-center text-sm text-muted-foreground">Opening your wallet…</div> :
+            introductionLoading ? <div role="status" className="py-6 text-center text-xs text-muted-foreground">Opening your wallet…</div> :
             <WalletIntroduction loading={introductionSaving} onConnect={() => void completeIntroduction()} />
           ) : <>
           <TopShellTabs
@@ -985,14 +992,14 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser dockHost={cardDockHost} demoProfile={walletIdentity} referralSummary={referralSummary} referralError={referralErrorVisit === profileVisit} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
+            <WalletCardBrowser dockHost={cardDockHost} demoProfile={walletIdentity} referralSummary={referralSummary} referralError={referralErrorVisit === profileVisit} onRetryReferral={() => void loadReferral()} onRevokeReferral={revokeReferral} ownerId={renderedOwnerId || undefined}
               key={renderedOwnerId}
               cards={cards}
               cardholderNames={cardholderNames}
               selectedCardId={selectedDeckCardId}
               selectedCardNumber={displayedNumber}
               onSelect={selectCard}
-              onOverview={() => { setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
+              onOverview={() => { cardActionScopeRef.current.revision += 1; setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
               onAdd={() => { dispatch({ type: "unfocus" }); dispatch({ type: "open_add" }); }}
               details={cardDetails}
               active={activeTab === "cards"}
@@ -1007,6 +1014,7 @@ export function WalletWorkspace() {
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
                 backRoute={ROUTES.ONE_WALLET}
+                showIntroduction={false}
                 getNetworkContext={vaultContext}
                 scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
@@ -1081,7 +1089,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
+            {ready ? <WalletSharing key={renderedOwnerId} cards={cards} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
           </div>
           </SwipeViews>
           </div>
@@ -1094,7 +1102,7 @@ export function WalletWorkspace() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <AlertDialogContent className={browserStyles.removeDialog} data-testid="one-wallet-remove-confirm">
+          <AlertDialogContent className={cn(profileStyles.accountDialog, profileStyles.dangerDialog)} data-testid="one-wallet-remove-confirm">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {removeTitle}?</AlertDialogTitle>
               <AlertDialogDescription>

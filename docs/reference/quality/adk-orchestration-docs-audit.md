@@ -20,8 +20,7 @@ Existing owners retain their resources and selected configuration.
 
 ## Current implementation slice — Azure AI and Shared Files
 
-**2026-10-13; unserved implementation based on `1284040247`.** The peer's root integration
-is now `68719864ed`; it has not yet been combined with this slice.
+**2026-10-13; unserved implementation `ffcbc944e4`, based on `1284040247`.** Frozen root `465ed16fefb` is being composed without changing the developer worktree. Main `a8ebcb86b2c` and local ADK `3501811eb6b` are the single integration inputs for this cycle.
 
 | Journey | Source / local evidence | Dev / release status |
 | --- | --- | --- |
@@ -30,6 +29,8 @@ is now `68719864ed`; it has not yet been combined with this slice.
 | Selected analysis | Existing authored Files specialist receives a selected bounded projection only; browser checks consent, exclusions, revision and job state before applying reversible proposals under a lease | Local authority cases pass; live foreground provider acceptance is unverified. No background decryption grant |
 | Managed Hussh Pods | Project shards selected; capacity/cost worksheet and per-pod custody requirements recorded. Backend creation refuses even if deployment flags are present | No provisioning offer or qualified shard yet |
 | Transfers / continuation | Shared library enrollment and placement writes share transactional admission; active/unresolved libraries refuse unqualified cloud cutover even with Files disabled. Existing browser and Files-only scheduling commits remain preserved; private execution gates remain closed | Shared-to-pod, reverse and cross-cloud Files transfer remain unavailable pending destination/readability and cleanup evidence |
+
+Cloud-default verification uses the same authorized model modes as chat; fleet configuration alone cannot discard an owner key.
 
 Unknown create-only provider writes and crashed inflight writers deliberately retain
 cleanup fences. An independent provider-completion/absence reconciliation procedure

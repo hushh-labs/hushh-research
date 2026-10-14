@@ -54,6 +54,54 @@ describe("FeedService", () => {
     expect(JSON.parse(String(init.body))).toEqual({ up_to_id: watermark });
   });
 
+  it("dismisses and restores server rows, and clears a bounded snapshot", async () => {
+    mockApiFetch
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", dismissal_token: "token-42" }))
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", restored: true }))
+      .mockResolvedValueOnce(jsonResponse({ status: "ok" }));
+    const options = { idToken: "token", userId: "user-1" };
+    const cacheKey = CACHE_KEYS.FEED_LIST(options.userId);
+    const countKey = CACHE_KEYS.FEED_UNREAD_COUNT(options.userId);
+    cache.set(cacheKey, { items: [], next_cursor: null, unread_count: 2 });
+    cache.set(countKey, 2);
+
+    const dismissalToken = await FeedService.dismiss({ ...options, itemId: "42" });
+    expect(dismissalToken).toBe("token-42");
+    expect(mockApiFetch.mock.calls[0][0]).toBe("/api/one/feed/42/dismiss");
+    expect(cache.get(cacheKey)).toBeNull();
+    expect(cache.get(countKey)).toBeNull();
+    await expect(FeedService.restore({
+      ...options, itemId: "42", dismissalToken: "token-42",
+    })).resolves.toBe(true);
+    expect(mockApiFetch.mock.calls[1][0]).toBe("/api/one/feed/42/restore");
+    expect(JSON.parse(String(mockApiFetch.mock.calls[1][1].body))).toEqual({
+      dismissal_token: "token-42",
+    });
+    await FeedService.clear({ ...options, upToId: "9007199254740993" });
+    expect(mockApiFetch.mock.calls[2][0]).toBe("/api/one/feed/clear");
+    expect(JSON.parse(String(mockApiFetch.mock.calls[2][1].body))).toEqual({
+      up_to_id: "9007199254740993",
+    });
+  });
+
+  it("does not claim a stale Undo restored a server row", async () => {
+    mockApiFetch.mockResolvedValue(jsonResponse({ status: "ok", restored: false }));
+    await expect(FeedService.restore({
+      idToken: "token", userId: "user-1", itemId: "42", dismissalToken: "stale",
+    })).resolves.toBe(false);
+  });
+
+  it("does not invalidate a confirmed Feed snapshot when dismissal fails", async () => {
+    const cacheKey = CACHE_KEYS.FEED_LIST("user-1");
+    cache.set(cacheKey, { items: [], next_cursor: null, unread_count: 2 });
+    mockApiFetch.mockResolvedValue(jsonResponse({ error: "Unavailable" }, 503));
+
+    await expect(FeedService.dismiss({
+      idToken: "token", userId: "user-1", itemId: "42",
+    })).rejects.toThrow("Unavailable");
+    expect(cache.get(cacheKey)).toMatchObject({ unread_count: 2 });
+  });
+
   it("does not let pre-read list/count responses repopulate a cleared Feed snapshot", async () => {
     const pending: Array<(response: Response) => void> = [];
     mockApiFetch.mockImplementation(() => new Promise<Response>((resolve) => pending.push(resolve)));

@@ -379,7 +379,7 @@ export class DocumentPayoutService {
     const session: CommerceHostedSession = parseCommerceHostedSession(body, attemptId, "documents");
     if (body.attempt_id !== attemptId || session.source !== "documents") throw new Error("Invalid payout return binding");
     documentPayoutLinkUrl(session.url, "onboarding");
-    return session;
+    return { ...session, source: "documents" };
   }
 
   static async balance(vaultOwnerToken: string): Promise<DocumentPayoutBalance> {

@@ -12,12 +12,14 @@ and the usage the answer reports back.
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from typing import Any
 
 import httpx
 import pytest
 from google.adk.models.llm_request import LlmRequest
 from google.genai import types
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ConfigDict
 
 from hushh_mcp.runtime_providers import azure_openai
@@ -333,6 +335,57 @@ async def test_an_output_schema_reaches_the_wire_as_a_text_format() -> None:
     fmt = body["text"]["format"]
     assert fmt["type"] == "json_schema" and fmt["name"] == "Answer"
     assert fmt["strict"] is False and fmt["schema"] == _Answer.model_json_schema()
+
+
+async def test_memory_schema_reaches_azure_as_json_schema_without_changing_information() -> None:
+    from hushh_mcp.services.pkm_agent_lab_service import _INTENT_FRAME_SCHEMA
+
+    schema = deepcopy(_INTENT_FRAME_SCHEMA)
+    schema["properties"]["provider_example"] = {
+        "type": "OBJECT",
+        "nullable": True,
+        "properties": {"type": {"type": "STRING", "enum": ["OBJECT"], "default": "OBJECT"}},
+        "required": ["type"],
+        "default": {"type": "OBJECT"},
+    }
+    schema["examples"] = [{"type": "STRING"}]
+    original = deepcopy(schema)
+    config = types.GenerateContentConfig.model_construct(
+        response_mime_type="application/json", response_schema=schema
+    )
+    wire = (await _send(config)).body()["text"]["format"]["schema"]
+    Draft202012Validator.check_schema(wire)
+    assert wire["type"] == "object" and wire["required"] == schema["required"]
+    nested, null = wire["properties"]["provider_example"]["anyOf"]
+    assert null == {"type": "null"} and nested["type"] == "object"
+    assert nested["properties"]["type"] == {
+        "type": "string",
+        "enum": ["OBJECT"],
+        "default": "OBJECT",
+    }
+    assert nested["default"] == {"type": "OBJECT"} and wire["examples"] == [{"type": "STRING"}]
+    assert schema == original
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"type": "UNKNOWN"},
+        {"type": ["STRING", 3]},
+        {"properties": {"secret": None}},
+        {"type": None},
+        {"type": "OBJECT", "required": "field"},
+        {"anyOf": []},
+    ],
+)
+async def test_invalid_schema_refuses_before_provider_dispatch(schema) -> None:
+    server = _Server(_json(_message("not dispatched")))
+    config = types.GenerateContentConfig.model_construct(response_schema=schema)
+    with pytest.raises(ValueError):
+        await _azure(server).aio.models.generate_content(
+            model="gpt-6-luna", contents=_contents(), config=config
+        )
+    assert server.requests == []
 
 
 async def test_no_text_format_is_sent_when_no_schema_was_asked_negative_control() -> None:

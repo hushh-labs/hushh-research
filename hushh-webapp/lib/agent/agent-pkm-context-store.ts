@@ -8,10 +8,8 @@ import { shouldSkipPkmAgentContextKey } from "@/lib/pkm/pkm-memory-cards";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PKM_QUARANTINE_SEGMENT_ID } from "@/lib/personal-knowledge-model/upgrade-registry";
 import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
-import {
-  readReceiptCanonicalIndex,
-  type ReceiptCanonicalIndex,
-} from "@/lib/profile/gmail-receipt-memory-index";
+import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
+import { receiptMemoryForChat } from "@/lib/mail/receipt-lightweight-memory";
 import { maskSecretSpans } from "@/lib/pkm/secret-span-guard";
 import { businessMemoryEntity } from "@/lib/pkm/business-memory-origin";
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
@@ -77,12 +75,7 @@ type AgentPkmWorkingSet = {
   businessInventoryComplete: boolean;
   /** The owner's Settings style choices, sent apart from the packet. */
   ownerStyle: OwnerStyleSettings;
-  /**
-   * The owner's saved receipt index (`shopping.receipts_memory`). It is kept
-   * apart from the packet on purpose: it is a leading-underscore branch the
-   * inventory skips, and it travels to the server only as the typed field the
-   * Email receipts read consumes, never as text One reads.
-   */
+  /** Retired typed-index API remains null for caller compatibility. */
   receiptIndex: ReceiptCanonicalIndex | null;
   loadedAt: number;
   metadataUpdatedAt: string | null;
@@ -385,7 +378,7 @@ function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
         continue;
       }
       if (derivedSummary && path.length > 1 && DERIVED_SUMMARY_NOISE_KEYS.has(key)) continue;
-      visit(domain, child, [...path, key]);
+      visit(domain, domain === "shopping" && path.length === 0 && key === "receipts_memory" ? receiptMemoryForChat(child) : child, [...path, key]);
     }
   };
 
@@ -922,7 +915,7 @@ export class AgentPkmContextStore {
         ownerStyle: ownerStyleFromBranch(
           identity && typeof identity === "object" ? (identity as Record<string, unknown>)[OWNER_STYLE_BRANCH] : null,
         ),
-        receiptIndex: readReceiptCanonicalIndex(blob.shopping),
+        receiptIndex: null,
         loadedAt: Date.now(),
         metadataUpdatedAt,
       };

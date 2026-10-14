@@ -1,0 +1,22 @@
+{
+  "answering.riv": {
+    "bytes": 806036,
+    "sha256": "8e417bace9b80f0a58af099ac03fb48c61190aafe82cfac29210fc78197d5dc7"
+  },
+  "working.riv": {
+    "bytes": 855675,
+    "sha256": "9582f06e0fd9b816a23142ec82d7e535d374b89c038b642a797a9d703fa9b7cb"
+  },
+  "connected.riv": {
+    "bytes": 21395,
+    "sha256": "81b0e61239689bff690e03eab8eb1078fb38e37b9abcff1b3bb45c0c65cc588a"
+  },
+  "rive.wasm": {
+    "bytes": 2057365,
+    "sha256": "6c12783ad9cef87114264b1041a5bc3f2b6b91a79268d399e9cae391a163ab41"
+  },
+  "thinking.riv": {
+    "bytes": 639310,
+    "sha256": "85b6010bd1655d0b4e6377e1e5c0240cece9b4b898848f739de4f8ef2c624040"
+  }
+}

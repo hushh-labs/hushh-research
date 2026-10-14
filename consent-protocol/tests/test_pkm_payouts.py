@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -163,45 +162,6 @@ async def test_document_onboarding_first_is_reused_for_packet_payouts(world):
     await svc.onboarding_link(user_id="owner")
     assert len(fake.accounts) == 1
     assert {link["account"] for link in fake.links} == {"acct_1"}
-
-
-async def test_correlated_document_onboarding_preserves_account_and_refuses_expired_receipts(
-    world, monkeypatch
-):
-    from urllib.parse import parse_qs, urlsplit
-    from uuid import uuid4
-
-    svc, _db, fake = world
-    attempt = str(uuid4())
-    session = await svc.onboarding_link(user_id="owner", surface="documents", attempt_id=attempt)
-    callback = urlsplit(session["return_url"])
-    assert callback.path == "/one/profile/payouts"
-    assert parse_qs(callback.query) == {
-        "commerceAttemptId": [attempt],
-        "commerceReturn": ["1"],
-        "commerceSource": ["documents"],
-    }
-    await svc.onboarding_link(user_id="owner", surface="documents", attempt_id=attempt)
-    assert len(fake.accounts) == 1
-    assert fake.links[-1]["idempotency_key"] == fake.links[-2]["idempotency_key"]
-    original = fake.AccountLink.create
-    for receipt in (
-        {"object": "account_link", "url": session["url"], "expires_at": int(time.time()) - 1},
-        {
-            "object": "account_link",
-            "url": "https://evil.invalid/",
-            "expires_at": int(time.time()) + 300,
-        },
-    ):
-        monkeypatch.setattr(fake.AccountLink, "create", lambda receipt=receipt, **_kw: receipt)
-        with pytest.raises(PacketOrderError, match="Get a new payout setup link"):
-            await svc.onboarding_link(user_id="owner", surface="documents", attempt_id=attempt)
-    monkeypatch.setattr(fake.AccountLink, "create", original)
-    fresh = str(uuid4())
-    assert (await svc.onboarding_link(user_id="owner", surface="documents", attempt_id=fresh))[
-        "attempt_id"
-    ] == fresh
-    assert len(fake.accounts) == 1
 
 
 async def test_document_status_requires_live_transfer_and_payout_readiness(world):

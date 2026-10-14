@@ -1,5 +1,5 @@
-import { profileFrame, mountAppChrome, hitAt } from "./helpers/drawer-geometry";
-import { expect, test } from "@playwright/test";
+import { profileFrame, expectPaneRestingAtFrame, mountAppChrome, hitAt } from "./helpers/drawer-geometry";
+import { expect, test, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -14,10 +14,14 @@ let script: string;
 let css: string;
 test.beforeAll(async () => {
   const root = process.cwd();
+  const workspace = fs.readFileSync(path.join(root, "components/agent/agent-chat-workspace.tsx"), "utf8");
+  const profileTriggerClass = workspace.match(/data-agent-chat-one-profile-trigger[\s\S]*?className="([^"]+)"/)?.[1];
+  if (!profileTriggerClass) throw new Error("Missing production One profile trigger");
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
+  for (const candidate of profileTriggerClass.split(/\s+/)) candidates.add(candidate);
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "connections-drawer-"));
   await build({
     configFile: false,
@@ -39,12 +43,13 @@ test.beforeAll(async () => {
       alias: [
         ...[
           "@/hooks/use-auth",
+          "@/lib/services/auth-service",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
           "./api-service",
-          "@/lib/services/auth-service",
           "./auth-service",
           "./agent-chat-client",
+          "@/lib/cache/cache-sync-service",
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
           "@/lib/services/gmail-receipts-service",
@@ -67,6 +72,7 @@ test.beforeAll(async () => {
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
+      __ONE_PROFILE_TRIGGER_CLASS__: JSON.stringify(profileTriggerClass),
     },
     build: {
       outDir,
@@ -120,6 +126,24 @@ test.beforeEach(async ({ page }) => {
     return route.continue();
   });
   await page.route(`**${HUSHH_MARK_PATH}`, route => route.fulfill({ contentType: "image/png", body: mark }));
+  await page.route("http://localhost/one-presence/*-hd.png", route =>
+    route.fulfill({
+      contentType: "image/png",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
+    route.fulfill({
+      contentType: "image/webp",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:rive\.wasm|(?:working|thinking)\.riv)$/, route =>
+    route.fulfill({
+      contentType: new URL(route.request().url()).pathname.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
   await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
@@ -244,22 +268,6 @@ for (const width of [390, 1440])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
-async function profileFrame(page: import("@playwright/test").Page) {
-  return page.evaluate(() => {
-    const reference = document.createElement("div");
-    reference.className = "profile-pane-sheet";
-    reference.dataset.slot = "sheet-content";
-    reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
-    document.body.append(reference);
-    const bounds = reference.getBoundingClientRect();
-    const result = { x: innerWidth - bounds.right, y: bounds.y,
-      width: bounds.width, height: bounds.height,
-      radius: getComputedStyle(reference).borderTopLeftRadius };
-    reference.remove();
-    return result;
-  });
-}
-
 for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, native: false })), { width: 390, native: true }])
   test(`chat sidebar keeps Connectors in a visible footer at ${width}px${native ? " with iOS safe area" : ""}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 640 });
@@ -306,26 +314,6 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     await expect(opener).toBeFocused();
   });
 
-/**
- * The real app, reduced to the two things that decide this drawer's stacking:
- * the routed content (the chat workspace, header included) sits in a
- * `relative z-10` wrapper (app/providers.tsx), and the bottom bar is a fixed
- * sibling on the chrome tier (components/app-ui/app-bottom-shell.tsx, z-118).
- * A drawer left inside the workspace can never rise above that bar.
- */
-async function mountAppChrome(page: import("@playwright/test").Page, barHeight: number) {
-  await page.evaluate((height) => {
-    document.documentElement.style.setProperty("--app-bottom-shell-height", `${height}px`);
-    const main = document.querySelector("main")!;
-    main.style.position = "relative";
-    main.style.zIndex = "10";
-    const bar = document.createElement("nav");
-    bar.setAttribute("data-fixture-bottom-bar", "");
-    bar.style.cssText = `position:fixed;left:0;right:0;bottom:0;height:${height}px;z-index:var(--z-chrome);background:var(--background)`;
-    document.body.append(bar);
-  }, barHeight);
-}
-
 test("History tap motion and interrupted pulls move the entire panel without shifting Chat", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -360,6 +348,7 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   const dialog = page.locator("[data-agent-history-drawer]");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Create new chat" })).toBeVisible();
+  await expectPaneRestingAtFrame(page, dialog);
   const measured = await dialog.evaluate(frame => {
     const title = frame.querySelector("h2")!;
     const body = frame.querySelector<HTMLElement>("aside")!;
@@ -378,6 +367,8 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   expect(measured.after[0]! - measured.before[0]!).toBeCloseTo(-50, 0);
   expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(-50, 0);
   expect(measured.frameTransform).toContain("translate3d");
+  expect(measured.after[0]! - measured.after[1]!).toBeCloseTo(measured.before[0]! - measured.before[1]!, 0);
+  await expectPaneRestingAtFrame(page, dialog);
   await expect(dialog).toHaveAttribute("aria-hidden", "false");
   await expect.poll(() => dialog.evaluate(element => element.getBoundingClientRect().x)).toBeCloseTo(0, 0);
   const exit = await page.evaluate(async () => {
@@ -398,19 +389,6 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   expect(exit.samples.some(x => x < -1 && x > -exit.width + 1)).toBe(true);
   expect(exit.samples.at(-1)).toBeCloseTo(-exit.width, 0);
 });
-
-/** What a finger at (x, y) would land on: the scrim, the panel, or chrome. */
-function hitAt(page: import("@playwright/test").Page, x: number, y: number) {
-  return page.evaluate(([px, py]) => {
-    const element = document.elementFromPoint(px, py);
-    if (!element) return "none";
-    if (element.closest("[data-agent-history-scrim]")) return "scrim";
-    if (element.closest("[data-agent-history-drawer]")) return "panel";
-    if (element.closest("[data-fixture-bottom-bar]")) return "bottom-bar";
-    if (element.closest("header.agent-chat-header")) return "header";
-    return element.tagName.toLowerCase();
-  }, [x, y] as const);
-}
 
 for (const { width, safeLeft } of [
   { width: 390, safeLeft: 0 },
@@ -1486,58 +1464,251 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
   await expectChatIntact(page, navigations);
 });
 
-for (const viewport of [
-  { width: 320, height: 568 },
-  { width: 390, height: 844 },
-  { width: 768, height: 720 },
-  { width: 1440, height: 900 },
-]) {
-  test(`One profile keeps its header and tabs stationary while switching at ${viewport.width}px`, async ({ page }) => {
-    await page.setViewportSize(viewport);
-    await page.route("**/api/one/feed**", route => route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ items: Array.from({ length: 20 }, (_, i) => ({
-        id: String(i + 100), event_type: "connection_accepted", source_domain: "connections",
-        actor_label: `Synthetic person ${i + 1}`, metadata: {}, read: false,
-        created_at: "2026-10-12T08:00:00Z",
-      })), next_cursor: null, unread_count: 20 }),
-    }));
+async function presencePixels(artwork: Locator) {
+  return artwork.evaluate((canvas: HTMLCanvasElement) => {
+    // Sample the whole DPR-sized Rive surface without changing its live buffer.
+    const probe = document.createElement("canvas");
+    probe.width = probe.height = 128;
+    const context = probe.getContext("2d")!;
+    context.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, 128, 128);
+    const pixels = context.getImageData(0, 0, 128, 128).data;
+    let hash = 0, opaque = 0;
+    for (let i = 0; i < pixels.length; i += 1) {
+      hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
+      if (i % 4 === 3 && pixels[i]! > 0) opaque += 1;
+    }
+    return { hash, opaque, cornerAlpha: [3, (128 - 1) * 4 + 3, (128 * 127) * 4 + 3, pixels.length - 1].map(i => pixels[i]) };
+  });
+}
+
+test.describe("One profile artwork and animated presence", () => {
+  test.use({ deviceScaleFactor: 3 });
+  test("keeps header and profile presence in sync through drafting, answering and idle", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
+    await page.goto("http://localhost/connections-fixture?one-profile=1");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    const trigger = page.getByRole("button", { name: "Open One profile", exact: true });
+    await trigger.hover();
+    await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(trigger).toHaveCSS("border-radius", "0px");
+    // Tailwind composes shadow-none with zero-alpha ring/shadow slots.
+    await expect(trigger).toHaveCSS("box-shadow", /^(?:none|rgba\(0, 0, 0, 0\) 0px 0px 0px 0px(?:, rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)*)$/);
+    await trigger.click();
+    const panel = page.getByRole("dialog", { name: "One", exact: true });
+    await expect.poll(() => panel.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+    const header = page.getByTestId("one-presence-header").locator("[data-one-presence-state]");
+    const profile = panel.locator("[data-one-presence-state]");
+    for (const phase of [
+      { drafting: false, answering: false, state: "connected", file: "profile-hd.png" },
+      { drafting: true, answering: true, state: "working", file: "drafting-hd.png" },
+      { drafting: false, answering: true, state: "thinking", file: "thinking-hd.png" },
+      { drafting: false, answering: false, state: "connected", file: "profile-hd.png" },
+    ]) {
+      await page.evaluate(work => {
+        (window as unknown as { __setOnePresenceWork: (work: { drafting: boolean; answering: boolean }) => void }).__setOnePresenceWork(work);
+      }, { drafting: phase.drafting, answering: phase.answering });
+      await expect(header).toHaveAttribute("data-one-presence-state", phase.state);
+      await expect(profile).toHaveAttribute("data-one-presence-state", phase.state);
+      await expect(profile).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      expect(await profile.evaluate(element => getComputedStyle(element.parentElement!).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+      expect(await profile.evaluate(element => getComputedStyle(element.parentElement!).borderRadius)).toBe("0px");
+      const bounds = (await profile.boundingBox())!;
+      expect(bounds.width).toBe(192); expect(bounds.height).toBe(192);
+      if (phase.state === "connected") {
+        await expect(profile).toHaveAttribute("src", `/one-presence/${phase.file}`);
+        await expect(header).toHaveAttribute("src", "/one-presence/profile-hd.png");
+        await expect.poll(() => profile.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
+      } else {
+        for (const artwork of [header, profile]) {
+          await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
+          const canvas = artwork.locator("canvas");
+          await expect(canvas).toBeVisible();
+          await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
+          expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
+          const first = (await presencePixels(canvas)).hash;
+          await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(first);
+        }
+      }
+      await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
+    }
+  });
+  test("keeps HD reduced-motion artwork and pauses rendering for app lifecycle changes", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.goto("http://localhost/connections-fixture?one-profile=1");
     await page.addScriptTag({ content: script });
     await awaitProductFont(page);
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
-    await expect(panel).toBeVisible();
-    await expect(panel.getByTestId("feed-row").first()).toBeVisible();
-    // Geometry is measured after the sheet's entrance motion settles.
-    await expect.poll(() => panel.evaluate(element =>
-      new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
-    await expect.poll(() => panel.locator("[data-hushh-mark] img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
-    const rail = panel.getByRole("tablist", { name: "One profile sections" });
-    const initial = (await rail.boundingBox())!;
-    const frame = (await panel.boundingBox())!;
-    const scroll = await panel.getByRole("tabpanel", { name: "Feed" }).evaluate(element => {
-      let node = element.parentElement;
-      while (node && !["auto", "scroll"].includes(getComputedStyle(node).overflowY)) node = node.parentElement;
-      if (!node) throw new Error("Missing active-panel scroller");
-      node.scrollTop = node.scrollHeight;
-      return node.scrollTop;
-    });
-    expect(scroll).toBeGreaterThan(80);
-    expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
-    for (let i = 0; i < 3; i += 1) {
-      if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
-      await panel.getByRole("tab", { name: "Profile", exact: true }).click();
-      await expect(panel.getByRole("link", { name: "Open memory.md in Memory" })).toBeVisible();
-      expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
-      await panel.getByRole("tab", { name: "Feed", exact: true }).click();
-      await expect(panel.getByTestId("feed-row").first()).toBeVisible();
-      expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
-    }
-    expect(frame.x).toBeGreaterThan(0);
-    expect(frame.x + frame.width).toBeLessThanOrEqual(viewport.width);
-    expect(frame.y + frame.height).toBeLessThanOrEqual(viewport.height);
-    expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await page.screenshot({ path: test.info().outputPath("one-profile-atd.png") });
+    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
+    const artwork = panel.locator("[data-one-presence-state]");
+    const canvas = artwork.locator("canvas");
+    const poster = artwork.locator("img");
+    await expect(canvas).toBeVisible();
+    await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(canvas).toBeHidden();
+    await expect(poster).toBeVisible();
+    await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
+    await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
+    const reduced = (await presencePixels(canvas)).hash;
+    await page.waitForTimeout(200);
+    expect((await presencePixels(canvas)).hash).toBe(reduced);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect(canvas).toBeVisible();
+    await expect(poster).toBeHidden();
+    await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(reduced);
+    await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
+    await expect(canvas).toBeHidden();
+    await expect(poster).toBeVisible();
+    const paused = (await presencePixels(canvas)).hash;
+    await page.waitForTimeout(200);
+    expect((await presencePixels(canvas)).hash).toBe(paused);
+    await page.evaluate(() => (window as any).__setOnePresenceLifecycle("active"));
+    await expect(canvas).toBeVisible();
+    await expect(poster).toBeHidden();
+    await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(paused);
+    await page.getByRole("button", { name: "Close One profile", exact: true }).click();
+    await expect(panel).toBeHidden();
+    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false }));
+    await expect(page.getByTestId("one-presence-header").locator("img")).toHaveAttribute("src", "/one-presence/profile-hd.png");
   });
-}
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 390, height: 844 },
+    { width: 768, height: 720 },
+    { width: 1440, height: 900 },
+  ]) {
+    test(`One profile keeps its header and tabs stationary while switching at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.route("**/api/one/feed**", route => route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ items: Array.from({ length: 20 }, (_, i) => ({
+          id: String(i + 100), event_type: "connection_accepted", source_domain: "connections",
+          actor_label: `Synthetic person ${i + 1}`, metadata: {}, read: false,
+          created_at: "2026-10-12T08:00:00Z",
+        })), next_cursor: null, unread_count: 20 }),
+      }));
+      await page.goto("http://localhost/connections-fixture?one-profile=1");
+      await page.addScriptTag({ content: script });
+      await awaitProductFont(page);
+      await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+      const panel = page.getByRole("dialog", { name: "One", exact: true });
+      await expect(panel).toBeVisible();
+      await expect(panel.getByTestId("feed-row").first()).toBeVisible();
+      // Geometry is measured after the sheet's entrance motion settles.
+      await expect.poll(() => panel.evaluate(element =>
+        new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+      const avatar = panel.locator('img[src="/one-presence/profile-hd.png"]');
+      await expect(avatar).toBeVisible();
+      // A loaded thumbnail still fails: the source must cover the actual
+      // profile presentation at the device's physical pixel density.
+      await expect.poll(() => avatar.evaluate((image: HTMLImageElement) => {
+        const bounds = image.getBoundingClientRect();
+        return image.complete &&
+          image.naturalWidth >= Math.ceil(bounds.width * devicePixelRatio) &&
+          image.naturalHeight >= Math.ceil(bounds.height * devicePixelRatio);
+      })).toBe(true);
+      expect((await avatar.boundingBox())!.width).toBe(192);
+      expect((await avatar.boundingBox())!.height).toBe(192);
+      const rail = panel.getByRole("tablist", { name: "One profile sections" });
+      const initial = (await rail.boundingBox())!;
+      const frame = (await panel.boundingBox())!;
+      const scroll = await panel.getByRole("tabpanel", { name: "Feed" }).evaluate(element => {
+        let node = element.parentElement;
+        while (node && !["auto", "scroll"].includes(getComputedStyle(node).overflowY)) node = node.parentElement;
+        if (!node) throw new Error("Missing active-panel scroller");
+        node.scrollTop = node.scrollHeight;
+        return node.scrollTop;
+      });
+      expect(scroll).toBeGreaterThan(80);
+      expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+      for (let i = 0; i < 3; i += 1) {
+        if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
+        await panel.getByRole("tab", { name: "Profile", exact: true }).click();
+        await expect(panel.getByRole("link", { name: "Open memory.md in Memory" })).toBeVisible();
+        expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+        await panel.getByRole("tab", { name: "Feed", exact: true }).click();
+        await expect(panel.getByTestId("feed-row").first()).toBeVisible();
+        expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+      }
+      expect(frame.x).toBeGreaterThan(0);
+      expect(frame.x + frame.width).toBeLessThanOrEqual(viewport.width);
+      expect(frame.y + frame.height).toBeLessThanOrEqual(viewport.height);
+      expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath("one-profile-atd.png") });
+    });
+  }
+});
+
+// The account pane's legacy 24-unit stroke overrides must not distort
+// Phosphor's filled 256-unit reset glyph. Mount the real row and pane styles.
+test("Reset icon colors only its arrowhead and keeps native geometry in the account pane", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("http://localhost/connections-fixture?reset-icon=1");
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+  const row = page.getByRole("button", { name: /Reset account/ });
+  const icon = row.locator('[data-slot="settings-row-icon"] svg');
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate(dark => document.documentElement.classList.toggle("dark", dark), theme === "dark");
+    await expect(icon).toBeVisible();
+    const geometry = await icon.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return { width: bounds.width, height: bounds.height, stroke: style.stroke,
+        fill: style.fill,
+        viewBox: element.getAttribute("viewBox") };
+    });
+    expect(geometry.viewBox).toBe("0 0 256 256");
+    expect(geometry.width).toBe(22);
+    expect(geometry.height).toBe(22);
+    expect(geometry.stroke).toBe("none");
+    expect(geometry.fill).not.toBe("none");
+    const pixels = await icon.evaluate(async element => {
+      const svg = element as SVGSVGElement;
+      const copy = svg.cloneNode(true) as SVGSVGElement;
+      copy.setAttribute("width", "256");
+      copy.setAttribute("height", "256");
+      copy.style.color = getComputedStyle(svg).color;
+      const paintedNodes = svg.querySelectorAll("[fill]");
+      // Standalone SVG images cannot inherit the page's theme variables.
+      copy.querySelectorAll("[fill]").forEach((node, index) => {
+        const fill = getComputedStyle(paintedNodes[index]).fill;
+        if (!fill.startsWith("url(")) node.setAttribute("fill", fill);
+      });
+      const image = new Image();
+      image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(copy))}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 256;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      const sample = (x: number, y: number) => Array.from(context.getImageData(x, y, 1, 1).data);
+      const color = (value: string) => {
+        context.fillStyle = value;
+        context.fillRect(0, 0, 1, 1);
+        return sample(0, 0);
+      };
+      return {
+        verticalHead: sample(24, 64), horizontalHead: sample(60, 104),
+        diagonal: sample(48, 84), arc: sample(216, 128), bottom: sample(128, 216),
+        accent: color(getComputedStyle(svg).getPropertyValue("--account-accent")),
+        ink: color(getComputedStyle(svg).color),
+      };
+    });
+    expect(pixels.accent).toEqual([0, 122, 255, 255]);
+    expect(pixels.verticalHead).toEqual(pixels.accent);
+    expect(pixels.horizontalHead).toEqual(pixels.accent);
+    for (const sample of [pixels.diagonal, pixels.arc, pixels.bottom]) {
+      expect(sample).toEqual(pixels.ink);
+    }
+    const inkChannels = pixels.ink.slice(0, 3);
+    if (theme === "light") expect(Math.max(...inkChannels)).toBeLessThan(64);
+    else expect(Math.min(...inkChannels)).toBeGreaterThan(220);
+    await expect(row.getByText("Clears saved details")).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`reset-icon-${theme}.png`) });
+  }
+});

@@ -54,10 +54,14 @@ def test_disabled_flag_reports_disabled_without_touching_the_provider(monkeypatc
     }
 
 
-def test_enabled_flag_without_model_pin_is_not_configured(monkeypatch):
+def test_enabled_flag_with_invalid_managed_profile_is_not_configured(monkeypatch):
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
-    monkeypatch.delenv("VERTEX_LIVE_MODEL_ID", raising=False)
-    monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")
+    from hushh_mcp import runtime_settings as config
+
+    def invalid_profile():
+        raise RuntimeError("Invalid managed AI model")
+
+    monkeypatch.setattr(config, "managed_ai_settings", invalid_profile)
     body = TestClient(_app()).get("/api/one/voice/readiness").json()
     assert body["enabled"] is False
     assert body["status"] == "not_configured"
@@ -219,14 +223,14 @@ def test_socket_rejects_a_bad_ticket_without_a_provider(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("deploy_env", "expected_labels"),
+    ("deploy_env", "expected_labels", "expected_project"),
     [
-        ("uat", {"environment": "uat", "component": "one_voice"}),
-        ("production", None),
+        ("uat", {"environment": "uat", "component": "one_voice"}, "hussh-511311"),
+        ("production", None, "hushh-vertex-personal54"),
     ],
 )
 def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(
-    monkeypatch, deploy_env, expected_labels
+    monkeypatch, deploy_env, expected_labels, expected_project
 ):
     monkeypatch.setattr(voice, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
@@ -274,8 +278,8 @@ def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(
     monkeypatch.setattr(voice, "VoiceSession", FakeSession)
     with TestClient(_owner_app()).websocket_connect("/api/one/voice/live?ticket=test"):
         pass
-    assert seen == [("hussh-511311", expected_labels)]
-    assert ManagedGeminiRuntimeBinding.from_environment().project == "hushh-vertex-personal54"
+    assert seen == [(expected_project, expected_labels)]
+    assert ManagedGeminiRuntimeBinding.from_environment().project == expected_project
     assert request_labels() is None
 
 

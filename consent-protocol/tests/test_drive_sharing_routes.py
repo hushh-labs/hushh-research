@@ -20,6 +20,77 @@ BASE = "/api/connectors/google_drive/sharing/requests"
 REQUEST_ID = "5d0c7a4e-2f61-4c3b-9a8e-0d51a7e3b001"
 
 
+def test_packet_catalog_requires_owner_and_validated_listing_consent(setup, monkeypatch):
+    client, app, _, current = setup
+    service = SimpleNamespace(
+        list_packets=AsyncMock(return_value={"packets": [], "nextCursor": None}),
+        set_listing=AsyncMock(return_value={"revision": 1}),
+    )
+    monkeypatch.setattr(routes, "_packet_service", lambda: service)
+    path = "/api/connectors/google_drive/sharing/packets"
+    assert client.get(path).status_code == 401
+    assert not service.list_packets.called
+    unlock(app)
+    response = client.get(path)
+    assert response.status_code == 200 and "no-store" in response.headers["Cache-Control"]
+    service.list_packets.assert_awaited_once_with(
+        user_id="recipient", owner_user_id=None, cursor=None
+    )
+    body = {
+        "version": 1,
+        "decision": "allow",
+        "priceCents": 51,
+        "expectedRevision": 0,
+        "disclosure": "drive-packet-listing-connections-v1",
+    }
+    assert client.post(path + f"/{REQUEST_ID}/listing", json=body).status_code == 200
+    service.set_listing.assert_awaited_once_with(
+        user_id="recipient",
+        packet_id=REQUEST_ID,
+        version=1,
+        decision="allow",
+        price_cents=51,
+        expected_revision=0,
+        disclosure="drive-packet-listing-connections-v1",
+    )
+    for patch in (
+        {"version": True},
+        {"priceCents": 49},
+        {"priceCents": 50001},
+        {"disclosure": "background-sync"},
+        {"ownerUserId": "other"},
+    ):
+        assert client.post(path + f"/{REQUEST_ID}/listing", json=body | patch).status_code == 422
+    assert service.set_listing.await_count == 1
+    current.side_effect = HTTPException(401, "Expired")
+    assert client.get(path).status_code == 401
+    assert service.list_packets.await_count == 1
+
+
+def test_packet_request_binds_verified_recipient_and_rejects_injected_members(setup, monkeypatch):
+    client, app, _, _ = setup
+    service = SimpleNamespace(
+        request_packet=AsyncMock(return_value={"requestId": REQUEST_ID, "existingAccess": False})
+    )
+    monkeypatch.setattr(routes, "_packet_service", lambda: service)
+    unlock(app)
+    identity = SimpleNamespace(user_id="recipient")
+    app.dependency_overrides[routes._recipient] = lambda: identity
+    path = f"/api/connectors/google_drive/sharing/packets/{REQUEST_ID}/requests"
+    body = {"version": 2, "clientRequestId": REQUEST_ID}
+    assert client.post(path, json=body).status_code == 202
+    service.request_packet.assert_awaited_once_with(
+        user_id="recipient",
+        recipient=identity,
+        packet_id=REQUEST_ID,
+        version=2,
+        client_request_id=REQUEST_ID,
+    )
+    for patch in ({"sourceIds": ["private"]}, {"priceCents": 50}, {"version": "2"}):
+        assert client.post(path, json=body | patch).status_code == 422
+    assert service.request_packet.await_count == 1
+
+
 @pytest.fixture
 def setup(shared_hub_owner, monkeypatch):
     app = FastAPI()
@@ -100,7 +171,7 @@ def test_pricing_routes_bind_authenticated_owner_and_validate_price(setup, monke
     service.update_owner_pricing.assert_awaited_once_with(
         user_id="recipient", enabled=True, amount_cents=2500, expected_version=0
     )
-    for invalid in (2050, 0, 50100, True):
+    for invalid in (49, 0, 50001, True):
         response = client.put(
             base + "/pricing",
             json={
@@ -358,7 +429,7 @@ def test_withdraw_refuses_paid_requests_and_never_fails_on_checkout_retirement(s
         {"revision": 0, "confirmed": 1},
         {"revision": 0, "confirmed": "true"},
         {"revision": 0, "confirmed": True, "amountCents": 0},
-        {"revision": 0, "confirmed": True, "amountCents": 2050},
+        {"revision": 0, "confirmed": True, "amountCents": 49},
         {"revision": 0, "confirmed": True, "amountCents": 50100},
         {"revision": 0, "confirmed": True, "amountCents": 2000.0},
         {"revision": 0, "confirmed": True, "amountCents": "2000"},
@@ -366,13 +437,25 @@ def test_withdraw_refuses_paid_requests_and_never_fails_on_checkout_retirement(s
         {"revision": 0, "confirmed": True, "trustedAuto": True},
     ],
 )
-def test_allow_needs_explicit_confirmation_and_a_whole_dollar_price(setup, body):
+def test_allow_needs_explicit_confirmation_and_integer_cent_price(setup, body):
     client, app, service, _ = setup
     unlock(app)
     response = client.post(BASE + f"/{REQUEST_ID}/allow", json=body)
     assert response.status_code == 422
     assert "no-store" in response.headers["Cache-Control"]
     service.allow.assert_not_called()
+
+
+@pytest.mark.parametrize("amount", [50, 51, 99, 100, 1234, 49999, 50000])
+def test_allow_keeps_owner_cent_amount_without_rounding(setup, amount):
+    client, app, service, _ = setup
+    unlock(app)
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/allow",
+        json={"revision": 3, "confirmed": True, "amountCents": amount},
+    )
+    assert response.status_code == 202
+    assert service.allow.await_args.kwargs["amount_cents"] == amount
 
 
 def test_allow_forwards_the_owners_price_and_reports_refusals(setup):
@@ -410,7 +493,7 @@ def test_allow_forwards_the_owners_price_and_reports_refusals(setup):
         assert "no-store" in response.headers["Cache-Control"]
 
 
-@pytest.mark.parametrize("amount", [None, 0, 99, 2050, 50100, 2000.0, "2000", True])
+@pytest.mark.parametrize("amount", [None, 0, 49, 50001, 2000.0, "2000", True])
 def test_trusted_price_rejects_missing_or_invalid_amount(setup, amount):
     client, app, service, _ = setup
     unlock(app)

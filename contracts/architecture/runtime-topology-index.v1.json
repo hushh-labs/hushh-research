@@ -976,6 +976,25 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
+        "drive_collection_sync",
+        "drive_document_extractions",
+        "drive_document_pages",
+        "drive_document_facts",
+        "drive_document_fact_pages",
+        "drive_packet_heads",
+        "drive_packet_members",
+        "drive_packet_versions",
+        "drive_packet_version_sources",
+        "drive_packet_listings"
+      ],
+      "id": "drive_continuous_document_evidence",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
         "drive_document_rules"
       ],
       "id": "drive_document_trust_rules",
@@ -1088,7 +1107,7 @@
       "id": "drive_request_owner_pricing",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only."
+      "primary_access_path": "An authenticated document owner sets one USD Drive request price in integer cents from 50 to 50000 in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only."
     },
     {
       "data_class": "workflow_state",
@@ -1101,7 +1120,7 @@
       "id": "drive_request_payment_authority",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective quote from 50 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
     },
     {
       "data_class": "reference",
@@ -1809,6 +1828,26 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "pwm_claim_invitations"
+      ],
+      "id": "pwm_invitation_authority",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated PWM invitation create/list/revoke/claim routes. Shared account graph locks and existing transaction connection for strict owner authority."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pwm_provider_budget"
+      ],
+      "id": "pwm_provider_budget",
+      "lifecycle_status": "current",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "Atomic monthly provider credit charge before dispatch."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "relay_ticket_nonces"
       ],
       "id": "relay_ticket_replay_guard",
@@ -1833,7 +1872,7 @@
       "id": "selected_drive_documents",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access."
+      "primary_access_path": "Owner-authenticated selection/management and separately consented continuous live collection discovery, with durable connection-generation-bound ingestion leases and versioned publication. No client database access."
     },
     {
       "data_class": "workflow_state",
@@ -4404,6 +4443,7 @@
           "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
+          "route.profile_world_model",
           "route.ria_settings_compat"
         ],
         "delegate_agent_ids": [],
@@ -4516,6 +4556,7 @@
           "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
+          "route.profile_world_model",
           "route.ria_settings_compat"
         ],
         "delegate_agent_ids": [],
@@ -4563,6 +4604,7 @@
           "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
+          "route.profile_world_model",
           "route.ria_settings_compat"
         ],
         "delegate_agent_ids": [],
@@ -5459,6 +5501,32 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "pkm_metadata",
+          "pkm_projection"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile-world-model",
+      "page_file": "app/one/profile/world-model/page.tsx",
+      "pathname": "/one/profile/world-model",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_world_model"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.world_model"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
@@ -5872,6 +5940,7 @@
         "action_ids": [
           "location.onboarding.choose_place",
           "setup.finish_location",
+          "setup.finish_location_intro",
           "setup.skip_location"
         ],
         "delegate_agent_ids": [],
@@ -6020,6 +6089,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "people.profile.browse_packets",
           "people.profile.cancel_connection_request",
           "people.profile.connect",
           "people.profile.manage_consent",
@@ -6696,29 +6766,29 @@
   ],
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
-    "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "3e36c9a3ea8e6d8580527b797e0fb54c60c0af07bd352aaa19fc524be4d2b265",
-    "agent_registry": "44e0c41229125c23e5ee40a5b9c00efac7899fc78f9ac3b35172319ff3bae9ee",
-    "cache_manifest": "c7262af5c5aef35ab22518245c58d001a7637304a61f2416b702877b0b6b3102",
-    "data_plane": "fc5a7f75045bd9a8b6e3e7c7512f72672e133f6f72f2c8c9eb8821f33a074025",
+    "a2a_scope_map": "901ffa785f2f917bce0a5eee0aceebeaded2180baf7a3bf7915c9d03e72fb526",
+    "action_gateway": "0067147443b711afec36d9dcb54c4463c849a140adc7f864168978dc3ac5886a",
+    "agent_registry": "90efdbb3b1ac202290583cf1435f5f65d6c31fa71189cf558a00b841cbad21aa",
+    "cache_manifest": "2dd3baccfcc145b86f92282b9d55902da21fdb77a5df8004998ee3aef10cdc34",
+    "data_plane": "a64f4d28f1bd58f9452dbd53cee0fb0507e87b83319c2ad666c17e41ad018859",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "cb76edf8be0ad6bbef975a9a9db27c9564dd768e7edd3da999ec5d3a5877b283",
-    "route_index": "f6fccfbcd871bce07685214b2d7fa856939ab971817b98da3e4b64ed4b6ff7bc",
-    "route_layout": "357d7cda5e28b5ee98fbde64f5d3566d1b3dbd9521d361e489a375fb460760ee",
-    "surface_map": "e8217fb787ebed866387173e6cb271f9f524210fadd99332bca7ed341a188b84",
+    "route_index": "1271a93387ed27e90c8c7cd77eaec8e5c957b05cfef15882b4705765e5ce7683",
+    "route_layout": "8f5b94d9c91784adb9101aae83882f53da4cc2cccbfee2df9805e1d0d799d33b",
+    "surface_map": "9ccb5480fe63e1aa7a3a88cb37e8e98d1ea20158c6ecb5610952df0d7a38f441",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 242,
+    "actions": 249,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 156,
+    "physical_routes": 157,
     "semantic_routes": 17,
-    "table_families": 111
+    "table_families": 114
   }
 }

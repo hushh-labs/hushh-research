@@ -13,6 +13,8 @@ const recoveryCache = vi.hoisted(() => ({ writeRequired: vi.fn().mockResolvedVal
   readRequired: vi.fn() }));
 vi.mock("@/lib/services/secure-resource-cache-service", () => ({ SecureResourceCacheService: recoveryCache }));
 
+vi.mock("@/lib/services/secure-durable-resource-service", () => ({ SecureDurableResourceService: { version: vi.fn().mockResolvedValue({ generation: 0, revision: 0 }) } }));
+
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: { getStaleFirst },
 }));
@@ -37,6 +39,7 @@ import {
   recoverMarkdownMemorySync,
 } from "@/lib/pkm/markdown-memory";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { SecureDurableResourceService } from "@/lib/services/secure-durable-resource-service";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { insertSoulFacts, isSoulFact, normalizeSoulDocument } from "@/lib/pkm/soul-document";
 import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
@@ -51,6 +54,7 @@ afterEach(() => {
   recoveryCache.listResourceKeys.mockResolvedValue([]);
   recoveryCache.invalidateResourceRequired.mockResolvedValue(undefined);
   lookupMutationCommits.mockReset().mockResolvedValue([{ exists: false, dataVersion: null }]);
+  vi.mocked(SecureDurableResourceService.version).mockResolvedValue({ generation: 0, revision: 0 });
 });
 
 const syncParams = { userId: "user-1", vaultKey: "key", vaultOwnerToken: "token",
@@ -161,6 +165,7 @@ describe("parallel local memory and encrypted sync", () => {
         target_entity_path: `markdown.entities.${candidates[0]!.entity_id}` } }], candidates)).toThrow("masked");
   });
   const radarKey = `gmail_receipt_radar:${"a".repeat(64)}`;
+  const snapshotFence = { resourceKey: `mail_receipts.v1:${"a".repeat(64)}`, revision: 1 };
   it("replaces generated receipt bullets, preserves concurrent personal facts, and rejects late older summaries", async () => {
     await seedSession();
     let cloud: Record<string, unknown> = {};
@@ -206,14 +211,96 @@ describe("parallel local memory and encrypted sync", () => {
     expect(savePreparedDomain).not.toHaveBeenCalled();
   });
 
+  it("persists an empty receipt replacement and hides legacy detailed source bullets from routine Chat", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    const unsafe = "Paid USD 123.45 on 2026-10-01 for invoice INV-778.";
+    let cloud: Record<string, unknown> = { markdown: `# Soul.md\n\n## Facts\n- ${unsafe}\n- Studies engineering.\n`,
+      _source_summaries: { [radarKey]: { observedAt: "2026-10-10T00:00:00Z", facts: [unsafe] } } };
+    getStaleFirst.mockResolvedValue({ data: cloud });
+    await loadMarkdownMemory(syncParams);
+    const packet = markdownMemoryToAgentContext(peekMarkdownMemory("user-1")!).text;
+    expect(packet).not.toContain("123.45");
+    expect(packet).toContain("Studies engineering");
+    savePreparedDomain.mockImplementation(async params => { const plan = await params.build({ currentDomainData: cloud }); cloud = plan.domainData; return { success: true }; });
+    await stageMarkdownMemoryFacts({ ...syncParams, facts: [], replaceSource: { key: radarKey, observedAt: "2026-10-12T00:00:00Z" } });
+    await vi.waitFor(() => expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("synced"));
+    expect(savePreparedDomain).toHaveBeenCalledOnce();
+    expect(cloud.markdown).not.toContain("123.45");
+    expect(cloud.markdown).toContain("Studies engineering");
+    expect((cloud._source_summaries as Record<string, { facts: string[] }>)[radarKey]?.facts).toEqual([]);
+  });
+
+  it.each(["retry", "renew"])("keeps the persisted Reset fence when a retained receipt job resumes through %s", async mode => {
+    vi.useFakeTimers(); await seedSession();
+    savePreparedDomain.mockResolvedValue({ success: false, message: "temporary failure" });
+    await stageMarkdownMemoryFacts({ ...syncParams, facts: ["Observed merchant affinities."], receiptGeneration: 0,
+      replaceSource: { key: radarKey, observedAt: "2026-10-12T00:00:00Z" } });
+    await vi.runAllTimersAsync();
+    expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("retryable");
+    vi.mocked(SecureDurableResourceService.version).mockResolvedValue({ generation: 1, revision: 0 });
+    const write = vi.fn();
+    savePreparedDomain.mockImplementation(async params => { await params.beforeEffect(); write(); return { success: true }; });
+    if (mode === "retry") await retryMarkdownMemorySync({ ...syncParams, beforeEffect: async () => {} });
+    else { const previousEpoch = snapshotVaultSessionEpoch(); advanceVaultSessionEpoch(); renewMarkdownMemorySession({ ...syncParams, previousEpoch, beforeEffect: async () => {} }); }
+    await vi.runAllTimersAsync();
+    expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("synced");
+    expect(write).not.toHaveBeenCalled();
+    expect(peekMarkdownMemory("user-1")?.markdown).not.toContain("Observed merchant affinities.");
+  });
+
+  it.each(["retry", "renew"])("retires a superseded receipt revision through %s without blocking newer personal facts", async mode => {
+    vi.useFakeTimers(); await seedSession();
+    vi.mocked(SecureDurableResourceService.version).mockResolvedValue({ generation: 0, revision: 1 });
+    savePreparedDomain.mockResolvedValue({ success: false });
+    await stageMarkdownMemoryFacts({ ...syncParams, facts: ["Old receipt trend."], receiptGeneration: 0, receiptSnapshotFence: snapshotFence,
+      replaceSource: { key: radarKey, observedAt: "2026-10-12T00:00:00Z" } });
+    await vi.runAllTimersAsync();
+    vi.mocked(SecureDurableResourceService.version).mockResolvedValue({ generation: 0, revision: 2 });
+    let cloud: Record<string, unknown> = {};
+    getStaleFirst.mockImplementation(async () => ({ data: cloud }));
+    savePreparedDomain.mockImplementation(async params => { await params.beforeEffect(); const plan = await params.build({ currentDomainData: cloud }); cloud = plan.domainData; return { success: true }; });
+    if (mode === "retry") await retryMarkdownMemorySync({ ...syncParams, beforeEffect: async () => {} });
+    else { const previousEpoch = snapshotVaultSessionEpoch(); advanceVaultSessionEpoch(); renewMarkdownMemorySession({ ...syncParams, previousEpoch, beforeEffect: async () => {} }); }
+    await stageMarkdownMemoryFacts({ ...syncParams, facts: ["Likes concise answers."] });
+    await vi.runAllTimersAsync();
+    expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("synced");
+    expect(cloud.markdown).toContain("Likes concise answers.");
+    expect(cloud.markdown).not.toContain("Old receipt trend.");
+    expect(peekMarkdownMemory("user-1")?.markdown).not.toContain("Old receipt trend.");
+  });
+
+  it("lets an accepted queued job finish after its UI capture ends", async () => {
+    await seedSession();
+    let finishCheckpoint!: () => void;
+    recoveryCache.writeRequired.mockImplementationOnce(() => new Promise<void>(resolve => { finishCheckpoint = resolve; }));
+    let captureCurrent = true;
+    savePreparedDomain.mockImplementation(async params => { await params.beforeEffect(); await params.build({ currentDomainData: {} }); return { success: true }; });
+    await stageMarkdownMemoryFacts({ ...syncParams, facts: ["Likes brief answers."], beforeEffect: async () => { if (!captureCurrent) throw new DOMException("Capture ended", "AbortError"); } });
+    captureCurrent = false; finishCheckpoint();
+    await vi.waitFor(() => expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("synced"));
+    expect(peekMarkdownMemory("user-1")?.markdown).toContain("Likes brief answers.");
+  });
+
+  it.each([undefined, { ...snapshotFence, revision: 1 }])("does not recover an unbound or superseded receipt checkpoint", async receiptSnapshotFence => {
+    await seedSession();
+    vi.mocked(SecureDurableResourceService.version).mockResolvedValue({ generation: 0, revision: 2 });
+    recoveryCache.listResourceKeys.mockResolvedValueOnce(["one_memory_pending:v1:old-radar"]);
+    recoveryCache.readRequired.mockResolvedValueOnce({ version: 1, userId: "user-1", receiptGeneration: 0, receiptSnapshotFence, facts: ["Old receipt trend."],
+      confirmation: syncParams.confirmation, replaceSource: { key: radarKey, observedAt: "2026-10-12T00:00:00Z" } });
+    await recoverMarkdownMemorySync(syncParams);
+    expect(savePreparedDomain).not.toHaveBeenCalled();
+    expect(peekMarkdownMemory("user-1")?.markdown).not.toContain("Old receipt trend.");
+  });
+
   it("recovers a generated summary replacement with its encrypted checkpoint, not a historical append", async () => {
     publishValidatedAuthSessionOwner("user-1");
+    vi.mocked(SecureDurableResourceService.version).mockResolvedValue({ generation: 0, revision: 1 });
     let cloud: Record<string, unknown> = { markdown: "# Soul.md\n\n## Facts\n- Prior receipt trend.\n",
       _source_summaries: { [radarKey]: { observedAt: "2026-10-10T00:00:00Z", facts: ["Prior receipt trend."] } } };
     getStaleFirst.mockResolvedValue({ data: cloud });
     await loadMarkdownMemory(syncParams);
     recoveryCache.listResourceKeys.mockResolvedValueOnce(["one_memory_pending:v1:radar"]);
-    recoveryCache.readRequired.mockResolvedValueOnce({ version: 1, userId: "user-1", facts: ["New receipt trend."],
+    recoveryCache.readRequired.mockResolvedValueOnce({ version: 1, userId: "user-1", receiptGeneration: 0, receiptSnapshotFence: snapshotFence, facts: ["New receipt trend."],
       confirmation: syncParams.confirmation, replaceSource: { key: radarKey, observedAt: "2026-10-12T00:00:00Z" } });
     savePreparedDomain.mockImplementation(async params => { const plan = await params.build({ currentDomainData: cloud }); cloud = plan.domainData; return { success: true }; });
     await recoverMarkdownMemorySync(syncParams);
@@ -563,7 +650,7 @@ describe("parallel local memory and encrypted sync", () => {
     const prior = snapshotVaultSessionEpoch();
     advanceVaultSessionEpoch();
     renewMarkdownMemorySession({ ...syncParams, previousEpoch: prior, vaultOwnerToken: "renewed", beforeEffect: async () => {} });
-    expect(await loadMarkdownMemory({ ...syncParams, vaultOwnerToken: "renewed" })).toMatchObject({ markdown: expect.stringContaining("# Soul.md") });
+    expect(await loadMarkdownMemory({ ...syncParams, vaultOwnerToken: "renewed" })).toMatchObject({ markdown: expect.stringContaining("# memory.md") });
     expect(getStaleFirst).toHaveBeenCalledOnce();
   });
 });
@@ -609,6 +696,8 @@ describe("encrypted Markdown memory", () => {
     expect(normalizeSoulDocument(cleaned)).toBe(cleaned);
     expect(normalizeSoulDocument("")).toBe("");
     expect(normalizeSoulDocument("# My document\n\nA paragraph.\n")).toBe("# My document\n\nA paragraph.\n");
+    const existingFacts = "\n\n## Facts\n- A note mentioning Soul.md.\n\n## Preferences\n- Short replies.\n";
+    expect(normalizeSoulDocument(`# Soul.md${existingFacts}`)).toBe(`# memory.md${existingFacts}`);
     getStaleFirst.mockResolvedValue({ data: { markdown: legacy } });
     const current = await loadMarkdownMemory(syncParams);
     savePreparedDomain.mockImplementation(async params => {
@@ -785,7 +874,7 @@ describe("encrypted Markdown memory", () => {
     });
 
     expect(result).toMatchObject({ success: true, saved: 1 });
-    expect(written?.markdown).toContain("# Soul.md");
+    expect(written?.markdown).toContain("# memory.md");
     expect(written?.markdown).not.toContain("Private-agent PKM context");
     expect(written?.markdown).toContain("- Studies mechanical engineering.");
   });

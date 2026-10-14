@@ -39,6 +39,11 @@ from hushh_mcp.one_adk.pod_chat_stream import (
 )
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
+from hushh_mcp.one_adk.receipt_client_tools import STATE_RECEIPT_RESULT
+from hushh_mcp.one_adk.receipt_turn_admission import (
+    admit_receipt_continuation,
+    admit_receipt_tool,
+)
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.one_adk.specialist_focus import (
     STATE_SPECIALIST_FOCUS,
@@ -89,6 +94,11 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     ):
         raise HTTPException(409, detail={"code": "POD_CHAT_AUTHORITY_UNAVAILABLE"})
     for tool in input.tools:
+        try:
+            if admit_receipt_tool(tool):
+                continue
+        except ValueError:
+            raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"}) from None
         action_id = action_id_from_tool_name(tool.name)
         if not action_id or get_action_gateway_action(action_id) is None:
             raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"})
@@ -161,6 +171,22 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         raise HTTPException(409, detail={"code": "MCP_REVIEW_CHANGED"}) from None
     except ExternalMcpError as exc:
         raise HTTPException(400, detail={"code": exc.code}) from None
+    forwarded = input.forwarded_props if isinstance(input.forwarded_props, dict) else {}
+    await owner.require_access()
+    try:
+        state[STATE_RECEIPT_RESULT] = await admit_receipt_continuation(
+            forwarded,
+            owner_id=owner.owner,
+            conversation_id=input.thread_id,
+            messages=input.messages,
+            execution_head=lambda: None,
+            load_session=lambda: owner.sessions.get_session(
+                app_name=ONE_APP_NAME, user_id=owner.owner, session_id=input.thread_id
+            ),
+        )
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(403, detail={"code": "POD_CHAT_RECEIPT_NOT_ADMITTED"}) from None
+    await owner.require_access()
     agent = await owner.build_agent(options)
     # Never merge client state or forward credentials into SDK/session state.
     admitted = input.model_copy(update={"state": state, "forwarded_props": {}})

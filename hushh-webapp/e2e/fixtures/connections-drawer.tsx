@@ -6,6 +6,12 @@ import {
   type ConnectionsDrawerMode,
 } from "../../components/agent/agent-connections-drawer";
 import { OneAgentProfileSheet } from "../../components/agent/one-agent-profile-sheet";
+import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
+import { appInteractionCoordinator } from "../../lib/interaction/interaction-intent-coordinator";
+
+declare const __ONE_PROFILE_TRIGGER_CLASS__: string;
+
+import { OnePresenceAvatar, resolveOnePresenceState } from "../../components/agent/one-presence-avatar";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
@@ -13,6 +19,9 @@ import { ProfileConnectorsSection } from "../../components/profile/profile-conne
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
 import { NativeHistoryClose, NativeHistoryOpener } from "../../components/app-ui/native-chat-chrome";
 import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
+import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
+import { ProfileAccountResetIcon } from "../../components/profile/profile-your-account-icons";
+import accountStyles from "../../components/profile/profile-your-account.module.css";
 import {
   readGoogleOAuthPopupAttempt,
   settleGoogleOAuthPopup,
@@ -202,6 +211,9 @@ function Fixture() {
   const [draft, setDraft] = useState("");
   const [turns, setTurns] = useState(1);
   const [oneProfileOpen, setOneProfileOpen] = useState(false);
+  const [onePresenceWork, setOnePresenceWork] = useState({ drafting: false, answering: false });
+  Object.assign(window, { __setOnePresenceWork: setOnePresenceWork });
+  const onePresenceState = resolveOnePresenceState(onePresenceWork);
   const oneProfileTrigger = useRef<HTMLButtonElement>(null);
   const changeOpen = (nextOpen: boolean) => {
     const next = transitionConnectionsDrawer(
@@ -210,6 +222,20 @@ function Fixture() {
     setOpen(next.open);
     setMode(next.mode);
   };
+  if (new URLSearchParams(window.location.search).has("reset-icon")) {
+    return (
+      <main className="profile-pane-scroll-root bg-background p-4 text-foreground">
+        <div className={accountStyles.paneAccountContent}>
+          <SettingsGroup title="Account actions">
+            <SettingsRow icon={ProfileAccountResetIcon} iconTone="capability"
+              className="profile-account-reset-row" title="Reset account"
+              description="Clears saved details" chevron onClick={() => {}} />
+          </SettingsGroup>
+        </div>
+      </main>
+    );
+  }
+  (window as unknown as { __setOnePresenceLifecycle: typeof appInteractionCoordinator.handleLifecycle }).__setOnePresenceLifecycle = state => appInteractionCoordinator.handleLifecycle(state);
   return (
     <main
       className="relative flex h-dvh flex-col overflow-hidden bg-background text-foreground"
@@ -234,9 +260,17 @@ function Fixture() {
       >
         Open drawer
       </button>
-      {new URLSearchParams(window.location.search).has("one-profile") ? <button ref={oneProfileTrigger} onClick={() => setOneProfileOpen(true)}>Open One profile</button> : null}
+      {new URLSearchParams(window.location.search).has("one-profile") ? <div className="agent-chat-header" data-one-centered-header="true">
+        <div data-agent-chat-header-region="identity"><div data-agent-chat-brand-tile>
+          <ShellActionSurface variant="icon" data-testid="one-presence-header" data-agent-chat-one-profile-trigger
+            aria-label="Open One profile" ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__}
+            onClick={() => setOneProfileOpen(true)}>
+            <OnePresenceAvatar state={onePresenceState} />
+          </ShellActionSurface>
+        </div></div>
+      </div> : null}
       </header>
-      <OneAgentProfileSheet open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
+      <OneAgentProfileSheet presenceState={onePresenceState} open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
       <AgentConnectionsDrawer
         gestureSurfaceRef={transcriptRef}
         gestureEnabled={gestureEnabled}

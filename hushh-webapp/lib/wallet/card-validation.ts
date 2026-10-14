@@ -48,6 +48,12 @@ const BRAND_PAN_LENGTHS: Readonly<Record<KnownCardBrand, readonly number[]>> = {
   other: [13, 14, 15, 16, 17, 18, 19],
 };
 
+/** Validate an already identified/selected network; never infer one from a PAN. */
+export function isCardPanLengthValid(length: number, network: CardBrand): boolean {
+  const credentialBrand = Object.hasOwn(BRAND_PAN_LENGTHS, network) ? network as KnownCardBrand : "other";
+  return BRAND_PAN_LENGTHS[credentialBrand].includes(length);
+}
+
 export function normalizePan(raw: string): string {
   return String(raw ?? "").replace(/[\s-]/g, "");
 }
@@ -113,7 +119,7 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
     errors.push("pan_checksum_invalid");
   }
 
-  if (/^\d{13,19}$/.test(digits) && !BRAND_PAN_LENGTHS[credentialBrand].includes(digits.length)) {
+  if (/^\d{13,19}$/.test(digits) && !isCardPanLengthValid(digits.length, brand)) {
     errors.push("pan_length_invalid_for_brand");
   }
 

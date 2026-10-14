@@ -225,6 +225,18 @@
       ]
     },
     {
+      "id": "email.share_own_memory_to_address",
+      "family": "email",
+      "prompt": "bro can you share my academic details that you have stored to student@example.invalid",
+      "expected": ["open_gmail_email_draft"]
+    },
+    {
+      "id": "email.share_own_memory_to_circle_person",
+      "family": "email",
+      "prompt": "Email my saved academic details to Priya in my circle. Use her connected email address.",
+      "expected": ["list_my_connections"]
+    },
+    {
       "id": "email.draft_running_late",
       "family": "email",
       "prompt": "draft a quick email to Priya saying I will be ten minutes late",

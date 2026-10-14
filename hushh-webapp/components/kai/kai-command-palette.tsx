@@ -1,13 +1,12 @@
 "use client";
 
-import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/search/search-route-context";
+import { searchTargetMatchesCurrentRoute } from "@/lib/search/search-route-context";
 
 import {
   Fragment,
-  useCallback,
-  useEffect,
   useMemo,
   useState,
+  useEffect,
   type KeyboardEvent,
 } from "react";
 import {
@@ -45,34 +44,22 @@ import {
   searchTickerUniverse,
   type TickerUniverseRow,
 } from "@/lib/kai/ticker-universe-cache";
-import {
-  evaluateKaiActionAvailability,
-  getKaiActionById,
-  listKaiActionsForSurface,
-  searchKaiActions,
-  searchKaiActionsSemantic,
-  type KaiActionAvailability,
-  type KaiActionDefinition,
-} from "@/lib/kai/actions/kai-action-gateway";
-import { navigationActionForRoute } from "@/lib/kai/actions/navigation-journey";
-import {
-  isDiscoverableCapability,
-  projectKaiActionCapability,
-  type VoiceCapabilityStateV1,
-} from "@/lib/kai/actions/capability-projection";
+import type { KaiActionDefinition } from "@/lib/kai/actions/kai-action-gateway";
 import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import type { VoiceCapabilityStateV1 } from "@/lib/kai/actions/capability-projection";
 import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { navigationActionForRoute } from "@/lib/kai/actions/navigation-journey";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import type { KaiCommandBarIntent } from "@/lib/navigation/kai-command-bar-events";
 import { Icon, type IconProps } from "@/lib/morphy-ux/ui";
-import { useVault } from "@/lib/vault/vault-context";
 import {
-  RECENT_ACTION_LIMIT,
-  readActionUsage,
-  recordActionUse,
-  usageBoostFor,
-  type ActionUsageEntry,
-} from "@/lib/search/action-usage-memory";
+  findExactCatalogMatch,
+  getCatalogEntry,
+  getIdleSuggestions,
+  searchCatalog,
+  type SearchCatalogEntry,
+  type SearchCatalogIconHint,
+} from "@/lib/search/search-suggestions-catalog";
 
 export type KaiCommandPaletteSelection = {
   actionId: string;
@@ -95,8 +82,8 @@ interface KaiCommandPaletteProps {
   intent?: KaiCommandBarIntent;
   initialQuery?: string;
   appRuntimeState?: AppRuntimeState;
-  capabilityState?: VoiceCapabilityStateV1;
   surfaceMetadata?: VoiceSurfaceMetadata | null;
+  capabilityState?: VoiceCapabilityStateV1;
   /** Scopes usage memory per account; a shared device must not blend habits. */
   userId?: string | null;
   portfolioTickers?: KaiPortfolioTicker[];
@@ -117,30 +104,16 @@ export function deriveFinanceTickerQuery(
 }
 
 /**
- * How many rows each unfiltered group offers. Location alone declares
- * nineteen actions; listing every one would bury the other group entirely.
- * The list scrolls, so this is about what reads at a glance rather than about
- * what is reachable -- anything cut here is still one typed word away.
+ * Typing pauses this long before Finance's ticker search is asked.
  */
-const GROUP_LIMIT = 6;
-
-/**
- * Typing pauses this long before a backend is asked. Local results render on
- * every keystroke; these only add to them.
- */
-const SEMANTIC_SEARCH_DELAY_MS = 180;
 const TICKER_SEARCH_DELAY_MS = 160;
 const TICKER_RESULT_LIMIT = 20;
 
 /**
  * Control ids currently present and enabled in the document.
  *
- * These are the `data-voice-control-id` anchors surfaces put on their own
- * buttons. An action whose control is here is one the person can already tap,
- * which is what separates "things you cannot reach from this view" from "the
- * basics of this screen".
- *
- * Exported for its test; it is a DOM read, so it is deliberately not a hook.
+ * Kept for `kai-command-palette-groups.test.ts`, which predates Search's
+ * static catalog and still exercises this as a DOM read. The destination-only projection does not need mounted control identifiers.
  */
 export function readTappableControlIds(): ReadonlySet<string> {
   const ids = new Set<string>();
@@ -150,8 +123,6 @@ export function readTappableControlIds(): ReadonlySet<string> {
     .forEach((element) => {
       const id = (element.dataset.voiceControlId || "").trim();
       if (!id) return;
-      // A disabled control is on screen but not tappable, so the action behind
-      // it is still worth offering as a row.
       if (element.hasAttribute("disabled")) return;
       if (element.getAttribute("aria-disabled") === "true") return;
       ids.add(id);
@@ -162,9 +133,9 @@ export function readTappableControlIds(): ReadonlySet<string> {
 /**
  * The action that opens the screen `action` lives on, if one exists.
  *
- * A local handler is only runnable where it is mounted, so reaching one from
- * elsewhere means going there first. Resolved from the contracts rather than
- * named here, so a new destination needs no change to this file.
+ * Kept for `kai-command-palette-groups.test.ts`; The destination projection only
+ * lists destinations that are already runnable from anywhere, so it has no
+ * remaining caller for this.
  */
 export function navigationActionForAction(
   action: KaiActionDefinition,
@@ -181,13 +152,7 @@ export function navigationActionForAction(
 /**
  * True when `action` can only run on a screen the person is not standing on.
  *
- * A `local_handler` executes through a callback the owning screen registers
- * while it is mounted. Invoked from anywhere else the runtime finds no handler
- * and returns `blocked`, which the palette does not surface -- so the row
- * looks live, does nothing, and explains nothing.
- *
- * Navigation is deliberately exempt: a route action's whole job is to take the
- * person somewhere, so it is runnable from wherever they happen to be.
+ * Kept for `kai-command-palette-groups.test.ts`; see `navigationActionForAction`.
  */
 export function isLocalHandlerAwayFromItsScreen(
   action: KaiActionDefinition,
@@ -204,11 +169,7 @@ export function isLocalHandlerAwayFromItsScreen(
 /**
  * True when running `action` would land exactly where the person already is.
  *
- * A route action names its destination as a path plus, for surfaces whose tabs
- * and flows live in the query string, one of the params `deriveVoiceRouteScreen`
- * reads back as the subview. Comparing both is what keeps "Open Location now"
- * out of the list while you are standing on the Location Now tab -- the single
- * suggestion that would most make search look unaware of its surroundings.
+ * Kept for `kai-command-palette-groups.test.ts`; see `navigationActionForAction`.
  */
 export function actionTargetsCurrentSurface(
   action: KaiActionDefinition,
@@ -231,14 +192,9 @@ export function actionTargetsCurrentSurface(
 /**
  * Whether a tap in search can actually run `action`.
  *
- * The catalog also holds entries that exist only for One itself: hand-offs to
- * a specialist agent ("Ask Consent (Nav)"), widgets that live inside chat
- * ("Reveal a card"), and actions that need an id only an earlier tool call
- * produces ("Request someone's information" needs a proposal id). Tapped from
- * search these do nothing, so offering them made search look broken.
- *
- * `hidden_navigable` alone is not the test: plenty of hidden entries are real
- * destinations ("Show Holdings"), and a route runs from anywhere.
+ * Kept for `kai-command-palette-groups.test.ts`; The destination projection is
+ * pre-filtered to destinations a tap can always run, so it has no remaining
+ * caller for this.
  */
 export function isOfferableInSearch(action: KaiActionDefinition): boolean {
   const target = action.execution_target;
@@ -249,16 +205,6 @@ export function isOfferableInSearch(action: KaiActionDefinition): boolean {
     (input) =>
       input.required !== false &&
       String(input.resolver || "").startsWith("opaque_"),
-  );
-}
-
-/** Whether choosing an action with this availability does anything. */
-function isRunnable(availability: KaiActionAvailability): boolean {
-  return (
-    availability.status !== "dead" &&
-    availability.status !== "unwired" &&
-    availability.status !== "manual_only" &&
-    availability.status !== "blocked"
   );
 }
 
@@ -408,12 +354,18 @@ function compareTickerRows(
 
 type RowIcon = IconProps["icon"];
 
-/** A few destinations have a recognisable icon; every other command shares one. */
-const COMMAND_ICONS: Partial<Record<string, RowIcon>> = {
-  "route.profile": UserRound,
-  "route.consents": ShieldCheck,
-  "route.analysis_history": History,
-  "route.kai_home": Compass,
+/** Maps a catalog entry's authored icon hint to the component it renders. */
+const ICON_BY_HINT: Record<SearchCatalogIconHint, RowIcon> = {
+  profile: UserRound,
+  consent: ShieldCheck,
+  history: History,
+  market: TrendingUp,
+  location: Compass,
+  memory: Compass,
+  wallet: Compass,
+  feed: Compass,
+  agents: Compass,
+  generic: Activity,
 };
 
 /**
@@ -529,13 +481,8 @@ export function KaiCommandPalette({
   appRuntimeState,
   capabilityState,
   surfaceMetadata,
-  userId = null,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
-  // The semantic action search is a VAULT_OWNER-authenticated endpoint; the
-  // palette is rendered inside VaultProvider, so the token is available here
-  // without threading it through every caller as a prop.
-  const { vaultOwnerToken } = useVault();
   const isMobile = useIsMobile();
   const [query, setQuery] = useState("");
   // cmdk's highlighted row. Tracked so Enter can tell "the top row, untouched"
@@ -544,17 +491,13 @@ export function KaiCommandPalette({
   const trimmedQuery = query.trim();
   const isFiltering = trimmedQuery.length > 0;
 
-  const currentScreen =
-    resolveSearchScreen(String(appRuntimeState?.route.pathname || ""), String(appRuntimeState?.route.screen || "").trim() || null);
   // `route.pathname` carries the query string as well -- the runtime state
   // builder feeds it `pathnameWithQuery` -- so the path has to be split back
-  // out before it can be compared with a contract's route target.
+  // out before it can be compared with Finance's market paths.
   const currentPath =
     String(appRuntimeState?.route.pathname || "")
       .trim()
       .split("?")[0] || "";
-  const currentSubview =
-    String(appRuntimeState?.route.subview || "").trim() || null;
 
   // The authored Analysis action is the sole authority for this workflow.
   // Global query text must not act as a parallel semantic router.
@@ -562,76 +505,13 @@ export function KaiCommandPalette({
   const showMarket = financeAnalysisIntent || isFinancePath(currentPath);
   const tickerQuery = deriveFinanceTickerQuery(query, intent);
 
-  const isDiscoverable = useCallback(
-    (actionId: string) =>
-      !capabilityState ||
-      isDiscoverableCapability(
-        projectKaiActionCapability({
-          actionId,
-          state: capabilityState,
-          surfaceMetadata,
-        }),
-      ),
-    [capabilityState, surfaceMetadata],
-  );
-
-  /**
-   * Captured when the palette opens, because they describe the page underneath
-   * and that page can change between openings. A dialog leaves the rest of the
-   * document mounted, so the control query still sees it.
-   */
-  const [tappableControlIds, setTappableControlIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set<string>());
-  const [usage, setUsage] = useState<readonly ActionUsageEntry[]>([]);
   useEffect(() => {
     if (!open) return;
     setQuery(initialQuery ?? (financeAnalysisIntent ? ANALYZE_PREFIX : ""));
     // A highlight left over from the last opening would stop cmdk from
     // highlighting the top row of this one.
     setHighlighted("");
-    setTappableControlIds(readTappableControlIds());
-    setUsage(readActionUsage(userId));
-  }, [financeAnalysisIntent, initialQuery, open, userId]);
-
-  // Results are tagged with the query they answer, so a slow response for an
-  // earlier query can never be shown against the current one.
-  const [semantic, setSemantic] = useState<{
-    query: string;
-    results: Awaited<ReturnType<typeof searchKaiActionsSemantic>>;
-  }>({ query: "", results: [] });
-  useEffect(() => {
-    if (!open || !trimmedQuery || financeAnalysisIntent) return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void searchKaiActionsSemantic({
-        query: trimmedQuery,
-        appRuntimeState,
-        surfaceMetadata,
-        limit: 10,
-        signal: controller.signal,
-        // A locked vault means no token, and the search stays local.
-        vaultOwnerToken,
-      }).then((results) => {
-        if (!controller.signal.aborted) {
-          setSemantic({ query: trimmedQuery, results });
-        }
-      });
-    }, SEMANTIC_SEARCH_DELAY_MS);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-    // vaultOwnerToken is a real dependency, not decoration: unlocking the vault
-    // must re-run the search or the palette stays lexical for the session.
-  }, [
-    appRuntimeState,
-    financeAnalysisIntent,
-    open,
-    surfaceMetadata,
-    trimmedQuery,
-    vaultOwnerToken,
-  ]);
+  }, [financeAnalysisIntent, initialQuery, open]);
 
   // The ticker universe is Finance's data. Opening search anywhere else must
   // not pay for an equities index it would never show.
@@ -765,211 +645,37 @@ export function KaiCommandPalette({
       .slice(0, TICKER_RESULT_LIMIT);
   }, [portfolioRows, remote, showMarket, tickerQuery, universe]);
 
-  /**
-   * Actions matching what was typed.
-   *
-   * Wording matches come first, ranked by the gateway with this person's
-   * habits folded into the score -- enough to separate near-equal matches,
-   * never enough to outrank a better one: typing "circle" must find Create a
-   * circle whether or not you have ever created one. Related-by-meaning
-   * results from the backend follow them. They arrive later, so they add rows
-   * instead of reordering what is already on screen.
-   */
-  const actionMatches = useMemo(() => {
+  const suggestionContext = useMemo(() => ({appRuntimeState, capabilityState, surfaceMetadata}),
+    [appRuntimeState, capabilityState, surfaceMetadata]);
+  const actionMatches = useMemo<SearchCatalogEntry[]>(() => {
     if (!isFiltering || financeAnalysisIntent) return [];
-    const local = searchKaiActions({
-      query: trimmedQuery,
-      appRuntimeState,
-      surfaceMetadata,
-      limit: 24,
-      boost: (actionId) => usageBoostFor(usage, actionId),
-    });
-    const localIds = new Set(local.map(({ action }) => action.action_id));
-    const related =
-      semantic.query === trimmedQuery ? semantic.results : [];
-    return [
-      ...local,
-      ...related.filter(({ action }) => !localIds.has(action.action_id)),
-    ].filter(({ action }) => {
-      if (!isOfferableInSearch(action)) return false;
-      if (
-        isLocalHandlerAwayFromItsScreen(action, currentScreen) &&
-        !navigationActionForAction(action)
-      ) {
-        return false;
-      }
-      return isDiscoverable(action.action_id);
-    });
-  }, [
-    appRuntimeState,
-    currentScreen,
-    financeAnalysisIntent,
-    isDiscoverable,
-    isFiltering,
-    semantic,
-    surfaceMetadata,
-    trimmedQuery,
-    usage,
-  ]);
+    return searchCatalog(trimmedQuery, 24, suggestionContext);
+  }, [financeAnalysisIntent, isFiltering, trimmedQuery, suggestionContext]);
 
-  const exactActionMatch = useMemo(() => {
-    const normalized = trimmedQuery.toLowerCase();
-    if (!normalized) return null;
-    return (
-      actionMatches.find(
-        ({ action, availability }) =>
-          isRunnable(availability) &&
-          [
-            action.action_id,
-            action.label,
-            mailDisplayLabel(action.label),
-            ...action.aliases,
-          ].some((value) => value.trim().toLowerCase() === normalized),
-      ) ?? null
-    );
-  }, [actionMatches, trimmedQuery]);
+  const exactActionMatch = useMemo<SearchCatalogEntry | null>(() => {
+    if (!trimmedQuery) return null;
+    return findExactCatalogMatch(trimmedQuery, suggestionContext) ?? null;
+  }, [trimmedQuery, suggestionContext]);
 
-  /**
-   * What the screen the person is looking at can actually do, read straight
-   * from the action gateway -- so a surface that authors a new action in its
-   * voice contract shows up here with no change to this file.
-   *
-   * Unlike typed results, which show a blocked action together with the reason
-   * it is blocked, these are a menu of what is possible right now: an entry
-   * that cannot run does not belong.
-   */
-  const surfaceActions = useMemo(() => {
-    if (isFiltering || (!currentScreen && !currentPath)) return [];
-    return listKaiActionsForSurface({
-      screen: currentScreen,
-      pathname: currentPath,
-    })
-      .filter(
-        (action) =>
-          isOfferableInSearch(action) &&
-          !actionTargetsCurrentSurface(action, currentPath, currentSubview, appRuntimeState?.route.pathname),
-      )
-      .map((action) => ({
-        action,
-        availability: evaluateKaiActionAvailability({
-          action,
-          appRuntimeState,
-          surfaceMetadata,
-        }),
-        // Offering something whose button is already on screen spends a slot
-        // on what the person can see. That is the split between the two
-        // groups: what you cannot reach from here, and what you can.
-        tappable: action.control_ids.some((id) => tappableControlIds.has(id)),
-      }))
-      .filter(
-        ({ action, availability }) =>
-          availability.status === "available" &&
-          isDiscoverable(action.action_id),
-      );
-  }, [
-    appRuntimeState,
-    currentPath,
-    currentScreen,
-    currentSubview,
-    isDiscoverable,
-    isFiltering,
-    surfaceMetadata,
-    tappableControlIds,
-  ]);
-
-  /**
-   * What this person reaches for, offered before anything the app guessed.
-   *
-   * Held to the same availability and capability rules as every other group --
-   * a habit is not a reason to offer something that cannot run -- and minus
-   * whatever is already a button in front of them.
-   */
-  const recentActions = useMemo(() => {
+  // Curated order remains stable; current generated authority gates every row.
+  const curatedSuggestions = useMemo(() => {
     if (isFiltering) return [];
-    const rows: Array<{
-      action: KaiActionDefinition;
-      availability: KaiActionAvailability;
-    }> = [];
-    for (const entry of usage) {
-      if (rows.length >= RECENT_ACTION_LIMIT) break;
-      const action = getKaiActionById(entry.actionId);
-      // Usage recorded before search stopped offering agent-only actions
-      // would otherwise keep bringing them back as habits.
-      if (!action || !isOfferableInSearch(action)) continue;
-      if (action.control_ids.some((id) => tappableControlIds.has(id))) continue;
-      if (isLocalHandlerAwayFromItsScreen(action, currentScreen)) continue;
-      const availability = evaluateKaiActionAvailability({
-        action,
-        appRuntimeState,
-        surfaceMetadata,
-      });
-      if (availability.status !== "available") continue;
-      if (!isDiscoverable(action.action_id)) continue;
-      rows.push({ action, availability });
-    }
-    return rows;
-  }, [
-    appRuntimeState,
-    currentScreen,
-    isDiscoverable,
-    isFiltering,
-    surfaceMetadata,
-    tappableControlIds,
-    usage,
-  ]);
-
-  /**
-   * What the app has noticed and thinks is worth doing next.
-   *
-   * The insight comes first: a surface that has published a dead end is
-   * telling us it cannot proceed without something done elsewhere, and the
-   * remedy it names is the single most useful row the palette can offer. Then
-   * anything with authored guidance, then the section's own basics -- which
-   * are exactly the controls visible on this screen.
-   */
-  const suggestedActions = useMemo(() => {
-    if (isFiltering) return [];
-    const suggestions: Array<{
-      action: KaiActionDefinition;
-      availability: KaiActionAvailability;
-      note: string | null;
-    }> = [];
+    const suggestions: Array<{ entry: SearchCatalogEntry; note: string | null }> = [];
     const seen = new Set<string>();
-    const push = (
-      action: KaiActionDefinition,
-      availability: KaiActionAvailability,
-      note: string | null,
-    ) => {
-      if (seen.has(action.action_id)) return;
-      seen.add(action.action_id);
-      suggestions.push({ action, availability, note });
-    };
-
     const deadEnd = surfaceMetadata?.deadEnd;
     const remedy = deadEnd?.remedyActionId
-      ? getKaiActionById(deadEnd.remedyActionId)
-      : null;
-    if (remedy && deadEnd?.reason && isOfferableInSearch(remedy)) {
-      push(
-        remedy,
-        evaluateKaiActionAvailability({
-          action: remedy,
-          appRuntimeState,
-          surfaceMetadata,
-        }),
-        deadEnd.reason,
-      );
+      ? getCatalogEntry(deadEnd.remedyActionId, suggestionContext) : undefined;
+    if (remedy && deadEnd?.reason) {
+      suggestions.push({entry: remedy, note: deadEnd.reason});
+      seen.add(remedy.actionId);
     }
-    surfaceActions.forEach(({ action, availability }) => {
-      if (availability.blocked_guidance) {
-        push(action, availability, availability.blocked_guidance);
-      }
-    });
-    surfaceActions.forEach(({ action, availability, tappable }) => {
-      if (tappable) push(action, availability, null);
-    });
-    return suggestions.slice(0, GROUP_LIMIT);
-  }, [appRuntimeState, isFiltering, surfaceActions, surfaceMetadata]);
+    for (const entry of getIdleSuggestions(suggestionContext)) {
+      if (seen.has(entry.actionId)) continue;
+      seen.add(entry.actionId);
+      suggestions.push({entry, note: null});
+    }
+    return suggestions;
+  }, [isFiltering, surfaceMetadata, suggestionContext]);
 
   function close() {
     onOpenChange(false);
@@ -977,23 +683,8 @@ export function KaiCommandPalette({
   }
 
   function runAction(actionId: string, slots?: Record<string, unknown>) {
-    // The id only, and only what the person actually chose -- not what was
-    // merely offered, and never the slots that would turn a habit into a
-    // holding.
-    recordActionUse(userId, actionId);
     close();
-    // A local handler belonging to another screen cannot run from here: the
-    // runtime finds nothing mounted and reports `blocked`. Search covers the
-    // whole app, so the honest answer is to take the person to the screen that
-    // owns it rather than to hide the row or fail silently.
-    const action = getKaiActionById(actionId);
-    const navigationActionId =
-      action && isLocalHandlerAwayFromItsScreen(action, currentScreen)
-        ? navigationActionForAction(action)
-        : null;
-    onSelectAction(
-      navigationActionId ? { actionId: navigationActionId } : { actionId, slots },
-    );
+    onSelectAction({ actionId, slots });
   }
 
   function askOne() {
@@ -1016,62 +707,32 @@ export function KaiCommandPalette({
       return;
     }
     if (exactActionMatch) {
-      runAction(exactActionMatch.action.action_id);
+      runAction(exactActionMatch.actionId);
       return;
     }
     askOne();
   }
 
-  const actionRow = (
-    action: KaiActionDefinition,
-    availability: KaiActionAvailability,
-    icon: RowIcon,
+  const catalogActionRow = (
+    entry: SearchCatalogEntry,
     note: string | null = null,
   ): PaletteRow => ({
-    value: `action:${action.action_id}`,
-    label: mailDisplayLabel(action.label),
-    detail: note,
-    icon,
+    value: `action:${entry.actionId}`,
+    label: mailDisplayLabel(entry.label),
+    detail: entry.disabled ? entry.reason : note,
+    icon: note ? Lightbulb : (ICON_BY_HINT[entry.icon] ?? Activity),
     accent: Boolean(note),
-    disabled: !isRunnable(availability),
-    run: () => runAction(action.action_id),
+    disabled: entry.disabled,
+    run: () => { if (!entry.disabled) runAction(entry.actionId); },
   });
 
   const sections: PaletteSection[] = [];
   if (!isFiltering) {
-    // One row per action across the unfiltered groups: a recent action can
-    // also be off-screen here, and cmdk needs every value to be unique.
-    const shown = new Set<string>();
-    const firstTime = ({ action }: { action: KaiActionDefinition }) => {
-      if (shown.has(action.action_id)) return false;
-      shown.add(action.action_id);
-      return true;
-    };
     sections.push({
-      heading: "You usually",
-      rows: recentActions
-        .filter(firstTime)
-        .map(({ action, availability }) =>
-          actionRow(action, availability, History),
-        ),
-    });
-    sections.push({
-      heading: "Elsewhere on this screen",
-      rows: surfaceActions
-        .filter(({ tappable }) => !tappable)
-        .slice(0, GROUP_LIMIT)
-        .filter(firstTime)
-        .map(({ action, availability }) =>
-          actionRow(action, availability, Compass),
-        ),
-    });
-    sections.push({
-      heading: "Suggested actions",
-      rows: suggestedActions
-        .filter(firstTime)
-        .map(({ action, availability, note }) =>
-          actionRow(action, availability, note ? Lightbulb : Compass, note),
-        ),
+      heading: "Suggested",
+      rows: curatedSuggestions.map(({ entry, note }) =>
+        catalogActionRow(entry, note),
+      ),
     });
   } else {
     if (!financeAnalysisIntent) {
@@ -1090,13 +751,7 @@ export function KaiCommandPalette({
       });
       sections.push({
         heading: "Commands",
-        rows: actionMatches.map(({ action, availability }) =>
-          actionRow(
-            action,
-            availability,
-            COMMAND_ICONS[action.action_id] ?? Activity,
-          ),
-        ),
+        rows: actionMatches.map((entry) => catalogActionRow(entry)),
       });
     }
     if (showMarket) {
@@ -1164,7 +819,7 @@ export function KaiCommandPalette({
             <DialogTitle>Search or ask One</DialogTitle>
           </DialogHeader>
           <div
-            className="min-h-0 max-h-[min(52dvh,25rem)] shrink overflow-y-auto overscroll-contain px-1 py-1"
+            className="max-h-[min(52dvh,25rem)] overflow-y-auto overscroll-contain px-1 py-1"
             data-testid="kai-mobile-search-results"
           >
             {visibleSections.length === 0 ? (
@@ -1190,7 +845,7 @@ export function KaiCommandPalette({
             ))}
           </div>
           <form
-            className="relative flex h-12 shrink-0 items-center gap-2 rounded-[20px] bg-foreground/[0.045] px-3"
+            className="relative flex h-12 items-center gap-2 rounded-[20px] bg-foreground/[0.045] px-3"
             onSubmit={(event) => {
               event.preventDefault();
               submitQuery();

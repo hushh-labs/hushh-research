@@ -13,6 +13,7 @@ import hmac
 import json
 import logging
 import time
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -96,11 +97,30 @@ class ProfileResearchJobStore(EncryptedSessionCheckpointStore):
 
 
 class ProfileResearchJobs:
-    def __init__(self, *, store=None, offer=None, check=None, clock=time.time):
+    def __init__(
+        self,
+        *,
+        store=None,
+        offer=None,
+        check=None,
+        clock=time.time,
+        max_attempts=MAX_DISCOVERY_ATTEMPTS,
+        stored_attempts=MAX_STORED_COMBINATIONS,
+        job_seconds=None,
+        lease_seconds=None,
+        preserve_budget_on_identity_change=False,
+        review_ids=False,
+    ):
         self.store = store or ProfileResearchJobStore()
         self.offer = offer or offer_profile_research
         self.check = check or admission
+        self.review_ids = review_ids
         self.clock = clock
+        self.preserve_budget_on_identity_change = preserve_budget_on_identity_change
+        self.max_attempts = max_attempts
+        self.stored_attempts = stored_attempts
+        self.job_seconds = job_seconds
+        self.lease_seconds = lease_seconds
         self.tasks: set[asyncio.Task] = set()
         self.active = 0
         self.retention_task: asyncio.Task | None = None
@@ -122,7 +142,7 @@ class ProfileResearchJobs:
     def reusable(self, state: dict[str, Any]) -> bool:
         now = self.clock()
         if state["status"] == "pending":
-            return now < state["started_at"] + LEASE_SECONDS
+            return now < state["started_at"] + (self.lease_seconds or LEASE_SECONDS)
         age = now - state["finished_at"]
         if state["status"] in {"offered", "low_confidence"} or self.exhausted(state):
             return age < TTL_SECONDS
@@ -148,6 +168,13 @@ class ProfileResearchJobs:
         refused, binding = await self.check(user_id, consent_token)
         if refused:
             return refused
+        current = await self.store.get(user_id)
+        if await validate_first_party_owner_token(user_id, consent_token) is None:
+            raise PermissionError("Owner session ended")
+        if current is None or any(
+            current.get(key) != state.get(key) for key in ("revision", "fence")
+        ):
+            return pending(restart=True)
         if state.get("identity_binding") != binding:
             return pending(restart=True)
         if state["status"] in {"disabled", "not_ready", "saved", "insufficient_identity"}:
@@ -179,6 +206,13 @@ class ProfileResearchJobs:
             refused, current_binding = await self.check(user_id, consent_token)
             if refused:
                 return refused
+            current = await self.store.get(user_id)
+            if await validate_first_party_owner_token(user_id, consent_token) is None:
+                raise PermissionError("Owner session ended")
+            if current is None or any(
+                current.get(key) != state.get(key) for key in ("revision", "fence")
+            ):
+                return pending(restart=True)
             if state.get("identity_binding") == current_binding:
                 return (
                     pending()
@@ -195,12 +229,13 @@ class ProfileResearchJobs:
             not isinstance(prior_attempts, list)
             or len(set(prior_attempts)) != len(prior_attempts)
             or any(
-                type(index) is not int or not 1 <= index <= MAX_STORED_COMBINATIONS
+                type(index) is not int or not 1 <= index <= self.stored_attempts
                 for index in prior_attempts
             )
         ):
             raise RuntimeError("Invalid discovery attempt budget")
         next_state = {
+            "job_id": str(uuid.uuid4()),
             "status": "pending",
             "started_at": self.clock(),
             "identity_binding": "",
@@ -265,11 +300,12 @@ class ProfileResearchJobs:
         stage = "admission"
         try:
             try:
-                async with asyncio.timeout(JOB_SECONDS):
+                async with asyncio.timeout(self.job_seconds or JOB_SECONDS):
                     refused, original_binding = await self.check(user_id, consent_token)
                     used = (
                         state.get("attempted_combinations", [])
-                        if state.get("resume_binding") == original_binding
+                        if self.preserve_budget_on_identity_change
+                        or state.get("resume_binding") == original_binding
                         else []
                     )
                     state = {
@@ -301,7 +337,7 @@ class ProfileResearchJobs:
                             prior = state["attempted_combinations"]
                             if len(set(indices)) != len(indices) or any(
                                 type(index) is not int
-                                or not 1 <= index <= MAX_DISCOVERY_ATTEMPTS
+                                or not 1 <= index <= self.max_attempts
                                 or index in prior
                                 for index in indices
                             ):
@@ -353,6 +389,8 @@ class ProfileResearchJobs:
                 result = {"status": "unavailable", "pkm_written": False}
             # Never persist token/key. A lost CAS means a new lease superseded
             # this run; discard the draft rather than overwriting its result.
+            if self.review_ids and result["status"] == "offered":
+                result = {**result, "draft_id": state["job_id"]}
             terminal = {
                 **state,
                 "status": result["status"],

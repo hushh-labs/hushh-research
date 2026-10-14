@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -64,7 +65,7 @@ def _job_block(workflow: str, job: str, next_job: str) -> str:
     return workflow[start:end]
 
 
-def _run(script: Path, env_overrides: dict[str, str]) -> tuple[int, list[str], str]:
+def _run(script: Path, env_overrides: dict[str, str], *, stub_diagrams: bool = False) -> tuple[int, list[str], str]:
     with tempfile.TemporaryDirectory() as tmp:
         stub_dir = Path(tmp) / "bin"
         stub_dir.mkdir()
@@ -73,6 +74,16 @@ def _run(script: Path, env_overrides: dict[str, str]) -> tuple[int, list[str], s
         npm.chmod(npm.stat().st_mode | stat.S_IEXEC)
         log = Path(tmp) / "npm.log"
         log.touch()
+        if stub_diagrams:
+            node = stub_dir / "node"
+            real_node = shlex.quote(shutil.which("node") or "node")
+            node.write_text(
+                '#!/usr/bin/env bash\ncase "${1:-}" in\n'
+                '  scripts/verify-doc-diagrams.cjs|scripts/render-doc-mermaid.mjs)\n'
+                '    printf "%s\\n" "$1" >> "$NPM_STUB_LOG"; exit 0;;\n'
+                f'esac\nexec {real_node} "$@"\n', encoding="utf-8"
+            )
+            node.chmod(node.stat().st_mode | stat.S_IEXEC)
         env = dict(os.environ)
         env.update(
             {
@@ -203,6 +214,14 @@ def test_node_leg_leaves_diagram_rendering_to_browser_leg() -> None:
     )
     assert code == 0, output[-2000:]
     assert not calls and "Rendered " not in output
+    for index in (1, 2, 3):
+        code, calls, output = _run(
+            TARGETED,
+            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": "docs/README.md", "PLAYWRIGHT_SHARD": f"{index}/3"},
+            stub_diagrams=True,
+        )
+        assert code == 0, output[-2000:]
+        assert calls == (["scripts/verify-doc-diagrams.cjs", "scripts/render-doc-mermaid.mjs"] if index == 1 else [])
 
 
 def test_paid_answer_photo_inputs_schedule_browser_pack() -> None:
@@ -261,8 +280,15 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     assert len(job_ids) == len(set(job_ids)), "CI workflow has duplicate job IDs"
 
     targeted = _job_block(workflow, "web-targeted-check", "web-full-suite-check")
-    assert "part: [node, browser]" in targeted
+    legs = re.findall(r'- part: (node|browser)\s+shard: "([0-9/]*?)"', targeted)
+    assert legs == [
+        ("node", ""),
+        ("browser", "1/3"),
+        ("browser", "2/3"),
+        ("browser", "3/3"),
+    ]
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
+    assert "PLAYWRIGHT_SHARD: ${{ matrix.shard }}" in targeted
     assert "fail-fast: false" in targeted
 
     editor_perf = _job_block(
@@ -295,6 +321,23 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     assert '[ "$WEB_EDITOR_PERF" != "success" ]' in gate
 
 
+def test_browser_shard_setting_is_validated_before_any_pack() -> None:
+    gene = ROOT / "hushh-webapp/scripts/testing/playwright-shard.cjs"
+    for shard, primary in (("", "1"), ("1/3", "1"), ("2/3", "0"), ("3/3", "0")):
+        result = subprocess.run(
+            ["node", str(gene)],
+            env={**os.environ, "PLAYWRIGHT_SHARD": shard},
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0 and result.stdout.strip() == primary
+    for bad in ("0/3", "4/3", "1/0", "a/b", "1", "1/3/3", "1/9007199254740992"):
+        code, calls, _ = _run(
+            TARGETED, {"PLAYWRIGHT_SHARD": bad, "WEB_TARGETED_PART": "browser"}
+        )
+        assert code != 0 and not calls, f"invalid browser shard {bad!r} ran a pack"
+
+
 def main() -> int:
     tests = (
         test_targeted_legs_partition_the_matched_packs,
@@ -304,6 +347,7 @@ def main() -> int:
         test_paid_answer_photo_inputs_schedule_browser_pack,
         test_full_suite_shards_run_verifiers_once,
         test_workflow_schedules_every_leg_and_shard,
+        test_browser_shard_setting_is_validated_before_any_pack,
     )
     for test in tests:
         test()

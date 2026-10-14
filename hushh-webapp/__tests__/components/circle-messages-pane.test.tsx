@@ -48,7 +48,7 @@ describe("CircleMessagesPane saved selection", () => {
     mocks.listCircles.mockResolvedValue([circle("room"), circle("family")]);
     const view = render(<CircleMessagesPane active initialCircleId="room" theme="light" />);
     expect(await screen.findByTestId("circle-chat")).toHaveTextContent("room");
-    expect(mocks.startChat).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.startChat).toHaveBeenCalledTimes(1));
 
     view.rerender(<CircleMessagesPane active initialCircleId="room" theme="dark" headerActions={<span>Updated header</span>} />);
     expect(mocks.stopChat).not.toHaveBeenCalled();
@@ -56,8 +56,10 @@ describe("CircleMessagesPane saved selection", () => {
 
     view.rerender(<CircleMessagesPane active initialCircleId="family" theme="dark" />);
     await waitFor(() => expect(screen.getByTestId("circle-chat")).toHaveTextContent("family"));
-    expect(mocks.stopChat).toHaveBeenCalledWith("room");
-    expect(mocks.startChat).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(mocks.stopChat).toHaveBeenCalledWith("room");
+      expect(mocks.startChat).toHaveBeenCalledTimes(2);
+    });
     expect(mocks.startChat).toHaveBeenLastCalledWith("family");
   });
 

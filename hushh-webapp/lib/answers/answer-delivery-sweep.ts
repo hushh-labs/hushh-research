@@ -1,5 +1,6 @@
 "use client";
 
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { answerProfilePhotoUrl, answerPhotoReference, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
 
 /**
@@ -42,6 +43,8 @@ import {
 import { buildAnswerMemorySlice } from "@/lib/answers/answer-memory-slice";
 import { isOwnProfileNameScope } from "@/lib/pkm/identity-memory-facts";
 import { retrieveApprovedMemoryScopes } from "@/lib/pkm/memory-scope-retrieval";
+import { answerStageTiming } from "@/lib/answers/answer-stage-timing";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 
 function setPath(payload: Record<string, unknown>, path: string, value: unknown): void {
@@ -131,8 +134,13 @@ export async function buildAnswerPayload(
   >,
   firebaseIdToken?: string,
   epoch = snapshotVaultSessionEpoch(),
+  assertActive: () => void = () => {},
 ): Promise<{ payload: AnswerPayload; hasContent: boolean; compositionReceipt?: string; assertCurrent: () => Promise<void> }> {
+  const memoryStarted = performance.now();
+  assertActive();
   const retrieved = await retrieveApprovedMemoryScopes({
+    assertActive,
+    onRefreshTiming: started => answerStageTiming(work.requestId, "memory_refresh", started),
     userId: params.userId,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
@@ -144,6 +152,8 @@ export async function buildAnswerPayload(
     } } : {}),
   });
   if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
+  assertActive();
+  answerStageTiming(work.requestId, "memory_read", memoryStarted);
   const { projections, unavailableScopes, sourceManifestRevisions } = retrieved;
 
   const period =
@@ -199,6 +209,8 @@ export async function buildAnswerPayload(
   const missingApprovedFact = work.approvedScopes.some(scope => !hasAnyValue(projected.byScope[scope]));
   const hasContent = projected.hasContent && !missingApprovedFact;
   if (firebaseIdToken && hasContent && !unavailableScopes.length && retrieved.complete && memorySlice.complete) {
+    assertActive();
+    const composeStarted = performance.now();
     written = await AnswerRequestService.compose(
       firebaseIdToken,
       work.requestId,
@@ -210,6 +222,8 @@ export async function buildAnswerPayload(
         sourceFreshness: retrieved.sourceFreshness,
       },
     ).catch(() => ({ answerMode: "projection" as const, answer: null }));
+    assertActive();
+    answerStageTiming(work.requestId, "gemini_compose", composeStarted);
   }
 
   if (firebaseIdToken && retrieved.complete) await retrieved.assertCurrent();
@@ -245,9 +259,10 @@ export async function buildAnswerPayload(
  * Each request is independent: one failure never blocks the rest, because a
  * single unreadable scope should not strand another person's paid answer.
  */
-export async function runAnswerDeliverySweep(
+async function runAnswerDeliverySweepNow(
   params: AnswerSweepParams,
-  epoch = snapshotVaultSessionEpoch(),
+  epoch: number,
+  assertActive: () => void,
 ): Promise<AnswerSweepResult> {
   const result: AnswerSweepResult = {
     delivered: 0,
@@ -274,6 +289,7 @@ export async function runAnswerDeliverySweep(
         params,
         params.firebaseIdToken,
         epoch,
+        assertActive,
       );
 
       // A question the owner's information CAN answer, but which the writer
@@ -306,6 +322,8 @@ export async function runAnswerDeliverySweep(
       }
 
       if (!isVaultSessionEpochCurrent(epoch)) break;
+      assertActive();
+      const stageStarted = performance.now();
       const envelope = await encryptSliceForRecipient({
         payload,
         recipientPublicKeyJwk: work.recipientKey.publicKeyJwk,
@@ -314,6 +332,7 @@ export async function runAnswerDeliverySweep(
       });
       if (!isVaultSessionEpochCurrent(epoch)) break;
       await assertCurrent();
+      assertActive();
       await AnswerRequestService.deliver(
         params.firebaseIdToken,
         work.requestId,
@@ -324,6 +343,9 @@ export async function runAnswerDeliverySweep(
           compositionReceipt,
         },
       );
+      answerStageTiming(work.requestId, "encrypt_stage", stageStarted);
+      CacheSyncService.onConsentMutated(params.userId);
+      dispatchConsentStateChanged({ userId: params.userId, requestId: `answer_request:${work.requestId}` });
       if (hasContent) result.delivered += 1;
       else result.empty += 1;
     } catch {
@@ -333,4 +355,28 @@ export async function runAnswerDeliverySweep(
     }
   }
   return result;
+}
+
+// All owner surfaces join the same preparation. The bounded UI wait withdraws
+// permission for late reads/composition to advance to staging.
+const preparations = new Map<string, Promise<AnswerSweepResult>>();
+export function runAnswerDeliverySweep(params: AnswerSweepParams, epoch = snapshotVaultSessionEpoch()): Promise<AnswerSweepResult> {
+  const key = `${params.userId}:${params.requestId ?? "all"}:${epoch}`;
+  const existing = preparations.get(key);
+  if (existing) return existing;
+  let expired = false;
+  const assertActive = () => {
+    if (expired || !isVaultSessionEpochCurrent(epoch)) throw new Error("Preparation timed out or vault session changed. Retry preparation.");
+  };
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<AnswerSweepResult>((_, reject) => {
+    timer = setTimeout(() => { expired = true; reject(new Error("Preparation timed out. Keep memory unlocked and retry preparation.")); }, 60_000);
+  });
+  const operation = runAnswerDeliverySweepNow(params, epoch, assertActive);
+  const bounded = Promise.race([operation, timeout]).finally(() => { clearTimeout(timer); });
+  // Retain the join while the underlying operation unwinds; a timeout must
+  // not start a competing writer or Gemini request.
+  preparations.set(key, bounded);
+  void operation.finally(() => { if (preparations.get(key) === bounded) preparations.delete(key); }).catch(() => {});
+  return bounded;
 }

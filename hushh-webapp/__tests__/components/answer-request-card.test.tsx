@@ -451,3 +451,64 @@ it("does not use an unapproved name as a photo caption", async () => {
   expect(await screen.findByRole("figure", { name: "Approved profile photo" })).toHaveTextContent("Profile");
   expect(screen.queryByText("UNAPPROVED_NAME")).toBeNull();
 });
+
+// `/payment` is the requester's lane only; the backend 404s it for the owner
+// by design. Polling it anyway on a fixed 3s interval is exactly the request
+// storm seen in production logs, for a call whose answer never changes.
+it("never polls the requester-only payment endpoint for the owner's own view", async () => {
+  vi.useFakeTimers();
+  m.state.mockResolvedValue({ role: "owner", requestStatus: "approved", question: "Fixture question" });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(screen.getByRole("button", { name: "Prepare answer" })).toBeVisible();
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect(m.payment).not.toHaveBeenCalled();
+});
+
+// Most "Preparation could not finish" failures are one transient revision
+// conflict that a fresh reread clears; a bounded automatic retry should
+// absorb that without the owner ever seeing an error.
+it("retries a transient preparation failure automatically and confirms success", async () => {
+  vi.useFakeTimers();
+  m.state.mockResolvedValue({ role: "owner", requestStatus: "approved", question: "Fixture question" });
+  m.sweep
+    .mockResolvedValueOnce({ delivered: 0, empty: 0, skipped: 1, retry: 0 })
+    .mockResolvedValueOnce({ delivered: 0, empty: 0, skipped: 1, retry: 0 })
+    .mockResolvedValueOnce({ delivered: 1, empty: 0, skipped: 0, retry: 0 });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  fireEvent.click(screen.getByRole("button", { name: "Prepare answer" }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(m.sweep).toHaveBeenCalledTimes(3);
+  expect(screen.getByText(/Answer prepared/)).toBeVisible();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+// A genuinely missing fact must read clean, not like a stuck failure: the
+// owner is told plainly, and nothing is charged.
+it("shows a clean confirmation when the memory genuinely has no matching fact", async () => {
+  vi.useFakeTimers();
+  m.state.mockResolvedValue({ role: "owner", requestStatus: "approved", question: "Fixture question" });
+  m.sweep.mockResolvedValue({ delivered: 0, empty: 1, skipped: 0, retry: 0 });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  fireEvent.click(screen.getByRole("button", { name: "Prepare answer" }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  expect(screen.getByText(/Answer not present in their memory/)).toBeVisible();
+  expect(m.sweep).toHaveBeenCalledTimes(1);
+});
+
+// "Retry preparation" is a real failure signal, not the default label: it
+// must appear only once the bounded automatic attempts are exhausted.
+it("offers Retry preparation only after automatic attempts are exhausted", async () => {
+  vi.useFakeTimers();
+  m.state.mockResolvedValue({ role: "owner", requestStatus: "approved", question: "Fixture question" });
+  m.sweep.mockResolvedValue({ delivered: 0, empty: 0, skipped: 1, retry: 0 });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  fireEvent.click(screen.getByRole("button", { name: "Prepare answer" }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(m.sweep).toHaveBeenCalledTimes(3);
+  expect(screen.getByRole("button", { name: "Retry preparation" })).toBeVisible();
+  expect(screen.getByRole("alert")).toHaveTextContent("Preparation could not finish");
+});

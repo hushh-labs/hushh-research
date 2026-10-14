@@ -21,6 +21,7 @@ import { REACTION_TOOL_NAME, parseMessageReaction, type MessageReactionResult } 
 import { FOLLOW_UP_TOOL_NAME, parseFollowUpSuggestions } from "@/lib/agent/follow-up-suggestions";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import { resolveTurnLocation } from "@/lib/agent/turn-location";
 import {
   QUEUED_INPUT_EVENT,
@@ -58,6 +59,8 @@ import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
 import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
+import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, parseReceiptAnalysisRequest, unavailableReceiptAnalysis, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
+import { runReceiptFunction } from "@/lib/mail/receipt-store";
 
 export type AgentChatMessage = {
   id: string;
@@ -221,6 +224,8 @@ export type AgentSource = {
 export type AgentChatStreamHandlers = {
   /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
   onBrowserTaskCreated?: () => void;
+  /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
+  onReceiptPrivate?: () => void;
   /** Ephemeral native review: never append its references or receipt to history/debug events. */
   onMcpReview?: (review: {
     reference: McpCallReviewReference;
@@ -1157,9 +1162,8 @@ export async function streamAgentChat(input: {
   driveSearchSelection?: { jobId: string; position: number };
   pendingEmailDraft?: PendingEmailDraftContext | null;
   /**
-   * The owner's saved receipt index, decrypted on this device. It rides beside
-   * the turn only for the Email receipts read; the server validates it against
-   * a closed schema and keeps it for this one turn, never as conversation state.
+   * Deprecated compatibility input. Ignored: receipt detail is admitted only
+   * through a current owner-authorized dedicated function continuation.
    */
   receiptMemory?: ReceiptCanonicalIndex | null;
   screenContext?: Record<string, unknown> | null;
@@ -1251,6 +1255,7 @@ export async function streamAgentChat(input: {
       metadata: { actionId },
     }];
   });
+  tools.push(...RECEIPT_TOOL_DECLARATIONS);
   // Chat history is sealed with a key derived from the vault key; the server
   // refuses the turn without it and holds it for this request only.
   // The coarse position is resolved beside the key so it adds no serial wait.
@@ -1367,6 +1372,10 @@ export async function streamAgentChat(input: {
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
+  const receiptCalls = new Map<string, Promise<{ toolCallId: string; toolName: ReceiptFunction; request: ReturnType<typeof parseReceiptAnalysisRequest>; result: unknown }>>();
+  let receiptPrivate = false;
+  let receiptReset = false;
+  const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
   let reactionShown = false;
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
@@ -1380,6 +1389,7 @@ export async function streamAgentChat(input: {
   // appends the streamed delta onto the snapshot's copy, which no longer parses.
   // Parse the confirmation from its own streamed deltas instead.
   const confirmationArgs = new Map<string, string>();
+  const receiptArgs = new Map<string, string>();
   const publishedMcpReviews = new Set<string>();
   const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
@@ -1441,7 +1451,6 @@ export async function streamAgentChat(input: {
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
               ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
-              ...(input.receiptMemory ? { receiptMemory: input.receiptMemory } : {}),
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -1450,11 +1459,42 @@ export async function streamAgentChat(input: {
       },
     };
   };
+  const startReceiptCall = (toolCallId: string, operation: ReceiptFunction, args: unknown) => {
+    if (receiptCalls.has(toolCallId)) return;
+    receiptPrivate = true;
+    handlers.onReceiptPrivate?.();
+    let request;
+    try {
+      const streamed = receiptArgs.get(toolCallId);
+      receiptArgs.delete(toolCallId);
+      request = parseReceiptAnalysisRequest(operation, streamed ? JSON.parse(streamed) : args);
+      if (request.timezone !== timezone || !receiptSessionCurrent() || receiptCalls.size >= 4)
+        throw new Error("Invalid receipt authority.");
+    } catch {
+      failure = new Error("Receipt request doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun(); finishTerminalRun(); return;
+    }
+    receiptCalls.set(toolCallId, runReceiptFunction({ userId: input.userId, vaultKey: input.vaultKey,
+      vaultOwnerToken: input.vaultOwnerToken, isCurrent: receiptSessionCurrent }, operation, request)
+      .catch(() => unavailableReceiptAnalysis(operation, request))
+      .then(result => ({ toolCallId, toolName: operation, request, result })));
+  };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onEvent: ({ event }) => {
       serverEvents += 1;
       if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") serverTerminal = true;
+      if (event.type === "TOOL_CALL_END") {
+        const id = event.toolCallId;
+        const name = typeof id === "string" ? toolNames.get(id) : undefined;
+        if (typeof id === "string" && RECEIPT_FUNCTIONS.includes(name as ReceiptFunction)) {
+          // Native snapshots redact arguments and may replace streamed IDs.
+          // Consume the bounded streamed call before the SDK's message lookup.
+          startReceiptCall(id, name as ReceiptFunction, {});
+          return { stopPropagation: true };
+        }
+      }
       if (isVisibleWorkEvent(String(event.type))) handlers.onStreamHealth?.({ kind: "activity" });
       if (event.type === "REASONING_MESSAGE_CONTENT") {
         const delta = (event as { delta?: unknown }).delta;
@@ -1493,9 +1533,16 @@ export async function streamAgentChat(input: {
       // Follow-ups are chips under the answer, not a step the person waits on.
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
+      if (RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallArgsEvent: ({ event }) => {
+      const receiptBuffered = receiptArgs.get(event.toolCallId);
+      if (receiptBuffered !== undefined) {
+        const next = receiptBuffered + (event.delta ?? "");
+        receiptArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
+        return;
+      }
       const buffered = confirmationArgs.get(event.toolCallId);
       if (buffered === undefined) return;
       // Bounded like the server projection; an oversized review fails closed.
@@ -1504,6 +1551,10 @@ export async function streamAgentChat(input: {
       else confirmationArgs.set(event.toolCallId, next);
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
+      if (RECEIPT_FUNCTIONS.includes(toolCallName as ReceiptFunction)) {
+        startReceiptCall(event.toolCallId, toolCallName as ReceiptFunction, toolCallArgs);
+        return;
+      }
       if (toolCallName === FOLLOW_UP_TOOL_NAME || toolCallName === REACTION_TOOL_NAME) return;
       if (toolCallName === "adk_request_confirmation") {
         const streamed = confirmationArgs.get(event.toolCallId);
@@ -1550,6 +1601,13 @@ export async function streamAgentChat(input: {
         const result = browserTaskProgress(event.content, input.userId);
         if (result.accepted) handlers.onBrowserTaskCreated?.();
         handlers.onToolResult?.({ ...toolPayload(event.toolCallId, toolName, {}), ...result.event });
+        return;
+      }
+      if (RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message = "Receipt function finished for this turn.";
+        handlers.onToolResult?.(payload);
         return;
       }
       if (toolName === REACTION_TOOL_NAME) {
@@ -1843,6 +1901,12 @@ export async function streamAgentChat(input: {
     onRunFinishedEvent: (params) => {
       if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached) return;
       runTerminal = true;
+      if (receiptCalls.size) {
+        // Native long-running calls are persisted before RUN_FINISHED. The
+        // outer loop alone submits their value-free replies and resumes.
+        finishTerminalRun();
+        return;
+      }
       if (params.outcome === "interrupt") {
         for (const interrupt of params.interrupts) {
           if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
@@ -1899,7 +1963,6 @@ export async function streamAgentChat(input: {
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
                     ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
-                    ...(input.receiptMemory ? { receiptMemory: input.receiptMemory } : {}),
                     screenContext: input.screenContext,
                     ...(approval ? { mcpApproval: {
                       directiveId: approval.directiveId, connectorId: approval.connectorId,
@@ -1988,6 +2051,7 @@ export async function streamAgentChat(input: {
       finishTerminalRun();
     },
   });
+  const unsubscribeReceiptReset = subscribeDurableOwnerReset(owner => { if (owner === input.userId) receiptReset = true; });
   try {
     await runUntilTerminal({
       tools,
@@ -2002,7 +2066,6 @@ export async function streamAgentChat(input: {
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
-        ...(input.receiptMemory ? { receiptMemory: input.receiptMemory } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.feedAttention ? { feedAttention: { itemId: input.feedAttention.itemId } } : {}),
@@ -2021,6 +2084,18 @@ export async function streamAgentChat(input: {
       ...(recovered ? { resume: [{ interruptId: recovered.interruptId,
         status: "resolved" as const, payload: { confirmed: recovered.approval !== null } }] } : {}),
     });
+    if (receiptCalls.size && !failure && !detached && !input.signal?.aborted) {
+      const receiptToolResults = await Promise.all(receiptCalls.values());
+      receiptCalls.clear();
+      if (mcpReviews.size) throw new Error("Receipt analysis must complete in its own authorized turn. Ask again.");
+      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Unlock and ask again.");
+      for (const item of receiptToolResults) agent.addMessage({ id: crypto.randomUUID(), role: "tool", toolCallId: item.toolCallId,
+        content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) });
+      await runUntilTerminal({ tools, context: [], forwardedProps: {
+        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults,
+      } });
+      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
+    }
     await terminalRun;
   } catch (error) {
     // AG-UI reports a failed request to the subscriber, then rejects with the
@@ -2029,6 +2104,8 @@ export async function streamAgentChat(input: {
     // the turn itself is still running server-side and is reported as detached.
     if (!failure && !detached) throw error;
   } finally {
+    unsubscribeReceiptReset();
+    if (receiptPrivate) agent.setMessages([]);
     input.signal?.removeEventListener("abort", abort);
     unregisterAttached();
     await stopRequest;

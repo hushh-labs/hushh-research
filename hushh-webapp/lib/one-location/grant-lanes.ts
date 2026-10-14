@@ -46,6 +46,26 @@ export type OneLocationShareTimeSummary =
   | { kind: "all_open_ended" }
   | { kind: "different" };
 
+export type OneLocationShareAudienceSummary = {
+  peopleCount: number;
+  locationCount: number;
+  smsCount: number;
+  bothCount: number;
+};
+
+/** Count recipients per channel without counting a person receiving both twice. */
+export function summarizeShareAudience(
+  grants: OneLocationGrant[],
+): OneLocationShareAudienceSummary {
+  const groups = groupGrantsByCounterpart(grants.filter((grant) => grant.status === "active"), "owner");
+  return {
+    peopleCount: groups.length,
+    locationCount: groups.filter((group) => group.ordinaryGrant).length,
+    smsCount: groups.filter((group) => group.smsGrant).length,
+    bothCount: groups.filter((group) => group.ordinaryGrant && group.smsGrant).length,
+  };
+}
+
 function parseTime(value: string | null | undefined): number | null {
   if (!value) return null;
   const time = new Date(value).getTime();

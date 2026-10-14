@@ -61,6 +61,8 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                 self._active(connection, user_id, generation)
                 self._selection_policy(connection, user_id, feature="drive_document_sharing")
             row = self._related_request(connection, user_id, request_id)
+            if self._open_request(row).get("agent_package_required") is True:
+                return None
             setup = self._request_setup(connection, row, self._open_request(row))
             if setup and self._setup_code(setup):
                 return None

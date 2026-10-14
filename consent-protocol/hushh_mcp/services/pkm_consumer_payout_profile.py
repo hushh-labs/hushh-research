@@ -164,11 +164,18 @@ async def prepare_consumer_profile(
 def hosted_return_urls(
     origin: str, path: str, surface: str, attempt_id: str | None
 ) -> dict[str, str]:
-    """Preserve legacy destinations and bind correlated document returns exactly."""
+    """Preserve legacy destinations and bind each settlement surface exactly."""
     if attempt_id:
         from .scope_commerce.provider_onboarding_links import onboarding_urls
 
-        return onboarding_urls(origin, "/one/profile/payouts", attempt_id, source="documents")
+        if surface not in {"documents", "answers"}:
+            raise ValueError("invalid correlated payout surface")
+        return onboarding_urls(
+            origin,
+            "/one/profile/payouts",
+            attempt_id,
+            source="answers" if surface == "answers" else "documents",
+        )
     query = {"documents": "documentPayouts", "answers": "answerPayouts"}.get(surface, "payouts")
     return {
         "return_url": f"{origin}{path}?{query}=done",

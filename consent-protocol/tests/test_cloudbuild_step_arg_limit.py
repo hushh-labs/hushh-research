@@ -252,6 +252,7 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
     root = Path(__file__).resolve().parents[2]
     script = (root / "scripts" / "deploy" / "backend-deploy.sh").read_text(encoding="utf-8")
     script += (root / "scripts/deploy/backend-model-settings.sh").read_text(encoding="utf-8")
+    script += (root / "scripts/deploy/backend-drive-secret-settings.sh").read_text(encoding="utf-8")
     config = _load("deploy/backend.cloudbuild.yaml")
     assert config is not None
     step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
@@ -322,8 +323,7 @@ def test_retained_answer_mode_secrets_survive_packed_deployment() -> None:
     }
     rendered = re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda m: values[m[1]], packed)
     script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
-    start = script.index("IFS=',' read -r -a _drive_secret_pairs")
-    parser = script[start : script.index("# UAT's Drive work-drain", start)]
+    parser = (REPO_ROOT / "scripts/deploy/backend-drive-secret-settings.sh").read_text()
     # Capture the actual four bindings; no cloud command or secret value is read.
     bindings = "\n".join(
         line
@@ -331,16 +331,97 @@ def test_retained_answer_mode_secrets_survive_packed_deployment() -> None:
         if line.startswith("append_optional_secret") and any(name in line for name in names)
     )
     capture = 'append_optional_secret() { printf "%s=%s\\n" "$2" "$1"; }\n'
-    for suffix in ("", ",answer_test_secret=duplicate"):
+    payload = rendered.split("=", 1)[1]
+    duplicate_swap = re.sub(r"answer_test_webhook=[^,]*", "answer_test_secret=duplicate", payload)
+    for malformed, supplied in (
+        (False, payload),
+        (True, payload + ",answer_test_secret=duplicate"),
+        (True, duplicate_swap),
+    ):
         result = subprocess.run(  # noqa: S603 - fixed repository parser and synthetic substitutions only
             ["bash", "-euc", capture + parser + bindings],
-            env={"_DRIVE_SECRET_SETTINGS": rendered.split("=", 1)[1] + suffix},
+            env={"_DRIVE_SECRET_SETTINGS": supplied},
             text=True,
             capture_output=True,
             check=False,
         )
-        if suffix:
+        if malformed:
             assert result.returncode != 0, "duplicate packed key bypassed the shape guard"
         else:
             assert result.returncode == 0, result.stderr
             assert result.stdout.splitlines() == [f"{name[1:-7]}={values[name]}" for name in names]
+
+
+def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
+    from pathspec import GitIgnoreSpec
+
+    rules = (REPO_ROOT / ".gcloudignore").read_text().splitlines()
+    upload = GitIgnoreSpec.from_lines(rules)
+    for script in (
+        "scripts/deploy/backend-deploy.sh",
+        *(
+            "scripts/deploy/backend-model-settings.sh",
+            "scripts/deploy/backend-drive-secret-settings.sh",
+        ),
+        "scripts/deploy/pod-release-env.sh",
+        "scripts/deploy/preserve-pod-release.py",
+        "scripts/deploy/commerce-preview-bindings.sh",
+        "scripts/deploy/scope-commerce-secrets.sh",
+    ):
+        assert (REPO_ROOT / script).is_file()
+        assert not upload.match_file(script), f"Cloud Build would omit {script}"
+    assert GitIgnoreSpec.from_lines([*rules, "*.sh"]).match_file(
+        "scripts/deploy/pod-release-env.sh"
+    ), "The regression control must detect an excluded release reader"
+
+
+@pytest.mark.parametrize("deploy_env,custom", [("dev", True), ("uat", True), ("dev", False)])
+def test_configured_counterpart_secret_references_survive_deploy_extraction(deploy_env, custom):
+    config = _load("deploy/backend.cloudbuild.yaml")
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    packed = next(e for e in step["env"] if e.startswith("_REVIEWER_SECRET_SETTINGS="))
+    values = {**config["substitutions"]}
+    if custom:
+        values.update(
+            {
+                "_REVIEWER_COUNTERPART_UID_SECRET": "OWNER_COUNTERPART_UID",
+                "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET": "OWNER_COUNTERPART_PHRASE",
+            }
+        )
+    rendered = _SUBSTITUTION.sub(lambda m: values[m[1]], packed).split("=", 1)[1]
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    start = script.index("IFS='|' read -r _REVIEWER_UID_SECRET")
+    parser = script[start : script.index("# The Cloud Run capacity knobs", start)]
+    start = script.index('append_optional_secret "${_REVIEWER_UID_SECRET}"')
+    bindings = script[start : script.index('append_optional_secret "${_RIA_INTELLIGENCE', start)]
+    result = subprocess.run(  # noqa: S603 - fixed parser and mount projection, no cloud calls
+        [
+            "bash",
+            "-c",
+            'set -eu\nappend_optional_secret() { [ -z "$1" ] || printf \'%s=%s\\n\' "$2" "$1"; }\n'
+            + parser
+            + bindings,
+        ],
+        env={
+            **os.environ,
+            "_REVIEWER_SECRET_SETTINGS": rendered,
+            "_DEPLOY_ENV": deploy_env,
+            "commerce_preview_prefix": "",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    expected = (
+        {
+            "REVIEWER_COUNTERPART_UID=OWNER_COUNTERPART_UID",
+            "REVIEWER_COUNTERPART_VAULT_PASSPHRASE=OWNER_COUNTERPART_PHRASE",
+        }
+        if custom
+        else {
+            "REVIEWER_COUNTERPART_UID=REVIEWER_COUNTERPART_UID",
+            "REVIEWER_COUNTERPART_VAULT_PASSPHRASE=REVIEWER_COUNTERPART_VAULT_PASSPHRASE",
+        }
+    )
+    assert expected <= set(result.stdout.splitlines())

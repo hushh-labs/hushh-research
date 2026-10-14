@@ -330,3 +330,71 @@ def test_sandbox_pause_preserves_caps_and_rejects_cross_environment_overlay(tmp_
         policy_file.write_text(json.dumps(replacement))
         with pytest.raises(ValueError):
             sync._merge_scope_commerce_policy(existing, str(policy_file))
+
+
+def test_managed_profiles_match_deploy_compiler_and_reject_drift(monkeypatch):
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from hushh_mcp.managed_ai_config import load_profile, profile_hash, validate_profile
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    root = Path(__file__).resolve().parents[2]
+    for environment in ("dev", "uat", "production"):
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", environment)
+        profile = load_profile(environment)
+        actual = managed_ai_settings()
+        compiled = json.loads(
+            subprocess.check_output(  # noqa: S603 - fixed local compiler and authored environments
+                [
+                    sys.executable,
+                    str(root / "scripts/ops/managed_ai_config.py"),
+                    "--environment",
+                    environment,
+                ],
+                text=True,
+            )
+        )
+        assert compiled == profile
+        assert actual.config_hash == profile_hash(compiled)
+        assert actual.project == profile["project"]
+        assert actual.text_model == profile["text_model"]
+        assert actual.live_model == profile["live_model"]
+        assert actual.embedding_model == profile["embedding_model"]
+        assert actual.config_hash != profile_hash({**compiled, "text_model": "changed-model"})
+    import pytest
+
+    for key, value in [
+        ("project", "bad/project"),
+        ("live_location", "global"),
+        ("auth_mode", "developer_api_key"),
+    ]:
+        with pytest.raises(RuntimeError):
+            validate_profile({**profile, key: value})
+
+
+def test_managed_environment_guard_resolves_os_aliases_but_allows_injected_mapping():
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "config_contract", root / "scripts/ci/verify-runtime-config-contract.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for code in [
+        'import os\nos.getenv("GENAI_GOOGLE_CLOUD_PROJECT")',
+        'from os import getenv as read\nKEY="VERTEX_LIVE_MODEL_ID"\nread(KEY)',
+        'from os import environ as env\nenv["HUSSH_GEMINI_TEXT_MODEL"]',
+        'import os as system\nsystem.environ.get("PWM_TAVILY_API_KEY")',
+    ]:
+        assert module.managed_ai_env_violations(code)
+    assert (
+        module.managed_ai_env_violations(
+            'def model(environ):\n return environ.get("HUSSH_GEMINI_TEXT_MODEL")'
+        )
+        == []
+    )

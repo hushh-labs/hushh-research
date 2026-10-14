@@ -66,6 +66,37 @@ async def test_document_merchant_is_quote_bound_not_registry_only():
     assert item["amount"] == 20
 
 
+async def test_quoted_merchant_normalizes_the_length_checked_in_its_evidence():
+    from api.routes.kai.gmail import GmailLiveReceiptScanResponse
+
+    name = "X" * 199
+    quoted_name = f" {name} "
+    quote = f"Receipt from{quoted_name}"
+    service = _service(
+        [
+            _message(
+                "quoted-name",
+                subject="Your receipt",
+                sender="billing@example.test",
+                body=f"{quote}. Amount Paid USD 20.00",
+            )
+        ]
+    )
+
+    async def extract(payload, _user, _token):
+        return {
+            **_model_for(payload),
+            "merchant_name": quoted_name,
+            "merchant_evidence_id": "merchant:document",
+            "merchant_evidence": quote,
+        }
+
+    service._extractor = extract
+    scan = GmailLiveReceiptScanResponse.model_validate(await _scan(service)).model_dump()
+    assert scan["items"][0]["merchant_name"] == name
+    assert scan["items"][0]["merchant_domain"] is None
+
+
 async def test_unverified_optional_merchant_does_not_abort_receipt_page():
     service = _service(
         [
@@ -1452,3 +1483,92 @@ async def test_detail_is_account_bound_and_returns_only_labelled_bounded_excerpt
             require_access=_allowed,
         )
     assert caught.value.code == "GMAIL_RECEIPT_NOT_FOUND"
+
+
+async def test_shortest_provider_id_roundtrips_through_scan_detail_and_api_contracts():
+    from api.routes.kai.gmail import GmailLiveReceiptDetailResponse, GmailLiveReceiptScanResponse
+
+    service = _service(
+        [
+            _message(
+                "a",
+                subject="Your receipt",
+                sender="Apple <orders@apple.com>",
+                body="Grand Total USD 42.10",
+            )
+        ]
+    )
+    scan = GmailLiveReceiptScanResponse.model_validate(await _scan(service)).model_dump()
+    locator = scan["items"][0]["durable_source_ref"]
+    # One provider-ID byte plus the AES-GCM nonce and tag encode to 39 characters.
+    assert len(locator[5:]) == 39
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    assert service._open_locator(authority, locator) == "a"
+    detail = GmailLiveReceiptDetailResponse.model_validate(
+        await service.detail(
+            user_id="owner",
+            source_id=locator,
+            consent_token=TEST_CONSENT_TOKEN,
+            require_access=_allowed,
+        )
+    ).model_dump()
+    assert detail["item"]["gmail_message_id"] == "a"
+    assert detail["item"]["amount_decimal"] == "42.1"
+
+
+async def test_durable_source_locator_is_sealed_owner_account_and_connection_bound():
+    from api.routes.kai.gmail import (
+        GmailLiveReceiptDetailResponse,
+        GmailLiveReceiptScanResponse,
+    )
+
+    message = _message(
+        "private-provider-id",
+        subject="Your receipt",
+        sender="Apple <orders@apple.com>",
+        body="Grand Total USD 42.10",
+    )
+    service = _service([message])
+    scan = await _scan(service)
+    item = scan["items"][0]
+    # Exercise the API contract with real service output, including the
+    # storage fields. Stubbed route payloads missed this response mismatch.
+    serialized_scan = GmailLiveReceiptScanResponse.model_validate(scan).model_dump()
+    assert serialized_scan["items"][0]["durable_source_ref"] == item["durable_source_ref"]
+    assert serialized_scan["items"][0]["amount_decimal"] == "42.1"
+    assert item["amount_decimal"] == "42.1"
+    locator = item["durable_source_ref"]
+    assert locator.startswith("grs1_") and "private-provider-id" not in locator
+    sealed = base64.urlsafe_b64decode(locator[5:] + "=" * (-len(locator[5:]) % 4))
+    assert "private-provider-id".encode() not in sealed
+    # Flip authenticated bytes; trailing Base64 edits can preserve ciphertext.
+    tampered = bytearray(sealed)
+    tampered[-1] ^= 1
+    tampered_locator = "grs1_" + base64.urlsafe_b64encode(tampered).decode().rstrip("=")
+    detail = await service.detail(
+        user_id="owner",
+        source_id=locator,
+        consent_token=TEST_CONSENT_TOKEN,
+        require_access=_allowed,
+    )
+    assert detail["item"]["source_id"] == locator and detail["item"]["amount"] == 42.1
+    serialized_detail = GmailLiveReceiptDetailResponse.model_validate(detail).model_dump()
+    assert serialized_detail["item"]["durable_source_ref"].startswith("grs1_")
+    assert serialized_detail["item"]["amount_decimal"] == "42.1"
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    from dataclasses import replace
+
+    assert service._open_locator(replace(authority, user_id="other-owner"), locator) is None
+    for handle, connection in [
+        (tampered_locator, "2026-10-04T00:00:00+00:00"),
+        (locator, "2026-10-13T00:00:00+00:00"),
+    ]:
+        service._gmail.row["connected_at"] = connection
+        with pytest.raises(GmailApiError) as rejected:
+            await service.detail(
+                user_id="owner",
+                source_id=handle,
+                consent_token=TEST_CONSENT_TOKEN,
+                require_access=_allowed,
+            )
+        assert rejected.value.code == "GMAIL_RECEIPT_NOT_FOUND"

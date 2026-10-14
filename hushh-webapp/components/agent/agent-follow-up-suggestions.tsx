@@ -77,11 +77,11 @@ export function AgentSuggestionList({ suggestions, label, testId, disabled = fal
           disabled={disabled}
           onClick={() => onSelect(suggestion)}
           className={`relative inline-flex !h-auto max-w-full !justify-start overflow-hidden !rounded-lg !border-0 !bg-transparent text-left text-sm font-medium !shadow-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 active:!scale-100 disabled:pointer-events-none disabled:opacity-60 ${layout === "starter-grid"
-            ? "!min-h-11 w-full items-center gap-3 !px-0 !py-1.5 text-foreground hover:text-[color:var(--app-accent-deep)]"
+            ? "!min-h-11 w-full items-start gap-3 !px-0 !py-1.5 text-foreground hover:text-[color:var(--app-accent-deep)]"
             : "!min-h-11 items-center gap-2 !px-2 !py-2 text-muted-foreground hover:text-foreground"}`}
         >
           {layout === "starter-grid" ? (
-            <span aria-hidden className="flex h-8 w-8 shrink-0 items-center gap-1 text-[color:var(--app-accent-deep)]">
+            <span aria-hidden className="flex h-6 w-8 shrink-0 items-center gap-1 text-[color:var(--app-accent-deep)]">
               <span className="text-xs font-medium tabular-nums">{String(index + 1).padStart(2, "0")}</span>
               <ChevronRight className="h-3 w-3" />
             </span>

@@ -12,6 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from jsonschema import SchemaError
+from jsonschema.validators import validator_for
+
+from hushh_mcp.runtime_providers.json_schema import normalize_json_schema
+
 
 @dataclass(frozen=True)
 class NeutralMessage:
@@ -99,23 +104,32 @@ def _schema_dict(value: Any) -> dict[str, Any] | None:
     """One JSON-schema shape for a genai ``Schema``, a pydantic model or a dict."""
     if value is None:
         return None
+    dumped: object
     if isinstance(value, dict):
-        return value
-    if isinstance(value, type):
+        dumped = value
+    elif isinstance(value, type):
         # ADK forwards an agent's ``output_schema`` as the pydantic CLASS. Its
         # ``model_dump`` is an instance method, so calling it raised TypeError
         # before dispatch and every schema-constrained gene failed on a
         # non-Gemini transport. A class describes its schema; it has no values.
         describe = getattr(value, "model_json_schema", None)
         dumped = describe() if callable(describe) else None
-        return dumped if isinstance(dumped, dict) else None
-    if hasattr(value, "model_dump"):
-        dumped = value.model_dump(exclude_none=True)
-        return dumped if isinstance(dumped, dict) else None
-    if hasattr(value, "to_json_dict"):
+    elif hasattr(value, "model_dump"):
+        dumped = value.model_dump(mode="json", exclude_none=True, by_alias=True)
+    elif hasattr(value, "to_json_dict"):
         dumped = value.to_json_dict()
-        return dumped if isinstance(dumped, dict) else None
-    return None
+    else:
+        raise ValueError("Structured schema cannot be materialized")
+    if not isinstance(dumped, dict):
+        raise ValueError("Structured schema must be an object")
+    normalized = normalize_json_schema(dumped)
+    if not isinstance(normalized, dict):
+        raise ValueError("Structured schema must remain an object")
+    try:
+        validator_for(normalized).check_schema(normalized)
+    except SchemaError as exc:
+        raise ValueError("Structured schema is invalid") from exc
+    return normalized
 
 
 def _json_schema(declaration: Any) -> dict[str, Any] | None:

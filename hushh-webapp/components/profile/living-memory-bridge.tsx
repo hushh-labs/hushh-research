@@ -71,6 +71,14 @@ export function LivingMemoryBridge() {
           );
           if (!metadata) throw new Error("Source inventory unavailable");
           if (stopped || !isVaultSessionEpochCurrent(epoch)) break;
+          // refreshMemoryDocument already tracks, per user, whether anything
+          // relevant changed since its last read (via the same domain-change
+          // subscription watchMemoryFreshness uses) and skips the network
+          // when nothing did. Forcing past that on every trigger -- focus,
+          // the 60s interval, every consent mutation -- re-fetched domains
+          // that will legitimately 404 forever (never created) on every one
+          // of those triggers: tens of identical requests in one short
+          // session. Let its own freshness check decide.
           await refreshMemoryDocument({
             userId,
             vaultKey,
@@ -78,7 +86,7 @@ export function LivingMemoryBridge() {
             domains: (metadata.domains ?? [])
               .map((domain) => domain.key)
               .filter(Boolean),
-            force: true,
+            force: false,
           });
         } catch {
           sourceDirty = true;
@@ -96,8 +104,8 @@ export function LivingMemoryBridge() {
       void build();
     };
     const stopChanges = subscribeToPkmDomainChanges((detail) => {
-      if (detail.userId === userId) {
-        if (detail.domain !== LIVING_SOURCE_DOMAIN) pending = true;
+      if (detail.userId === userId && (detail.domain !== LIVING_SOURCE_DOMAIN || detail.operation !== "stored")) {
+        pending = true;
         void build();
       }
     });

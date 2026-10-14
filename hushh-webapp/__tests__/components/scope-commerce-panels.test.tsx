@@ -8,7 +8,12 @@ const mocks = vi.hoisted(() => ({
   readiness: vi.fn(), sandboxVerified: vi.fn(), tariff: vi.fn(), saveTariff: vi.fn(), account: vi.fn(), activity: vi.fn(), onboarding: vi.fn(), hosted: vi.fn(), periodic: vi.fn(),
   scopeRequest: vi.fn(), quote: vi.fn(), purchase: vi.fn(), exporter: vi.fn(),
   pathname: "/one/profile/payouts", search: "", vaultKey: "memory-key", openWindow: vi.fn(),
+  answerGates: vi.fn(), answerAccount: vi.fn(), answerLink: vi.fn(), answerOnboarding: vi.fn(),
 }));
+vi.mock("@/lib/services/answer-request-service", () => ({ AnswerRequestService: {
+  gates: mocks.answerGates, payoutAccount: mocks.answerAccount, payoutLink: mocks.answerLink, payoutOnboarding: mocks.answerOnboarding,
+} }));
+vi.mock("@/components/consent/document-hashcoins", () => ({ DocumentHashcoinPayouts: () => null }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.vaultKey, getVaultOwnerToken: () => "vault-owner-token" }) }));
@@ -24,7 +29,7 @@ vi.mock("@/lib/services/scope-commerce-browser", async importOriginal => ({
 vi.mock("@/lib/perf/use-periodic-task", () => ({ usePeriodicTask: mocks.periodic, useCoarseClock: () => Date.now() }));
 vi.mock("@/components/ui/button", async () => {
   const { Slot } = await import("@radix-ui/react-slot");
-  return { Button: ({ children, variant: _variant, asChild, size: _size, showRipple: _ripple, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; asChild?: boolean; size?: string; showRipple?: boolean }) => asChild ? <Slot {...props}>{children}</Slot> : <button {...props}>{children}</button> };
+  return { buttonVariants: () => "", Button: ({ children, variant: _variant, asChild, size: _size, showRipple: _ripple, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; asChild?: boolean; size?: string; showRipple?: boolean }) => asChild ? <Slot {...props}>{children}</Slot> : <button {...props}>{children}</button> };
 });
 vi.mock("@/components/app-ui/settings-ui", () => ({ SettingsGroup: ({ title, children }: { title: string; children: ReactNode }) => <section aria-label={title}>{children}</section> }));
 
@@ -36,6 +41,8 @@ import { ScopeCommerceActivity } from "@/components/consent/scope-commerce-activ
 import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
 import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
+import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account";
+import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -80,6 +87,8 @@ beforeEach(() => {
   mocks.activity.mockResolvedValue({ items: [], next_cursor: null });
   mocks.scopeRequest.mockResolvedValue(ownerRequest());
   mocks.quote.mockResolvedValue(quote);
+  mocks.answerGates.mockResolvedValue({ payouts: true });
+  mocks.answerAccount.mockResolvedValue({ stripeMode: "test", account: null });
 });
 afterEach(cleanup);
 
@@ -289,6 +298,10 @@ describe("Payments and earnings history", () => {
     const view = render(<ScopeCommerceAccountPanel />);
     await screen.findByRole("button", { name: "Withdraw information-access earnings" });
     expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
+    for (const foreign of ["documents", "answers"]) {
+      act(() => window.dispatchEvent(new CustomEvent(COMMERCE_RETURN_EVENT, { detail: { source: foreign, action: "onboarding_refresh" } })));
+      expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
+    }
     if (source === "query") {
       mocks.search = "commerceReturn=1&commerceAttemptId=opaque_attempt_12345&commerceAction=onboarding_refresh";
       view.rerender(<ScopeCommerceAccountPanel />);
@@ -395,5 +408,72 @@ describe("unconfigured platform funds", () => {
     fireEvent.click(screen.getByRole("button", { name: "Withdraw information-access earnings" }));
     expect(screen.getByRole("button", { name: "Set up payouts with Stripe" })).toBeDisabled();
     expect(mocks.onboarding).not.toHaveBeenCalled();
+  });
+});
+
+describe("answer payout hosted continuity", () => {
+  it("admits the auxiliary window before creating a link and retires it on vault change", async () => {
+    const view = render(<AnswerPayoutAccount />);
+    const button = await screen.findByRole("button", { name: "Manage answer payouts" });
+    await screen.findByText("Test payout setup. No real money moves.");
+    mocks.openWindow.mockReturnValue(null);
+    fireEvent.click(button);
+    expect(mocks.answerOnboarding).not.toHaveBeenCalled();
+    expect(screen.getByText(/Allow pop-ups/)).toBeVisible();
+    const popup = { close: vi.fn() };
+    mocks.openWindow.mockReturnValue(popup);
+    const link = deferred<{ url: string; returnUrl: string; attemptId: string; source: "answers" }>();
+    mocks.answerOnboarding.mockReturnValue(link.promise);
+    fireEvent.click(button);
+    await waitFor(() => expect(mocks.answerOnboarding).toHaveBeenCalledOnce());
+    expect(mocks.openWindow.mock.invocationCallOrder[1]).toBeLessThan(mocks.answerOnboarding.mock.invocationCallOrder[0]);
+    act(() => advanceVaultSessionEpoch());
+    expect(popup.close).toHaveBeenCalled();
+    link.resolve({ url: "https://connect.stripe.com/setup/synthetic", returnUrl: "https://one.hushh.ai/one/profile/payouts", attemptId: "opaque_attempt_12345", source: "answers" });
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(mocks.hosted).not.toHaveBeenCalled();
+    view.unmount();
+  });
+  it("discards a management link returned after the authenticated owner changes", async () => {
+    mocks.answerAccount.mockResolvedValue({ stripeMode: "test", account: { ready: true, canManageBank: true } });
+    const popup = { close: vi.fn(), location: { replace: vi.fn() } };
+    mocks.openWindow.mockReturnValue(popup);
+    const link = deferred<string>(); mocks.answerLink.mockReturnValue(link.promise);
+    const view = render(<AnswerPayoutAccount />);
+    await screen.findByText("Test payout setup. No real money moves.");
+    fireEvent.click(screen.getByRole("button", { name: "Manage answer payouts" }));
+    await waitFor(() => expect(mocks.answerLink).toHaveBeenCalledWith("owner-token", "dashboard"));
+    mocks.user = { uid: "another", getIdToken: vi.fn(async () => "another-token") };
+    view.rerender(<AnswerPayoutAccount />);
+    link.resolve("https://connect.stripe.com/express/synthetic");
+    await waitFor(() => expect(popup.close).toHaveBeenCalled());
+    expect(popup.location.replace).not.toHaveBeenCalled();
+  });
+  it("closes undispatched management windows during token retirement and admits only one synchronous click", async () => {
+    mocks.answerAccount.mockResolvedValue({ stripeMode: "test", account: { ready: true, canManageBank: true } });
+    const popup = { close: vi.fn(), location: { replace: vi.fn() } };
+    mocks.openWindow.mockReturnValue(popup);
+    render(<AnswerPayoutAccount />);
+    await screen.findByText("Test payout setup. No real money moves.");
+    const token = deferred<string>();
+    vi.mocked(mocks.user!.getIdToken).mockReturnValue(token.promise);
+    const button = screen.getByRole("button", { name: "Manage answer payouts" });
+    act(() => { button.click(); button.click(); });
+    expect(mocks.openWindow).toHaveBeenCalledOnce();
+    act(() => advanceVaultSessionEpoch());
+    expect(popup.close).toHaveBeenCalledOnce();
+    token.resolve("retired-token");
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(mocks.answerLink).not.toHaveBeenCalled();
+    expect(popup.location.replace).not.toHaveBeenCalled();
+  });
+  it("offers an authenticated fresh answer link on cold payout arrival without starting onboarding", async () => {
+    mocks.search = "commerceReturn=1&commerceAttemptId=opaque_attempt_12345&commerceSource=answers&commerceAction=onboarding_refresh";
+    render(<PaymentsAndEarnings />);
+    await screen.findByRole("button", { name: "Manage answer payouts" });
+    await waitFor(() => expect(mocks.answerAccount).toHaveBeenCalledWith("owner-token"));
+    expect(mocks.answerOnboarding).not.toHaveBeenCalled();
+    expect(mocks.onboarding).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
   });
 });

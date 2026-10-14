@@ -40,6 +40,21 @@ beforeEach(() => {
 
 describe("Secure manual card entry", () => {
 
+  it("retries failed network options without discarding the draft or disabling auto-detect", async () => {
+    networkApi.supported.mockRejectedValueOnce(new Error("offline"));
+    render(<SecureCardAddForm onSubmit={vi.fn()} />);
+    fillRequired();
+    const retry = await screen.findByRole("button", { name: "Retry network options" });
+    await screen.findByText("Network identified from the card prefix. This does not verify the card or its issuer.");
+    expect(screen.getByTestId("secure-card-save")).not.toBeDisabled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry network options" })).toBeNull());
+    fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+    expect(await screen.findByRole("option", { name: "American Express", exact: true })).toBeVisible();
+    expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+    expect(networkApi.supported).toHaveBeenCalledTimes(2);
+  });
+
   it("offers scanning alongside manual entry and links validation errors", () => {
     const save = vi.fn();
     render(<SecureCardAddForm scanEnabled onSubmit={save} />);
@@ -245,4 +260,24 @@ it("offers a new backend network and distinguishes owner selection from identifi
   fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
   fireEvent.click(await screen.findByRole("option", { name: "FUTURE NETWORK" }));
   expect(await screen.findByText("You selected this network. This does not verify the card or its issuer.")).toBeInTheDocument();
+});
+
+it("explains an incompatible manual network length and recovers after correction", async () => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
+  fillRequired();
+  fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: "American Express", exact: true }));
+  expect(await screen.findByText("The card number length does not match the selected network.")).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
+  expect(screen.queryByText(/Network identification is unavailable/)).toBeNull();
+  submit();
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByRole("alert")).toHaveTextContent("The card number length does not match the selected network.");
+
+  fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "378282246310005" } });
+  fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "1234" } });
+  expect(await screen.findByText("You selected this network. This does not verify the card or its issuer.")).toBeInTheDocument();
+  submit();
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ brand: "amex", pan: "378282246310005", cvv: "1234" })));
 });

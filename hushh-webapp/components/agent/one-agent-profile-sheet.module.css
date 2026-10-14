@@ -27,14 +27,13 @@
   text-align: center;
 }
 .avatar {
-  display: grid;
-  place-items: center;
-  width: 112px;
-  height: 112px;
-  border: 1px solid var(--app-card-border-standard);
-  border-radius: 50%;
-  background: var(--app-card-surface-default);
-  box-shadow: var(--app-card-shadow-standard);
+  position: relative;
+  width: 192px;
+  height: 160px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .title {
   margin: 0;
@@ -188,3 +187,13 @@
   .cards { grid-template-columns: 1fr; }
 }
 .scroll { container: one-profile-content / inline-size; }
+
+.artwork {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 192px;
+  height: 192px;
+  max-width: none;
+  transform: translate(-50%, -50%);
+}

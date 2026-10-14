@@ -86,7 +86,7 @@ class ShareBody(RegistrationBody):
     recipient_person_refs: list[UUID] = Field(
         alias="recipientPersonRefs", min_length=1, max_length=20
     )
-    duration_minutes: Literal[5, 10, 15] = Field(alias="durationMinutes")
+    duration_minutes: Literal[5, 10, 15, 60, 120] = Field(alias="durationMinutes")
     encrypted_cards: dict[UUID, str] | None = Field(
         default=None, alias="encryptedCards", max_length=20
     )
@@ -122,7 +122,7 @@ class SharingHistoryItem(BaseModel):
     recipientPersonRef: UUID | None
     createdAt: str
     expiresAt: str
-    durationMinutes: Literal[5, 10, 15]
+    durationMinutes: Literal[5, 10, 15, 60, 120]
     trustedCircle: bool | None
     method: Literal["trusted_circle", "standard_connection", "legacy_unspecified"]
     verificationMethod: Literal["identity_reauthentication", "trusted_circle", "legacy_unspecified"]
@@ -136,6 +136,7 @@ class SharingHistoryItem(BaseModel):
 
 class SharingHistory(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    recipientCount: int = Field(default=0, ge=0)
     items: list[SharingHistoryItem]
     hasMore: bool
     nextCursor: str | None

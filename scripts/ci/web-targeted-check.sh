@@ -27,6 +27,7 @@ case "$WEB_TARGETED_PART" in
     exit 2
     ;;
 esac
+browser_primary="$(node "$WEB_DIR/scripts/testing/playwright-shard.cjs")"
 
 # Prints "browser" when the command is `npm run <script>` and that script, or
 # any script it reaches through `npm run`, invokes playwright; "node" otherwise.
@@ -121,7 +122,7 @@ fi
 if has_match '(^|/)(README\.md|[^/]+\.md)$|^scripts/(render-doc-mermaid\.mjs|verify-doc-diagrams.*\.cjs)$'; then
   # The node leg intentionally has no browser install. The browser leg owns
   # rendering; an unsplit local run still renders every diagram.
-  if [ "$WEB_TARGETED_PART" != "node" ]; then
+  if [ "$WEB_TARGETED_PART" != "node" ] && [ "$browser_primary" = "1" ]; then
     (cd "$REPO_ROOT" && node scripts/verify-doc-diagrams.cjs && node scripts/render-doc-mermaid.mjs)
   fi
   ran=1

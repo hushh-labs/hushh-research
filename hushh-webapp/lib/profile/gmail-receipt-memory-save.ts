@@ -6,6 +6,10 @@ import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtim
 import { isUnresolvedSourceBlock, prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import { loadMarkdownMemory, MARKDOWN_MEMORY_DOMAIN, markdownFactsFromCards, stageMarkdownMemoryFacts } from "@/lib/pkm/markdown-memory";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
+import { captureReceiptSnapshot, RECEIPT_SNAPSHOT_PREFIX } from "@/lib/mail/receipt-snapshot";
+import { receiptStoreVersion, writeReceiptSnapshot, loadReceiptSnapshot } from "@/lib/mail/receipt-store";
+import { migrateReceiptMemory } from "@/lib/mail/receipt-memory-migration";
+import { assertLightweightReceiptFacts, safeAffinityLabel } from "@/lib/mail/receipt-lightweight-memory";
 
 export { RECEIPT_MEMORY_SAVE_WRITER };
 export type ReceiptMemorySaveOutcome = { count: number };
@@ -16,22 +20,14 @@ export function buildReceiptTrendObservations(receipts: readonly ReceiptListItem
   if (!rows.length) return [];
   const merchants = new Map<string, number>();
   const categories = new Map<string, number>();
-  const totals = new Map<string, { count: number; amount: number }>();
   const months: string[] = [];
   for (const row of rows) {
     // A merchant is only a bounded, Markdown-inert label, never email content.
     const merchant = row.merchantName.replace(/[\r\n\t*_\x60~[\]<>\\|]/g, " ").replace(/\s+/g, " ").trim();
-    if (row.displayKind === "merchant" && merchant.length <= 80 && !/https?:|www\.|@/i.test(merchant))
+    if (row.displayKind === "merchant" && merchant.length <= 80 && safeAffinityLabel(merchant))
       merchants.set(merchant, (merchants.get(merchant) ?? 0) + 1);
     if (row.category && row.category !== "Other" && row.category !== "Uncategorized")
       categories.set(row.category, (categories.get(row.category) ?? 0) + 1);
-    const currency = row.currency?.toUpperCase();
-    // An invoice/refund/trial is not proof of paid spend.
-    if ((row.status === "paid" || row.status === "delivered") && currency && /^[A-Z]{3}$/.test(currency) &&
-      typeof row.amount === "number" && Number.isFinite(row.amount) && row.amount >= 0) {
-      const total = totals.get(currency) ?? { count: 0, amount: 0 };
-      totals.set(currency, { count: total.count + 1, amount: total.amount + row.amount });
-    }
     if (row.receiptDate && Number.isFinite(Date.parse(row.receiptDate))) months.push(new Date(row.receiptDate).toISOString().slice(0, 7));
   }
   months.sort();
@@ -41,8 +37,6 @@ export function buildReceiptTrendObservations(receipts: readonly ReceiptListItem
   return [
     `${basis}: the most represented merchants are ${ranked(merchants).map(([label, count]) => `${label} (${count} receipts)`).join(", ") || "not verified"}.`,
     ...(categories.size ? [`${basis}: the most represented categories are ${ranked(categories).map(([label, count]) => `${label} (${count} receipts)`).join(", ")}.`] : []),
-    ...[...totals].filter(([, total]) => total.count > 1 && Number.isFinite(total.amount)).sort(([a], [b]) => a.localeCompare(b)).slice(0, 4).map(([currency, total]) =>
-      `${basis}: recorded paid/delivered amounts total ${currency} ${total.amount.toFixed(2)} across ${total.count} receipts with known amounts; this is not total spending.`),
   ];
 }
 
@@ -50,35 +44,69 @@ export function buildReceiptTrendObservations(receipts: readonly ReceiptListItem
 export async function saveReceiptCanonicalIndexToMemory(params: {
   userId: string; vaultKey: string; vaultOwnerToken: string;
   receipts: readonly ReceiptListItem[]; accountKey: string | null | undefined;
-  now?: Date; partialScan?: boolean; isCurrent?: () => boolean;
+  now?: Date; partialScan?: boolean; isCurrent?: () => boolean; ownerGeneration?: number; snapshotRevision?: number;
 }): Promise<ReceiptMemorySaveOutcome> {
   const guard = createAgentPkmCaptureGuard({ userId: params.userId,
     signal: new AbortController().signal, isEnabled: params.isCurrent ?? (() => true) });
   await guard.assertCurrent();
+  if (!params.accountKey) throw new Error("A Mail account is required to save receipt memory.");
+  const session = { userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken, isCurrent: guard.isCurrent };
+  const expected = await receiptStoreVersion(params.userId, params.accountKey);
+  if (params.ownerGeneration !== undefined && expected.generation !== params.ownerGeneration)
+    throw new Error("Receipt sync was reset. Sync again before updating memory.");
+  if (params.snapshotRevision !== undefined && expected.revision !== params.snapshotRevision)
+    throw new Error("Saved receipts changed. Sync again before updating memory.");
+  const persisted = params.snapshotRevision !== undefined && params.snapshotRevision > 0
+    ? await loadReceiptSnapshot(session, params.accountKey) : null;
+  if (params.snapshotRevision !== undefined && params.snapshotRevision > 0 && (!persisted || persisted.revision !== params.snapshotRevision))
+    throw new Error("Saved receipt verification failed. Existing memory was kept.");
+  const snapshot = persisted?.value ?? await captureReceiptSnapshot(params.receipts, params.accountKey, {
+    partial: params.partialScan ?? true, truncated: params.partialScan ?? true, source_count: params.receipts.length,
+    window_from: null, window_to: null, source: "gmail_live",
+  }, params.now);
+  const verified = persisted ?? await writeReceiptSnapshot(session, snapshot, expected);
+  await guard.assertCurrent();
   const observations = buildReceiptTrendObservations(params.receipts, params.accountKey, params.partialScan);
-  if (!observations.length) throw new Error("There are no receipts to save yet.");
   const observedAt = (params.now ?? new Date()).toISOString();
   const key = `gmail_receipt_radar:${await sha256Hex(String(params.accountKey ?? ""))}`;
-  const session = { userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken };
   await loadMarkdownMemory(session);
   await guard.assertCurrent();
   // Exact-source selection over a few factual aggregate sentences, not raw
   // receipts or a second router. No host-inferred preferences or cadence.
-  const prepared = await prepareNaturalLanguagePkm({
+  const prepared = observations.length ? await prepareNaturalLanguagePkm({
     userId: params.userId, vaultOwnerToken: params.vaultOwnerToken,
     message: observations.join("\n\n"), currentDomains: [MARKDOWN_MEMORY_DOMAIN], currentManifests: [],
     source: RECEIPT_MEMORY_SAVE_WRITER, allowEmpty: true,
     beforeEffect: guard.assertCurrent, isEffectCurrent: guard.isCurrent,
-  });
+  }) : { cards: [], previews: [], sourceCoverage: [] };
   await guard.assertCurrent();
   if (prepared.sourceCoverage.some(isUnresolvedSourceBlock) || prepared.previews.some(preview => preview.used_fallback || preview.error))
     throw new Error("Receipt trends could not be assessed. Your existing memory was kept.");
-  const facts = markdownFactsFromCards(prepared.cards);
-  if (!facts.length) return { count: 0 };
+  const facts = prepared.cards.flatMap(card => {
+    if (!markdownFactsFromCards([card]).length) return [];
+    const selected = card.source_text?.trim();
+    const observation = selected && observations.find(text => text.includes(selected));
+    if (!observation) throw new Error("Receipt trends must select approved aggregate observations. Existing memory was kept.");
+    // Assessment selects evidence; it cannot rewrite aggregates into exact
+    // charges or invent products/preferences in receipt-owned Soul memory.
+    return [{ text: observation, section: "Facts" as const }];
+  }).filter((fact, index, all) => all.findIndex(other => other.text === fact.text) === index);
+  assertLightweightReceiptFacts(facts);
+  const assertSnapshotCurrent = async () => {
+    await guard.assertCurrent();
+    const current = await receiptStoreVersion(params.userId, params.accountKey!);
+    if (current.generation !== verified.generation || current.revision !== verified.revision)
+      throw new Error("Saved receipts changed during assessment. Sync again before updating memory.");
+  };
+  await assertSnapshotCurrent();
+  await migrateReceiptMemory(session, snapshot, verified.generation, verified.revision);
+  await guard.assertCurrent();
   const result = await stageMarkdownMemoryFacts({ ...session, facts, replaceSource: { key, observedAt },
-    beforeEffect: guard.assertCurrent,
+    receiptGeneration: verified.generation,
+    receiptSnapshotFence: { resourceKey: RECEIPT_SNAPSHOT_PREFIX + snapshot.account_binding, revision: verified.revision },
+    beforeEffect: assertSnapshotCurrent,
     confirmation: { confirmedByUser: true, surface: "web", source: RECEIPT_MEMORY_SAVE_WRITER },
   });
-  if (!result.success) throw new Error("Receipt trends could not be added to Soul.md.");
+  if (!result.success) throw new Error("Receipt trends could not be added to memory.md.");
   return { count: result.saved };
 }

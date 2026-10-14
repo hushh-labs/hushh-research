@@ -4,31 +4,14 @@ import path from "node:path";
 /**
  * The Agent Chat header, read out of the shipped source rather than retyped.
  *
- * `agent-chat-workspace.tsx` is 6,200 lines behind One's sign-in, wired to
- * Firebase auth, the vault, the AG-UI stream and a dozen services. A Playwright
- * spec cannot mount it, and a spec that navigates to `/one` without reviewer
- * credentials proves only that the welcome screen renders.
+ * The workspace depends on Firebase, the vault and AG-UI; an unauthenticated
+ * visit proves only the welcome screen. This fixture instead extracts shipped
+ * classes, copy and conditional expressions, including imported header controls.
+ * It executes plain guards with fixture state so removed gates or moved controls
+ * change the measured screen. Every anchor must match exactly once.
  *
- * So the header is REBUILT as a standalone fixture, the way
- * `gemini-endpoint-fields.layout.spec.ts` rebuilds the endpoint fields: every
- * value that decides what appears on screen is extracted from the shipped file,
- * not copied into the test. Two kinds of value are lifted here:
- *
- *   1. Class strings and copy, so the fixture lays out and reads like the real
- *      header and a stale copy of either cannot pass.
- *   2. The CONDITIONAL EXPRESSIONS themselves. `gateExpression` is the literal
- *      source text of the guard that decides whether One's cloud model picker
- *      renders, and the fixture EXECUTES it with `isPuppySurface` bound. Delete
- *      the guard, invert it, or reorder the actions around it, and the
- *      fixture's screen changes with the product's.
- *
- * Every extraction is anchored and asserted. A rename this file cannot follow
- * throws here, at build time, instead of quietly rendering an empty header that
- * satisfies every assertion downstream.
- *
- * What this CANNOT do is exercise the real component: state, effects, focus
- * handling and Radix internals are not in the fixture. The spec's own header
- * comment records that boundary and stays inside it.
+ * This proves source-derived presentation, not real React state, focus effects
+ * or Radix behavior. The owning spec records those separate acceptance limits.
  */
 
 const WEBAPP_ROOT = process.cwd();
@@ -51,7 +34,9 @@ function one(
   what: string,
   where: string,
 ): RegExpMatchArray {
-  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const flags = pattern.flags.includes("g")
+    ? pattern.flags
+    : `${pattern.flags}g`;
   const matches = [...source.matchAll(new RegExp(pattern.source, flags))];
   if (matches.length !== 1) {
     throw new Error(
@@ -113,6 +98,7 @@ if (headerStart < 0 || headerEnd < headerStart) {
   fail("the header region", WORKSPACE_PATH);
 }
 const header = workspace.slice(headerStart, headerEnd);
+one(header, /<NativeHistoryOpener\b/, "authored history opener", WORKSPACE_PATH);
 
 const headerContainerClass = one(
   header,
@@ -188,7 +174,7 @@ const subtitleExpression = `isPuppySurface ? ${puppySubtitle} : ${idleSubtitle}`
 
 const clusterClass = one(
   header,
-  /<div className="(flex shrink-0 items-center gap-2)">/,
+  /<div(?: data-agent-chat-header-region="actions")? className="(flex shrink-0 items-center gap-2)">/,
   "right-hand cluster class",
   WORKSPACE_PATH,
 )[1];
@@ -303,8 +289,9 @@ const actionAnchors = {
 if (Object.values(actionAnchors).some((at) => at < 0)) {
   fail("the header actions (picker, toggle, profile)", WORKSPACE_PATH);
 }
-const actionOrder = (Object.keys(actionAnchors) as Array<keyof typeof actionAnchors>)
-  .sort((a, b) => actionAnchors[a] - actionAnchors[b]);
+const actionOrder = (
+  Object.keys(actionAnchors) as Array<keyof typeof actionAnchors>
+).sort((a, b) => actionAnchors[a] - actionAnchors[b]);
 
 /**
  * The two `hidden` guards below the header, read from the whole file because
@@ -324,7 +311,10 @@ const oneHiddenMatches = [
   ...workspace.matchAll(/^\s*(isPuppySurface && "([^"]*)"),$/gm),
 ];
 if (oneHiddenMatches.length !== 2) {
-  fail("both of One's off-screen guards (transcript and composer)", WORKSPACE_PATH);
+  fail(
+    "both of One's off-screen guards (transcript and composer)",
+    WORKSPACE_PATH,
+  );
 }
 if (oneHiddenMatches[0][2] !== oneHiddenMatches[1][2]) {
   fail(
@@ -431,9 +421,70 @@ const segmentedSegmentBase = `${segmentedSegmentClasses[1]} ${segmentedSegmentCl
 export const AGENT_SURFACE_SOURCE = {
   header: {
     containerClass: headerContainerClass,
+    centeredMarkerExpression: flatten(
+      one(
+        workspace,
+        /data-one-centered-header=\{([^}]+)\}/,
+        "One-only centered header marker",
+        WORKSPACE_PATH,
+      )[1],
+    ),
     identityClass,
     brandTileClass,
     clusterClass,
+    centered: {
+      artwork: header.includes("<OnePresenceAvatar")
+        ? {
+            // The centered header's idle avatar is the HD portrait. Extract
+            // its actual default sizing rather than the active Rive overlay.
+            kind: "image",
+            containerClass: "",
+            className: one(
+              read("components/agent/one-presence-avatar.tsx"),
+              /if \(state === "connected"\)[\s\S]*?className=\{className \?\? "([^"]+)"\}/,
+              "One presence idle image",
+              "components/agent/one-presence-avatar.tsx",
+            )[1],
+          }
+        : {
+            kind: "image",
+            containerClass: one(
+              header,
+              /<HushhMark[\s\S]*?className="([^"]+)"/,
+              "One mark wrapper",
+              WORKSPACE_PATH,
+            )[1],
+            className: one(
+              header,
+              /<HushhMark[\s\S]*?imageClassName="([^"]+)"/,
+              "One mark image",
+              WORKSPACE_PATH,
+            )[1],
+          },
+      historyClass: one(
+        one(
+          read("components/app-ui/native-chat-chrome.tsx"),
+          /export function NativeHistoryOpener\b([\s\S]*?)<ShellActionSurface/,
+          "authored history opener",
+          "components/app-ui/native-chat-chrome.tsx",
+        )[1],
+        /<NativeChatChrome kind="history"[\s\S]*?className="([^"]+)"/,
+        "native history slot",
+        "components/app-ui/native-chat-chrome.tsx",
+      )[1],
+      surfaceClass: one(
+        header,
+        /<NativeChatChrome kind="agent-surface"[\s\S]*?className="([^"]+)"/,
+        "native surface slot",
+        WORKSPACE_PATH,
+      )[1],
+      profileTriggerClass: one(
+        header,
+        /data-agent-chat-one-profile-trigger[\s\S]*?className="([^"]+)"/,
+        "One profile target",
+        WORKSPACE_PATH,
+      )[1],
+    },
     /** Source order of the actions, e.g. ["picker", "toggle", "profile"]. */
     actionOrder,
     profileClass,
@@ -466,6 +517,12 @@ export const AGENT_SURFACE_SOURCE = {
     /** `Running ${modelPreference.effective_model}`, binding left in. */
     titleTemplate: triggerMatch[3],
     triggerClass: triggerMatch[4],
+    iconClass: one(
+      header,
+      /<Cpu aria-hidden="true" className="([^"]+)"/,
+      "phone model icon",
+      WORKSPACE_PATH,
+    )[1],
     labelStrip: {
       pattern: stripMatch[1],
       flags: stripMatch[2],

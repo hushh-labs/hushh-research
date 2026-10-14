@@ -46,7 +46,7 @@ is never served.
 | `oauth.clientIdEnv`, `oauth.clientSecretEnv` | Named `<ID>_OAUTH_CLIENT_ID` and `<ID>_OAUTH_CLIENT_SECRET`. A public client names no secret. The Secret Manager name equals the variable name. |
 | `tools.allowlist` | The exact tools chat may offer. |
 | `tools.freeRead` | The subset that may run without a review card. A tool must also be annotated read-only by the server itself. |
-| `environments.<env>.registeredRedirectUris` | The return addresses the registry row is applied with. |
+| `environments.<env>.registeredRedirectUris` | The return addresses the registry row is applied with (1-9 HTTPS addresses; production allows only its canonical return). Public clients register this exact list with the provider, so changing it means re-registering with `--force`, which orphans existing grants. |
 
 Every tool outside `tools.freeRead` keeps an exact-call review card. A provider
 with no free-read tools keeps a card on every call.

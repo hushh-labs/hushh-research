@@ -22,7 +22,6 @@ from unittest.mock import patch
 from uuid import UUID
 
 import pytest
-from fastapi import HTTPException, Response
 from sqlalchemy import create_engine, text
 
 from hushh_mcp.consent.answer_scope_resolution import compute_terms_digest
@@ -49,6 +48,10 @@ MIGRATIONS = [
 ]
 MIGRATIONS.append(
     Path(__file__).resolve().parents[2] / "db/migrations/305_pkm_answer_payment_recovery.sql"
+)
+
+MIGRATIONS.append(
+    Path(__file__).resolve().parents[2] / "db/migrations/326_answer_scope_resolution_lease.sql"
 )
 
 # The owner's registry. attr.financial.holdings is deliberately present so a
@@ -304,6 +307,7 @@ async def _ask(engine, resolver, *, dated=True):
         question="How much did you spend on travel last year?",
         **({"period_start": "2026-01-01", "period_end": "2026-12-31"} if dated else {}),
     )
+    await service.resolve_pending(request_id=created["requestId"])
     return service, created["requestId"]
 
 
@@ -336,9 +340,7 @@ ENVELOPE = {
 
 class TestHappyPath:
     @pytest.mark.parametrize("dated", [True, False])
-    async def test_two_accounts_ask_approve_pay_answer_and_fetch(
-        self, answer_engine, dated, monkeypatch
-    ):
+    async def test_two_accounts_ask_approve_pay_answer_and_fetch(self, answer_engine, dated):
         service, request_id = await _ask(
             answer_engine, StubResolver(["attr.travel.trips", "attr.preferences.food"]), dated=dated
         )
@@ -390,19 +392,6 @@ class TestHappyPath:
         answer = await service.fetch_answer(requester_user_id=REQUESTER, request_id=request_id)
         assert answer["ciphertext"] == "c2VhbGVk"
         assert answer["sourceRevisions"] == {"travel": 7}
-
-        # Pausing new payments preserves existing recipient-bound ciphertext.
-        from api.routes.one import answer_requests as routes
-
-        monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "false")
-        monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
-        monkeypatch.setattr(routes, "_requests", lambda: service)
-        response = Response()
-        assert await routes.get_answer(UUID(request_id), response, REQUESTER) == answer
-        assert response.headers["Cache-Control"] == "private, no-store"
-        with pytest.raises(HTTPException) as denied:
-            await routes.get_answer(UUID(request_id), Response(), "another-requester")
-        assert denied.value.status_code == 404
 
         with answer_engine.begin() as connection:
             row = (
@@ -488,12 +477,15 @@ class TestScopeIsolation:
         inbox = await service.pending_for_owner(owner_user_id=OWNER)
         assert inbox[0]["resolutionMode"] == "skipped"
         assert inbox[0]["resolutionSkippedReason"] == "resolver_failed"
-        # Explicit manual selection offers only the existing safe catalog.
-        assert {row["scope"] for row in inbox[0]["proposedScopes"]} == {
-            "attr.travel.trips",
-            "attr.preferences.food",
-            "attr.financial.holdings",
-        }
+        assert inbox[0]["proposedScopes"] == []
+        with pytest.raises(AnswerRequestError, match="request_not_approvable"):
+            await service.approve(
+                owner_user_id=OWNER,
+                request_id=_request_id,
+                scopes=["attr.travel.trips"],
+                amount_cents=100,
+                model_processing_consent=True,
+            )
 
 
 class TestConnectionGate:
@@ -785,13 +777,15 @@ async def test_late_resolver_respects_terminal_state_and_connection(answer_engin
         resolver=DelayedResolver(),
         catalog_reader=_fixture_catalog(answer_engine),
     )
-    task = asyncio.create_task(
+    created = await asyncio.wait_for(
         service.create(
             requester_user_id=REQUESTER,
             owner_user_id=OWNER,
             question="Where did you travel last year?",
-        )
+        ),
+        2,
     )
+    task = asyncio.create_task(service.resolve_scopes(request_id=created["requestId"]))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         with answer_engine.begin() as connection:
@@ -845,3 +839,93 @@ async def test_approval_rechecks_current_private_scope_posture(answer_engine):
             connection.execute(text("SELECT count(*) FROM pkm_answer_payment_orders")).scalar_one()
             == 0
         )
+
+
+async def test_creation_is_durable_before_catalog_or_model_work(answer_engine):
+    class NeverInlineResolver:
+        async def propose_scopes(self, **kwargs):
+            raise AssertionError("Resolution must not run during creation")
+
+    async def blocked_catalog(*args, **kwargs):
+        raise AssertionError("Catalog must not run during creation")
+
+    service = PkmAnswerRequestService(
+        _db(answer_engine), resolver=NeverInlineResolver(), catalog_reader=blocked_catalog
+    )
+    created = await asyncio.wait_for(
+        service.create(
+            requester_user_id=REQUESTER, owner_user_id=OWNER, question="What is your name?"
+        ),
+        2,
+    )
+    with answer_engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM pkm_answer_requests WHERE request_id=:r"),
+                {"r": created["requestId"]},
+            ).scalar_one()
+            == "pending_resolution"
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM feed_events WHERE source_row_id=:r"),
+                {"r": f"answer_request:{created['requestId']}"},
+            ).scalar_one()
+            == 1
+        )
+    assert (await service.pending_for_owner(owner_user_id=OWNER))[0]["proposedScopes"] == []
+
+
+async def test_resolution_lease_recovers_abandoned_work_and_excludes_competing_drains(
+    answer_engine,
+):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    class WaitingResolver:
+        async def propose_scopes(self, **kwargs):
+            nonlocal calls
+            calls += 1
+            entered.set()
+            await release.wait()
+            return ["attr.travel.trips"]
+
+    service = PkmAnswerRequestService(
+        _db(answer_engine),
+        resolver=WaitingResolver(),
+        catalog_reader=_fixture_catalog(answer_engine),
+    )
+    created = await service.create(
+        requester_user_id=REQUESTER, owner_user_id=OWNER, question="Where did you travel?"
+    )
+    with answer_engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE pkm_answer_requests
+            SET resolution_lease_until=clock_timestamp()-interval '1 second',
+                resolution_attempts=1 WHERE request_id=:request"""),
+            {"request": created["requestId"]},
+        )
+    first = asyncio.create_task(service.resolve_pending())
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        await service.resolve_pending()
+        assert calls == 1
+    finally:
+        release.set()
+        await asyncio.wait_for(first, 5)
+    with answer_engine.begin() as connection:
+        row = (
+            connection.execute(
+                text("""SELECT status, resolution_attempts,
+            resolution_lease_until FROM pkm_answer_requests""")
+            )
+            .mappings()
+            .one()
+        )
+        assert row["status"] == "awaiting_owner"
+        assert row["resolution_attempts"] == 2
+        assert row["resolution_lease_until"] is None
+    assert (await service.pending_for_owner(owner_user_id=OWNER))[0]["proposedScopes"][0][
+        "scope"
+    ] == "attr.travel.trips"

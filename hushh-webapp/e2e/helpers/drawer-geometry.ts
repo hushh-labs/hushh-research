@@ -1,3 +1,10 @@
+import { expect, type Locator, type Page } from "@playwright/test";
+
+export async function expectPaneRestingAtFrame(page: Page, pane: Locator) {
+  const inset = (await profileFrame(page)).x;
+  await expect.poll(() => pane.evaluate((element, x) => Math.abs(element.getBoundingClientRect().left - x), inset)).toBeLessThanOrEqual(1);
+}
+
 export async function profileFrame(page: import("@playwright/test").Page) {
   return page.evaluate(() => {
     const reference = document.createElement("div");
@@ -22,6 +29,7 @@ export async function profileFrame(page: import("@playwright/test").Page) {
  * A drawer left inside the workspace can never rise above that bar.
  */
 export async function mountAppChrome(page: import("@playwright/test").Page, barHeight: number) {
+  await page.locator("main [data-gesture-body]").waitFor({ state: "attached" });
   await page.evaluate((height) => {
     document.documentElement.style.setProperty("--app-bottom-shell-height", `${height}px`);
     const main = document.querySelector("main")!;
@@ -42,7 +50,7 @@ export function hitAt(page: import("@playwright/test").Page, x: number, y: numbe
     if (element.closest("[data-agent-history-scrim]")) return "scrim";
     if (element.closest("[data-agent-history-drawer]")) return "panel";
     if (element.closest("[data-fixture-bottom-bar]")) return "bottom-bar";
-    if (element.closest("button")?.textContent === "Open drawer") return "header";
+    if (element.closest("header.agent-chat-header") || element.closest("button")?.textContent === "Open drawer") return "header";
     return element.tagName.toLowerCase();
   }, [x, y] as const);
 }

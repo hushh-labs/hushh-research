@@ -38,6 +38,24 @@ function priceChips() {
 }
 
 describe("DocumentRequestPriceSheet", () => {
+  it("edits a Drive model estimate in cents and enforces decimal boundaries", () => {
+    const { props } = renderSheet({ moneyPolicy: "drive_cents", initialAmountCents: 1050 });
+    const input = screen.getByLabelText("Custom price");
+    expect(input).toHaveValue("10.5");
+    expect(input).toHaveAttribute("inputmode", "decimal");
+    for (const [value, cents, label] of [["0.50", 50, "$0.50"], ["20.51", 2051, "$20.51"], ["500", 50000, "$500"]] as const) {
+      fireEvent.change(input, { target: { value } });
+      fireEvent.click(screen.getByRole("button", { name: `Allow · ${label}` }));
+      expect(props.onSubmit).toHaveBeenLastCalledWith(cents);
+    }
+    for (const value of ["0.49", "500.01", "20.001", "1e2", "-1", "0"]) {
+      fireEvent.change(input, { target: { value } });
+      expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
+      expect(screen.getByRole("alert")).toHaveTextContent("$0.50 to $500");
+    }
+    expect(props.onSubmit).toHaveBeenCalledTimes(3);
+  });
+
   it("sets a trusted request price without an Allow label", () => {
     const { props } = renderSheet({ priceOnly: true });
     expect(screen.getByRole("dialog", { name: "Set price" })).toBeVisible();

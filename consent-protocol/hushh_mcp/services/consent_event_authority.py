@@ -48,9 +48,7 @@ async def persist_external_event(db: Any, data: dict, metadata: dict | None) -> 
     return response
 
 
-def owner_lineage_is_active(db: Any, user_id: str, token_id: str, now_ms: int) -> bool:
-    rows = db.execute_raw(
-        """
+_OWNER_LINEAGE_QUERY = """
         SELECT grant_event.id FROM internal_access_events AS grant_event
         WHERE grant_event.user_id = :user_id AND grant_event.agent_id = 'self'
           AND grant_event.scope = 'vault.owner'
@@ -70,10 +68,27 @@ def owner_lineage_is_active(db: Any, user_id: str, token_id: str, now_ms: int) -
               AND revoked.agent_id = 'self' AND revoked.scope = 'vault.owner'
               AND revoked.action = 'REVOKED' AND revoked.id > grant_event.id
           ) LIMIT 1
-    """,
+    """
+
+
+def owner_lineage_is_active(db: Any, user_id: str, token_id: str, now_ms: int) -> bool:
+    rows = db.execute_raw(
+        _OWNER_LINEAGE_QUERY,
         {"user_id": user_id, "token_id": token_id, "now_ms": now_ms},
     ).data
     return bool(rows)
+
+
+async def owner_lineage_active_in_transaction(
+    conn: Any, user_id: str, token_id: str, now_ms: int
+) -> bool:
+    """Read exact owner authority inside the caller's existing transaction."""
+    query = (
+        _OWNER_LINEAGE_QUERY.replace(":user_id", "$1")
+        .replace(":token_id", "$2")
+        .replace(":now_ms", "$3")
+    )
+    return bool(await conn.fetchval(query, user_id, token_id, now_ms, timeout=5))
 
 
 def event_is_newer(row: dict, previous: dict) -> bool:

@@ -156,8 +156,12 @@ def lifecycle(connector_postgres_url, shared_hub_owner):
                 "229_drive_document_chunks.sql",
                 "230_drive_processing_consent.sql",
                 "236_drive_native_picker_attempts.sql",
+                "332_drive_collection_sync.sql",
+                "333_drive_document_pages.sql",
             ):
-                connection.exec_driver_sql((MIGRATIONS / filename).read_text())
+                connection.exec_driver_sql(
+                    (MIGRATIONS / filename).read_text(), execution_options={"no_parameters": True}
+                )
             # Release migrations are replayable, including after constraints exist.
             connection.exec_driver_sql(
                 (MIGRATIONS / "227_external_connector_lifecycle.sql").read_text()

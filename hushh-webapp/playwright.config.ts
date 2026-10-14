@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { parsePlaywrightShard } from "./scripts/testing/playwright-shard.cjs";
 
 const baseURL = process.env.BASE_URL || "http://localhost:3000";
 const basePort = new URL(baseURL).port || "3000";
@@ -40,6 +41,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? ciWorkers() : undefined,
+  shard: parsePlaywrightShard(process.env.PLAYWRIGHT_SHARD),
   reporter: process.env.CI ? "github" : "html",
 
   use: {
@@ -191,6 +193,7 @@ export default defineConfig({
         // inside the iOS WKWebView and the fixture is self-contained.
         /receipt-sync-hero\.layout\.spec\.ts/,
         /receipt-pagination\.layout\.spec\.ts/,
+        /receipt-storage\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
         /profile-legal-connectors\.layout\.spec\.ts/,
         // Native drawer admission samples this authored CSS before coverage;

@@ -28,7 +28,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Label } from "@/components/ui/label";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { cn } from "@/lib/utils";
-import { normalizePan, validateCardForRegion, type CardBrand } from "@/lib/wallet/card-validation";
+import { isCardPanLengthValid, normalizePan, validateCardForRegion, type CardBrand } from "@/lib/wallet/card-validation";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import { WalletService, type WalletNetworkContext, type WalletNetworkResult, type WalletCardInput } from "@/lib/services/wallet-service";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -60,6 +60,7 @@ export interface SecureCardAddFormProps {
   backRoute?: string;
   getNetworkContext?: () => WalletNetworkContext | null;
   compact?: boolean;
+  showIntroduction?: boolean;
   /** Read a physical card locally, then review before saving. */
   scanEnabled?: boolean;
   scanInToolbar?: boolean;
@@ -71,7 +72,7 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
@@ -98,6 +99,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
   }, [errors]);
 
   const [supportedNetworks, setSupportedNetworks] = useState<CardBrand[]>([]);
+  const [catalogFailed, setCatalogFailed] = useState(false);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const [networkReply, setNetworkReply] = useState<{ key: string; vaultOwnerToken: string; result: WalletNetworkResult | null } | null>(null);
   const [networkLoading, setNetworkLoading] = useState(false);
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
@@ -110,7 +113,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
   const lookupKey = JSON.stringify([epoch, context?.userId, prefix, length, network]);
   const currentReply = networkReply?.key === lookupKey && networkReply.vaultOwnerToken === context?.vaultOwnerToken ? networkReply : null;
   const brand = currentReply?.result?.network ?? "other";
-  const networkHint = networkLoading || !currentReply ? null : !currentReply.result
+  const networkLengthMismatch = length >= 13 && length <= 19 && !isCardPanLengthValid(length, network || brand);
+  const networkHint = networkLengthMismatch ? ERROR_COPY.pan_length_invalid_for_brand : networkLoading || !currentReply ? null : !currentReply.result
     ? "Network identification is unavailable. Your card will use a neutral Card label."
     : currentReply.result.source === "ambiguous"
       ? "This number matches more than one network. Choose the network printed on your card."
@@ -123,11 +127,12 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
     const current = contextRef.current;
     const controller = new AbortController();
     setSupportedNetworks([]);
+    setCatalogFailed(false);
     if (current && active) void WalletService.supportedCardNetworks(current, controller.signal).then(values => {
       if (!controller.signal.aborted) setSupportedNetworks(values);
-    }).catch(() => {});
+    }).catch(() => { if (!controller.signal.aborted) setCatalogFailed(true); });
     return () => controller.abort();
-  }, [context?.userId, context?.vaultOwnerToken, active, epoch]);
+  }, [context?.userId, context?.vaultOwnerToken, active, epoch, catalogRevision]);
   useEffect(() => {
     const current = contextRef.current;
     const controller = new AbortController();
@@ -206,18 +211,19 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
     {scanInToolbar ? <div className="mb-3.5">{scanner}</div> : null}
     <form
       className={cn(styles.form, compact && styles.compact)}
+      aria-label="Add a card"
       data-testid="secure-card-add-form"
       onSubmit={handleSubmit}
       noValidate
       aria-busy={submitting || scanning}
     >
-      {!compact ? <div className={styles.heading}>
+      {showIntroduction && !compact ? <div className={styles.heading}>
         <h2 className={TYPOGRAPHY_CLASSNAMES.sectionTitle}>Add your card</h2>
         <p>Enter the details printed on your card.</p>
       </div> : null}
       {!scanInToolbar ? scanner : null}
       <fieldset disabled={submitting || scanning || !active} className={styles.fields}>
-        <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p>
+        {showIntroduction ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p> : null}
         <div className={cn(styles.field, styles.number)}>
           <Label htmlFor={`${id}-number`}><ProfilePaneCardIcon className={styles.fieldIcon} />Card number</Label>
           <Input
@@ -258,6 +264,10 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
                 {supportedNetworks.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
               </SelectContent>
             </Select>
+            {catalogFailed ? <div role="status" className={styles.scanHint}>
+              <p>Network options could not load. Auto-detect is still available.</p>
+              <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
+            </div> : null}
             {networkHint ? <p className={cn(TYPOGRAPHY_CLASSNAMES.helperText, "text-muted-foreground")} role="status">{networkHint}</p> : null}
           </div>
         </div>

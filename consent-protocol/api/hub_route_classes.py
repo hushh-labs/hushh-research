@@ -54,6 +54,9 @@ RouteKey = tuple[str, str]
 _INVENTORY = """
 [CONTENT]
 POST /api/one/files/analyze
+DELETE,GET,POST /api/one/world-model/jobs
+POST /api/one/world-model/complete
+POST /api/one/world-model/research
 POST /api/one/profile-research
 GET,POST /api/one/profile-research/jobs
 POST /api/one/answer-requests/{request_id}/compose
@@ -157,6 +160,14 @@ POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
 POST /api/one/files/storage
+GET,POST /api/one/world-model/invitations
+DELETE /api/one/world-model/invitations/{invitation_id}
+POST /api/one/world-model/claims
+POST /api/connectors/google_drive/collection/processing
+POST /api/connectors/google_drive/sharing/packets/{packet_id}/listing
+POST /api/one/feed/clear
+POST /api/one/feed/{item_id}/dismiss
+POST /api/one/feed/{item_id}/restore
 POST /api/one/business/suggestion/complete
 POST /api/one/profile-research/complete
 POST /api/one/email/send/status/{action_id}
@@ -218,6 +229,7 @@ GET /api/pkm/metadata/{user_id}
 POST /api/pkm/store-domain
 POST /api/pkm/store-domain/validate
 [CONNECTOR_ADMIN]
+GET /api/connectors/google_drive/collection/status
 POST /api/kai/gmail/connect/complete
 POST /api/kai/gmail/connect/native/complete
 POST /api/kai/gmail/connect/native/start

@@ -28,14 +28,10 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
     _db,
     _deliver_composed,
     _successful_composition,
+    answer_engine,
     clean,
     connector_postgres_url,
 )
-from tests.services.test_pkm_answer_requests_postgres import (
-    answer_engine as _answer_engine,
-)
-
-answer_engine = _answer_engine
 
 SECRET = b"whsec_payment_test_secret_value"
 
@@ -71,7 +67,7 @@ def status(engine, request):
 )
 @pytest.mark.parametrize("legacy_without_receipt", [False, True])
 async def test_signed_dispatch_releases_exact_staged_answer_once(
-    answer_engine,
+    answer_engine,  # noqa: F811
     monkeypatch,
     event_type,
     stripe_mode,
@@ -274,7 +270,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
 
 @pytest.mark.parametrize("stripe_mode", ["test", "live"])
 async def test_async_pending_then_success_and_expiry_are_signed_lane_events(
-    answer_engine,
+    answer_engine,  # noqa: F811
     monkeypatch,
     stripe_mode,
 ):
@@ -330,7 +326,7 @@ async def test_async_pending_then_success_and_expiry_are_signed_lane_events(
 
 @pytest.mark.parametrize("cancel_first", [False, True])
 async def test_disconnect_before_delayed_payment_withholds_stage_and_refunds(
-    answer_engine,
+    answer_engine,  # noqa: F811
     monkeypatch,
     cancel_first,
 ):

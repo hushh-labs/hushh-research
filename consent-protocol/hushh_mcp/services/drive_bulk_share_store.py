@@ -18,7 +18,11 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
-from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current
+from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current, package_allow_marker
+from hushh_mcp.services.drive_request_review_policy import (
+    checkpoint_requires_owner_review,
+    request_requires_owner_review,
+)
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingCipher,
     DriveSharingError,
@@ -289,12 +293,46 @@ class DriveBulkShareStore(DriveLivePreferences):
             ).scalar_one()
         )
 
+    def _package_allow(self, connection, request, *, search_job_id, generation):
+        private = self._open(
+            request["request_envelope"],
+            user_id=request["user_id"],
+            resource_id=str(request["request_id"]),
+            purpose="request",
+        )
+        if private.get("agent_package_required") is not True:
+            return None
+        marker = package_allow_marker(private)
+        if (
+            marker is None
+            or marker["request_revision"] != request["revision"]
+            or marker["search_job_id"] != str(search_job_id)
+            or marker["connection_generation"] != generation
+            or request_requires_owner_review(
+                connection,
+                user_id=request["user_id"],
+                request_id=request["request_id"],
+                revision=request["revision"],
+                cipher=self.cipher,
+                search_job_id=search_job_id,
+            )
+            or not automatic_recipient_current(
+                connection,
+                request["user_id"],
+                request["recipient_user_id"],
+                private,
+                request_id=request["request_id"],
+            )
+        ):
+            raise DriveSharingError("package_not_allowed")
+        return marker
+
     def _share_recipient_current(self, connection, share, owner, recipient, *, for_retry=False):
         if share["origin_request_id"] is None:
             return self._recipient_current(connection, owner, recipient)
         request = self._row(
             connection,
-            """SELECT recipient_user_id,status,revision,expires_at,request_envelope,
+            """SELECT request_id,user_id,recipient_user_id,status,revision,expires_at,request_envelope,
             preparation_error_code,access_stop_requested_at
             FROM drive_share_requests WHERE request_id=:request AND user_id=:owner""",
             {"request": share["origin_request_id"], "owner": owner},
@@ -323,6 +361,42 @@ class DriveBulkShareStore(DriveLivePreferences):
         )
         if _request_missing_dates(private):
             return False
+        if private.get("agent_package_required") is True:
+            try:
+                marker = self._package_allow(
+                    connection,
+                    request,
+                    search_job_id=share["search_job_id"],
+                    generation=share["connection_generation"],
+                )
+                if share["approval_source"] != "trusted_auto":
+                    return False
+                frozen = (
+                    connection.execute(
+                        text("""SELECT source_job_id,source_position,file_digest,metadata_envelope FROM drive_bulk_share_files
+                    WHERE share_id=:share ORDER BY source_position"""),
+                        {"share": share["share_id"]},
+                    )
+                    .mappings()
+                    .all()
+                )
+                approved = {item["position"]: item for item in marker["selected_sources"]}
+                if not frozen:
+                    return False
+                for item in frozen:
+                    bound = approved.get(item["source_position"])
+                    metadata = self._file(item, owner)
+                    if (
+                        bound is None
+                        or bound["file_digest"] != item["file_digest"]
+                        or metadata.get("sourceVersion") != bound["source_version"]
+                        or metadata.get("contentFingerprint") != bound["content_fingerprint"]
+                        or metadata.get("evidenceDigest") != bound["evidence_digest"]
+                        or metadata.get("packageDigest") != marker["package_digest"]
+                    ):
+                        return False
+            except DriveReadError:
+                return False
         approval_source = share["approval_source"]
         if approval_source == "trusted_auto":
             # The request marker only records eligibility at creation or at
@@ -333,6 +407,14 @@ class DriveBulkShareStore(DriveLivePreferences):
                 private.get("trusted_auto") is not True
                 or not share["progressive_batch"]
                 or request["preparation_error_code"] == "manual_search_active"
+                or request_requires_owner_review(
+                    connection,
+                    user_id=owner,
+                    request_id=share["origin_request_id"],
+                    revision=request["revision"],
+                    cipher=self.cipher,
+                    search_job_id=share["search_job_id"],
+                )
             ):
                 return False
             try:
@@ -696,6 +778,9 @@ class DriveBulkShareStore(DriveLivePreferences):
                 resource_id=search,
                 purpose="owner-search-checkpoint",
             )
+            if checkpoint.get("agent_package_required") is True and origin is None:
+                raise DriveSharingError("package_not_allowed")
+            package = None
             # A bounded newest-N request is one global selection across all
             # corpora. Intermediate positions may change during final ranking;
             # neither owner review nor automatic checkout can freeze them.
@@ -750,6 +835,19 @@ class DriveBulkShareStore(DriveLivePreferences):
                     )
                 ):
                     raise DriveSharingError("recipient_changed")
+            if request_row is not None:
+                package = self._package_allow(
+                    connection,
+                    request_row,
+                    search_job_id=search,
+                    generation=current["connection_generation"],
+                )
+                if package is not None and (
+                    not progressive
+                    or excluded_positions
+                    or not set(selected_positions or []).issubset(package["selected_positions"])
+                ):
+                    raise DriveSharingError("package_changed")
             if not 1 <= source["matched"] <= 10000:
                 raise DriveSharingError("invalid_argument")
             if progressive:
@@ -876,7 +974,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                     {"user": user_id, "request": origin},
                 ).scalar_one():
                     raise DriveSharingError("bulk_conflict")
-                if self._row(
+                if package is None and self._row(
                     connection,
                     """SELECT share_id FROM drive_bulk_shares
                     WHERE user_id=:user AND origin_request_id=:request
@@ -894,6 +992,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                     source["revision"],
                     current["connection_generation"],
                     [item["file_digest"] for item in chosen_files],
+                    *([package["package_digest"], package["selected_sources"]] if package else []),
                     [
                         (item["user_id"], item["email"], item["subject"], item["kind"])
                         for item in cleaned
@@ -952,6 +1051,42 @@ class DriveBulkShareStore(DriveLivePreferences):
                     "origin": origin,
                 },
             )
+            if package is not None:
+                package_sources = {item["position"]: item for item in package["selected_sources"]}
+                for item in chosen_files:
+                    bound = package_sources[item["position"]]
+                    if item["file_digest"] != bound["file_digest"]:
+                        raise DriveSharingError("package_changed")
+                    metadata = self._open(
+                        item["metadata_envelope"],
+                        user_id=user_id,
+                        resource_id=f"{search}:{item['position']}",
+                        purpose="owner-search-result",
+                    )
+                    metadata.update(
+                        {
+                            "packageDigest": package["package_digest"],
+                            "sourceVersion": bound["source_version"],
+                            "contentFingerprint": bound["content_fingerprint"],
+                            "evidenceDigest": bound["evidence_digest"],
+                        }
+                    )
+                    connection.execute(
+                        text("""UPDATE drive_bulk_share_files SET metadata_envelope=CAST(:envelope AS jsonb)
+                        WHERE share_id=:share AND source_position=:position"""),
+                        {
+                            "share": share,
+                            "position": item["position"],
+                            "envelope": json.dumps(
+                                self.cipher.seal(
+                                    metadata,
+                                    user_id=user_id,
+                                    resource_id=f"{search}:{item['position']}",
+                                    purpose="owner-search-result",
+                                )
+                            ),
+                        },
+                    )
             for recipient in cleaned:
                 connection.execute(
                     text("""INSERT INTO drive_bulk_share_recipients(
@@ -1118,6 +1253,96 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
+    async def package_sources(self, *, user_id, request_id):
+        """Private source preflight for the exact sealed package, never a UI payload."""
+
+        def operation(connection):
+            current = self.live_active(connection, user_id=user_id)
+            request = self._row(
+                connection,
+                "SELECT * FROM drive_share_requests WHERE user_id=:user AND request_id=:request",
+                {"user": user_id, "request": _uuid(request_id)},
+            )
+            if (
+                request is None
+                or request["status"] != "pending"
+                or request["access_stop_requested_at"] is not None
+            ):
+                raise DriveSharingError("request_changed")
+            private = self._open(
+                request["request_envelope"],
+                user_id=user_id,
+                resource_id=str(request["request_id"]),
+                purpose="request",
+            )
+            marker = package_allow_marker(private)
+            if private.get("agent_package_required") is not True:
+                return []
+            if marker is None:
+                raise DriveSharingError("package_not_allowed")
+            package = self._package_allow(
+                connection,
+                request,
+                search_job_id=marker["search_job_id"],
+                generation=current["connection_generation"],
+            )
+            rows = (
+                connection.execute(
+                    text("""SELECT position,file_digest,metadata_envelope
+                FROM drive_owner_search_results WHERE job_id=:job AND user_id=:user
+                AND position=ANY(CAST(:positions AS integer[])) ORDER BY position"""),
+                    {
+                        "job": package["search_job_id"],
+                        "user": user_id,
+                        "positions": package["selected_positions"],
+                    },
+                )
+                .mappings()
+                .all()
+            )
+            if len(rows) != len(package["selected_sources"]):
+                raise DriveSharingError("package_changed")
+            confirmed = set(
+                connection.execute(
+                    text("""SELECT DISTINCT f.source_position
+                FROM drive_bulk_share_files f JOIN drive_bulk_share_effects e
+                  ON e.share_id=f.share_id AND e.position=f.position
+                WHERE f.origin_request_id=:request AND f.user_id=:user
+                  AND e.recipient_user_id=:recipient AND e.state IN ('succeeded','preexisting')"""),
+                    {
+                        "request": request["request_id"],
+                        "user": user_id,
+                        "recipient": request["recipient_user_id"],
+                    },
+                ).scalars()
+            )
+            result = []
+            for row, bound in zip(rows, package["selected_sources"], strict=True):
+                if (
+                    row["position"] != bound["position"]
+                    or row["file_digest"] != bound["file_digest"]
+                ):
+                    raise DriveSharingError("package_changed")
+                if row["position"] in confirmed:
+                    continue
+                metadata = self._open(
+                    row["metadata_envelope"],
+                    user_id=user_id,
+                    resource_id=f"{package['search_job_id']}:{row['position']}",
+                    purpose="owner-search-result",
+                )
+                result.append(
+                    {
+                        **metadata,
+                        "sourceVersion": bound["source_version"],
+                        "contentFingerprint": bound["content_fingerprint"],
+                        "generation": package["connection_generation"],
+                    }
+                )
+            return result
+
+        return await self._transaction(operation)
+
     async def unclaimed_positions(self, *, user_id, request_id, limit=25):
         request = _uuid(request_id)
         if type(limit) is not int or not 1 <= limit <= 25:
@@ -1168,6 +1393,12 @@ class DriveBulkShareStore(DriveLivePreferences):
                 or checkpoint.get("request_shareability_version") != 1
             ):
                 raise DriveSharingError("search_incomplete")
+            package = self._package_allow(
+                connection,
+                origin,
+                search_job_id=source["job_id"],
+                generation=source["connection_generation"],
+            )
             rows = connection.execute(
                 text("""SELECT r.position,r.metadata_envelope
                 FROM drive_owner_search_results r
@@ -1180,6 +1411,8 @@ class DriveBulkShareStore(DriveLivePreferences):
             ).mappings()
             result = []
             for row in rows:
+                if package is not None and row["position"] not in package["selected_positions"]:
+                    continue
                 metadata = self._open(
                     row["metadata_envelope"],
                     user_id=user_id,
@@ -1383,6 +1616,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             self.live_active(connection, user_id=user_id, generation=row["connection_generation"])
             recipients = self._recipients(connection, row)
             origin = None
+            owner_review_required = False
             if row["origin_request_id"] is not None:
                 origin = self._row(
                     connection,
@@ -1407,13 +1641,6 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 if _request_missing_dates(private):
                     raise DriveSharingError("date_range_required")
-                # A request that was created with the immutable Trusted
-                # authority marker still follows the automatic payment gate,
-                # even if the owner is explicitly approving the batch after
-                # that authority changed.  Manual/non-trusted requests defer
-                # payment until this approval creates the checkout order.
-                if approval_source == "trusted_auto" or private.get("trusted_auto") is True:
-                    self._require_paid_for_origin(connection, origin["request_id"])
                 search = self._row(
                     connection,
                     """SELECT job_id,status,revision,incomplete_search,checkpoint_envelope
@@ -1449,6 +1676,36 @@ class DriveBulkShareStore(DriveLivePreferences):
                     or checkpoint.get("request_shareability_version") != 1
                 ):
                     raise DriveSharingError("search_incomplete")
+                package = self._package_allow(
+                    connection,
+                    origin,
+                    search_job_id=row["search_job_id"],
+                    generation=row["connection_generation"],
+                )
+                if package is not None and approval_source != "trusted_auto":
+                    raise DriveSharingError("package_review_required")
+                owner_review_required = (
+                    request_requires_owner_review(
+                        connection,
+                        user_id=user_id,
+                        request_id=origin["request_id"],
+                        revision=origin["revision"],
+                        cipher=self.cipher,
+                        search_job_id=row["search_job_id"],
+                    )
+                    if package
+                    else checkpoint_requires_owner_review(
+                        checkpoint, request_id=origin["request_id"], revision=origin["revision"]
+                    )
+                )
+                if approval_source == "trusted_auto" and owner_review_required:
+                    raise DriveSharingError("trusted_request_unavailable")
+                # Candidate-only searches follow manual payment ordering even
+                # when the request retains its historical Trusted marker.
+                if approval_source == "trusted_auto" or (
+                    private.get("trusted_auto") is True and not owner_review_required
+                ):
+                    self._require_paid_for_origin(connection, origin["request_id"])
             if len(recipients) != row["recipient_count"] or any(
                 not (
                     self._request_recipient_current(connection, user_id, item["user_id"])
@@ -1516,7 +1773,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 origin is not None
                 and row["progressive_batch"]
                 and approval_source == "owner"
-                and private.get("trusted_auto") is not True
+                and (private.get("trusted_auto") is not True or owner_review_required)
                 and row["file_count"] > 0
             ):
                 # Progressive requests remain pending while later batches are
@@ -1882,6 +2139,28 @@ class DriveBulkShareStore(DriveLivePreferences):
             # current scope. Mirror the review/claim fence before publishing
             # any terminal result, especially an empty stale search's no_match.
             return
+        package = None
+        if (
+            checkpoint.get("agent_package_required") is True
+            or request.get("agent_package_required") is True
+        ):
+            private = self._open(
+                request["request_envelope"],
+                user_id=request["user_id"],
+                resource_id=str(request_id),
+                purpose="request",
+            )
+            if package_allow_marker(private) is None:
+                return
+            try:
+                package = self._package_allow(
+                    connection,
+                    request,
+                    search_job_id=source["job_id"],
+                    generation=source["connection_generation"],
+                )
+            except DriveReadError:
+                return
         legacy = connection.execute(
             text("""SELECT EXISTS(SELECT 1 FROM drive_bulk_shares
                 WHERE user_id=:user AND origin_request_id=:request
@@ -1924,6 +2203,8 @@ class DriveBulkShareStore(DriveLivePreferences):
             {"job": source["job_id"], "user": request["user_id"], "request": request_id},
         ).mappings()
         for file in remaining:
+            if package is not None and file["position"] not in package["selected_positions"]:
+                continue
             metadata = self._open(
                 file["metadata_envelope"],
                 user_id=request["user_id"],
@@ -1954,7 +2235,9 @@ class DriveBulkShareStore(DriveLivePreferences):
         # Google permission. Do not report it as a failed partial share.
         outcome = (
             "no_match"
-            if source["matched"] == 0 and not successes and not errors
+            if (len(package["selected_positions"]) if package else source["matched"]) == 0
+            and not successes
+            and not errors
             else "completed"
             if successes and not errors
             else "partial"

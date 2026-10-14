@@ -13,7 +13,9 @@ import pytest
 import hushh_mcp.services.actor_identity_service as actor_identity_service
 from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
+    ActorIdentityPhoneClaimConflictError,
     ActorIdentityService,
+    ActorIdentitySyncUnavailableError,
 )
 
 
@@ -302,9 +304,11 @@ class _PhoneClaimFakeConnection:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("conflicting_owner", [True, False])
+@pytest.mark.parametrize("source", ["firebase_auth", "unknown"])
 async def test_provider_refresh_cannot_displace_a_verified_phone_owner(
     monkeypatch: pytest.MonkeyPatch,
     conflicting_owner: bool,
+    source: str,
 ) -> None:
     _stub_referral_resync(monkeypatch)
     conn = _PhoneClaimFakeConnection()
@@ -324,7 +328,7 @@ async def test_provider_refresh_cannot_displace_a_verified_phone_owner(
         display_name="Updated Name",
         phone_number="+16505550101",
         phone_verified=True,
-        source="firebase_auth",
+        source=source,
     )
 
     assert identity is not None
@@ -366,11 +370,14 @@ async def test_verified_phone_owner_transfer_uses_parameterized_lock_and_ordered
 
 
 @pytest.mark.asyncio
-async def test_sync_from_firebase_mirrors_phone_number(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("firebase_uid", ["firebase-user-123456789012", "custom"])
+async def test_sync_from_firebase_mirrors_phone_number(
+    monkeypatch: pytest.MonkeyPatch, firebase_uid: str
+) -> None:
     service = ActorIdentityService()
 
     async def fake_get_many(user_ids: list[str]) -> dict[str, dict]:
-        assert user_ids == ["firebase-user-123456789012"]
+        assert user_ids == [firebase_uid]
         return {}
 
     captured: dict[str, object] = {}
@@ -393,9 +400,9 @@ async def test_sync_from_firebase_mirrors_phone_number(monkeypatch: pytest.Monke
     fake_auth = types.SimpleNamespace(get_user=lambda uid, app=None: fake_user_record)
     monkeypatch.setitem(sys.modules, "firebase_admin", types.SimpleNamespace(auth=fake_auth))
 
-    await service.sync_from_firebase("firebase-user-123456789012", force=True)
+    await service.sync_from_firebase(firebase_uid, force=True, require_success=True)
 
-    assert captured["user_id"] == "firebase-user-123456789012"
+    assert captured["user_id"] == firebase_uid
     assert captured["email"] == "kai@example.com"
     assert captured["phone_number"] == "+16505550101"
     assert captured["phone_verified"] is True
@@ -446,23 +453,29 @@ async def test_sync_from_firebase_preserves_backend_phone_claim_when_firebase_ha
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["provider", "persistence"])
 async def test_firebase_sync_failure_never_logs_identity_or_phone_details(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    failure_stage: str,
 ) -> None:
     service = ActorIdentityService()
     firebase_uid = "firebase-user-123456789012"
     phone_number = "+16505550101"
+    cached = {"user_id": firebase_uid, "phone_number": phone_number, "phone_verified": True}
 
     async def fake_get_many(user_ids: list[str]) -> dict[str, dict]:
         assert user_ids == [firebase_uid]
-        return {}
+        return {firebase_uid: cached}
 
-    def fail_get_user(uid: str, *, app: object) -> None:
+    def fail_get_user(uid: str, *, app: object):
         assert uid == firebase_uid
-        raise RuntimeError(f"provider rejected phone {phone_number}")
+        if failure_stage == "provider":
+            raise RuntimeError(f"provider rejected phone {phone_number}")
+        return types.SimpleNamespace(phone_number=phone_number, disabled=False)
 
     monkeypatch.setattr(service, "get_many", fake_get_many)
+    monkeypatch.setattr(service, "upsert_identity", AsyncMock(return_value=None))
     monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
     monkeypatch.setitem(
         sys.modules,
@@ -473,9 +486,12 @@ async def test_firebase_sync_failure_never_logs_identity_or_phone_details(
 
     result = await service.sync_from_firebase(firebase_uid, force=True)
 
-    assert result is None
+    assert result == cached
+    with pytest.raises(ActorIdentitySyncUnavailableError):
+        await service.sync_from_firebase(firebase_uid, force=True, require_success=True)
     messages = "\n".join(record.getMessage() for record in caplog.records)
-    assert "error=RuntimeError" in messages
+    if failure_stage == "provider":
+        assert "error=RuntimeError" in messages
     assert firebase_uid not in messages
     assert phone_number not in messages
     assert not any(character.isdigit() for character in messages)
@@ -509,6 +525,32 @@ async def test_claim_verified_phone_moves_duplicate_shadow_to_current_actor(
     assert previous_owner["phone_number"] is None
     assert previous_owner["phone_verified"] is False
     assert conn.statement_order == ["vault", "profile", "phone_lock", "clear_duplicate", "claim"]
+
+
+@pytest.mark.asyncio
+async def test_test_phone_claim_cannot_displace_owner_but_same_owner_can_retry(monkeypatch):
+    _stub_referral_resync(monkeypatch)
+    conn = _PhoneClaimFakeConnection()
+    conn.rows["firebase-user-123456789012"].update(phone_number="+16505550202", phone_verified=True)
+    monkeypatch.setattr(
+        actor_identity_service, "get_pool", AsyncMock(return_value=_AliasFakePool(conn))
+    )
+    service = ActorIdentityService()
+    before = copy.deepcopy(conn.rows)
+    with pytest.raises(ActorIdentityPhoneClaimConflictError):
+        await service.claim_verified_phone(
+            user_id="firebase-user-123456789012",
+            phone_number="+16505550101",
+            source="uat_test_phone_claim",
+        )
+    assert conn.rows == before
+    retried = await service.claim_verified_phone(
+        user_id="other-firebase-user-1234567890",
+        phone_number="+16505550101",
+        source="uat_test_phone_claim",
+    )
+    assert retried["phone_verified"] is True
+    assert retried["phone_number"] == "+16505550101"
 
 
 @pytest.mark.asyncio
@@ -621,6 +663,9 @@ async def test_upsert_identity_asserting_phone_verified_retriggers_referral_qual
 
         async def execute(self, query: str, *args: object) -> str:
             return "INSERT 0 1"
+
+        async def fetch(self, query: str, *args: object) -> list[object]:
+            return []
 
         async def fetchrow(self, query: str, *args: object) -> dict[str, object]:
             now = datetime.now(timezone.utc)
@@ -809,7 +854,7 @@ async def test_get_many_tolerates_pre_phone_shadow_schema(
         def __init__(self) -> None:
             self.calls = 0
 
-        async def fetch(self, query: str, user_ids: list[str]) -> list[dict[str, object]]:
+        async def fetch(self, query: str, user_ids: list[str], **kwargs) -> list[dict[str, object]]:
             self.calls += 1
             assert user_ids == ["firebase-user-123456789012"]
             if self.calls == 1:
@@ -1006,6 +1051,9 @@ async def test_upsert_identity_ensures_actor_profile_spine_row(
         async def execute(self, query: str, *args: object) -> str:
             executed_statements.append((query, args))
             return "INSERT 0 1"
+
+        async def fetch(self, query: str, *args: object) -> list[dict[str, object]]:
+            return []
 
         async def fetchrow(self, query: str, *args: object) -> dict[str, object]:
             executed_statements.append((query, args))

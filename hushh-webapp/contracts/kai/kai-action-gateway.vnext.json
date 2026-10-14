@@ -15,6 +15,7 @@
     "hushh-webapp/app/one/messages/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
+    "hushh-webapp/app/one/profile/world-model/page.voice-action-contract.json",
     "hushh-webapp/app/one/puppy/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/calendar/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/cloud/page.voice-action-contract.json",
@@ -470,6 +471,23 @@
           ]
         }
       },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "profile_world_model",
+      "surface_title": "Personal World Model",
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/profile/world-model/page.voice-action-contract.json",
+      "defaults": {},
       "search": {},
       "orchestration": {
         "instruction_id": null,
@@ -3962,6 +3980,112 @@
       }
     },
     {
+      "action_id": "profile.gmail.visit_merchant",
+      "surface_id": "gmail",
+      "label": "Visit merchant",
+      "aliases": [
+        "visit merchant",
+        "visit merchant website"
+      ],
+      "search_keywords": [
+        "merchant website"
+      ],
+      "meaning": "Opens the selected receipt merchant's reviewed official HTTPS homepage in an external browser, preserving the receipt detail sheet.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Receipts tab is selected",
+          "A receipt detail sheet is open",
+          "The selected merchant has a reviewed official homepage"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "External browser activation stays in the selected receipt detail button's local handler.",
+        "intended_handler": "ReceiptMerchantVisit"
+      },
+      "control_ids": [
+        "visit_receipt_merchant"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/gmail/gmail-recent-receipts.tsx",
+        "lib/mail/receipt-merchant-registry.ts"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.visit_merchant",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.visit_merchant",
+            "label": "Visit merchant",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.profile_receipts",
       "surface_id": "gmail",
       "label": "Open Receipts Page",
@@ -3973,7 +4097,7 @@
         "receipts",
         "gmail receipts"
       ],
-      "meaning": "Navigates directly to receipts page from any investor surface.",
+      "meaning": "Opens Mail from any investor surface and restores its workspace. Receipt scans start only after an explicit Start sync, Load older receipts or Try again action.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -4023,11 +4147,7 @@
         "backend_effects": [
           {
             "api": "GET /api/kai/gmail/status/{user_id} (proxied)",
-            "effect": "Reads Gmail connector status on mount."
-          },
-          {
-            "api": "GET /api/kai/gmail/receipts/{user_id} (proxied)",
-            "effect": "Reads paginated receipt items."
+            "effect": "Refreshes Gmail connector status when needed; opening Mail does not scan receipts."
           }
         ]
       },
@@ -4304,7 +4424,7 @@
         "gmail sync",
         "refresh receipts"
       ],
-      "meaning": "Queues and polls Gmail receipt sync run.",
+      "meaning": "Starts an explicit, bounded scan of receipts in the connected Gmail account after vault-owner validation.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -4352,12 +4472,8 @@
         ],
         "backend_effects": [
           {
-            "api": "POST /api/kai/gmail/sync (proxied)",
-            "effect": "Queues sync job."
-          },
-          {
-            "api": "GET /api/kai/gmail/sync/{run_id} (proxied)",
-            "effect": "Polls sync run status."
+            "api": "POST /api/kai/gmail/receipts/scan (proxied)",
+            "effect": "Reads and validates a bounded page of owner-authorized Gmail receipts."
           }
         ]
       },
@@ -13996,6 +14112,115 @@
       }
     },
     {
+      "action_id": "route.profile_world_model",
+      "surface_id": "profile_account",
+      "label": "Open Personal World Model",
+      "aliases": [
+        "open personal world model",
+        "open PWM"
+      ],
+      "search_keywords": [
+        "personal world model",
+        "PWM",
+        "public profile",
+        "preferences"
+      ],
+      "meaning": "Opens your Personal World Model in Profile.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/world-model"
+      },
+      "control_ids": [
+        "profile_world_model"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/one/profile/world-model/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_world_model",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_world_model",
+            "label": "Open Personal World Model",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/world-model",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.profile_request_pricing",
       "surface_id": "profile_account",
       "label": "Open Request pricing",
@@ -15972,6 +16197,410 @@
             "type": "action",
             "action_id": "profile.payouts.redeem",
             "label": "Redeem Hussh Coins",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.build",
+      "surface_id": "profile_world_model",
+      "label": "Build my model",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Explicitly begins owner-authorized public research using verified identity.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_build"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-invitations.tsx",
+        "components/agent/profile-research-card.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.build",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.build",
+            "label": "Build my model",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.review",
+      "surface_id": "profile_world_model",
+      "label": "Review selected details",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Review source-cited statements, edit and save exactly the checked details.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_review"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-invitations.tsx",
+        "components/agent/profile-research-card.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.review",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.review",
+            "label": "Review selected details",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.invite",
+      "surface_id": "profile_world_model",
+      "label": "Create model invitation",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Create a contact-bound invitation. No enrichment or sharing occurs before the recipient verifies and consents.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_invite"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-invitations.tsx",
+        "components/agent/profile-research-card.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.invite",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.invite",
+            "label": "Create model invitation",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.claim",
+      "surface_id": "profile_world_model",
+      "label": "Claim my model",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Accept the invitation with a freshly verified matching contact. Starts no research and grants no sharing.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_claim"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-invitations.tsx",
+        "components/agent/profile-research-card.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.claim",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.claim",
+            "label": "Claim my model",
             "failure_behavior": "stop"
           }
         ],
@@ -18525,6 +19154,121 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location",
+        "review_only": true
+      },
+      "action_id": "setup.finish_location_intro",
+      "surface_id": "one_setup_location",
+      "label": "Finish Location introduction",
+      "aliases": [
+        "finish location introduction",
+        "complete location introduction"
+      ],
+      "search_keywords": [
+        "finish",
+        "location",
+        "introduction"
+      ],
+      "meaning": "Completes the two-screen Location introduction and returns to setup. Device location access and saved places can be enabled later from the Location workspace.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The Location introduction is open and the signed-in setup coordinator is ready."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_location_intro"
+      },
+      "control_ids": [
+        "one-setup-location-intro-terminal"
+      ],
+      "state_exposure": [
+        "Location introduction completion readiness"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_location_intro",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.finish_location_intro",
+            "label": "Finish Location introduction",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "setup.finish_ria",
       "surface_id": "one_setup_ria",
       "label": "Finish RIA setup",
@@ -19802,6 +20546,116 @@
             "type": "action",
             "action_id": "people.profile.request_scope",
             "label": "Request scope",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "people.profile.browse_packets",
+      "surface_id": "one_person_profile",
+      "label": "Browse available document packets",
+      "aliases": [
+        "show available packets",
+        "browse document packets",
+        "what packets can I request"
+      ],
+      "search_keywords": [
+        "packets",
+        "documents",
+        "coverage",
+        "price",
+        "browse"
+      ],
+      "meaning": "Shows document packet summaries this connected person has allowed you to see. Requesting a packet still requires owner approval before checkout; browsing grants no document access.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "This person is connected to you."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "people.profile.browse_packets"
+      },
+      "control_ids": [
+        "person-profile-browse-packets"
+      ],
+      "state_exposure": [
+        "relationship state"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.people.profile.browse_packets",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "people.profile.browse_packets",
+            "label": "Browse available document packets",
             "failure_behavior": "stop"
           }
         ],
@@ -24487,7 +25341,7 @@
         "new card",
         "save card"
       ],
-      "meaning": "Opens the secure inline add-card form; card secrets are entered or scanned and reviewed in the widget, then encrypted under the vault key, never into chat.",
+      "meaning": "Opens the secure inline add-card form; card secrets are typed into the widget and encrypted under the vault key, never into chat.",
       "speaker_persona": "one",
       "delegate_agent_id": "agent_wallet",
       "reachability": {

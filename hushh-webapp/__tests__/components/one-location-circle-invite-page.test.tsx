@@ -95,8 +95,7 @@ describe("OneLocationCircleInvitePageClient", () => {
     render(<OneLocationCircleInvitePageClient token="real_token" returnTo="/circle/join?invite=real_token" />);
     expect(mockResolveCircleInvite).toHaveBeenCalledWith("real_token");
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
     await screen.findByText("Invited by hushh Social");
     fireEvent.click(screen.getByRole("button", { name: "Accept invitation" }));
     expect(mockRouterPush).toHaveBeenCalledWith("/login?redirect=%2Fcircle%2Fjoin%3Finvite%3Dreal_token");
@@ -115,8 +114,7 @@ describe("OneLocationCircleInvitePageClient", () => {
     mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultOwnerToken: null });
     render(<OneLocationCircleInvitePageClient />);
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
     expect(await screen.findByText("Invited by hushh Social")).toBeInTheDocument();
     expect(mockClaimCircleInvite).not.toHaveBeenCalled();
     expect(mockBootstrapKey).not.toHaveBeenCalled();

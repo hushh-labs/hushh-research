@@ -94,7 +94,7 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
 
   await page.getByRole("button", { name: "Switch to light mode" }).click();
   await expect(chat).toHaveAttribute("data-theme", "light");
-  await expect(activeNav).toHaveCSS("color", "rgb(0, 122, 255)");
+  await expect(activeNav).toHaveCSS("color", "rgb(0, 113, 227)");
   await expect(lanes.getByRole("tab", { name: "People 2" })).toBeVisible();
   await expect(lanes.getByRole("tab", { name: "Circles 3" })).toBeVisible();
   await page.reload();
@@ -153,6 +153,7 @@ test("system Back closes message search before returning from a People thread", 
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page);
   const chat = page.locator("[data-direct-message-page]");
+  await page.getByRole("button", { name: "Contact info", exact: true }).click();
   await page.getByRole("button", { name: "Search messages", exact: true }).click();
   await expect(page.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
   const systemBack = () => page.evaluate(() => (window as any).directChatUnwindBack());
@@ -204,6 +205,32 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
   test(`keeps chat navigation and keyboard controls reachable at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width: width!, height: height! });
     const errors = await mount(page, width === 430);
+    const mine = page.locator('article[data-message-role="user"] [class*="messageBubble_"]').first();
+    await expect(mine).toHaveCSS("font-size", "16px");
+    await expect(mine).toHaveCSS("line-height", "22px");
+    await expect(mine).toHaveCSS("font-weight", "400");
+    await expect(mine).toHaveCSS("border-top-left-radius", "18px");
+    const scrollStyle = await transcript(page).evaluate(node => ({ left: getComputedStyle(node).paddingLeft, right: getComputedStyle(node).paddingRight }));
+    expect(scrollStyle).toEqual({ left: "16px", right: "16px" });
+    // Date tint belongs to the compact label, never the full conversation row.
+    const date = page.locator('[class*="messageDateMarker"]').first();
+    await expect(date).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const dateRow = (await date.boundingBox())!;
+    const datePill = (await date.locator("time").boundingBox())!;
+    expect(datePill.width).toBeLessThan(dateRow.width);
+    expect(Math.abs(datePill.x + datePill.width / 2 - dateRow.x - dateRow.width / 2)).toBeLessThanOrEqual(1);
+    // A reading-position control stays centered within the active conversation.
+    await transcript(page).evaluate(node => { node.scrollTop = Math.max(0, node.scrollTop - 300); });
+    const latest = page.getByRole("button", { name: "Go to latest messages", exact: true });
+    await expect(latest).toBeVisible();
+    const latestBox = (await latest.boundingBox())!;
+    const threadBox = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
+    expect(Math.abs(latestBox.x + latestBox.width / 2 - threadBox.x - threadBox.width / 2)).toBeLessThanOrEqual(1);
+    expect(latestBox.x).toBeGreaterThanOrEqual(threadBox.x);
+    expect(latestBox.x + latestBox.width).toBeLessThanOrEqual(threadBox.x + threadBox.width);
+    expect(latestBox.height).toBeGreaterThanOrEqual(44);
+    await latest.click();
+    await expect(latest).toBeHidden();
     const layout = await page.evaluate(() => {
       const root = document.querySelector('[data-app-scroll-root="true"]')!;
       const canvas = document.querySelector('[data-direct-message-page]')!;
@@ -283,6 +310,61 @@ test("preserves history during pagination and incoming events, but follows your 
   await expect.poll(() => transcript(page).evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThanOrEqual(8);
   await expect(page.locator('[data-chat-message="maya-0"]')).toHaveCount(1);
 });
+
+test("quoted history navigation preserves live updates while an older page is pending", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 }); const errors = await mount(page);
+  await fixture(page, "fixture.quoteOldest()");
+  const quote = page.getByRole("button", { name: "Go to original message from Maya Rao" });
+  await expect(quote).toBeVisible();
+  await fixture(page, "fixture.holdOlder()"); await quote.click();
+  await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.olderPending())).toBe(true);
+  await fixture(page, "fixture.incoming(); fixture.remoteChange('maya-79', 'Live edit during quote navigation')");
+  await expect(page.locator('[data-chat-message="maya-79"]')).toContainText("Live edit during quote navigation");
+  await fixture(page, "fixture.releaseOlder()");
+  await expect(page.locator('[data-chat-message="maya-0"]')).toBeFocused();
+  await expect(page.locator('[data-chat-message="maya-incoming-80"]')).toHaveCount(1);
+  await expect(page.locator('[data-chat-message="maya-79"]')).toContainText("Live edit during quote navigation");
+  expect(errors).toEqual([]);
+});
+
+for (const width of [320, 768]) test(`file and voice bubbles stay usable with native tap targets at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 852 }); const errors = await mount(page);
+  await fixture(page, "fixture.addFiles()");
+  const file = page.locator('[data-chat-message="fixture-file"]');
+  const voice = page.locator('[data-chat-message="fixture-audio"]');
+  await expect(file).toContainText("Chat_Spec_v2.pdf"); await expect(file).toContainText("PDF");
+  await expect(voice).toContainText("0:04");
+  await expect(voice.getByLabel("Delivered", { exact: true })).toBeVisible();
+  for (const button of [file.getByRole("button", { name: "Download Chat_Spec_v2.pdf" }), voice.getByRole("button", { name: "Play voice message" })]) {
+    const box = (await button.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
+  }
+  await voice.getByRole("button", { name: "Play voice message" }).click();
+  await expect(voice.getByRole("button", { name: "Pause voice message" })).toBeVisible();
+  await voice.getByRole("button", { name: "Pause voice message" }).click();
+  await expect(voice.getByRole("button", { name: "Play voice message" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+  await page.screenshot({ path: test.info().outputPath(`file-voice-${width}.png`), animations: "disabled" });
+  expect(errors).toEqual([]);
+});
+for (const scrollAway of [false, true]) test(`a delayed inline photo preserves ${scrollAway ? "the reader’s scrolled position" : "bottom alignment"}`, async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 }); const errors = await mount(page);
+  await fixture(page, "fixture.addPhoto()");
+  await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.photoPending())).toBe(true);
+  const list = transcript(page);
+  if (scrollAway) {
+    await list.evaluate(node => { node.scrollTop -= 350; });
+    await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
+  }
+  const before = await list.evaluate(node => node.scrollTop);
+  await fixture(page, "fixture.releasePhotos()");
+  const image = page.getByRole("img", { name: "Photo.png" });
+  await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(400);
+  if (scrollAway) await expect.poll(() => list.evaluate(node => node.scrollTop)).toBe(before);
+  else await expect.poll(() => list.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThanOrEqual(1);
+  expect(errors).toEqual([]);
+});
 test("retries a committed send with the same id and keeps older history available", async ({ page }) => {
   await mount(page); await fixture(page, "fixture.loseNextResponse()");
   await page.locator("[data-direct-message-composer-input]").fill("One message, even after a lost response"); await page.getByRole("button", { name: "Send message" }).click();
@@ -344,7 +426,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   await bubble.getByRole("button", { name: "Message options" }).focus();
   await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
   await expect(bubble).toHaveAttribute("data-actions-visible", "true");
-  await page.getByRole("button", { name: "Search messages", exact: true }).focus();
+  await page.getByRole("button", { name: "Contact info", exact: true }).focus();
   await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
   const title = page.getByRole("heading", { name: "Messages", exact: true });
   const contact = page.getByRole("heading", { name: "Maya Rao", exact: true });
@@ -490,12 +572,21 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await page.evaluate(() => { document.documentElement.classList.remove('kb-open', 'native-keyboard-inset'); document.documentElement.style.removeProperty("--kb-height"); });
   const edited = page.locator('[data-chat-message]').filter({ hasText: "Edited reply" });
   await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "React to message" }).click();
+  await fixture(page, "fixture.holdReaction()");
   await page.getByRole("button", { name: "React ❤️", exact: true }).click();
   await expect(edited.getByRole("button", { name: "❤️ reaction, 1", exact: true })).toBeVisible();
-  await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "Message options" }).click();
+  await edited.locator("[data-chat-bubble]").click();
+  await fixture(page, "fixture.releaseReaction()");
+  await edited.getByRole("button", { name: "Message options" }).click();
   await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
-  await expect(page.getByText("This message was deleted.", { exact: true })).toHaveCount(1);
+  const deleted = page.getByText("This message was deleted.", { exact: true });
+  await expect(deleted).toHaveCount(1);
+  // Muted ink on the darker pressed fill fell below the text contrast floor.
+  await deleted.hover();
+  await page.mouse.down();
+  try { await expect(deleted).toHaveCSS("color", "rgb(29, 29, 31)"); }
+  finally { await page.mouse.up(); }
 });
 
 

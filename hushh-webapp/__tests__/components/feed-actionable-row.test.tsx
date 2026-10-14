@@ -77,6 +77,55 @@ describe("FeedActionableRow", () => {
     expect(screen.getByText("Routine row")).toBeInTheDocument();
   });
 
+  it("renders a simple upcoming item in the compact Feed rhythm", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          id: "calendar:event-1",
+          title: "Team standup",
+          description: "All day",
+          displayTimestamp: Date.parse("2026-08-12T15:45:00.000Z"),
+          href: "/one/calendar",
+          chevron: true,
+        })}
+      />,
+    );
+
+    const row = screen.getByTestId("feed-actionable-calendar:event-1");
+    expect(row).toHaveAttribute("data-row-layout", "settings");
+    expect(row).toHaveClass("[--type-row-label-size:13px]");
+    expect(row.querySelector('[data-slot="feed-domain-icon"] svg'))
+      .toHaveAttribute("viewBox", "0 0 24 24");
+    expect(row.querySelector('[data-slot="feed-event-time"]')).toBeInTheDocument();
+    expect(row.querySelector('[data-slot="feed-event-description"]'))
+      .toHaveTextContent("All day");
+  });
+
+  it("keeps the single Join action separate from the compact row action", () => {
+    const onSelect = vi.fn();
+    const join = vi.fn();
+    render(
+      <FeedActionableRow
+        item={actionable({
+          id: "calendar:event-2",
+          title: "Hushh night",
+          description: "Starting soon",
+          onSelect,
+          actions: [{ key: "join-meet", label: "Join Meet", tone: "primary", run: join }],
+        })}
+      />,
+    );
+
+    const row = screen.getByTestId("feed-actionable-calendar:event-2");
+    expect(row).toHaveAttribute("data-row-layout", "settings");
+    fireEvent.click(screen.getByText("Hushh night"));
+    expect(onSelect).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Join Meet" }));
+    expect(join).toHaveBeenCalledOnce();
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(row.querySelector("button button")).toBeNull();
+  });
+
   it("keeps trailing actions outside a whole-row button or link", () => {
     const action = {
       key: "review",
@@ -138,6 +187,8 @@ describe("FeedActionableRow", () => {
       "flex-nowrap",
       "justify-end",
     );
+    expect(screen.getByTestId("feed-actionable-connection:request-1"))
+      .toHaveAttribute("data-row-layout", "person");
     for (const button of [
       screen.getByRole("button", { name: "Accept" }),
       screen.getByRole("button", {

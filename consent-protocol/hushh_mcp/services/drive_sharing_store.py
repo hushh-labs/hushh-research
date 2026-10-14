@@ -32,6 +32,8 @@ from hushh_mcp.services.drive_owner_allowed import (
     owner_allowed_marker,
     owner_allowed_price_cents,
     owner_allowed_record,
+    package_allow_marker,
+    request_has_document_scope,
     valid_owner_price_cents,
 )
 from hushh_mcp.services.drive_request_payment_view import (
@@ -45,6 +47,7 @@ from hushh_mcp.services.drive_request_requester_store import (
 from hushh_mcp.services.drive_request_requester_store import (
     requester_context as read_requester_context,
 )
+from hushh_mcp.services.drive_request_review_policy import request_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import (
     BROAD_TRUST_DISCLOSURE,
     BROAD_TRUST_SCOPE,
@@ -570,6 +573,7 @@ class DriveSharingStore(DriveDocumentStore):
                     r.status AS request_status,r.expires_at AS request_expires_at,
                     r.access_stop_requested_at,r.payment_required,r.preparation_error_code,
                     r.quoted_amount_cents,
+                    COALESCE((to_jsonb(r)->>'agent_package_required')::boolean,FALSE) AS agent_package,
                     f.status AS refund_status,f.amount_cents AS refund_amount_cents,
                     CASE WHEN p.request_id IS NOT NULL AND r.settlement_method<>'hashcoins'
                       THEN COALESCE(a.account_ready,FALSE) END AS owner_payout_ready
@@ -617,6 +621,7 @@ class DriveSharingStore(DriveDocumentStore):
             **legacy,
             "payment": requester_payment_view(
                 payment_required=True,
+                package_disclosure_required=row.get("agent_package") is True,
                 request_status=row["request_status"],
                 request_expires_at=row["request_expires_at"],
                 now=datetime.now(UTC),
@@ -671,6 +676,14 @@ class DriveSharingStore(DriveDocumentStore):
         release) keeps the Trusted path: the owner's manual review at the
         default price, never an owner-set price.
         """
+        if private.get("agent_package_required") is True:
+            return bool(
+                row["status"] == "pending"
+                and row["expires_at"] > now
+                and row["access_stop_requested_at"] is None
+                and row["owner_allowed_at"] is None
+                and owner_allowed_marker(private) is None
+            )
         return self._awaiting_owner_decision(
             row, private, now
         ) and not self._trusted_recipient_current(
@@ -681,6 +694,54 @@ class DriveSharingStore(DriveDocumentStore):
     def _has_dates(private) -> bool:
         purpose = private["purpose"]
         return bool(purpose.get("periodStart") and purpose.get("periodEnd"))
+
+    async def request_owner_review_required(self, *, user_id: str, request_id: str) -> bool:
+        """Selection policy only; callers separately check current read authority."""
+
+        def operation(connection):
+            request = self._request(connection, user_id, request_id)
+            return request_requires_owner_review(
+                connection,
+                user_id=user_id,
+                request_id=request["request_id"],
+                revision=request["revision"],
+                cipher=self.sharing_cipher,
+            )
+
+        return cast(bool, await self._transaction(operation))
+
+    async def package_preparation_authority(self, *, user_id: str, request_id: str) -> dict:
+        """Read-only preparation uses current background consent and active peers."""
+        self._sharing_admission(user_id)
+        if not connector_feature_enabled("google_drive_chat_reads", user_id):
+            raise DriveSharingError("trusted_request_unavailable")
+        identity = str(UUID(request_id))
+
+        def operation(connection):
+            participants = self._participant_gate(connection, user_id, identity)
+            self._sharing_admission(participants["recipient_user_id"])
+            current = DriveLivePreferences(db=self.db).live_active(connection, user_id=user_id)
+            self._live_preparation_access(
+                connection, user_id=user_id, generation=current["connection_generation"]
+            )
+            row = self._related_request(connection, user_id, identity)
+            private = self._open_request(row)
+            if (
+                private.get("agent_package_required") is not True
+                or row["status"] != "pending"
+                or row["access_stop_requested_at"] is not None
+                or row["expires_at"]
+                <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            ):
+                raise DriveSharingError("request_changed")
+            return {
+                "requestId": identity,
+                "revision": row["revision"],
+                "generation": current["connection_generation"],
+                "agentPackageRequired": True,
+            }
+
+        return cast(dict, await self._transaction(operation))
 
     async def trusted_request_authority(self, *, user_id: str, request_id: str) -> dict:
         """Recheck a new trusted request and explicit background Drive authority.
@@ -735,7 +796,11 @@ class DriveSharingStore(DriveDocumentStore):
                         resource_id=str(search["job_id"]),
                         purpose="owner-search-checkpoint",
                     )
-                    if checkpoint.get("authority_mode") != "trusted_auto":
+                    if checkpoint.get("authority_mode") not in (
+                        {"agent_package"}
+                        if private.get("agent_package_required") is True
+                        else {"trusted_auto"}
+                    ):
                         raise DriveSharingError("trusted_request_unavailable")
             return {
                 "requestId": identity,
@@ -785,9 +850,20 @@ class DriveSharingStore(DriveDocumentStore):
             }:
                 self._resume_owner_setup(connection, owner)
             return [
-                {"user_id": row["user_id"], "request_id": str(row["request_id"])}
+                {
+                    "user_id": row["user_id"],
+                    "request_id": str(row["request_id"]),
+                    **(
+                        {"agent_package": True}
+                        if self._open_request(row).get("agent_package_required") is True
+                        else {}
+                    ),
+                }
                 for row in rows
-                if self._open_request(row).get("trusted_auto") is True
+                if (
+                    self._open_request(row).get("trusted_auto") is True
+                    or self._open_request(row).get("agent_package_required") is True
+                )
             ]
 
         return cast(list[dict], await self._transaction(operation))
@@ -849,7 +925,10 @@ class DriveSharingStore(DriveDocumentStore):
                     AND r.expires_at>clock_timestamp()""",
                 {"job": identity, "user": user_id},
             )
-            if row is None or self._open_request(row).get("trusted_auto") is not True:
+            if row is None or not (
+                self._open_request(row).get("trusted_auto") is True
+                or self._open_request(row).get("agent_package_required") is True
+            ):
                 return None
             checkpoint = self.sharing_cipher.open(
                 row["checkpoint_envelope"],
@@ -859,7 +938,7 @@ class DriveSharingStore(DriveDocumentStore):
             )
             return (
                 str(row["request_id"])
-                if checkpoint.get("authority_mode") == "trusted_auto"
+                if checkpoint.get("authority_mode") in {"trusted_auto", "agent_package"}
                 else None
             )
 
@@ -873,6 +952,8 @@ class DriveSharingStore(DriveDocumentStore):
                 "date_range_required",
                 "background_preparation_required",
                 "preparation_unavailable",
+                "package_existing_access_requires_review",
+                "payment_not_ready",
                 "trusted_relationship_changed",
             }
             | OWNER_SETUP_CODES
@@ -909,7 +990,10 @@ class DriveSharingStore(DriveDocumentStore):
                 row is None
                 or row["status"] != "pending"
                 or row["preparation_error_code"] == "manual_search_active"
-                or self._open_request(row).get("trusted_auto") is not True
+                or not (
+                    self._open_request(row).get("trusted_auto") is True
+                    or self._open_request(row).get("agent_package_required") is True
+                )
             ):
                 return
             has_job = bool(
@@ -922,7 +1006,10 @@ class DriveSharingStore(DriveDocumentStore):
             )
             attempts = row["preparation_attempts"] + int(code == "preparation_unavailable")
             terminal = code == "preparation_unavailable" and attempts >= 3
-            if code in OWNER_SETUP_CODES:
+            if code in OWNER_SETUP_CODES | {
+                "package_existing_access_requires_review",
+                "payment_not_ready",
+            }:
                 visible_code = code
             elif code == "date_range_required":
                 visible_code = "date_range_required"
@@ -964,6 +1051,8 @@ class DriveSharingStore(DriveDocumentStore):
                     "date_range_required",
                     "background_preparation_required",
                     "preparation_unavailable",
+                    "package_existing_access_requires_review",
+                    "payment_not_ready",
                     "trusted_relationship_changed",
                 }
                 | OWNER_SETUP_CODES
@@ -984,7 +1073,12 @@ class DriveSharingStore(DriveDocumentStore):
             row = self._related_request(connection, user_id, identity)
             private = self._open_request(row)
             setup = self._request_setup(connection, row, private)
-            if start and setup and (code := self._setup_code(setup)):
+            if (
+                start
+                and private.get("agent_package_required") is not True
+                and setup
+                and (code := self._setup_code(setup))
+            ):
                 raise DriveSharingError(code)
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if row["expires_at"] <= now or row["status"] in {"cancelled", "declined", "expired"}:
@@ -1021,6 +1115,9 @@ class DriveSharingStore(DriveDocumentStore):
                 "recipientBinding": row["recipient_binding"],
                 "searchStarted": row["bulk_search_started_at"] is not None,
                 "accessStopRequested": row["access_stop_requested_at"] is not None,
+                "agentPackageRequired": private.get("agent_package_required") is True,
+                "packageAllowed": package_allow_marker(private) is not None,
+                "reusablePacket": private.get("reusable_packet"),
             }
 
         return cast(dict, await self._transaction(operation))
@@ -1035,13 +1132,18 @@ class DriveSharingStore(DriveDocumentStore):
         request_time_zone: str | None = None,
         owner_initiated: bool = False,
         expected_quote_version: int | None = None,
+        reusable_packet: dict | None = None,
     ) -> dict:
         """B's authenticated identity must be verified by the service before calling.
 
         owner_initiated: A shares files A chose from B's question. Background
         preparation never runs for it and A is not notified of A's own action.
         """
-        if not owner_initiated and (purpose.periodStart is None or purpose.periodEnd is None):
+        if (
+            not owner_initiated
+            and reusable_packet is None
+            and (purpose.periodStart is None or purpose.periodEnd is None)
+        ):
             raise DriveSharingError("date_range_required")
         self._sharing_admission(recipient.user_id)
         self._sharing_admission(owner_user_id)
@@ -1074,7 +1176,9 @@ class DriveSharingStore(DriveDocumentStore):
         }
         binding = self.sharing_cipher.recipient_binding(recipient)
         digest = self.sharing_cipher.digest(
-            "request", [owner_user_id, binding, purpose.model_dump()]
+            "request",
+            [owner_user_id, binding, purpose.model_dump()]
+            + ([reusable_packet] if reusable_packet is not None else []),
         )
 
         def operation(connection):
@@ -1105,6 +1209,55 @@ class DriveSharingStore(DriveDocumentStore):
                     # The Google account files go to, as sealed in the request.
                     "recipientEmail": sealed["recipient"]["email"],
                 }
+            packet_manifest = None
+            if reusable_packet is not None:
+                from hushh_mcp.services.drive_packet_store import DrivePacketStore
+
+                packet_manifest = DrivePacketStore(
+                    db=self.db, cipher=self.cipher
+                )._current_packet_manifest(
+                    connection,
+                    owner_user_id=owner_user_id,
+                    packet_id=reusable_packet["packetId"],
+                    version=reusable_packet["version"],
+                    viewer_user_id=recipient.user_id,
+                )
+                if (
+                    owner_initiated
+                    or packet_manifest["state"] != "ready"
+                    or packet_manifest["digest"] != reusable_packet["manifestDigest"]
+                    or packet_manifest["listing_revision"] != reusable_packet["listingRevision"]
+                    or packet_manifest["price_cents"] != reusable_packet["priceCents"]
+                    or reusable_packet["ownerUserId"] != owner_user_id
+                ):
+                    raise DriveSharingError("packet_changed")
+                # The participant graph locks serialize different client UUIDs.
+                # An equivalent purchase resumes its existing exact-version request.
+                previous = self._row(
+                    connection,
+                    """SELECT * FROM drive_share_requests
+                       WHERE user_id=:owner AND recipient_user_id=:recipient
+                         AND recipient_binding=:binding
+                         AND reusable_packet_id=:packet AND reusable_packet_version=:version
+                         AND access_stop_requested_at IS NULL
+                         AND status IN ('pending','preparing','review_ready','approved','completed','partial')
+                         AND (expires_at>clock_timestamp() OR status IN ('approved','completed','partial'))
+                       ORDER BY created_at DESC LIMIT 1 FOR UPDATE""",
+                    {
+                        "owner": owner_user_id,
+                        "recipient": recipient.user_id,
+                        "binding": binding,
+                        "packet": reusable_packet["packetId"],
+                        "version": reusable_packet["version"],
+                    },
+                )
+                if previous:
+                    return {
+                        **self._summary(previous, recipient=True),
+                        **self._request_setup(connection, previous, self._open_request(previous)),
+                        "recipientEmail": recipient.email,
+                        "existingAccess": previous["status"] == "completed",
+                    }
             # Only newly created requests receive this authority marker. An
             # old pending request must not turn into an automatic grant after
             # a deploy, and owner-initiated sharing keeps its own review path.
@@ -1119,8 +1272,19 @@ class DriveSharingStore(DriveDocumentStore):
                 and drive["validation_state"] == "verified"
                 and drive["verified_policy_hash"] != LIVE_POLICY_HASH
             )
-            trusted_auto = bool(
+            agent_package = bool(
                 not owner_initiated
+                and drive
+                and drive["status"] == "connected"
+                and drive["validation_state"] == "verified"
+                and drive["verified_policy_hash"] == LIVE_POLICY_HASH
+                and os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() == "true"
+            )
+            if reusable_packet is not None and not agent_package:
+                raise DriveSharingError("packet_unavailable")
+            trusted_auto = bool(
+                not agent_package
+                and not owner_initiated
                 and not selected_files_review
                 and connector_feature_enabled("google_drive_chat_reads", owner_user_id)
                 and self._trusted_recipient_current(connection, owner_user_id, recipient.user_id)
@@ -1135,7 +1299,11 @@ class DriveSharingStore(DriveDocumentStore):
                 )
 
                 require_payment_configuration()
-            pricing = self._owner_pricing(connection, owner_user_id) if payment_required else None
+            pricing = (
+                self._owner_pricing(connection, owner_user_id)
+                if payment_required and packet_manifest is None
+                else None
+            )
             if (
                 pricing
                 and expected_quote_version is not None
@@ -1147,6 +1315,8 @@ class DriveSharingStore(DriveDocumentStore):
             quoted_amount_cents = (
                 (pricing["amount_cents"] if pricing["enabled"] else None) if pricing else None
             )
+            if packet_manifest is not None and payment_required:
+                quoted_amount_cents = packet_manifest["price_cents"]
             from hushh_mcp.services.hashcoin_wallet_service import hashcoins_enabled
 
             settlement_method = (
@@ -1167,10 +1337,12 @@ class DriveSharingStore(DriveDocumentStore):
                 {
                     **payload,
                     **({"trusted_auto": True} if trusted_auto else {}),
+                    **({"agent_package_required": True} if agent_package else {}),
                     **({"owner_settlement_required": True} if payment_required else {}),
                     # The requester wrote these terms, so they may read them back
                     # (requester_context). Owner-initiated shares never carry it.
                     **({"origin": REQUESTER_ORIGIN} if not owner_initiated else {}),
+                    **({"reusable_packet": reusable_packet} if reusable_packet is not None else {}),
                 },
                 user_id=owner_user_id,
                 resource_id=request_id,
@@ -1200,16 +1372,38 @@ class DriveSharingStore(DriveDocumentStore):
                     "envelope": json.dumps(envelope),
                     "binding": binding,
                     "digest": digest,
-                    "preparation_code": setup_code
-                    or ("trusted_auto_queued" if trusted_auto else None),
+                    "preparation_code": "trusted_auto_queued"
+                    if agent_package
+                    else (setup_code or ("trusted_auto_queued" if trusted_auto else None)),
                     "payment_required": payment_required,
                     "settlement_method": settlement_method,
                     "quoted_amount": quoted_amount_cents,
-                    "quote_version": pricing["version"]
-                    if quoted_amount_cents is not None
-                    else None,
+                    "quote_version": (
+                        packet_manifest["listing_revision"]
+                        if packet_manifest is not None and payment_required
+                        else pricing["version"]
+                        if pricing and quoted_amount_cents is not None
+                        else None
+                    ),
                 },
             )
+            if row is not None and agent_package:
+                connection.execute(
+                    text(
+                        "UPDATE drive_share_requests SET agent_package_required=TRUE WHERE request_id=:request"
+                    ),
+                    {"request": row["request_id"]},
+                )
+                if reusable_packet is not None:
+                    connection.execute(
+                        text("""UPDATE drive_share_requests SET reusable_packet_id=:packet,
+                             reusable_packet_version=:version WHERE request_id=:request"""),
+                        {
+                            "packet": reusable_packet["packetId"],
+                            "version": reusable_packet["version"],
+                            "request": row["request_id"],
+                        },
+                    )
             sealed_email = recipient.email
             if not row:
                 row = self._row(
@@ -1616,6 +1810,8 @@ class DriveSharingStore(DriveDocumentStore):
                 self._active(connection, user_id, generation)
                 self._selection_policy(connection, user_id, feature="drive_document_sharing")
             row = self._related_request(connection, user_id, request_id)
+            if self._open_request(row).get("agent_package_required") is True:
+                raise DriveSharingError("package_review_required")
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
                 row["status"] not in {"pending", "preparing", "review_ready"}
@@ -1828,6 +2024,8 @@ class DriveSharingStore(DriveDocumentStore):
         def operation(connection):
             self._participant_gate(connection, user_id, request_id)
             request = self._related_request(connection, user_id, request_id)
+            if self._open_request(request).get("agent_package_required") is True:
+                raise DriveSharingError("package_review_required")
             review = self._row(
                 connection,
                 """
@@ -2213,8 +2411,19 @@ class DriveSharingStore(DriveDocumentStore):
             result = {
                 **self._summary(row),
                 "purpose": private["purpose"],
+                "_agentPackageRequired": private.get("agent_package_required") is True,
                 "trustedAuto": private.get("trusted_auto") is True
-                and row.get("preparation_error_code") != "manual_search_active",
+                and row.get("preparation_error_code") != "manual_search_active"
+                and (
+                    row["bulk_search_started_at"] is None
+                    or not request_requires_owner_review(
+                        connection,
+                        user_id=user_id,
+                        request_id=row["request_id"],
+                        revision=row["revision"],
+                        cipher=self.sharing_cipher,
+                    )
+                ),
                 "recipientEmail": private["recipient"]["email"],
                 "role": "reader",
                 "duration": "until_revoked",
@@ -2333,9 +2542,33 @@ class DriveSharingStore(DriveDocumentStore):
                         and row["expires_at"] > now,
                     }
                 )
+            if private.get("agent_package_required") is True:
+                try:
+                    self._live_preparation_access(
+                        connection,
+                        user_id=user_id,
+                        generation=current_connection["connection_generation"],
+                    )
+                except DriveReadError as error:
+                    if str(error) == "background_preparation_required":
+                        result["preparationError"] = "background_preparation_required"
+                        result["allowAvailable"] = False
+                    else:
+                        raise
             return result
 
-        return cast(dict, await self._transaction(operation))
+        result = cast(dict, await self._transaction(operation))
+        if result.pop("_agentPackageRequired", False):
+            from hushh_mcp.services.drive_request_package_store import DriveRequestPackageStore
+
+            result["agentPackage"] = await DriveRequestPackageStore(
+                db=self.db, cipher=self.sharing_cipher, sharing=self
+            ).package_review(user_id=user_id, request_id=request_id)
+            result["canApprove"] = False
+            result["allowAvailable"] = bool(
+                result["allowAvailable"] and result["agentPackage"]["status"] == "ready"
+            )
+        return result
 
     def _decision_drive_available(self, row, private, current_connection) -> bool:
         return bool(
@@ -2345,7 +2578,7 @@ class DriveSharingStore(DriveDocumentStore):
             and current_connection["status"] == "connected"
             and current_connection["validation_state"] == "verified"
             and current_connection["verified_policy_hash"] == LIVE_POLICY_HASH
-            and self._has_dates(private)
+            and request_has_document_scope(private)
         )
 
     def _allow_available(self, connection, row, private, current_connection) -> bool:
@@ -2357,6 +2590,8 @@ class DriveSharingStore(DriveDocumentStore):
 
     def _trusted_price_target(self, connection, row, private, now) -> bool:
         """Pricing does not create consent or expand the existing Trusted authority."""
+        if private.get("agent_package_required") is True:
+            return False
         return bool(
             row["status"] == "pending"
             and row["payment_required"] is True
@@ -2432,7 +2667,7 @@ class DriveSharingStore(DriveDocumentStore):
             if not self._trusted_price_target(connection, row, private, now):
                 raise DriveSharingError("request_already_decided")
             self._sharing_admission(row["recipient_user_id"])
-            if not self._has_dates(private):
+            if not request_has_document_scope(private):
                 raise DriveSharingError("date_range_required")
             if (
                 self._row(
@@ -2488,7 +2723,14 @@ class DriveSharingStore(DriveDocumentStore):
         return cast(dict, await self._transaction(operation))
 
     async def allow_request(
-        self, *, user_id: str, request_id: str, revision: int, amount_cents: int | None
+        self,
+        *,
+        user_id: str,
+        request_id: str,
+        revision: int,
+        amount_cents: int | None,
+        package_revision: int | None = None,
+        package_digest: str | None = None,
     ) -> dict:
         """The owner's Allow for one request from outside their Trusted circle.
 
@@ -2513,7 +2755,16 @@ class DriveSharingStore(DriveDocumentStore):
             if allowed is not None:
                 # A repeated tap or a retry after a lost response; never a new
                 # price, and never an Allow that a disconnect already ended.
-                if allowed["amount_cents"] != amount_cents or row["owner_allowed_at"] is None:
+                if (
+                    allowed["amount_cents"] != amount_cents
+                    or row["owner_allowed_at"] is None
+                    or private.get("agent_package_required") is True
+                    and (
+                        package_allow_marker(private) is None
+                        or allowed.get("package_revision") != package_revision
+                        or allowed.get("package_digest") != package_digest
+                    )
+                ):
                     raise DriveSharingError("request_already_decided")
                 return {
                     **self._summary(row),
@@ -2524,6 +2775,13 @@ class DriveSharingStore(DriveDocumentStore):
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if not self._owner_may_decide(connection, row, private, now):
                 raise DriveSharingError("request_already_decided")
+            package = None
+            if private.get("agent_package_required") is True:
+                from hushh_mcp.services.drive_request_package_store import DriveRequestPackageStore
+
+                package = DriveRequestPackageStore(
+                    db=self.db, cipher=self.sharing_cipher, sharing=self
+                ).validate_ready_package(connection, row, private, package_revision, package_digest)
             # A paid request needs the owner's price; a free one takes none.
             if (row["payment_required"] is True) != (amount_cents is not None):
                 raise DriveSharingError("invalid_payment_amount")
@@ -2536,7 +2794,7 @@ class DriveSharingStore(DriveDocumentStore):
             )
             if order is not None:
                 raise DriveSharingError("request_already_decided")
-            if not self._has_dates(private):
+            if not request_has_document_scope(private):
                 raise DriveSharingError("date_range_required")
             self._sharing_admission(row["recipient_user_id"])
             setup = (
@@ -2558,13 +2816,30 @@ class DriveSharingStore(DriveDocumentStore):
                 )
                 else None
             )
+            allowed_record = owner_allowed_record(
+                amount_cents=amount_cents, allowed_at=now.isoformat()
+            )
+            if package is not None:
+                allowed_record.update(
+                    {
+                        "package_revision": package_revision,
+                        "package_digest": package_digest,
+                        "request_revision": row["revision"],
+                        "search_job_id": package["search_job_id"],
+                        "connection_generation": DriveLivePreferences(db=self.db).live_active(
+                            connection, user_id=user_id
+                        )["connection_generation"],
+                        "selected_positions": package["selected_positions"],
+                        "selected_sources": package["selected_sources"],
+                        "package_selected_count": len(package["selected_positions"]),
+                        "buyer_disclosure": package["buyer_disclosure"],
+                    }
+                )
             envelope = self.sharing_cipher.seal(
                 {
                     **private,
                     "trusted_auto": True,
-                    OWNER_ALLOWED_KEY: owner_allowed_record(
-                        amount_cents=amount_cents, allowed_at=now.isoformat()
-                    ),
+                    OWNER_ALLOWED_KEY: allowed_record,
                 },
                 user_id=user_id,
                 resource_id=identity,
@@ -2581,7 +2856,8 @@ class DriveSharingStore(DriveDocumentStore):
                 {
                     "request": identity,
                     "envelope": json.dumps(envelope),
-                    "code": setup_code or "trusted_auto_queued",
+                    "code": setup_code
+                    or ("trusted_auto_active" if package else "trusted_auto_queued"),
                     "amount": quoted_amount,
                 },
             )

@@ -147,9 +147,22 @@ class DecisionRequest(StrictRequest):
     revision: int = Field(ge=0, strict=True)
 
 
+class PacketListingRequest(StrictRequest):
+    version: int = Field(ge=1, strict=True)
+    decision: Literal["allow", "deny"]
+    priceCents: int = Field(ge=50, le=50000, strict=True)
+    expectedRevision: int = Field(ge=0, strict=True)
+    disclosure: Literal["drive-packet-listing-connections-v1"]
+
+
+class PacketPurchaseRequest(StrictRequest):
+    version: int = Field(ge=1, strict=True)
+    clientRequestId: UUID
+
+
 class OwnerPricingRequest(StrictRequest):
     enabled: StrictBool
-    amountCents: int = Field(strict=True, ge=100, le=50000, multiple_of=100)
+    amountCents: int = Field(strict=True, ge=50, le=50000)
     expectedVersion: int = Field(strict=True, ge=0)
 
 
@@ -206,9 +219,11 @@ class BulkShareCreateRequest(StrictRequest):
 
 
 class AllowRequest(DecisionRequest):
+    packageRevision: int | None = Field(default=None, strict=True, ge=1)
+    packageDigest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     # Whole US dollars as cents. Required only for a paid request; the store
     # checks that against the request it locks.
-    amountCents: int | None = Field(default=None, strict=True, ge=100, le=50000, multiple_of=100)
+    amountCents: int | None = Field(default=None, strict=True, ge=50, le=50000)
     confirmed: StrictBool
 
     @model_validator(mode="after")
@@ -219,7 +234,7 @@ class AllowRequest(DecisionRequest):
 
 
 class RequestPrice(AllowRequest):
-    amountCents: int = Field(strict=True, ge=100, le=50000, multiple_of=100)
+    amountCents: int = Field(strict=True, ge=50, le=50000)
 
 
 class BulkShareApprovalRequest(StrictRequest):
@@ -300,6 +315,11 @@ def _error(error):
         "request_already_decided": (409, "This request already has a decision."),
         "request_paid": (409, "This request was paid or files were shared. Refresh it."),
         "request_changed": (409, "This request changed. Refresh its status."),
+        "package_changed": (409, "The document package changed. Review it again."),
+        "package_not_ready": (409, "AgentOne is still preparing the document package."),
+        "package_not_allowed": (409, "Allow the prepared document package before sharing."),
+        "package_review_required": (409, "Review the prepared document package."),
+        "package_incomplete": (409, "The document package is incomplete. Refresh its status."),
         "price_changed": (409, "The price changed. Review it again."),
         "payout_unavailable": (503, "Document payments are temporarily unavailable."),
         "revocation_pending": (409, "Removal is pending. Refresh its status."),
@@ -341,10 +361,13 @@ def _error(error):
         "search_not_found": (404, "This Drive search is unavailable."),
         "no_recipients": (409, "No one in your Trusted circle can receive these files yet."),
         "date_range_required": (422, "Choose exact start and end dates before requesting files."),
-        "invalid_payment_amount": (422, "Choose a whole-dollar price from $1 to $500."),
+        "invalid_payment_amount": (422, "Choose a price from $0.50 to $500."),
         "owner_price_required": (409, "Set your request price to continue."),
         "owner_payout_required": (409, "Set up payouts to continue."),
         "invalid_argument": (422, "Check the document-sharing request."),
+        "packet_unavailable": (404, "This packet is unavailable."),
+        "packet_changed": (409, "This packet changed. Refresh it before continuing."),
+        "packet_not_ready": (409, "This packet is still being verified."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
     if code not in known:
@@ -409,6 +432,63 @@ async def _person_target(owner: Owner, person_ref: UUID) -> str:
     except Exception:
         raise _error(DriveSharingError("identity_verification_unavailable")) from None
     return str(target_user_id)
+
+
+def _packet_service():
+    from hushh_mcp.services.drive_packet_catalog_service import DrivePacketCatalogService
+
+    return DrivePacketCatalogService()
+
+
+@router.get("/packets")
+async def list_packets(
+    ownerPersonRef: UUID | None = None,
+    cursor: str | None = Query(default=None, min_length=1, max_length=256),
+    owner: Owner = Depends(_owner),
+):
+    target = await _person_target(owner, ownerPersonRef) if ownerPersonRef else None
+    return await _call(
+        "list_packets",
+        owner=owner,
+        factory=_packet_service,
+        owner_user_id=target,
+        cursor=cursor,
+    )
+
+
+@router.post("/packets/{packet_id}/listing")
+async def set_packet_listing(
+    packet_id: UUID, body: PacketListingRequest, owner: Owner = Depends(_owner)
+):
+    return await _call(
+        "set_listing",
+        owner=owner,
+        factory=_packet_service,
+        packet_id=str(packet_id),
+        version=body.version,
+        decision=body.decision,
+        price_cents=body.priceCents,
+        expected_revision=body.expectedRevision,
+        disclosure=body.disclosure,
+    )
+
+
+@router.post("/packets/{packet_id}/requests", status_code=202)
+async def request_packet(
+    packet_id: UUID,
+    body: PacketPurchaseRequest,
+    recipient=Depends(_recipient),
+    owner: Owner = Depends(_owner),
+):
+    return await _call(
+        "request_packet",
+        owner=owner,
+        factory=_packet_service,
+        recipient=recipient,
+        packet_id=str(packet_id),
+        version=body.version,
+        client_request_id=str(body.clientRequestId),
+    )
 
 
 @router.post("/requests", status_code=202)
@@ -1006,6 +1086,11 @@ async def allow(request_id: UUID, body: AllowRequest, owner: Owner = Depends(_ow
         request_id=str(request_id),
         revision=body.revision,
         amount_cents=body.amountCents,
+        **(
+            {"package_revision": body.packageRevision, "package_digest": body.packageDigest}
+            if body.packageRevision is not None or body.packageDigest is not None
+            else {}
+        ),
     )
 
 

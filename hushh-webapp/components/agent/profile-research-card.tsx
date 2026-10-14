@@ -32,7 +32,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
 import { connectorMemorySharingImpact } from "@/lib/agent/connector-memory-review";
-import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import {
   bindProfileSelectionSources,
   prepareProfileReview,
@@ -51,6 +50,9 @@ import {
 } from "@/lib/services/profile-research-service";
 
 type Props = {
+  worldModel?: boolean;
+  onSaved?: () => void;
+  onDiscarded?: () => void;
   ownerId: string | null;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
@@ -75,8 +77,11 @@ export type ProfileResearchAvailability =
 type Phase =
   "loading" | "draft" | "preparing" | "saving" | "saved" | "failed" | "skipped";
 
-/** Ephemeral One card: outside transcript persistence and automatic memory capture. */
+/** Explicitly started profile review; never mounted by the chat surface. */
 export function ProfileResearchCard({
+  worldModel = false,
+  onSaved,
+  onDiscarded,
   ownerId,
   vaultKey,
   vaultOwnerToken,
@@ -90,9 +95,6 @@ export function ProfileResearchCard({
 }: Props) {
   const enabled =
     requestedEnabled && !shouldSkipReviewerBackgroundWritesForAutomation();
-  const consume = useOneConversationSession(
-    (state) => state.consumeProfileResearch,
-  );
   const [result, setResult] = useState<ProfileResearchResult | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -178,19 +180,24 @@ export function ProfileResearchCard({
       if (!guard.isCurrent()) return;
       setResult(null);
       setPhase("loading");
+      setVisibleOwner({ ownerId, vaultKey, vaultOwnerToken });
       void ProfileResearchService.research({
         vaultKey,
         vaultOwnerToken,
         signal: controller.signal,
         isCurrent: guard.isCurrent,
+        worldModel,
       })
         .then((next) => {
           if (!guard.isCurrent()) return;
           setResult(next);
+          if (next.status === "saved") setPhase("saved");
           setPhase(
-            next.status === "unavailable" && !next.retry_exhausted
-              ? "failed"
-              : "draft",
+            next.status === "saved"
+              ? "saved"
+              : next.status === "unavailable" && !next.retry_exhausted
+                ? "failed"
+                : "draft",
           );
           if (
             next.status === "saved" ||
@@ -216,11 +223,7 @@ export function ProfileResearchCard({
               ),
             );
             setEdits({});
-            // Existing and newly onboarded owners share this path. Consuming
-            // the optional setup marker must not dispatch another request.
-            consume(ownerId);
-          } else if (next.status !== "unavailable" || next.retry_exhausted)
-            consume(ownerId);
+          }
         })
         .catch(() => {
           if (guard.isCurrent()) setPhase("failed");
@@ -230,7 +233,7 @@ export function ProfileResearchCard({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, ownerId, vaultKey, vaultOwnerToken, consume]);
+  }, [enabled, ownerId, vaultKey, vaultOwnerToken, worldModel]);
 
   const withSession = async (
     operation: (
@@ -252,7 +255,14 @@ export function ProfileResearchCard({
     });
     try {
       await guard.assertCurrent();
-      await operation({ userId: ownerId, vaultKey, vaultOwnerToken, ...guard });
+      await operation({
+        userId: ownerId,
+        vaultKey,
+        vaultOwnerToken,
+        worldModel,
+        draftId: result?.status === "offered" ? result.draft_id : undefined,
+        ...guard,
+      });
     } finally {
       operations.current.delete(controller);
     }
@@ -301,8 +311,8 @@ export function ProfileResearchCard({
         setSaveStarted(false);
         setReview(null);
         setPhase("saved");
-        consume(session.userId);
-        morphyToast.success("Saved to Memory");
+        onSaved?.();
+        morphyToast.success("Details saved");
       } catch (error) {
         if (session.isCurrent()) {
           // Retain exact scopes after a partial/lost response; Retry must never
@@ -359,27 +369,35 @@ export function ProfileResearchCard({
     !visible ||
     phase === "skipped" ||
     (embedded && phase === "saved") ||
-    (!hasOffer && phase === "draft")
+    (!worldModel && result?.status === "saved") ||
+    (!worldModel && !hasOffer && phase === "draft")
   )
     return renderMessage ? renderMessage(null, null) : null;
   const report = result?.status === "offered" ? result.report : null;
-  const dismiss = () => {
-    if (!busy && !saveStarted) {
-      setPhase("skipped");
-      setResult(null);
-      setReview(null);
-      consume(ownerId!);
-    }
-  };
+  const dismiss = () =>
+    void withSession(async (session) => {
+      if (busy || saveStarted) return;
+      try {
+        if (worldModel) await ProfileResearchService.discard(session);
+        await session.assertCurrent();
+        setPhase("skipped");
+        setResult(null);
+        setReview(null);
+        onDiscarded?.();
+      } catch {
+        if (session.isCurrent())
+          morphyToast.error("Couldn't discard the draft. Try again.");
+      }
+    });
   const renderSection = (section: ProfileReport["sections"][number]) => (
     <AccordionItem key={section.kind} value={section.kind}>
-      <AccordionTrigger>
+      <AccordionTrigger className="py-2.5 text-[13px]">
         {embedded && section.kind === "business"
           ? "Public sources"
           : PROFILE_SECTION_LABELS[section.kind]}{" "}
         · {section.facts.length}
       </AccordionTrigger>
-      <AccordionContent className="space-y-4">
+      <AccordionContent className="space-y-3">
         {section.facts.map((fact, index) => {
           const id = `${section.kind}:${index}`;
           return (
@@ -399,7 +417,7 @@ export function ProfileResearchCard({
                     });
                   }}
                 />
-                <span className="min-w-0 text-sm leading-6">
+                <span className="min-w-0 text-[13px] leading-5">
                   {edits[id] ?? fact.statement}
                 </span>
               </label>
@@ -446,9 +464,9 @@ export function ProfileResearchCard({
   );
   const content = (
     <>
-      <CardHeader className={embedded ? "p-0 pb-2" : "p-4 pb-2"}>
+      <CardHeader className={embedded ? "p-0 pb-1.5" : "p-3 pb-1.5"}>
         {!embedded && (
-          <CardTitle className="text-base">Magic Intelligence</CardTitle>
+          <CardTitle className="text-sm">Personal World Model</CardTitle>
         )}
         {report?.name && <MediumRowLabel as="p">{report.name}</MediumRowLabel>}
         {(phase === "loading" ||
@@ -458,13 +476,13 @@ export function ProfileResearchCard({
           !embedded) && (
           <HelperText>
             {phase === "loading"
-              ? "One is building your Magic Intelligence profile…"
+              ? "One is building your Personal World Model profile…"
               : phase === "failed"
-                ? "Magic Intelligence is unavailable right now."
+                ? "Personal World Model is unavailable right now."
                 : phase === "saved"
-                  ? "Your Magic Intelligence details are saved."
+                  ? "Your Personal World Model details are saved."
                   : report?.match_status === "no_match"
-                    ? "Magic Intelligence couldn’t find a reliable public profile for you. You can skip this and tell One about yourself in chat."
+                    ? "Personal World Model couldn’t find a reliable public profile for you. You can add details yourself or try with another verified contact."
                     : report?.summary}
           </HelperText>
         )}
@@ -473,8 +491,34 @@ export function ProfileResearchCard({
         )}
       </CardHeader>
       <CardContent
-        className={embedded ? "space-y-3 p-0" : "space-y-3 p-4 pt-2"}
+        className={embedded ? "space-y-2 p-0" : "space-y-2 p-3 pt-1.5"}
       >
+        {result?.status === "offered" && result.research && (
+          <div className="space-y-2 text-xs text-muted-foreground">
+            <p>{result.research.identity.reason}</p>
+            {result.research.gaps.length > 0 && (
+              <details>
+                <summary>What is still unknown</summary>
+                <ul className="list-disc space-y-1 pl-4">
+                  {result.research.gaps.map((gap) => (
+                    <li key={gap}>{gap}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+        {worldModel &&
+          result &&
+          !["offered", "saved", "unavailable"].includes(result.status) && (
+            <HelperText role="status">
+              {result.status === "insufficient_identity"
+                ? "Add a name and verify an email or phone in your account to begin."
+                : result.status === "not_ready"
+                  ? "Finish account setup to begin."
+                  : "Research is not available for this account yet."}
+            </HelperText>
+          )}
         {report && phase !== "saved" && (
           <Accordion
             type="multiple"
@@ -523,15 +567,16 @@ export function ProfileResearchCard({
                   size="compact"
                   className="ml-auto"
                   onClick={dismiss}
-                  disabled={busy || saveStarted}
+                  disabled={busy || saveStarted || phase === "loading"}
                 >
-                  Skip
+                  {worldModel ? "Discard draft" : "Skip"}
                 </Button>
               </div>
             }
             primary={
               phase === "failed" ? null : (
                 <Button
+                  data-voice-control-id={worldModel ? "pwm_review" : undefined}
                   onClick={() => save()}
                   disabled={busy || !report || !selected.size}
                 >
@@ -539,7 +584,9 @@ export function ProfileResearchCard({
                     ? "Saving…"
                     : saveStarted
                       ? "Retry save"
-                      : "Save to Memory"}
+                      : worldModel
+                        ? "Save selected details"
+                        : "Save to Memory"}
                 </Button>
               )
             }

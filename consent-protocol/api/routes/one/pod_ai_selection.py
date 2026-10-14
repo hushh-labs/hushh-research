@@ -191,6 +191,15 @@ async def run_ai_selection_delete(
 
                 if workload_platform() == "azure":
                     raise ValueError("AZURE_MODEL_TOPOLOGY_INVALID")
+                from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+                    pod_managed_model_enabled,
+                    pod_user_adc_enabled,
+                )
+
+                # Verification has the same default authority as ordinary turns;
+                # fleet configuration alone must not discard an owner's key.
+                if not (pod_user_adc_enabled() or pod_managed_model_enabled()):
+                    raise HTTPException(status_code=409, detail={"code": "AI_DEFAULT_UNAVAILABLE"})
                 provider, model = "gemini", _gemini_default()
                 client = build_managed_runtime_client(provider)
             response = await asyncio.wait_for(
@@ -208,6 +217,8 @@ async def run_ai_selection_delete(
                 "defaultModel": model,
                 "checkedAtMs": int(time.time() * 1000),
             }
+        except HTTPException:
+            raise
         except Exception as exc:  # noqa: BLE001 - typed refusal preserves prior selection
             raise HTTPException(
                 status_code=422, detail={"code": classify_check_failure(exc)}

@@ -8,6 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -413,3 +414,130 @@ def test_ios_dry_run_retains_ipa_without_requiring_upload_receipts() -> None:
         "Upload redacted release evidence",
     ):
         assert "inputs.dry_run != true" in _named(steps, name)["if"]
+
+
+@pytest.mark.parametrize("requested,expected", [("", "1.4.0"), ("1.4.1", "1.4.1")])
+def test_appstore_packaging_version_resolves_from_exact_source_or_override(
+    tmp_path: Path, requested: str, expected: str
+) -> None:
+    project = tmp_path / "project.pbxproj"
+    project.write_text("MARKETING_VERSION = 1.4.0;", encoding="utf-8")
+    output = tmp_path / "env"
+    step = _named(
+        _steps(_workflow("release-ios-appstore.yml"), "release"),
+        "Resolve App Store marketing version",
+    )
+    result = _run_step(
+        step,
+        cwd=tmp_path,
+        env={
+            "PBXPROJ": str(project),
+            "GITHUB_ENV": str(output),
+            "REQUESTED_MARKETING_VERSION": requested,
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == f"IOS_MARKETING_VERSION={expected}\n"
+    assert project.read_text() == "MARKETING_VERSION = 1.4.0;"
+
+
+@pytest.mark.parametrize(
+    "requested", ["1.4", "01.4.1", "1.4.1-beta", "1.4.1\nINJECTED=true", "$(touch injected)"]
+)
+def test_appstore_packaging_version_rejects_invalid_input_before_build(
+    tmp_path: Path, requested: str
+) -> None:
+    project = tmp_path / "project.pbxproj"
+    project.write_text("MARKETING_VERSION = 1.4.0;", encoding="utf-8")
+    output = tmp_path / "env"
+    step = _named(
+        _steps(_workflow("release-ios-appstore.yml"), "release"),
+        "Resolve App Store marketing version",
+    )
+    result = _run_step(
+        step,
+        cwd=tmp_path,
+        env={
+            "PBXPROJ": str(project),
+            "GITHUB_ENV": str(output),
+            "REQUESTED_MARKETING_VERSION": requested,
+        },
+    )
+    assert result.returncode != 0
+    assert not output.exists()
+    assert not (tmp_path / "injected").exists()
+
+
+@pytest.mark.parametrize(
+    "wrong_target,wrong_key",
+    [
+        (None, None),
+        ("app", "CFBundleShortVersionString"),
+        ("app", "CFBundleVersion"),
+        ("extension", "CFBundleShortVersionString"),
+        ("extension", "CFBundleVersion"),
+    ],
+)
+def test_appstore_archive_checks_actual_app_and_extension_versions(
+    tmp_path: Path, wrong_target: str | None, wrong_key: str | None
+) -> None:
+    app = tmp_path / "App.xcarchive/Products/Applications/App.app"
+    paths = {"app": app / "Info.plist", "extension": app / "PlugIns/Chat.appex/Info.plist"}
+    for target, path in paths.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        info = {"CFBundleShortVersionString": "1.4.1", "CFBundleVersion": "144"}
+        if target == wrong_target:
+            info[wrong_key] = "1.4.0" if wrong_key == "CFBundleShortVersionString" else "143"
+        path.write_bytes(plistlib.dumps(info))
+    step = _named(
+        _steps(_workflow("release-ios-appstore.yml"), "release"),
+        "Verify archived app and extension versions",
+    )
+    result = _run_step(
+        step,
+        cwd=tmp_path,
+        env={
+            "RUNNER_TEMP": str(tmp_path),
+            "IOS_MARKETING_VERSION": "1.4.1",
+            "EXPECTED_BUILD_NUMBER": "144",
+        },
+    )
+    assert (result.returncode == 0) == (wrong_target is None), result.stderr
+
+
+def test_appstore_upload_receipt_keeps_source_with_effective_packaging_version(
+    tmp_path: Path,
+) -> None:
+    steps = _steps(_workflow("release-ios-appstore.yml"), "release")
+    step = _named(steps, "Preserve uploaded build identity for TestFlight distribution")
+    result = _run_step(
+        step,
+        cwd=ROOT,
+        env={
+            "RUNNER_TEMP": str(tmp_path),
+            "IOS_MARKETING_VERSION": "1.4.1",
+            "BUILD_NUMBER": "144",
+            "IOS_BUNDLE_ID": "com.hushh.app",
+            "BACKEND_TARGET": "production",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads((tmp_path / "testflight-upload-receipt.json").read_text())
+    source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()  # noqa: S603
+    assert receipt == {
+        "source_sha": source,
+        "build_number": "144",
+        "marketing_version": "1.4.1",
+        "bundle_id": "com.hushh.app",
+        "backend_target": "production",
+    }
+    assert (
+        'MARKETING_VERSION="${IOS_MARKETING_VERSION}"'
+        in _named(steps, "Archive (production entitlements)")["run"]
+    )
+    assert (
+        '--marketing-version "${IOS_MARKETING_VERSION}"'
+        in _named(
+            steps, "Prepare App Store version (set What's New, attach build; one-click submit)"
+        )["run"]
+    )

@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ history: vi.fn(), revoke: vi.fn(), profile: vi.fn(), subscribe: vi.fn(), current: true }));
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: mocks }));
 vi.mock("@/components/profile/settings-ui", () => ({
+  SettingsPresentationProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   SettingsGroup: ({ title, children }: { title: string; children: React.ReactNode }) => <section aria-label={title}>{children}</section>,
   SettingsRow: ({ title, description, trailing }: { title: string; description: React.ReactNode; trailing: React.ReactNode }) => <div>{title}{description}{trailing}</div>,
 }));
-vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCardSharing: () => null }));
+vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCardSharing: ({ card }: { card: { cardId: string } }) => <button>Share {card.cardId}</button> }));
 vi.mock("@/lib/navigation/back-layers", () => ({ useBackLayer: vi.fn() }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 import { WalletSharingHistory } from "@/components/wallet/wallet-sharing-history";
@@ -22,8 +23,13 @@ beforeEach(() => {
 });
 describe("Wallet's participant-scoped sharing ledger", () => {
   it("renders real timing, recipient, verification and activity and confirms recipient-specific revocation", async () => {
+    const record = item("First");
+    record.activity.push(...Array.from({ length: 4 }, () => ({ event: "SHARE_OPENED", at: "2026-10-12T10:01:00Z", actor: "recipient", outcome: "opened" })));
+    mocks.history.mockResolvedValue({ ...page(["First"]), items: [record], recipientCount: 7 });
     render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
-    expect(await screen.findByText("VISA •••• 4242 · First")).toBeVisible();
+    expect(await screen.findByText("VISA •••• 4242 | First")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Shared cards | 7" })).toBeVisible();
+    expect(screen.getAllByText(/share opened/)).toHaveLength(1);
     expect(screen.getByText(/15 minutes/)).toBeVisible();
     expect(screen.getByText("Identity verification required")).toBeVisible();
     expect(screen.getByText(/Last viewed/)).toBeVisible();
@@ -33,14 +39,16 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     await waitFor(() => expect(mocks.revoke).toHaveBeenCalledWith(context, "First"));
   });
   it("keeps loaded history through refresh and rejects a late page after the owner changes", async () => {
+    mocks.profile.mockResolvedValue({ eligible: true, cardId: "profile_owner" });
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    expect(await screen.findByRole("button", { name: "Share profile_owner" })).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: "Load more shares" }));
-    await screen.findByText("VISA •••• 4242 · Second");
+    await screen.findByText("VISA •••• 4242 | Second");
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     await act(async () => { window.dispatchEvent(new Event("focus")); });
     await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(4));
-    expect(screen.getByText("VISA •••• 4242 · Second")).toBeVisible();
+    expect(screen.getByText("VISA •••• 4242 | Second")).toBeVisible();
     let finish!: (value: ReturnType<typeof page>) => void;
     mocks.history.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     await act(async () => { window.dispatchEvent(new Event("focus")); });
@@ -48,6 +56,7 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     view.rerender(<WalletSharingHistory ownerId="other" active getContext={getContext} />);
     await act(async () => finish(page(["Old owner reply"])));
     expect(screen.queryByText(/First|Second|Old owner reply/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share profile_owner" })).toBeNull();
   });
   it("does not claim an empty ledger when loading fails, and uses the received direction", async () => {
     mocks.history.mockRejectedValueOnce(new Error("offline"));

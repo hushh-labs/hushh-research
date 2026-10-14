@@ -307,12 +307,13 @@ describe("reduced motion", () => {
 });
 
 describe("named buttons from the founder report", () => {
-  it("renders Create your One through the primitive, flat and rippled", () => {
+  it("renders the welcome and final sign-in controls through the primitive, flat and rippled", () => {
     render(<IntroStep onLogin={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
-    const cta = screen.getByRole("button", { name: "Create your One" });
+    const welcome = screen.getByRole("button", { name: "Create your One", exact: true });
+    expect(rippleHosts(welcome)).toHaveLength(1);
+    fireEvent.click(welcome);
+    fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
+    const cta = screen.getByRole("button", { name: "Start with One", exact: true });
     expect(rippleHosts(cta)).toHaveLength(1);
     expect(cta.className).not.toMatch(/press-scale|scale-/);
   });

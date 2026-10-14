@@ -38,6 +38,13 @@ import {
   WalletAgentIcon,
 } from "@/components/icons/agents";
 import {
+  ProfilePaneAccountIcon,
+  ProfilePaneWalletIcon,
+  ProfilePaneAppearanceIcon,
+  ProfilePaneDevicesIcon,
+  ProfilePaneConnectorsIcon,
+  ProfilePaneInviteIcon,
+  ProfilePaneHelpIcon,
   ProfilePaneSecurityIcon,
   ProfilePaneSignOutIcon,
 } from "@/components/profile/profile-pane-icons";
@@ -72,7 +79,7 @@ import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./pr
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
-import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
+import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 
 import {
   SettingsGroup,
@@ -92,7 +99,6 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
-import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import {
@@ -179,6 +185,7 @@ import {
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
 import {
+  buildProfilePaneCloseHref,
   popProfilePaneLocation,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
@@ -1702,7 +1709,7 @@ function ProfilePageContent({
             settlement.committed = true;
 
             CacheSyncService.onAccountDeleted(user.uid);
-            await UserLocalStateService.clearForUser(user.uid);
+            await UserLocalStateService.clearForUser(user.uid, { deleteDurableReceipts: true });
             await refreshPersonaState({ force: true });
 
             // Reset returns the account to a fresh, just-onboarded state: keep
@@ -4167,8 +4174,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <ScopeCommerceAccountPanel key={user?.uid} />
-          <DocumentHashcoinPayouts />
+          <PaymentsAndEarnings key={user?.uid} />
         </div>
       ),
     });
@@ -4467,6 +4473,13 @@ function ProfilePageContent({
   }
 
   const menuGroups = profileMenuGroups(canShowPkmAgentLab);
+  const paneMenuIcons = {
+    account: ProfilePaneAccountIcon, "my-data": ProfilePaneWalletIcon,
+    preferences: ProfilePaneAppearanceIcon, security: ProfilePaneSecurityIcon,
+    devices: ProfilePaneDevicesIcon, connectors: ProfilePaneConnectorsIcon,
+    invite: ProfilePaneInviteIcon, support: ProfilePaneHelpIcon,
+    "sign-out": ProfilePaneSignOutIcon,
+  };
   const menuActions: ProfileMenuActions = {
     hosting: () => updateProfileView({ panel: "hosting", detail: null }, "push"),
     "software-updates": () => updateProfileView({ panel: "software-updates", detail: null }, "push"),
@@ -4474,6 +4487,11 @@ function ProfilePageContent({
     payouts: () => openVaultBackedPanel("payouts"),
     "request-pricing": () => openVaultBackedPanel("request-pricing"),
     "my-data": () => openVaultBackedPanel("my-data"),
+    "world-model": () => {
+      const from = normalizeInternalRouteHref(searchParams.get("from")) ??
+        (isPanePresentation ? normalizeInternalRouteHref(buildProfilePaneCloseHref(pathname, searchParams)) : null);
+      router.push(from ? `${ROUTES.PROFILE_WORLD_MODEL}?${new URLSearchParams({ from })}` : ROUTES.PROFILE_WORLD_MODEL);
+    },
     preferences: openPreferencesPanel,
     security: openSecurityPanel,
     devices: () => openVaultBackedPanel("security", "trusted-devices"),
@@ -4521,7 +4539,7 @@ function ProfilePageContent({
           <div className="profile-home-content">
             {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
               {group.entries.map(entry => <SettingsRow key={entry.id}
-                icon={entry.icon} iconTone="capability" title={entry.label} chevron
+                icon={isPanePresentation && entry.id in paneMenuIcons ? paneMenuIcons[entry.id as keyof typeof paneMenuIcons] : entry.icon} iconTone="capability" title={entry.label} chevron
                 tone={"destructive" in entry && entry.destructive ? "destructive" : "default"}
                 trailing={"localOnly" in entry ? <Badge variant="secondary">Local</Badge> : undefined}
                 testId={entry.id === "privacy" || entry.id === "terms" ? `profile-legal-${entry.id}-row` : undefined}

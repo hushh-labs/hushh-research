@@ -400,8 +400,14 @@ async def test_topical_document_request_never_runs_as_a_broad_document_listing()
     calls = []
 
     async def planner(*, prompt, user_id):
-        calls.append(json.loads(prompt))
-        return {"mode": "find", "terms": [], "file_kind": "document"}
+        calls.append(json.JSONDecoder().raw_decode(prompt)[0])
+        return {
+            "mode": "find",
+            "terms": [],
+            "file_kind": "document",
+            "subject_scope": "metadata_listing",
+            "subject_complete": True,
+        }
 
     service = DriveRequestBulkService(planner=planner)
     with pytest.raises(DriveReadError, match="invalid_argument"):
@@ -467,6 +473,9 @@ async def test_request_freezes_agent_count_for_both_consent_flows(
         "mode": "find",
         "file_kind": "document",
         "terms": terms,
+        "time_intent": "file_activity" if count is not None else "document_coverage",
+        "subject_scope": "specific_records" if terms else "metadata_listing",
+        "subject_complete": True,
         "sort": "recent",
         "result_limit": count,
     }
@@ -787,7 +796,10 @@ async def test_trusted_auto_requires_exact_or_all_noncoordinated_title_terms():
 
 
 @pytest.mark.asyncio
-async def test_request_returns_a_small_inline_page_then_uses_full_background_pages(monkeypatch):
+@pytest.mark.parametrize("time_intent", ["document_coverage", "file_activity"])
+async def test_request_returns_a_small_inline_page_then_uses_full_background_pages(
+    monkeypatch, time_intent
+):
     store = SimpleNamespace(
         clear_legacy_completed_request=AsyncMock(),
         by_client=AsyncMock(return_value=None),
@@ -808,9 +820,27 @@ async def test_request_returns_a_small_inline_page_then_uses_full_background_pag
             "periodStart": "2026-06-29",
             "periodEnd": "2026-09-29",
         },
-        plan={"mode": "find", "terms": ["standup"], "file_kind": "document"},
+        plan={
+            "mode": "find",
+            "terms": ["standup"],
+            "file_kind": "document",
+            "time_intent": time_intent,
+        },
         require_current=AsyncMock(),
         after_page=after_page,
+    )
+    checkpoint = store.create.await_args.kwargs["checkpoint"]
+    assert checkpoint["request_selection_version"] == 2
+    assert checkpoint["request_time_intent"] == time_intent
+    assert checkpoint["request_owner_review_required"] is (time_intent == "document_coverage")
+    coverage = checkpoint["coverage_manifest"]
+    assert coverage["timeIntent"] == time_intent
+    assert coverage["ownerReviewRequired"] is (time_intent == "document_coverage")
+    assert coverage["contentPeriodVerified"] is False
+    assert coverage["dateBasis"] == (
+        "content_period_unverified"
+        if time_intent == "document_coverage"
+        else "title_date_then_created_or_modified"
     )
     assert service.run_one.await_args.kwargs["max_pages"] == 1
     assert service.run_one.await_args.kwargs["deadline_seconds"] == 15
@@ -1012,7 +1042,10 @@ async def test_request_search_returns_separate_coordinated_categories(monkeypatc
     assert {item["id"] for item in files} == {"contract-only", "invoice-only"}
 
 
-async def test_real_rest_projection_resolves_shortcut_resource_key_and_live_facts(monkeypatch):
+@pytest.mark.parametrize("review_required", [False, True])
+async def test_real_rest_projection_resolves_shortcut_resource_key_and_live_facts(
+    monkeypatch, review_required
+):
     alias = _provider_file(
         "alias",
         "Stand Up 2026/09/26 - Notes by Gemini",
@@ -1041,8 +1074,10 @@ async def test_real_rest_projection_resolves_shortcut_resource_key_and_live_fact
         )
 
     service, adapter = _real_rest_service(monkeypatch, respond)
+    checkpoint = _checkpoint()
+    checkpoint.update(request_owner_review_required=review_required)
     checkpoint, files, incomplete, done = await service._page(
-        {"user_id": "owner", "checkpoint": _checkpoint()}
+        {"user_id": "owner", "checkpoint": checkpoint}
     )
     assert not incomplete and not done
     assert [(item["id"], item["mimeType"]) for item in files] == [("original", "application/pdf")]
@@ -1053,6 +1088,8 @@ async def test_real_rest_projection_resolves_shortcut_resource_key_and_live_fact
     assert checkpoint["coverage_counts"]["resolvedShortcutCount"] == 1
     assert "targetResourceKey" in LIST_FIELDS and "resourceKey" in FACT_FIELDS
     assert len(adapter.calls) == 2
+    if review_required:
+        assert files[0]["requestEvidence"]["assessment"] == "unverified"
 
 
 @pytest.mark.asyncio

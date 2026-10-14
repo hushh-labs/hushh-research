@@ -1118,7 +1118,7 @@ export function LocationImmersiveMap({
         consumeNearbyPrivateReturn(surfaceResumeToken);
         const resumedUrl = new URL(window.location.href);
         resumedUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
-        window.history.replaceState(window.history.state, "", resumedUrl.href);
+        window.history.replaceState(null, "", resumedUrl.href);
       }
       nearbyHistoryPreparedRef.current = true;
       return;
@@ -1129,7 +1129,7 @@ export function LocationImmersiveMap({
       const resumed = consumeNearbyPrivateReturn(resumeToken);
       const resumedUrl = new URL(window.location.href);
       resumedUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
-      window.history.replaceState(window.history.state, "", resumedUrl.href);
+      window.history.replaceState(null, "", resumedUrl.href);
       if (resumed) {
         nearbyHistoryPreparedRef.current = true;
         return;
@@ -1142,8 +1142,8 @@ export function LocationImmersiveMap({
     actionUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
     const plainMapUrl = new URL(actionUrl.href);
     plainMapUrl.searchParams.delete("action");
-    window.history.replaceState(window.history.state, "", plainMapUrl.href);
-    window.history.pushState(window.history.state, "", actionUrl.href);
+    window.history.replaceState(null, "", plainMapUrl.href);
+    window.history.pushState(null, "", actionUrl.href);
     nearbyHistoryPreparedRef.current = true;
   }, [isCheckInSurface, nearbyCheckInAvailable, router, searchParams]);
 

@@ -229,6 +229,19 @@ same. The `username` payload field is optional and server-validated (3–30
 lowercase letters/digits/single internal dots, reserved/blocked labels rejected).
 
 Public QR resolves count aggregate visits only, without identifying scanners.
+Profile and NWS share that QR and its scan counters. Owner-confirmed QR rotation
+invalidates the old token and atomically resets `scanCount` and `lastScannedAt`
+for the replacement, while preserving the profile and pass serial. Delayed
+scans presenting the old token cannot increment the replacement's counter.
+
+Referral has a separate invitation QR. Authenticated `POST
+/api/one/referrals/rotate` accepts `{slug}` for the currently presented link,
+derives the owner from Firebase authentication, and returns the current referral
+summary. Disabling the old code and minting its replacement commit together;
+allocation failure rolls back both. A stale/repeated request cannot disable a
+newer replacement. Link opens and last opened apply to the current code only;
+earned referrals, accepted invitations, relationships and credits are retained.
+The existing One proxy and native API transport carry the same contract.
 Saved payment-card secrets remain in the encrypted `wallet` PKM domain.
 Temporary sharing of manually added cards uses the existing direct-message
 transaction, connection/block checks and durable Feed projection. A successful
@@ -882,6 +895,12 @@ the retired receipt worker and does not write `kai_gmail_receipts` or
 backend refreshes the existing `gmail.readonly` credential when necessary,
 captures the exact Gmail account/grant binding, and rechecks both vault access
 and that binding before returning information.
+
+Scan and detail items include the optional `durable_source_ref` (an opaque,
+owner/account/connection-bound `grs1_` locator) and `amount_decimal` (the exact
+normalized decimal total, or null when no total is verified). Both fields pass
+through the shared response schema; unexpected fields remain rejected. The
+locator survives encrypted device snapshots without exposing the Gmail ID.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
@@ -1566,9 +1585,11 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | GET | `/answerable` | Approved, unprepared work plus historical paid, unanswered recovery; requester public key with exact participant/consent checks. |
 | POST | `/{id}/compose`, `/{id}/deliver` | Separate default-off transient Gemini composer; exact approved scope values, narrow `memory` and optional source/freshness metadata only. A complete nonempty answer with no reported gaps yields a request/owner/terms/model-bound composition receipt. Successful staging requires that receipt and requester-only ciphertext; verified payment alone releases it. Confirmed absence remains unchargeable, and incomplete reads or model failures remain retryable. No backend PKM decryption or key transfer. |
 | GET | `/{id}/answer` | Ciphertext to its requester only; ungated, so pausing payments never strands an answer already paid for. |
-| GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. |
+| GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. Onboarding accepts an optional strict body `{attempt_id: UUID, purpose?: "verify"}` and returns the matching opaque attempt, hosted URL and canonical Payouts return URL with `source=answers`. Legacy calls without a body remain supported. Owner, account and mode are server-owned. |
 
 Answers remain manual while unlocked. Exact approved plaintext reaches the backend composer and Google Vertex AI for one call, with application NO_CONTENT telemetry and no plaintext persistence. Live mode additionally requires provider-retention review attestation; it does not establish provider zero retention. Payments retain Drive's 3% platform fee, actual Stripe fee, full refund and owner-earnings rules. The separate authenticated answer drain handles deadlines, refunds and settlement even when admission is paused. Historical unbound modes and approvals without consent require explicit reconciliation. See [enablement steps](../operations/env-and-secrets.md#request-scope-enablement-follow-up-2026-10-11) and [memory/runtime boundary](./living-memory-freshness-adr.md).
+
+Answer payout setup uses the shared fenced hosted-browser flow. A warm return preserves the initiating unlocked session; a cold Payouts return requires normal authentication and unlock before answer-specific status or fresh-link recovery. Only opaque attempt/source/purpose metadata persists. Return notifications trigger authenticated reads and never establish eligibility. Answer and document markers are separate; scope events accept neither source. Bank-management links use a separately admitted auxiliary window or native browser and are retired when the owner or vault session changes.
 
 Every new successful answer, including a single name, age or sex, is composed by Gemini. Exact source-linked scope slices share Profile Memory's encrypted `one_living_sources._private.memory_document`; authoritative PKM revisions and exposure metadata are checked before reuse, and missing/stale slices are refreshed before absence is reported. Existing account name/photo supply only their exact approved scopes, explicitly saved legal name takes precedence, and current age is derived from validated saved DOB with no DOB in an age-only slice. Sex requires an explicitly recorded value. Canonical approved photo bytes/reference remain in encrypted presentation and render with the existing Avatar after release; the model receives only a bounded photo descriptor. No KYC repetition is required.
 
@@ -1694,9 +1715,29 @@ connection ended.
 | PATCH | `/api/one/messages/conversations/{conversationId}/messages/{messageId}` | Edit the caller's non-deleted sent message using `{content}`. The envelope is re-encrypted with its original message identity, and the response is the participant-safe updated projection. |
 | DELETE | `/api/one/messages/conversations/{conversationId}/messages/{messageId}?scope=me\|everyone` | `scope=me` hides the message only for the caller. `scope=everyone` is sender-only and replaces content with the durable deleted-message marker for both participants. |
 | PUT | `/api/one/messages/conversations/{conversationId}/messages/{messageId}/reaction` | Set the caller's one durable emoji reaction using `{emoji}`. The response aggregates emoji counts without exposing participant identities. |
+| POST | `/api/one/messages/conversations/{conversationId}/delivered` | Recipient acknowledgment of received bodies using `{messageIds: UUID[]}` (1–100). Every id must be a visible received message in this participant conversation; own, hidden, deleted or foreign messages fail the entire batch without updates. Delivery is idempotent and monotonic; returns `deliveredCount` and `deliveredAt`. |
 | POST | `/api/one/messages/conversations/{conversationId}/read?throughMessageId=` | Mark the viewer's received unread messages through the supplied message's `(created_at,id)` boundary. The optional UUID must belong to this participant-scoped conversation; a foreign boundary returns 404 without updates. Returns `readCount`, `readAt` and, when bounded, `readThroughCreatedAt`. Omitting the boundary preserves the legacy whole-conversation behavior. Reading preserved history remains available after a connection ends. |
 | GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
 | POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
+
+Message projections include nullable `deliveredAt`; `readAt` implies delivery,
+including legacy read rows. Send acceptance and push hints do not establish
+recipient delivery. Inbox body previews and authenticated history can be
+acknowledged without marking them read; the existing visibility/read boundary
+remains separate.
+
+The send route also accepts `attachment: {name, mimeType, data}` with canonical
+unpadded base64url bytes and a 5 MB bound. Voice notes use the existing encrypted
+attachment store with verified mono PCM16, 16 kHz WAV, at most 60 seconds.
+Duration comes from actual samples. Stored/wire `kind: document` keeps WAV files
+readable by older revisions; `durationMs` lets current clients render audio.
+Missing duration falls back to a downloadable file. The authenticated
+`GET /api/one/messages/conversations/{conversationId}/messages/{messageId}/attachment`
+returns private/no-store bytes only after participant and deletion checks.
+Apply migration `327_direct_message_delivery_receipts.sql` before deploying the
+new service readers; rolling back requires reverting those readers and freezing
+writes before the explicit schema rollback. This PR adds voice notes, not live
+peer calls or video-message controls.
 
 Persisted body text is AES-256-GCM ciphertext under the server-managed
 direct-message envelope key. API responses decrypt only inside the authenticated
@@ -2054,6 +2095,12 @@ opaque thought signatures and function-call associations stay server-side.
 The client rejects legacy reasoning events before SDK message storage and uses
 deterministic activity/status text instead of a reasoning detail view.
 
+Shared and private-pod AG-UI routes admit the same closed receipt-tool
+declarations. A receipt continuation must match the authenticated owner,
+conversation and pending call in that owner's encrypted session. Client state
+and caller-selected schemas cannot grant receipt authority; invalid pod
+continuations fail with `POD_CHAT_RECEIPT_NOT_ADMITTED` before agent construction.
+
 #### One Voice
 
 `consent-protocol/api/routes/one/voice.py` owns One Live Voice (Gemini Live on
@@ -2165,6 +2212,51 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 
 #### Account & Sync
 
+Phone metadata refreshes cannot transfer a verified phone to another actor,
+regardless of their descriptive source. Only a server-validated Firebase phone
+session claim carries transfer authority. Fixed-code test verification preserves
+another verified owner: its start response declines the test shortcut. Web uses
+real Firebase OTP; native stops before linking and asks for a different test
+number. Confirmation rechecks under the phone advisory/row
+locks and returns `PHONE_TEST_NUMBER_IN_USE` (409) for a stale/racing test challenge.
+Same-owner retries and claims for unbound test numbers remain supported. An
+unavailable ownership read returns `PHONE_TEST_IDENTITY_UNAVAILABLE` (503).
+
+Phone confirmation requests may supply `expected_user_id`; it must match the
+authenticated Firebase UID before proof verification or persistence. Clients
+fence pending verification by account and attempt generation, so an account
+switch or resend cannot publish an earlier result. Native completion waits for
+a fresh backend identity with the exact current UID and linked verified phone;
+provider linking alone is not reported as a saved app-level phone. Linked
+provider metadata does not authorize cross-owner reconciliation.
+Native finalization uses `/api/account/identity/refresh?require_success=true`:
+this forces current provider/persistence success and returns 503 on failure
+instead of falling back to a prior identity. Background refresh keeps its
+existing cache fallback.
+
+If a native OTP links the provider phone but persistence is unavailable, retry
+reads the native provider directly (without substituting the cached Firebase JS
+user) and reruns only strict identity synchronization for the same owner and
+requested phone. It does not send another OTP or repeat link/unlink. Same-number
+submit and linked-phone Continue wait for this synchronization before completion;
+account/attempt fences still apply. Native test-start failures or malformed
+responses stop before linking. Only a successful explicit nonallowlisted response
+falls through to normal native OTP.
+
+An existing native app-level phone, including a backend-only UAT claim, may
+continue without another challenge only when a forced strict backend refresh
+confirms the same UID, exact published/requested number and verified binding.
+Cached hints alone never authorize completion. This preserves the native
+same-number/linked Continue path without requiring an SDK phone link for an
+already saved backend-only claim.
+
+Web verification's app-level phone need not be linked to the primary social
+Firebase user. Auth state publishes a fresh verified identity-cache phone after
+the backend claim commits, including same-user Firebase republication, and never
+uses stale/unverified cache evidence or a previous user's cache. Historical
+missing phone bindings are not reconstructed from email verification or OTP log
+messages; account owners restore them through the existing phone verification flow.
+
 | Method | Path                                              | Description                                                                                                                                                                                              |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/account/identity/refresh`                   | Refresh backend identity shadow from Firebase Auth                                                                                                                                                       |
@@ -2240,11 +2332,33 @@ Security invariant:
 | ------ | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/consent/data` | Legacy consent-token encrypted export path; Developer API and MCP integrations should prefer `/api/v1/scoped-export` or `get_encrypted_scoped_export`, which return ciphertext plus `wrapped_key_bundle` for connector-local decryption. The MCP tool carries ciphertext directly; raw HTTP retains its resource endpoint for compatibility. |
 
+### One Feed history
+
+The One Feed history API uses Firebase bearer authentication. The owner always
+comes from the verified token; item IDs are presentation-row IDs, never an
+authorization grant. All writes are idempotent and leave source domain records
+and audit trails intact.
+
+| Method | Path | Feed history contract |
+| ------ | ---- | --------------------- |
+| GET | `/api/one/feed?cursor=&limit=` | Owner-scoped, grouped newest-first history with keyset pagination; returns `{items,next_cursor,unread_count}` and `Cache-Control: private, no-store`. Hidden rows do not appear. |
+| POST | `/api/one/feed/{item_id}/dismiss` | Marks this owner's presentation row hidden and read. Returns `{status:"ok",dismissal_token:"<UUID>"}` for a newly hidden row; missing, another owner's, or already hidden IDs return a null token. |
+| POST | `/api/one/feed/{item_id}/restore` | Body `{dismissal_token:"<UUID>"}`. Undoes only that exact dismissal, leaving the row read. Returns `{status:"ok",restored:boolean}`; missing, another owner's, or superseded tokens return false. |
+| POST | `/api/one/feed/clear` | Body `{up_to_id:"<positive Postgres bigint>"}`. Atomically marks this owner's existing rows through that ID hidden and read, and replaces their dismissal tokens so a stale Undo cannot revive them. Newer rows remain visible. Returns `{status:"ok"}`. |
+
+The latest grouped chat row is hidden after grouping, so dismissing it cannot
+reveal an older message in the same thread. A later new message can make the
+thread visible again. A dismissal also covers older rows in the same displayed
+Consent bundle. A Drive outcome dismissal also hides earlier outcome rows for
+that same request; its decision, progress, and payment entries remain visible.
+Account deletion removes its Feed rows and hide state.
+
 ### SSE (Server-Sent Events)
 
 | Method | Path                                                               | Description                                                                                                                                                                                                         |
 | ------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/consent/events/{user_id}`                                    | Disabled in production unless `CONSENT_SSE_ENABLED=true`                                                                                                                                                            |
+| GET    | `/api/consent/events/{user_id}?capabilities=1`                     | Firebase bearer matching `user_id`; returns `{enabled:boolean}` with private/no-store headers without opening a stream. The web client discovers availability before connecting and retains inbox/FCM delivery when disabled. |
 | GET    | `/api/consent/events/{user_id}/poll/{request_id}`                  | Deprecated and disabled (`410`, `CONSENT_POLL_DEPRECATED`)                                                                                                                                                          |
 | GET    | `/api/v1/consent-events?user_id={user_id}&request_id={request_id}` | Developer-authenticated SSE for the outside agent; prefer `Authorization: Bearer <developer-token>`; emits `snapshot`, `consent_update`, and `heartbeat`; scoped to the developer app that owns the consent request |
 | GET    | `/api/consent/document-feed/{user_id}?v=1\|2`                      | Firebase bearer whose uid must equal `user_id` (403 `USER_ID_MISMATCH`). Wake-ups for document requests, the Feed and payouts. `v=2` sends typed frames. Without `v` (or `v=1`) it is the v1 long-poll: it closes about 500 ms after its first change frame and lives at most 110-120 s. The web reaches it through the same-origin Next proxy at the same path, which accepts only `v=1` or `v=2` and ends each stream after 90-110 s, below the web server's request timeout. Native apps call the backend directly |
@@ -3456,7 +3570,7 @@ responses are private/no-store. The web connector proxy preserves `PUT` for
 | `PUT /api/connectors/google_drive/sharing/pricing` | `{enabled,amountCents,expectedVersion}`; whole USD dollars from $1 to $500. Concurrent edits fail with `price_changed`; existing orders keep their amount. |
 | `POST /api/connectors/google_drive/sharing/requests/{id}/price` | Owner's `{revision,amountCents,confirmed:true}` for a pending Trusted request without a price. Sets this request's quote, without extending sharing consent or replacing current trust checks. Refuses stale, closed, already searched or ordered requests. |
 | `GET /api/one/payouts/account?fresh=true` | Current `stripeMode` and safe Connect readiness booleans/status, verified with Stripe. Optional default USD bank display name/last four/status, `bankStatus`, `canManageBank`, `verification` (state, due date, what Stripe needs, in plain codes) and `payoutSchedule`. A masked status is cached 30 s per owner, mode and account; `fresh=true` (a return from Stripe, Retry) reads Stripe directly. Display only: money paths re-verify. No provider account ID or banking credentials. |
-| `POST /api/one/payouts/account/onboard` | One US Express account per owner and Stripe mode; a fresh Stripe setup URL returns to Profile → Payouts. Optional body `{purpose:"verify"}` opens Stripe's update flow for details Stripe needs. Test setup never satisfies live readiness. |
+| `POST /api/one/payouts/account/onboard` | One US Express account per owner and Stripe mode; a fresh Stripe setup URL returns to Profile → Payouts. Optional strict body `{attempt_id: UUID, purpose?: "verify"}` correlates the hosted return with `source=documents`; `purpose:"verify"` opens Stripe's update flow for details Stripe needs. Legacy calls without a body remain supported. Test setup never satisfies live readiness. |
 | `POST /api/one/payouts/account/manage` | A fresh Stripe Express login link for the authenticated owner's existing US Express account, including restricted accounts needing bank repair. Deleted/non-US/non-Express accounts are rejected. No caller-selected destination account. |
 | `GET /api/one/payouts/account/earnings?cursor=…&mode=live\|test` | Owner-scoped document transactions, at most 20 per page, newest first; opaque request UUID cursor; `mode` defaults to the payment mode. Shows gross, refund, 3% commission, actual allocated processing fee, net earnings, reversal and delivery counts. Unknown amounts remain null. |
 | `GET /api/one/payouts/account/bank-payouts?cursor=…` | Up to 20 recorded Stripe bank payout statuses per page with `nextCursor`. Each keeps the masked bank it was sent to (write-once), the payout method, Stripe's bank trace and reconciliation status, and when the status changed; a same-status provider update still applies. An account transfer is never reported as a bank deposit. |

@@ -110,10 +110,19 @@ interface Variant {
    * do with the defect it exists to reproduce.
    */
   applyShippedGate: boolean;
+  /** Opt into the actual centered header CSS and NativeChatChrome wrappers. */
+  centeredHeader?: boolean;
+  legacyPhoneCss?: boolean;
+  stackedPhoneCss?: boolean;
+  workingSubtitle?: string;
+  safeTop?: number;
 }
 
 const SHIPPED: Variant = { canPickOneModel: true, applyShippedGate: true };
-const SINGLE_MODEL: Variant = { canPickOneModel: false, applyShippedGate: true };
+const SINGLE_MODEL: Variant = {
+  canPickOneModel: false,
+  applyShippedGate: true,
+};
 const AS_REPORTED: Variant = { canPickOneModel: true, applyShippedGate: false };
 
 function escapeHtml(value: string): string {
@@ -145,7 +154,8 @@ function decide(mode: Mode, variant: Variant) {
     ),
     showPicker,
     oneHidden: String(
-      evaluateShippedExpression(SRC.visibility.oneHiddenExpression, scope) || "",
+      evaluateShippedExpression(SRC.visibility.oneHiddenExpression, scope) ||
+        "",
     ),
     puppyHidden: String(
       evaluateShippedExpression(SRC.visibility.puppyHiddenExpression, scope) ||
@@ -184,7 +194,7 @@ function renderScreen(mode: Mode, variant: Variant): string {
       return `<button type="button" role="radio" data-mode="${option.value}"
         aria-checked="${active}" aria-label="${escapeHtml(option.accessibleLabel ?? option.label)}"
         class="${SRC.toggle.segmentClass}${active ? " bg-background text-foreground shadow-sm" : " text-muted-foreground"}"
-      >${option.icon ? `<span aria-hidden="true" class="inline-block ${SRC.toggle.iconClass}"></span>` : ""}<span class="${SRC.toggle.labelClass}">${escapeHtml(option.label)}</span></button>`;
+      >${option.icon ? `<svg aria-hidden="true" class="inline-block ${SRC.toggle.iconClass}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor"/></svg>` : ""}<span class="${SRC.toggle.labelClass}">${escapeHtml(option.label)}</span></button>`;
     })
     .join("");
 
@@ -194,13 +204,30 @@ function renderScreen(mode: Mode, variant: Variant): string {
          aria-label="${escapeHtml(SRC.cloudPicker.ariaLabel)}"
          title="${escapeHtml(cloudChipTitle())}"
          class="${SRC.cloudPicker.triggerClass} inline-flex items-center"
-       ><span class="truncate">${escapeHtml(cloudChipLabel())}</span></button>`
+       ><svg aria-hidden="true" class="${SRC.cloudPicker.iconClass}" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor"/></svg><span class="truncate">${escapeHtml(cloudChipLabel())}</span></button>`
     : "";
 
-  const toggle = `<div class="${SRC.toggle.frameClass}"><div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
-             class="${SRC.toggle.containerClass}">${segments}</div></div>`;
-  const profile = `<button type="button" data-testid="profile-open-button" aria-label="Open Profile"
+  const toggleGroup = `<div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
+             class="${SRC.toggle.containerClass} w-auto shrink-0">${segments}</div>`;
+  const framedToggle = `<div class="${SRC.toggle.frameClass}">${toggleGroup}</div>`;
+  const toggle = variant.centeredHeader
+    ? `<div class="${SRC.header.centered.surfaceClass}"><div>${framedToggle}</div></div>`
+    : framedToggle;
+  const profileButton = `<button type="button" data-testid="profile-open-button" aria-label="Open Profile"
              class="inline-flex shrink-0 items-center justify-center rounded-full ${SRC.header.profileClass}"><span data-testid="profile-photo" class="${SRC.header.profilePhotoClass}"></span></button>`;
+  const profile = variant.centeredHeader
+    ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle">${profileButton}</span>`
+    : profileButton;
+  const historyButton = `<button type="button" data-testid="history-button" aria-label="Open chat history" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full">☰</button>`;
+  const history = variant.centeredHeader
+    ? `<div class="${SRC.header.centered.historyClass}"><div><span class="relative inline-flex shrink-0">${historyButton}</span></div></div>`
+    : historyButton;
+  const artwork = SRC.header.centered.artwork;
+  const artworkMarkup = `<div class="${artwork.containerClass}"><img data-testid="one-artwork" alt="" width="64" height="64" class="${artwork.className}"></div>`;
+  const brand = variant.centeredHeader
+    ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle"><button data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="inline-flex items-center justify-center rounded-full ${SRC.header.centered.profileTriggerClass}"><span class="inline-flex items-center justify-center">${artworkMarkup}</span></button></span>`
+    : "";
+  const subtitle = variant.workingSubtitle ?? plan.subtitle;
   // Rendered in the shipped source order, so the toggle's anchor is whatever
   // the product anchors it to.
   const actions = SRC.header.actionOrder
@@ -208,16 +235,16 @@ function renderScreen(mode: Mode, variant: Variant): string {
     .join("");
 
   const header = `
-    <div data-testid="agent-header" class="${SRC.header.containerClass}">
-      <button type="button" aria-label="Open chat history" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full"></button>
-      <div data-testid="agent-identity" class="${SRC.header.identityClass}">
-        <div data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}"></div>
+    <div data-testid="agent-header" ${variant.centeredHeader && evaluateShippedExpression(SRC.header.centeredMarkerExpression, { isPuppySurface: mode === "puppy" }) === "true" ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
+      ${history}
+      <div data-testid="agent-identity" data-agent-chat-header-region="identity" class="${SRC.header.identityClass}">
+        <div data-testid="agent-brand-tile" data-agent-chat-brand-tile class="${SRC.header.brandTileClass}">${brand}</div>
         <div class="min-w-0">
           <div data-testid="agent-name" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
-          ${plan.subtitle ? `<p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}">${escapeHtml(plan.subtitle)}</p>` : ""}
+          ${subtitle ? `<p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}"><span class="block truncate">${escapeHtml(subtitle)}</span></p>` : ""}
         </div>
       </div>
-      <div data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">${actions}</div>
+      <div data-testid="agent-header-cluster" data-agent-chat-header-region="actions" class="${SRC.header.clusterClass}">${actions}</div>
     </div>`;
 
   /*
@@ -345,7 +372,29 @@ async function buildFixture(variant: Variant): Promise<string> {
       for (const token of match[1].split(/\s+/)) if (token) used.add(token);
     }
   }
-  const css = await compileTailwind(used);
+  let css = await compileTailwind(used);
+  if (variant.centeredHeader) {
+    const globals = fs.readFileSync(
+      path.join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+    const start = globals.indexOf("/* Equal outer tracks center One");
+    if (start < 0) throw new Error("Centered header styles are missing");
+    const headerCss = globals.slice(start);
+    const phoneStart = headerCss.indexOf("/* One's phone header");
+    if (phoneStart < 0) throw new Error("Phone header styles are missing");
+    css += variant.legacyPhoneCss ? headerCss.slice(0, phoneStart) : headerCss;
+    if (variant.stackedPhoneCss) {
+      // Reproduce the previous centered identity above a separate control row.
+      css += `@media (max-width: 767px) {
+        .agent-chat-header[data-one-centered-header="true"] { grid-template-rows: 88px 44px; height: calc(152px + var(--agent-chat-header-safe-top)); }
+        .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] { grid-column: 1 / -1; grid-row: 1; }
+        .agent-chat-header[data-one-centered-header="true"] > .agent-chat-history-control,
+        .agent-chat-header[data-one-centered-header="true"] .agent-chat-surface-control,
+        .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="actions"] > span:last-child { grid-row: 2; }
+      }`;
+    }
+  }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-surface-"));
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
@@ -359,6 +408,7 @@ async function buildFixture(variant: Variant): Promise<string> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="fixture.css">
 <style>${TOKENS}
+:root { --agent-chat-header-safe-top: ${variant.safeTop ?? 0}px; }
 ${productFontStyle()}
 </style></head><body>
 <div id="screen"></div>
@@ -389,7 +439,9 @@ async function openFixture(page: Page, variant: Variant, width: number) {
 }
 
 function segment(mode: Mode) {
-  const option = SRC.toggle.options.find((candidate) => candidate.value === mode);
+  const option = SRC.toggle.options.find(
+    (candidate) => candidate.value === mode,
+  );
   if (!option) throw new Error(`no "${mode}" segment in the shipped toggle`);
   return option;
 }
@@ -492,7 +544,14 @@ test.describe("Agent Chat: which agent is answering", () => {
     expect(puppyName).not.toBe(oneName);
 
     await expect(page.getByTestId("agent-name")).toHaveText(oneName);
-    await expect(page.getByTestId("agent-subtitle")).toHaveCount(0);
+    if (decide("one", SHIPPED).subtitle) {
+      await expect(page.getByTestId("agent-subtitle")).toHaveText(
+        decide("one", SHIPPED).subtitle,
+      );
+    } else {
+      // ChatAgentSubtitle returns null at rest; no fabricated idle line.
+      await expect(page.getByTestId("agent-subtitle")).toHaveCount(0);
+    }
     await expect(
       page.locator(`[aria-label="${oneOption.accessibleLabel}"]`),
     ).toHaveAttribute("aria-checked", "true");
@@ -502,7 +561,9 @@ test.describe("Agent Chat: which agent is answering", () => {
     // The name is the reader's only guarantee about which agent is answering,
     // so it names the agent on screen, not the workspace.
     await expect(page.getByTestId("agent-name")).toHaveText(puppyName);
-    await expect(page.getByTestId("agent-subtitle")).toHaveText(decide("puppy", SHIPPED).subtitle);
+    await expect(page.getByTestId("agent-subtitle")).toHaveText(
+      decide("puppy", SHIPPED).subtitle,
+    );
     await expect(
       page.locator(`[aria-label="${puppyOption.accessibleLabel}"]`),
     ).toHaveAttribute("aria-checked", "true");
@@ -612,22 +673,36 @@ test.describe("Agent Chat: which agent is answering", () => {
       // toggle, which is anchored to the profile button at the right edge. Put
       // the picker between them and its exit drags the toggle sideways out
       // from under the thumb that just pressed it.
-      expect(Math.abs(after.toggle.x - before.toggle.x)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(after.toggle.width - before.toggle.width)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(after.toggle.y - before.toggle.y)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(after.toggle.x - before.toggle.x)).toBeLessThanOrEqual(
+        0.5,
+      );
+      expect(
+        Math.abs(after.toggle.width - before.toggle.width),
+      ).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(after.toggle.y - before.toggle.y)).toBeLessThanOrEqual(
+        0.5,
+      );
 
       // The right-hand cluster keeps its right edge (it narrows by exactly the
       // picker it lost), and stays on the page.
       expect(
-        Math.abs(after.cluster.x + after.cluster.width - (before.cluster.x + before.cluster.width)),
+        Math.abs(
+          after.cluster.x +
+            after.cluster.width -
+            (before.cluster.x + before.cluster.width),
+        ),
       ).toBeLessThanOrEqual(0.5);
-      expect(after.cluster.x + after.cluster.width).toBeLessThanOrEqual(width + 0.5);
+      expect(after.cluster.x + after.cluster.width).toBeLessThanOrEqual(
+        width + 0.5,
+      );
       expect(after.cluster.x).toBeGreaterThanOrEqual(-0.5);
 
       // And the header does not grow a line on the longer name: "Puppy One"
       // is three times "One", and the identity block it sits in is the half
       // that is allowed to shrink.
-      expect(Math.abs(after.header.height - before.header.height)).toBeLessThanOrEqual(0.5);
+      expect(
+        Math.abs(after.header.height - before.header.height),
+      ).toBeLessThanOrEqual(0.5);
 
       // Nothing slides under a control: the identity region ends before the
       // actions begin, in both modes. This is the 390px defect where the brand
@@ -636,7 +711,9 @@ test.describe("Agent Chat: which agent is answering", () => {
         if (mode === "one") await switchTo(page, "one");
         const identity = await box(page, "agent-identity");
         const cluster = await box(page, "agent-header-cluster");
-        expect(identity.x + identity.width).toBeLessThanOrEqual(cluster.x + 0.5);
+        expect(identity.x + identity.width).toBeLessThanOrEqual(
+          cluster.x + 0.5,
+        );
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
       }
     });
@@ -683,5 +760,133 @@ test.describe("Agent Chat: which agent is answering", () => {
     // A cloud model named on the surface whose whole claim is that the answer
     // was generated on the owner's machine.
     expect(await visibleClaims(page)).toMatch(CLOUD_VENDOR);
+  });
+});
+
+test.describe("One centered header: phone regression", () => {
+  test("centers One on the phone screen and keeps the controls aligned and reachable", async ({
+    page,
+  }) => {
+    for (const width of [320, 360, 393, 430, 640, 767]) {
+      for (const canPickOneModel of [false, true]) {
+        const safeTop = width === 393 ? 64 : width === 360 ? 0 : 32;
+        const variant = {
+          ...SHIPPED,
+          canPickOneModel,
+          centeredHeader: true,
+          safeTop,
+          workingSubtitle: "Checking your upcoming calendar appointments…",
+        };
+        await openFixture(page, variant, width);
+        const targets = [
+          "history-button",
+          ...(canPickOneModel ? [SRC.cloudPicker.testId] : []),
+          "one-profile-button",
+          "agent-toggle",
+          "profile-open-button",
+        ];
+        const boxes = await Promise.all(targets.map((id) => box(page, id)));
+        const center = boxes[0].y + boxes[0].height / 2;
+        for (const rect of boxes) {
+          expect(rect.width).toBeGreaterThanOrEqual(44);
+          expect(rect.height).toBeGreaterThanOrEqual(44);
+          expect(Math.abs(rect.y + rect.height / 2 - center)).toBeLessThan(1);
+          expect(rect.x).toBeGreaterThanOrEqual(0);
+          expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+        }
+        for (let i = 1; i < boxes.length; i++)
+          expect(boxes[i].x).toBeGreaterThanOrEqual(
+            boxes[i - 1].x + boxes[i - 1].width,
+          );
+        for (const radio of await page.getByRole("radio").all()) {
+          const target = await radio.boundingBox();
+          expect(target?.width).toBeGreaterThanOrEqual(44);
+          expect(target?.height).toBeGreaterThanOrEqual(44);
+        }
+        const identity = await box(page, "agent-identity");
+        expect(
+          Math.abs(identity.x + identity.width / 2 - width / 2),
+        ).toBeLessThan(1);
+        const avatar = await box(page, "one-profile-button");
+        const name = await box(page, "agent-name");
+        expect(Math.abs(avatar.x + avatar.width / 2 - width / 2)).toBeLessThan(
+          1,
+        );
+        expect(Math.abs(name.x + name.width / 2 - width / 2)).toBeLessThan(1);
+        expect(name.y).toBeGreaterThanOrEqual(avatar.y + avatar.height + 2);
+        await expect(page.getByTestId("agent-name")).toBeVisible();
+        expect(
+          await page
+            .getByTestId("agent-name")
+            .evaluate((el) => el.scrollWidth <= el.clientWidth),
+        ).toBe(true);
+        const oneTarget = await box(page, "one-profile-button");
+        expect(oneTarget.width).toBe(44);
+        expect(oneTarget.height).toBe(44);
+        const artwork = await box(page, "one-artwork");
+        expect(artwork.width).toBe(36);
+        expect(artwork.height).toBe(36);
+        await expect(page.getByTestId("agent-name")).toHaveText("One");
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
+        const header = await box(page, "agent-header");
+        expect(header.height).toBe(86 + safeTop);
+        expect(name.y + name.height).toBeLessThanOrEqual(
+          header.y + header.height - 8,
+        );
+        if (canPickOneModel) {
+          const picker = await box(page, SRC.cloudPicker.testId);
+          expect(picker.y).toBe(boxes[0].y);
+          await expect(
+            page
+              .getByTestId(SRC.cloudPicker.testId)
+              .locator(".agent-chat-model-icon"),
+          ).toBeVisible();
+          expect(picker.height).toBeGreaterThanOrEqual(44);
+          expect(picker.x + picker.width).toBeLessThanOrEqual(width);
+        }
+      }
+    }
+  });
+
+  test("preserves desktop geometry at the breakpoint and wider screens", async ({
+    page,
+  }) => {
+    for (const width of [768, 1024, 1440]) {
+      const variant = { ...SHIPPED, centeredHeader: true };
+      await openFixture(page, { ...variant, legacyPhoneCss: true }, width);
+      const ids = [
+        "agent-header",
+        "history-button",
+        "one-profile-button",
+        "one-artwork",
+        "agent-name",
+        "agent-toggle",
+        "profile-open-button",
+        SRC.cloudPicker.testId,
+      ];
+      const before = await Promise.all(ids.map((id) => box(page, id)));
+      await openFixture(page, variant, width);
+      const after = await Promise.all(ids.map((id) => box(page, id)));
+      expect(after).toEqual(before);
+      expect(after[2].width).toBe(72);
+      expect(after[3].width).toBe(64);
+    }
+  });
+
+  test("detects the previous stacked phone header", async ({ page }) => {
+    await openFixture(
+      page,
+      { ...SINGLE_MODEL, centeredHeader: true, stackedPhoneCss: true },
+      393,
+    );
+    const avatar = await box(page, "one-profile-button");
+    const history = await box(page, "history-button");
+    expect(
+      Math.abs(avatar.y + avatar.height / 2 - history.y - history.height / 2),
+    ).toBeGreaterThan(40);
   });
 });

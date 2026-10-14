@@ -461,7 +461,9 @@ async def test_private_chat_stream_has_single_sse_framing_and_safe_errors(monkey
             closed.append(True)
 
     owner = SimpleNamespace(
-        owner="synthetic-owner", build_agent=AsyncMock(return_value=SimpleNamespace(run=run))
+        owner="synthetic-owner",
+        require_access=AsyncMock(),
+        build_agent=AsyncMock(return_value=SimpleNamespace(run=run)),
     )
     monkeypatch.setattr(pod_agent_chat, "trusted_state", lambda *_: ({}, None))
     app = FastAPI()
@@ -482,4 +484,5 @@ async def test_private_chat_stream_has_single_sse_framing_and_safe_errors(monkey
     if fail:
         assert events[-1]["code"] == "AGENT_ERROR"
     assert "synthetic-private-provider-detail" not in response.text
+    assert owner.require_access.await_count == 2
     assert closed == [True]

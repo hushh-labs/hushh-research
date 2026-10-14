@@ -444,7 +444,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
             f"scripts/deploy/{name}"
             for name in (
                 "backend-deploy.sh",
-                "backend-model-settings.sh",
+                *("backend-model-settings.sh", "backend-drive-secret-settings.sh"),
                 "commerce-preview-bindings.sh",
                 "scope-commerce-secrets.sh",
                 "pod-release-env.sh",

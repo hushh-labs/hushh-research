@@ -12,7 +12,9 @@
  * payment.
  */
 
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { ApiService } from "@/lib/services/api-service";
+import { AnswerPayoutService } from "./answer-payout-service";
 
 const REQUEST_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,7 +67,7 @@ export interface AnswerPaymentView {
   paidAt: string | null;
   refundedAt: string | null;
   refundReason: string | null;
-  preparationStatus: "preparing" | "ready" | "empty";
+  preparationStatus: "preparing" | "ready" | "empty" | "retry_required";
   reconciliationRequired: boolean;
   /** Quoted BEFORE checkout: the answer is produced on the owner's device. */
   fulfilment: "owner_device";
@@ -201,66 +203,9 @@ export class AnswerRequestService {
     };
   }
 
-  static async payoutAccount(
-    firebaseIdToken: string,
-  ): Promise<{
-    stripeMode: "test" | "live";
-    account: { ready: boolean; canManageBank: boolean } | null;
-  }> {
-    const response = await ApiService.apiFetch(
-      "/api/one/answer-requests/payout-account",
-      {
-        cache: "no-store",
-        headers: { Authorization: `Bearer ${firebaseIdToken}` },
-      },
-    );
-    if (!response.ok) throw new Error("Could not verify answer payout setup.");
-    const value = await readJson(response);
-    if (value.stripeMode !== "test" && value.stripeMode !== "live")
-      throw new Error("Invalid payout mode");
-    const account = value.account;
-    if (
-      account !== null &&
-      (!account ||
-        typeof account !== "object" ||
-        !("ready" in account) ||
-        typeof account.ready !== "boolean")
-    )
-      throw new Error("Invalid payout response");
-    return value as {
-      stripeMode: "test" | "live";
-      account: { ready: boolean; canManageBank: boolean } | null;
-    };
-  }
-
-  static async payoutLink(
-    firebaseIdToken: string,
-    action: "onboarding" | "dashboard",
-  ): Promise<string> {
-    const response = await ApiService.apiFetch(
-      `/api/one/answer-requests/payout-account/${action}`,
-      {
-        method: "POST",
-        cache: "no-store",
-        headers: { Authorization: `Bearer ${firebaseIdToken}` },
-      },
-    );
-    if (!response.ok)
-      throw new Error(
-        "Could not open answer payout setup. Please retry or contact support.",
-      );
-    const value = await readJson(response);
-    const url = new URL(String(value.url || ""));
-    if (
-      url.protocol !== "https:" ||
-      !["connect.stripe.com", "stripe.com"].includes(url.hostname) ||
-      url.username ||
-      url.password ||
-      url.port
-    )
-      throw new Error("Invalid payout link");
-    return url.href;
-  }
+  static payoutAccount = AnswerPayoutService.account;
+  static payoutLink = AnswerPayoutService.link;
+  static payoutOnboarding = AnswerPayoutService.onboarding;
 
   /** Questions this owner has been asked and has not yet answered or refused. */
   static async inbox(firebaseIdToken: string): Promise<PendingAnswerRequest[]> {
@@ -292,6 +237,13 @@ export class AnswerRequestService {
     return await response.json();
   }
 
+  static async retryResolution(token: string, requestId: string): Promise<void> {
+    const response = await ApiService.apiFetch(`${requestPath(requestId)}/resolve`, {
+      method: "POST", cache: "no-store", headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error("This question could not be matched. Try again.");
+  }
+
   /** Approve the exact question, the exact scopes and a whole-dollar price. */
   static async approve(
     firebaseIdToken: string,
@@ -320,6 +272,7 @@ export class AnswerRequestService {
     );
     if (!response.ok) throw new Error("This request could not be approved");
     const value = await readJson(response);
+    dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
     return { termsDigest: String(value.termsDigest || "") };
   }
 
@@ -455,6 +408,7 @@ export class AnswerRequestService {
       },
     );
     if (!response.ok) throw new Error("This answer could not be delivered");
+    dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
   }
 
   /** Submit a question. Returns the new request id; resolution happens server-side. */
@@ -490,6 +444,7 @@ export class AnswerRequestService {
     const value = await readJson(response);
     const requestId = String(value.requestId || "");
     if (!REQUEST_UUID.test(requestId)) throw new Error("Invalid response");
+    dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
     return { requestId };
   }
 
@@ -525,7 +480,7 @@ export class AnswerRequestService {
       throw new Error("Invalid payment response");
     }
     // Older deployments cannot prove preparation; never offer checkout from an absent field.
-    value.preparationStatus = ["preparing", "ready", "empty"].includes(String(value.preparationStatus))
+    value.preparationStatus = ["preparing", "ready", "empty", "retry_required"].includes(String(value.preparationStatus))
       ? value.preparationStatus : "preparing";
     value.reconciliationRequired = value.reconciliationRequired !== false;
     if (["paid", "refunded"].includes(String(value.orderStatus)) &&

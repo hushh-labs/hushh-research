@@ -110,11 +110,13 @@ def test_build_live_client_refuses_developer_api_key_mode(fake_genai_client, mon
     assert fake_genai_client == []
 
 
-def test_hosted_environment_cannot_select_developer_key_for_live(monkeypatch):
+def test_hosted_environment_cannot_select_developer_key_for_live(monkeypatch, fake_genai_client):
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
-    with pytest.raises(RuntimeError, match="Vertex ADC"):
-        factory.build_managed_live_client(model=LIVE_MODEL, location="us-central1")
+    factory.build_managed_live_client(model=LIVE_MODEL, location="us-central1")
+    assert fake_genai_client[0]["vertexai"] is True
+    assert fake_genai_client[0]["project"] == "hussh-511311"
+    assert "api_key" not in fake_genai_client[0]
 
 
 # --- the declarations really reach the Live model ---------------------------

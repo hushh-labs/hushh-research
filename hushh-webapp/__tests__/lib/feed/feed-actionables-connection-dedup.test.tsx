@@ -40,7 +40,18 @@ const mocks = vi.hoisted(() => ({
   answerCheckout: vi.fn(),
   answerDecline: vi.fn(),
   idToken: vi.fn(),
+  driveCheckout: vi.fn(),
+  toastError: vi.fn(),
 }));
+
+vi.mock("@/lib/services/drive-request-payment-service", async (original) => ({
+  ...(await original<typeof import("@/lib/services/drive-request-payment-service")>()),
+  DriveRequestPaymentService: { checkout: mocks.driveCheckout },
+}));
+vi.mock("@/lib/morphy-ux/morphy", async (original) => {
+  const actual = await original<typeof import("@/lib/morphy-ux/morphy")>();
+  return { ...actual, morphyToast: { ...actual.morphyToast, error: mocks.toastError } };
+});
 
 vi.mock("@/lib/services/answer-request-service", async (importOriginal) => ({
   ...(await importOriginal<
@@ -227,6 +238,7 @@ import { DriveSharingError } from "@/lib/services/drive-sharing-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 /** The Consent Center's projection of an incoming connection request. */
 const consentConnectionEntry = {
@@ -803,6 +815,18 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     }
   });
 
+  it("opens package review from Feed even when an older row omitted its package marker", async () => {
+    mocks.review.mockResolvedValue(ownerReview({ agentPackage: { status: "ready" } }));
+    const { result } = renderWith(documentEntry(DOC_ID));
+    act(() => { actionOf(documentRow(result), "allow").run(); });
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    expect(mocks.push.mock.lastCall?.[0]).toContain(encodeURIComponent(`document_share_request:${DOC_ID}`));
+    expect(result.current.documentPricePrompt.open).toBe(false);
+    act(() => result.current.documentPricePrompt.submit(2000));
+    expect(mocks.allow).not.toHaveBeenCalled();
+    expect(mocks.setRequestPrice).not.toHaveBeenCalled();
+  });
+
   it("Allow opens the price step at once and sends the owner's price on this vault session", async () => {
     mocks.allow.mockResolvedValue({
       requestId: DOC_ID,
@@ -897,11 +921,11 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
       expect(result.current.documentPricePrompt.detailsPending).toBe(false),
     );
 
-    // A price that is not whole dollars never leaves the device.
-    act(() => result.current.documentPricePrompt.submit(2050));
+    // An amount below the Drive minimum never leaves the device.
+    act(() => result.current.documentPricePrompt.submit(49));
     expect(mocks.allow).not.toHaveBeenCalled();
     expect(result.current.documentPricePrompt.error).toBe(
-      "Choose a whole-dollar price from $1 to $500.",
+      "Choose a price from $0.50 to $500.",
     );
 
     act(() => result.current.documentPricePrompt.submit(2000));
@@ -977,7 +1001,7 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
 
   it.each([
     ["missing", undefined],
-    ["fractional", 1050],
+    ["sub-cent", 1050.5],
     ["above the limit", 50_100],
     ["not a number", "2500"],
   ])("never lets a %s estimate block pricing", async (_label, estimateCents) => {
@@ -1492,7 +1516,7 @@ describe("Request scope Needs you", () => {
     expect(row.actions).toEqual([]);
   });
 
-  it("does not price an answer the owner's device has not reported yet", () => {
+  it.each([false, true])("does not price an unstaged answer, including overdue=%s", (overdue) => {
     // Locked, offline or still reading. "Not found" would be a guess and so
     // would a price, so the row says what is actually happening.
     mocks.pendingCount = 1;
@@ -1504,6 +1528,7 @@ describe("Request scope Needs you", () => {
           role: "requester",
           proposed_scope_count: 3,
           answer_staged: false,
+          preparation_overdue: overdue,
           amount_cents: 100,
           question: "What is your age?",
         },
@@ -1513,7 +1538,9 @@ describe("Request scope Needs you", () => {
     const row = result.current.actionables.find(
       (item) => item.id === `consent:${ANSWER_ID}`,
     )!;
-    expect(row.description).toBe("Checking their memory for an answer");
+    expect(row.description).toBe(overdue
+      ? "Ask them to unlock memory and retry preparation"
+      : "Their answer is being prepared");
     expect(row.actions).toEqual([]);
   });
 
@@ -1532,5 +1559,108 @@ describe("Request scope Needs you", () => {
       (item) => item.id === `consent:${ANSWER_ID}`,
     )!;
     expect(row.actions.map((action) => action.key)).toEqual(["review-answer"]);
+  });
+});
+
+describe("Checkout callbacks stay with their original feed scope", () => {
+  function checkoutEntry(lane: "drive" | "answer") {
+    if (lane === "answer") return answerEntry("requester", "approved", { metadata: {
+      request_source: "answer_request", request_status: "approved", role: "requester",
+      proposed_scope_count: 2, answer_staged: true, answer_has_content: true,
+      amount_cents: 100, question: "What is your age?",
+    } });
+    return { id: "document_share_request:44444444-4444-4444-8444-444444444444",
+      request_id: "44444444-4444-4444-8444-444444444444", kind: "outgoing_request",
+      status: "pending", action: "DOCUMENT_SHARE_REVIEW", scope: null,
+      counterpart_type: "investor", counterpart_label: "Meena Rao", issued_at: 1790000000000,
+      metadata: { request_source: "drive_document_share_request", direction: "outgoing",
+        state: "pending", revision: 2, paymentStatus: "checkout_open", paymentAmountCents: 2000,
+        paymentCurrency: "usd", checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString() } };
+  }
+
+  it("opens approved packet review instead of bypassing disclosure with Feed Pay", async () => {
+    const entry = checkoutEntry("drive");
+    mocks.pendingCount = 1;
+    mocks.consentItems = [{ ...entry, metadata: { ...entry.metadata, paymentView: {
+      state: "payable", amountCents: 2000, currency: "usd", nextAction: "pay", refund: null,
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      packageDisclosureRequired: true,
+    } } }];
+    const mounted = renderHook(() => useFeedActionables());
+    const row = mounted.result.current.actionables.find(item => item.id.startsWith("drive-payment:"))!;
+    expect(row.actions.map(action => action.label)).toEqual(["Review packet"]);
+    await act(async () => { await row.actions[0].run(); });
+    expect(mocks.push).toHaveBeenCalledWith(expect.stringContaining("requestId=document_share_request%3A44444444-4444-4444-8444-444444444444"));
+    expect(mocks.driveCheckout).not.toHaveBeenCalled();
+    mounted.unmount();
+  });
+
+  it.each(["drive", "answer"] as const)("fences %s checkout across account/session/request/unmount boundaries", async lane => {
+    for (const boundary of ["account", "session", "request", "unmount"]) {
+      mocks.userId = "user-1";
+      mocks.pendingCount = 1;
+      mocks.consentItems = [checkoutEntry(lane)];
+      mocks.idToken.mockResolvedValue("id-token");
+      let finish!: (url: string) => void;
+      const checkout = lane === "drive" ? mocks.driveCheckout : mocks.answerCheckout;
+      checkout.mockReset().mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve; }));
+      const assign = vi.fn();
+      Object.defineProperty(window, "location", { configurable: true, value: { ...window.location, assign } });
+      const mounted = renderHook(() => useFeedActionables());
+      const action = mounted.result.current.actionables.flatMap(row => row.actions).find(item => item.key === (lane === "drive" ? "pay" : "pay-answer"))!;
+      let pending!: Promise<void> | void;
+      act(() => { pending = action.run(); });
+      await waitFor(() => expect(checkout).toHaveBeenCalledOnce());
+      if (boundary === "account") {
+        mocks.userId = "another-user";
+        mounted.rerender();
+      } else if (boundary === "session") advanceVaultSessionEpoch();
+      else if (boundary === "request") {
+        mocks.consentItems = [];
+        mounted.rerender();
+      } else mounted.unmount();
+      mocks.refresh.mockClear();
+      mocks.toastError.mockClear();
+      await act(async () => { finish("https://checkout.stripe.com/c/pay/old"); await pending; });
+      expect(assign).not.toHaveBeenCalled();
+      expect(mocks.toastError).not.toHaveBeenCalled();
+      expect(mocks.refresh).not.toHaveBeenCalled();
+      mounted.unmount();
+    }
+  });
+
+  it("does not send an answer checkout after an account change during token loading", async () => {
+    mocks.pendingCount = 1;
+    mocks.consentItems = [checkoutEntry("answer")];
+    let finish!: (token: string) => void;
+    mocks.idToken.mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve; }));
+    mocks.answerCheckout.mockClear();
+    const mounted = renderHook(() => useFeedActionables());
+    const action = mounted.result.current.actionables.flatMap(row => row.actions).find(item => item.key === "pay-answer")!;
+    let pending!: Promise<void> | void;
+    act(() => { pending = action.run(); });
+    mocks.userId = "another-user";
+    mounted.rerender();
+    await act(async () => { finish("old-token"); await pending; });
+    expect(mocks.answerCheckout).not.toHaveBeenCalled();
+    mounted.unmount();
+  });
+
+  it("suppresses a late Drive checkout failure and refresh after the feed closes", async () => {
+    mocks.pendingCount = 1;
+    mocks.consentItems = [checkoutEntry("drive")];
+    let fail!: (cause: Error) => void;
+    mocks.driveCheckout.mockReturnValueOnce(new Promise<string>((_, reject) => { fail = reject; }));
+    const mounted = renderHook(() => useFeedActionables());
+    const action = mounted.result.current.actionables.flatMap(row => row.actions).find(item => item.key === "pay")!;
+    let pending!: Promise<void> | void;
+    act(() => { pending = action.run(); });
+    await waitFor(() => expect(mocks.driveCheckout).toHaveBeenCalledOnce());
+    mounted.unmount();
+    mocks.refresh.mockClear();
+    mocks.toastError.mockClear();
+    await act(async () => { fail(new Error("old request")); await pending; });
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(mocks.refresh).not.toHaveBeenCalled();
   });
 });
