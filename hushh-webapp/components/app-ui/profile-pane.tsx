@@ -236,7 +236,7 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
                 type="button"
                 aria-label="Back in Profile"
                 onClick={() => {
-                  if (unwindBackLayer(pathname, searchParams)) return;
+                  if (unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) return;
                   popProfilePaneLocation(pathname, searchParams);
                 }}
                 className="-ml-4 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"

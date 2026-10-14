@@ -500,6 +500,20 @@ describe("onboarding profile draft and owner confirmation", () => {
     expect(mocks.addToPKM).not.toHaveBeenCalled();
   });
 
+  it("keeps embedded review Back scoped to its Profile panel", async () => {
+    const backQuery = { profile_pane: "1", profile_panel: "world-model" };
+    render(<ProfileResearchCard {...props} embedded backQuery={backQuery} />);
+    await screen.findByText("Alex Example");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(unwindBackLayer("/", new URLSearchParams("profile_pane=1&profile_panel=my-data"))).toBe(false);
+    await act(async () => {
+      expect(unwindBackLayer("/", new URLSearchParams(backQuery), { profile_pane: "1" })).toBe(true);
+    });
+    expect(screen.getByRole("button", { name: "Edit" })).toBeEnabled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+  });
+
   it("keeps the reviewed cards through shared-data acknowledgement", async () => {
     mocks.prepare.mockImplementation(async ({ message }: { message: string }) =>
       preview(message, 2),

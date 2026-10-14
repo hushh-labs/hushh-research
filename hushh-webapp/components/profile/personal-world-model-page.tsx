@@ -192,6 +192,7 @@ export function PersonalWorldModelPage({
               vaultOwnerToken={vaultOwnerToken}
               enabled={ready}
               pathname={pathname}
+              backQuery={paneState.open ? { profile_pane: "1", profile_panel: "world-model" } : undefined}
               embedded={embedded}
               present={present}
               worldModel

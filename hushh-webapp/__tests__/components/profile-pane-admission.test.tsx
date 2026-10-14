@@ -268,7 +268,7 @@ it("uses the model review Back layer before leaving its Profile panel", () => {
   url.query = "profile_pane=1&profile_panel=world-model";
   window.history.replaceState(null, "", `/?${url.query}`);
   const reviewBack = vi.fn().mockReturnValue(true);
-  const unregister = registerBackLayer({ pathname: "/", depth: 3, back: reviewBack });
+  const unregister = registerBackLayer({ pathname: "/", depth: 3, query: { profile_pane: "1", profile_panel: "world-model" }, back: reviewBack });
   const view = render(<ProfilePane open onOpenChange={vi.fn()} />);
   try {
     fireEvent.click(screen.getByRole("button", { name: "Back in Profile" }));
@@ -276,6 +276,23 @@ it("uses the model review Back layer before leaving its Profile panel", () => {
     expect(window.location.search).toContain("profile_panel=world-model");
     reviewBack.mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "Back in Profile" }));
+    expect(window.location.search).not.toContain("profile_panel=world-model");
+  } finally {
+    unregister();
+    view.unmount();
+  }
+});
+
+it("leaves the screen behind Profile unchanged when its panel goes Back", () => {
+  vault.isVaultUnlocked = true;
+  url.query = "profile_pane=1&profile_panel=world-model";
+  window.history.replaceState(null, "", `/?${url.query}`);
+  const hostBack = vi.fn().mockReturnValue(true);
+  const unregister = registerBackLayer({ pathname: "/", depth: 3, back: hostBack });
+  const view = render(<ProfilePane open onOpenChange={vi.fn()} />);
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Back in Profile" }));
+    expect(hostBack).not.toHaveBeenCalled();
     expect(window.location.search).not.toContain("profile_panel=world-model");
   } finally {
     unregister();
