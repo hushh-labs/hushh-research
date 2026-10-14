@@ -115,6 +115,30 @@ All 451 Back behavior cases pass; the eight mounted Chat connectors cases pass
 in Chromium and WebKit. A local WebKit motion sample exceeds the unchanged
 100ms onset requirement on the contended host; CI remains the timing authority.
 
+Candidate `b45f02a0282c` passed the canonical core in 600 seconds. Its
+[full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38532350365)
+passed the full web shards, protocol and third browser shard, while the first
+two browser shards exposed stale Connectors dismissal and mobile Profile
+fixtures; iOS was still running at the recorded observation. No deployment was
+admitted. The corrected fixtures independently hit-test the desktop scrim,
+exercise mobile Close and Escape/reopen, and use the production Profile frame's
+finite exit animation. All 18 affected Chromium/WebKit cases pass without
+changing production motion or timing requirements. WebKit viewport height is
+bounded to one 1/64 CSS-pixel layout unit. The reviewer harness also now awaits
+asynchronous pre-navigation admission; all 33 nearest cases pass, and the
+original unawaited implementation fails the new admission negative controls.
+The completed correction still requires its own core and exact-source full CI.
+
+The fresh aggregate Monitoring observation at `2026-10-14T08:12:13Z` verifies
+all 17 metrics, a worker completion at `08:12:03Z`, timestamped provider backing,
+and no shortfall, unbalanced journals, receipt failures or unresolved work.
+The primary's fresh normal onboarding attempt retained the opener's unlocked
+vault, but Stripe's visible human-verification frame intercepted submission.
+No eligibility or purchase is inferred from that attempt. The document-bank
+Retry and this separate information-access onboarding requirement have different
+owners; neither authorizes bypassing the provider challenge or synthesizing an
+eligibility receipt.
+
 A read-only observation at `2026-10-14T04:31:05Z` established that both existing
 private Azure runtimes lack `APP_FRONTEND_ORIGIN`; the counterpart also lacks the
 public Sandbox test pin. The hub's correct Dev origin does not supply a pod's

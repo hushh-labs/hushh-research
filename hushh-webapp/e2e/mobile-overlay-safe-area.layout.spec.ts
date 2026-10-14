@@ -7,6 +7,7 @@ let css: string;
 let paletteClass: string;
 let resultsClass: string;
 let formClass: string;
+let profileClass: string;
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -14,6 +15,13 @@ test.beforeAll(async () => {
   paletteClass = source.match(/data-search-surface="ios-mobile"\s+className="([^"]+)"/)![1];
   resultsClass = source.match(/className="([^"]+)"\s+data-testid="kai-mobile-search-results"/)![1];
   formClass = source.match(/<form\s+className="([^"]+)"/)![1];
+  const profile = fs.readFileSync(path.join(root, "components/app-ui/profile-pane.tsx"), "utf8");
+  const sheet = fs.readFileSync(path.join(root, "components/ui/sheet.tsx"), "utf8");
+  profileClass = [
+    profile.match(/className="(profile-pane-sheet[^"]+)"/)![1],
+    sheet.match(/"(data-\[state=open\]:animate-in data-\[state=closed\]:animate-out fixed[^"]+)"/)![1],
+    sheet.match(/side === "right" &&\s*"([^"]+)"/)![1],
+  ].join(" ");
   const { compile } = await import("tailwindcss");
   const compiler = await compile(fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""), {
     base: path.join(root, "app"),
@@ -23,7 +31,7 @@ test.beforeAll(async () => {
       return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
     },
   });
-  css = stripAppFontFaces(compiler.build(`${paletteClass} ${resultsClass} ${formClass}`.split(/\s+/)));
+  css = stripAppFontFaces(compiler.build(`${paletteClass} ${resultsClass} ${formClass} ${profileClass}`.split(/\s+/)));
 });
 
 for (const [width, height, keyboard] of [[390, 844, 336], [320, 568, 260], [844, 390, 180]]) {
@@ -51,7 +59,7 @@ test("native rotation overrides a stale portrait safe-area probe", async ({ page
   await expect(page.locator("#inset")).toHaveCSS("height", "0px");
 });
 
-test("opening Profile preserves the underlying canvas and exits beyond its inset", async ({ page }) => {
+test("opening mobile Profile preserves the canvas and exits the full viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.setContent(`<html class="native-ios"><head><style>${css}</style></head><body><div class="foundation-public-ambient"></div><nav class="kai-bottom-nav-pill"></nav></body></html>`);
   const snapshot = () => page.evaluate(() => ({
@@ -60,23 +68,34 @@ test("opening Profile preserves the underlying canvas and exits beyond its inset
     nav: getComputedStyle(document.querySelector("nav")!).backgroundColor,
   }));
   const before = await snapshot();
-  await page.evaluate(() => {
+  await page.evaluate((className) => {
     const pane = document.createElement("section");
-    pane.className = "profile-pane-sheet";
+    pane.className = className;
     pane.dataset.slot = "sheet-content";
+    pane.dataset.sheetSide = "right";
     pane.dataset.state = "open";
-    pane.style.position = "fixed";
     pane.innerHTML = '<div class="profile-home-screen profile-account-content" data-profile-stack="true">Profile</div>';
     document.body.append(pane);
-  });
+  }, profileClass);
   expect(await snapshot()).toEqual(before);
   const pane = page.locator(".profile-pane-sheet");
-  expect((await pane.boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  await pane.evaluate(async node => {
+    await Promise.all(node.getAnimations().filter(a => a.effect instanceof KeyframeEffect && a.effect.target === node && Number.isFinite(Number(a.effect.getTiming().iterations))).map(a => a.finished));
+  });
+  const frame = (await pane.boundingBox())!;
+  expect(frame.x).toBe(0);
+  expect(frame.y).toBe(0);
+  expect(frame.width).toBe(390);
+  // WebKit rounds dvh to a 1/64 CSS-pixel layout unit.
+  expect(Math.abs(frame.height - 844)).toBeLessThanOrEqual(1 / 64);
   await pane.evaluate(node => {
     node.setAttribute("data-state", "closed");
-    const animation = node.getAnimations()[0];
+    const animation = node.getAnimations().find(a => a instanceof CSSAnimation && a.animationName === "sheet-surface-exit" && a.effect instanceof KeyframeEffect && a.effect.target === node);
+    if (!animation) throw new Error("Profile exit animation missing");
+    const duration = Number(animation.effect!.getTiming().duration);
+    if (!Number.isFinite(duration) || duration <= 0) throw new Error("Profile exit duration invalid");
     animation.pause();
-    animation.currentTime = Number(animation.effect!.getTiming().duration) - 0.01;
+    animation.currentTime = duration - 0.01;
   });
   expect((await pane.boundingBox())!.x).toBeGreaterThanOrEqual(389);
   await pane.evaluate(node => node.remove());

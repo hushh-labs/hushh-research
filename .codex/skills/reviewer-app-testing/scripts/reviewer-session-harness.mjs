@@ -434,7 +434,7 @@ export async function createReviewerSessionHarness({
         const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, admitProviderOAuth, reviewerAuthMode });
         const capture = attachMemoryOnlyCapture(page);
         await installBridge(page, { includePassphrase: requireVaultUnlocked });
-        if (onPageCreated) onPageCreated(page);
+        if (onPageCreated) await onPageCreated(page);
         await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
           waitUntil: "domcontentloaded",
         });
