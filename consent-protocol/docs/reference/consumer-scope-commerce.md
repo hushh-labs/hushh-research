@@ -28,6 +28,40 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Latest main composition — 2026-10-13 UTC
 
+The subsequent integration merges main `519a8bac6cdf` normally into the same
+infrastructure branch at `7c6f0fcebbaf`. It preserves the incoming capacity
+workflows and responsive onboarding, the existing final authentication button,
+early voice refusal, and the canonical theme tokens. All 25 nearest onboarding
+component cases and 451 Back cases pass; type checking and regenerated Back,
+Search, action and topology verification pass. The preceding exact candidate
+`c5628d9ff6ef` passed canonical core in 592 seconds. The newly composed candidate
+still requires its own core, hosted CI and Dev release evidence.
+The independent source review qualifies exactly 17 inherited capacity/retention
+measurement spans; all 2567 previous occurrences, review history, detector and
+budgets remain intact. All 77 existing capacity/retention cases pass. Measurement
+qualification does not establish UAT behavior or Sandbox financial acceptance.
+
+The incoming UAT capacity work has a separate recovery gap: PR #7920 adds a
+third deployment job, while the hygiene-only retention verifier admits exactly
+the historical two-job receipt. A tag-cleanup-only failure on the new workflow
+can therefore remain blocked. This fails closed and has no Dev workflow
+consumer. Preserve the incoming implementation; the UAT capacity/retention owner
+must prove both historical and current job receipts with failure controls before
+claiming that recovery complete. This finding does not authorize a second UAT
+implementation or rollout in the shared-Dev payment lane.
+
+The fresh read-only observation at `2026-10-14T00:58:52Z` confirms that the primary
+already selected Azure subscription ending `052f9`, which is enabled and has
+its target resource group and registered Container Apps provider. One still
+records the prior failed registration job and a pending, unbound private agent;
+the counterpart's private Azure binding remains provisioned. The supported
+setup-page Retry preserves the existing subscription and Files selection and
+renews the owner's Microsoft authorization. A failed worker retains no delegated
+credential for a credentialless restart. Current source accepts regional
+registration in progress and retains later resource admission. Azure CLI access
+does not substitute for the owner callback. The existing Chrome transport still
+refuses this client with HTTP 403, without any browser or tab changes.
+
 The same infrastructure branch now composes main `06180616be38`, including its
 Personal World Model and canonical managed-AI profiles. Main migrations 335–336
 remain intact; the seven unaccepted task registrations move to 342–348 with

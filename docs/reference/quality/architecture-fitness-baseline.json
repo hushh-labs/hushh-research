@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2567,
+  "finding_count": 2575,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1598,7 +1598,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "MaintenanceAuthorityTest",
-      "value": 922
+      "value": 1922
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12632,7 +12632,7 @@
       "limit": 80,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "test_source_is_authorized_before_any_cloud_access",
-      "value": 127
+      "value": 131
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12650,7 +12650,7 @@
       "limit": 80,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": "main",
-      "value": 107
+      "value": 149
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -21506,7 +21506,7 @@
       "limit": 500,
       "path": "scripts/ci/runtime-capacity-budget.py",
       "symbol": null,
-      "value": 529
+      "value": 651
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21524,7 +21524,7 @@
       "limit": 500,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": null,
-      "value": 1265
+      "value": 2268
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21651,7 +21651,7 @@
       "limit": 250,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "RuntimeCapacityBudgetTest",
-      "value": 310
+      "value": 415
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -21669,7 +21669,7 @@
       "limit": 80,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "test_post_release_checks_retained_capacity_without_next_candidate",
-      "value": 103
+      "value": 119
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -21687,7 +21687,7 @@
       "limit": 80,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": "find_release",
-      "value": 86
+      "value": 115
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21696,7 +21696,7 @@
       "limit": 500,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": null,
-      "value": 581
+      "value": 1228
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23110,6 +23110,78 @@
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": "test_claim_contract_on_single_connection_postgres",
       "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/runtime-capacity-budget.py|evaluate|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/runtime-capacity-budget.py",
+      "symbol": "evaluate",
+      "value": 95
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|uat_hygiene_failure|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "uat_hygiene_failure",
+      "value": 95
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_uat_hygiene_only_failure_requires_complete_release_proof|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "test_uat_hygiene_only_failure_requires_complete_release_proof",
+      "value": 93
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|scripts/ci/test_one_chat_retention.py|OneChatRetentionTest|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "scripts/ci/test_one_chat_retention.py",
+      "symbol": "OneChatRetentionTest",
+      "value": 251
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_inherited_candidate_reserves_live_template_and_serving_ceiling|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_runtime_capacity_budget.py",
+      "symbol": "test_inherited_candidate_reserves_live_template_and_serving_ceiling",
+      "value": 88
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/uat-retention-maintenance.py|verify_post_uat_hygiene_failure|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/uat-retention-maintenance.py",
+      "symbol": "verify_post_uat_hygiene_failure",
+      "value": 97
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/uat-retention-maintenance.py|prior_healthy_uat_backend_release|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/uat-retention-maintenance.py",
+      "symbol": "prior_healthy_uat_backend_release",
+      "value": 99
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/uat-retention-maintenance.py|live_release_matches|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/uat-retention-maintenance.py",
+      "symbol": "live_release_matches",
+      "value": 137
     }
   ],
   "inspected_files": 6625,
@@ -36837,6 +36909,155 @@
     "retained_head": "c81ca3c08187b03861aacd5be352c7e57b5636f4",
     "reviewer": "ci_registry_review",
     "scope": "64 incoming-main bounded slots, 22 retained-parent compositions and 6 reviewed reduced/relocated main slots; task growth excluded; budgets and unrelated maxima preserved"
+  },
+  "scope_commerce_capacity_onboarding_main_merge_20261014": {
+    "changes": [
+      {
+        "after": 651,
+        "before": 529,
+        "key": "module_size|scripts/ci/runtime-capacity-budget.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "2c74aa6006fc6e8bda8883d289830c209be2ef30",
+        "source_sha256": "2f69d00d93869311aeedc551be24fb54b3a98a24f06b3c4b057f764140e9876b"
+      },
+      {
+        "after": 95,
+        "before": null,
+        "key": "function_size|scripts/ci/runtime-capacity-budget.py|evaluate|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "2c74aa6006fc6e8bda8883d289830c209be2ef30",
+        "source_sha256": "2f69d00d93869311aeedc551be24fb54b3a98a24f06b3c4b057f764140e9876b"
+      },
+      {
+        "after": 2268,
+        "before": 1265,
+        "key": "module_size|scripts/ci/test_cloudrun_retention.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "9b5b133c344948e86722dbc8e33eab4b1291f9d7",
+        "source_sha256": "22b3a7a8abfc19d2467186836dfe37c4cc2161ab96d29f163684bd6f5896722f"
+      },
+      {
+        "after": 1922,
+        "before": 922,
+        "key": "class_size|scripts/ci/test_cloudrun_retention.py|MaintenanceAuthorityTest|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "9b5b133c344948e86722dbc8e33eab4b1291f9d7",
+        "source_sha256": "22b3a7a8abfc19d2467186836dfe37c4cc2161ab96d29f163684bd6f5896722f"
+      },
+      {
+        "after": 95,
+        "before": null,
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|uat_hygiene_failure|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "9b5b133c344948e86722dbc8e33eab4b1291f9d7",
+        "source_sha256": "22b3a7a8abfc19d2467186836dfe37c4cc2161ab96d29f163684bd6f5896722f"
+      },
+      {
+        "after": 93,
+        "before": null,
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_uat_hygiene_only_failure_requires_complete_release_proof|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "9b5b133c344948e86722dbc8e33eab4b1291f9d7",
+        "source_sha256": "22b3a7a8abfc19d2467186836dfe37c4cc2161ab96d29f163684bd6f5896722f"
+      },
+      {
+        "after": 131,
+        "before": 127,
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_source_is_authorized_before_any_cloud_access|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "9b5b133c344948e86722dbc8e33eab4b1291f9d7",
+        "source_sha256": "22b3a7a8abfc19d2467186836dfe37c4cc2161ab96d29f163684bd6f5896722f"
+      },
+      {
+        "after": 251,
+        "before": null,
+        "key": "class_size|scripts/ci/test_one_chat_retention.py|OneChatRetentionTest|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "2f5de4a060b319044c5559975c93fee1f66f36f9",
+        "source_sha256": "5f5c7985515a767a83322ae8d8a88ae8c1ab8702821c9ab6d9e24e86eebbf76a"
+      },
+      {
+        "after": 415,
+        "before": 310,
+        "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "959fa9e6f6464b12726092790df1b1811710418a",
+        "source_sha256": "1a7e0e120411ee4093173316c639095d1930135c94b677b079032c6f749911e6"
+      },
+      {
+        "after": 119,
+        "before": 103,
+        "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_post_release_checks_retained_capacity_without_next_candidate|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "959fa9e6f6464b12726092790df1b1811710418a",
+        "source_sha256": "1a7e0e120411ee4093173316c639095d1930135c94b677b079032c6f749911e6"
+      },
+      {
+        "after": 88,
+        "before": null,
+        "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_inherited_candidate_reserves_live_template_and_serving_ceiling|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "959fa9e6f6464b12726092790df1b1811710418a",
+        "source_sha256": "1a7e0e120411ee4093173316c639095d1930135c94b677b079032c6f749911e6"
+      },
+      {
+        "after": 1228,
+        "before": 581,
+        "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "0ade49c276b9b5a4b6fb951397ff9c40a6759575",
+        "source_sha256": "8fdb43b5d979c315c66a5581a7bfd33a525b311b037d89aea61535f2927ad6e6"
+      },
+      {
+        "after": 97,
+        "before": null,
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|verify_post_uat_hygiene_failure|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "0ade49c276b9b5a4b6fb951397ff9c40a6759575",
+        "source_sha256": "8fdb43b5d979c315c66a5581a7bfd33a525b311b037d89aea61535f2927ad6e6"
+      },
+      {
+        "after": 99,
+        "before": null,
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|prior_healthy_uat_backend_release|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "0ade49c276b9b5a4b6fb951397ff9c40a6759575",
+        "source_sha256": "8fdb43b5d979c315c66a5581a7bfd33a525b311b037d89aea61535f2927ad6e6"
+      },
+      {
+        "after": 115,
+        "before": 86,
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|find_release|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "0ade49c276b9b5a4b6fb951397ff9c40a6759575",
+        "source_sha256": "8fdb43b5d979c315c66a5581a7bfd33a525b311b037d89aea61535f2927ad6e6"
+      },
+      {
+        "after": 137,
+        "before": null,
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|live_release_matches|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "0ade49c276b9b5a4b6fb951397ff9c40a6759575",
+        "source_sha256": "8fdb43b5d979c315c66a5581a7bfd33a525b311b037d89aea61535f2927ad6e6"
+      },
+      {
+        "after": 149,
+        "before": 107,
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|main|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "0ade49c276b9b5a4b6fb951397ff9c40a6759575",
+        "source_sha256": "8fdb43b5d979c315c66a5581a7bfd33a525b311b037d89aea61535f2927ad6e6"
+      }
+    ],
+    "incoming_main_revision": "519a8bac6cdf1b8a182bd8ac40c08717bb812bdc",
+    "parent_task_revision": "c5628d9ff6ef80e73225bb7814a62b9e9e1be563",
+    "review": "Independent exact-source architecture qualification of 17 inherited spans, zero new task growth. All prior receipts, multiplicity, budgets, scanner and history retained; UAT PR #7920 source gap recorded separately.",
+    "source_gap_ids": [
+      "uat_hygiene_receipt_job_inventory_7920"
+    ],
+    "source_qualification_sha256": "3eb3dfbd95727287977fa676e05b5efab03b2fb136561c0e09225cfe7044c892",
+    "source_revision": "7c6f0fcebbaf98d4c5c75a83909a8cba1e4a2339",
+    "verification": "25 nearest onboarding,451 Back cases,77 existing capacity/retention cases,typecheck and generated UI contracts pass. Full candidate core/CI and deployed acceptance remain required. Separate incoming UAT receipt gap has no Dev consumer."
   },
   "scope_commerce_current_main_union_20261013": {
     "boundary_corrections": {
