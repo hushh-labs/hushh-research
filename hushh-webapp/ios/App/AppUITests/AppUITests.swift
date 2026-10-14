@@ -154,6 +154,15 @@ final class AppUITests: XCTestCase {
             print("COHERENT_HISTORY_AX_ELEMENT index=\(index) hittable=\(candidate.isHittable) x=\(Int(frame.minX.rounded())) y=\(Int(frame.minY.rounded())) width=\(Int(frame.width.rounded())) height=\(Int(frame.height.rounded()))")
         }
         print("COHERENT_SHELL_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists) software_keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
+        let layout = app.buttons["native-vault-layout"].firstMatch
+        if layout.exists, let raw = layout.value as? String, let data = raw.data(using: .utf8),
+           let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
+            let keys = ["profileOverlayBlocked", "profileInertBlocked", "profileMoving", "profileSuppressed", "profileVoiceBlocked", "profileDocumentHidden"]
+            if keys.allSatisfy({ packet[$0] != nil }) {
+                let flags = keys.map { packet[$0]!.boolValue ? "1" : "0" }.joined(separator: ",")
+                print("NATIVE_PROFILE_GUARDS flags=\(flags)")
+            }
+        }
         for (name, label, identifier) in [("one_profile", "Open One profile", "public-one-profile-opener"),
                                          ("connectors", "Connectors", "native-history-row-connectors")] {
             let byLabel = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label))

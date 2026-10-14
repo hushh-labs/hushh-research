@@ -146,6 +146,11 @@ export function NativeChatChrome(props: Props) {
     setRehearsalStatus(JSON.stringify({ stage, outcome, code, choice: rehearsalChoice.current,
       eligible: current.current.props.eligible, supported, allowed: current.current.allowed,
       focusInside: !!slot.current?.contains(document.activeElement), heldFocus: heldFocus.current,
+      overlayBlocked: nativeShellOverlayBlocked(current.current.owningLayer),
+      inertBlocked: !!slot.current?.closest("[inert]"), moving: moving.current,
+      suppressed: isSessionChromeSuppressed(),
+      voiceBlocked: getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions === true,
+      documentHidden: document.visibilityState === "hidden",
       width: dimension(frame?.width), height: dimension(frame?.height),
       inViewport: !!frame && frame.left >= 0 && frame.top >= 0 && frame.right <= window.innerWidth && frame.bottom <= window.innerHeight }));
   }, [supported]);

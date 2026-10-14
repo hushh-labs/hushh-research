@@ -1771,6 +1771,10 @@ describe("native chrome presentation lease", () => {
     const rehearsal = render(<ChatHarness kind={kind} />);
     await waitFor(() => expect(rehearsal.getByTestId(statusId)).toHaveTextContent('"outcome":"rejected"'));
     const status = rehearsal.getByTestId(statusId).textContent!;
+    const publicStatus = JSON.parse(status.replace("NATIVE_SELECTOR_STATUS ", ""));
+    for (const key of ["overlayBlocked", "inertBlocked", "moving", "suppressed", "voiceBlocked", "documentHidden"]) {
+      expect(typeof publicStatus[key]).toBe("boolean");
+    }
     expect(status).toContain('"code":"other"');
     expect(status).not.toContain("synthetic-private-response");
     expect(status).not.toContain("synthetic-owner");

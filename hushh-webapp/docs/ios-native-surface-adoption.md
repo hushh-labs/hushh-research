@@ -13,6 +13,33 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Installed Profile admission investigation — 2026-10-14
+
+Source `9182c6d326` is installed on the iPhone as UAT Debug 1.4.0 (69).
+Its executable SHA-256 is
+`97659a9a45fe24de829a4f2b3de0b9cf9e2d9f3fb1b5f39fc66b702ca1e92ad1`;
+its sealed-resource manifest SHA-256 is
+`a3d85194d20dca77b3d86a37a2a1f568a2708f8635c9e06f84c4677baa414305`.
+Strict app and runner signatures, bundled assets and the UAT backend pass.
+Missing pinned framework artifacts were recovered through isolated, locked Xcode
+package resolution, without dependency upgrades or shared-cache deletion.
+The generated runner was resealed with its existing identity and entitlements
+after Xcode rebuilt its nested test bundle; both signatures were reverified.
+
+Installation/restart was explicitly authorized. Credential-free XCTest admission
+and one normal process-only reviewer unlock pass. Preferences reaches its ready
+state, then the existing physical test fails on an accessibility snapshot.
+Direct target diagnostics show retained Back/Close hosts with valid layout,
+privacy and pane ownership, but an accepted disabled presentation: no touch or
+accessibility admission. Native quarantine alone does not explain that flag.
+This is not physical Profile acceptance or proof of the upstream blocker.
+
+The existing opt-in diagnostic now distinguishes overlay, inert ancestry,
+movement, session suppression, voice-layer blocking and document visibility with
+six booleans. Its whitelist excludes identities, private bodies and provider
+errors; it changes no permissions or operations. Ordinary Profile adoption stays
+blocked until the demonstrated admission defect is resolved on-device.
+
 ### Profile readiness during appearance changes — 2026-10-14
 
 The shared `NativeChatChrome` adapter now reports presentation readiness after a
