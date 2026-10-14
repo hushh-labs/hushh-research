@@ -2028,7 +2028,7 @@ export function KaiMarketPreviewView() {
             }}
             className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
           >
-            <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
+            <Search aria-hidden="true" className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input
               type="text"
               aria-label="Search stocks, ETFs, indices"
