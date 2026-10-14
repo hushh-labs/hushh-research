@@ -211,6 +211,10 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
+    if (assetPath === "/wallet/card-scan-agent-one.webp") {
+      await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
+      return;
+    }
     if (/^\/brand\/cards\/[a-z]+(?:-[a-z]+)*\.(svg|png)$/.test(assetPath)) {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: assetPath.endsWith(".svg") ? "image/svg+xml" : "image/png" });
       return;
@@ -583,11 +587,35 @@ test("scrolling keeps selector chrome clipped and the visible Add action keyboar
 
 for (const width of [320, 393, 1440]) {
   test(`single-screen Add form fits at ${width}px`, async ({ page }) => {
-    await open(page, width, "light", {}, { shell: true });
+    const errors = await open(page, width, "light", {}, { shell: true });
     await mount(page);
     await page.getByRole("tab", { name: "Add", exact: true }).click();
     const form = page.getByTestId("secure-card-add-form");
-    await expect(page.getByRole("button", { name: "Scan card", exact: true })).toBeVisible();
+    const scan = page.getByRole("button", { name: "Scan card", exact: true });
+    await expect(scan).toBeVisible();
+    await expect(scan.getByText("Scan here to add card", { exact: true })).toBeVisible();
+    const artwork = scan.locator("img");
+    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-agent-one.webp");
+    await expect.poll(() => artwork.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
+    const chooser = page.waitForEvent("filechooser");
+    await scan.click();
+    expect((await chooser).isMultiple()).toBe(false);
+    const number = form.getByLabel("Card number", { exact: true });
+    const holder = form.getByLabel("Name on card", { exact: true });
+    const expiry = form.getByLabel("Expiry (MM/YY)", { exact: true });
+    const cvv = form.getByLabel("CVV", { exact: true });
+    for (const field of [number, holder, expiry, cvv]) {
+      await expect(field).toBeVisible();
+      await expect(field).toHaveAttribute("required", "");
+      expect(await field.evaluate(node => Boolean(node.closest("details")))).toBe(false);
+    }
+    const bounds = await Promise.all([number, holder, expiry, cvv].map(field => field.boundingBox()));
+    for (const [first, second] of [[0, 2], [1, 3]]) {
+      expect(Math.abs(bounds[first]!.width - bounds[second]!.width)).toBeLessThan(1);
+      expect(Math.abs(bounds[first]!.height - bounds[second]!.height)).toBeLessThan(1);
+      expect(Math.abs(bounds[first]!.x - bounds[second]!.x)).toBeLessThan(1);
+    }
+    await page.screenshot({ path: test.info().outputPath("wallet-add-profile-scanner.png") });
     await expect(form.getByRole("button", { name: "Choose photo", exact: true })).toHaveCount(0);
     await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect.poll(async () => {
@@ -601,6 +629,7 @@ for (const width of [320, 393, 1440]) {
     await form.getByTestId("secure-card-save").scrollIntoViewIfNeeded();
     await expect(form.getByTestId("secure-card-save")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
   });
 }
 

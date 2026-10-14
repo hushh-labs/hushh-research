@@ -55,7 +55,7 @@ Vault continuity is retained throughout. The prior overlay-ordering regression
 is no longer reproduced. Normally encrypted synthetic fixtures and scope
 delivery remain separate acceptance work.
 
-The provider/ledger observation at `2026-10-14T13:02:14Z` confirms the Sandbox
+The provider/ledger observation at `2026-10-14T14:17:12Z` confirms the Sandbox
 account/test pin, $10.50 funded per reviewer, $15 tagged operating capital,
 matching receipts, balanced liabilities, settled backing and conserved fees.
 Do not repeat those funding payments or Topups. The counterpart's
@@ -77,9 +77,18 @@ label and account-management control. Readiness guidance names the same
 **Payments and earnings** destination; existing action identifiers retain their
 meaning with additive search aliases. Focused frontend checks pass 69 cases,
 and generated UI contracts pass all 460 Back behavior cases and parity checks.
-This correction is local and requires its own core, exact-source CI and release.
+Candidate `038f0426aa967b67404dc9c34c79b7edffd997c8` includes this correction
+and passes the canonical core in 649 seconds: 19,251 protocol cases, the serial
+database contracts, web-core, MCP package and integration gates. It is pushed
+on the existing branch. Exact-source CI and Dev release remain required.
 
 ### Main composition in verification — 2026-10-14 UTC
+
+The subsequent normal merge includes main `5d4b7c51df`: Wallet Add artwork and
+field alignment, plus the reviewed WebKit geometry precision correction.
+No payment or scope contract changes arrive in this delta. The combined candidate
+retains all 460 Back behavior cases; its core, exact-source CI and release are
+separate from the earlier `038f0426aa96` receipt.
 
 The infrastructure branch integrates main `20d6afafc8f4` normally, preserving
 existing shared history and ten independently hashed unrelated workspace files.

@@ -227,23 +227,24 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
       {!scanInToolbar ? scanner : null}
       <fieldset disabled={submitting || scanning || !active} className={styles.fields}>
         {showIntroduction ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p> : null}
-        <div className={cn(styles.field, styles.number)}>
-          <Label htmlFor={`${id}-number`}><ProfilePaneCardIcon className={styles.fieldIcon} />Card number</Label>
-          <Input
-            id={`${id}-number`}
-            dir="ltr"
-            value={pan}
-            onChange={(event) => setPan(event.target.value.replace(/\D/g, "").slice(0, 19))}
-            inputMode="numeric"
-            autoComplete="off"
-            placeholder="XXXX XXXX XXXX XXXX"
-            maxLength={32}
-            required
-            data-testid="secure-card-pan-input"
-            {...fieldErrors("pan_length_invalid", "pan_checksum_invalid", "pan_length_invalid_for_brand")}
-          />
-          {networkHint ? <p className={cn(TYPOGRAPHY_CLASSNAMES.helperText, "text-muted-foreground")} role="status">{networkHint}</p> : null}
-        </div>
+        <div className={styles.row}>
+          <div className={cn(styles.field, styles.number)}>
+            <Label htmlFor={`${id}-number`}><ProfilePaneCardIcon className={styles.fieldIcon} />Card number</Label>
+            <Input
+              id={`${id}-number`}
+              dir="ltr"
+              value={pan}
+              onChange={(event) => setPan(event.target.value.replace(/\D/g, "").slice(0, 19))}
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="XXXX XXXX XXXX XXXX"
+              maxLength={32}
+              required
+              data-testid="secure-card-pan-input"
+              {...fieldErrors("pan_length_invalid", "pan_checksum_invalid", "pan_length_invalid_for_brand")}
+            />
+            {networkHint ? <p className={cn(TYPOGRAPHY_CLASSNAMES.helperText, "text-muted-foreground")} role="status">{networkHint}</p> : null}
+          </div>
           <div className={styles.field}>
             <Label htmlFor={`${id}-holder`}><ProfilePaneAccountIcon className={styles.fieldIcon} />Name on card</Label>
             <Input
@@ -256,7 +257,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
               {...fieldErrors("cardholder_name_required", "cardholder_name_invalid")}
             />
           </div>
-
+        </div>
         <div className={styles.row}>
           <div className={styles.field}>
             <Label htmlFor={`${id}-expiry`}><ProfilePaneCalendarIcon className={styles.fieldIcon} />Expiry (MM/YY)</Label>
