@@ -58,17 +58,16 @@ def _open(credential: str | None) -> tuple[AzureOpenAITopology, str]:
 
 
 def build_transport(credential: str | None, *, http_client: Any = None) -> Any:
-    import httpx  # noqa: PLC0415
     from openai import AsyncOpenAI  # noqa: PLC0415
+
+    from hushh_mcp.services.mcp_public_http import create_public_mcp_http_client  # noqa: PLC0415
 
     from .openai_responses_transport import OpenAIResponsesTransport  # noqa: PLC0415
 
     topology, key = _open(credential)
     # Do not follow a provider redirect with an owner credential. Azure's v1
     # Responses API uses the deployment as model and supports key authentication.
-    transport_client = http_client or httpx.AsyncClient(
-        follow_redirects=False, trust_env=False, timeout=20
-    )
+    transport_client = http_client if http_client is not None else create_public_mcp_http_client()
     transport_client.follow_redirects = False
     client = AsyncOpenAI(
         api_key=key,
