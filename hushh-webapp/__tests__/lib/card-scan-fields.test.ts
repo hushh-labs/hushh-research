@@ -11,6 +11,18 @@ describe("local card scan parsing", () => {
   it("leaves ambiguous expiry and unlabelled names for manual entry", () => {
     expect(parseCardScan("4242424242424242\nAlex Sample\n12/30 11/29" )).toEqual({ pan: "4242424242424242" });
   });
+  it("reads printed names and uses the expiry label rather than the issue date", () => {
+    expect(parseCardScan("VISA\n4242 4242 4242 4242\nVALID FROM 11/24\nVALID THRU 12/30\nALEX SAMPLE"))
+      .toEqual({ pan: "4242424242424242", expiry: "12/30", cardholderName: "ALEX SAMPLE" });
+    expect(parseCardScan("3782 822463 10005\n12/30\nName on card: Alex Sample"))
+      .toEqual({ pan: "378282246310005", expiry: "12/30", cardholderName: "Alex Sample" });
+  });
+  it("does not turn card marketing or ambiguous printed names into a holder", () => {
+    for (const suffix of ["WORLD ELITE\nTEST BANK", "ALEX SAMPLE\nJAMIE SAMPLE"]) {
+      expect(parseCardScan(`4242 4242 4242 4242\n12/30\n${suffix}`))
+        .toEqual({ pan: "4242424242424242", expiry: "12/30" });
+    }
+  });
 });
 
 it("accepts OCR whitespace and four number groups split across lines", () => {

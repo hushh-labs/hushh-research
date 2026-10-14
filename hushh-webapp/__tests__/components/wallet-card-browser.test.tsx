@@ -27,7 +27,7 @@ describe("Wallet card browser", () => {
       root.scrollTop = 0;
     });
     const view = render(<WalletCardBrowser cards={[]} selectedCardId={null} onSelect={() => {}} onOverview={() => {}} onAdd={() => {}} onRemove={() => {}} busyCardId={null} details={null} dockHost={null} />, { container: root });
-    fireEvent.click(screen.getByRole("button", { name: "View details for Agent One Profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agent One Profile" }));
     root.scrollTop = 450;
     committedPages.length = 0;
     fireEvent.click(screen.getByRole("button", { name: "Next card" }));

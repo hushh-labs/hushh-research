@@ -157,6 +157,49 @@ class CapacityAdmissionTests(unittest.TestCase):
                                        max_wait_seconds=5, poll_seconds=1)
         sleep.assert_not_called()
 
+    def test_admitted_query_cannot_handoff_after_deadline(self) -> None:
+        clock = FakeClock()
+
+        def slow_report(*_args):
+            clock.now = 301
+            return {
+                "admitted": True,
+                "projected_connections": 700,
+                "admission_limit": 800,
+            }
+
+        with (
+            patch.object(wait, "verify_request"),
+            patch.object(wait, "capacity_report", side_effect=slow_report),
+            patch.object(wait.time, "monotonic", side_effect=clock.monotonic),
+        ):
+            with self.assertRaisesRegex(wait.AdmissionError, "deadline"):
+                wait.wait_for_capacity("a" * 40, "auto", "one-chat")
+
+    def test_query_timeout_uses_remaining_budget_and_terminates_descendants(
+        self,
+    ) -> None:
+        token = wait.QUERY_DEADLINE.set(10)
+        process = unittest.mock.Mock(pid=123, returncode=-15)
+        process.communicate.side_effect = [
+            subprocess.TimeoutExpired(["query"], 4),
+            ("", ""),
+        ]
+        try:
+            with (
+                patch.object(wait.time, "monotonic", return_value=5),
+                patch.object(wait.subprocess, "Popen", return_value=process),
+                patch.object(wait.os, "killpg") as kill,
+            ):
+                with self.assertRaisesRegex(wait.AdmissionError, "timed out"):
+                    wait.command(["query"])
+                self.assertEqual(
+                    process.communicate.call_args_list[0].kwargs["timeout"], 4
+                )
+                kill.assert_called_once_with(123, wait.signal.SIGTERM)
+        finally:
+            wait.QUERY_DEADLINE.reset(token)
+
     def test_inventory_error_stops_without_sleep(self) -> None:
         with (
             patch.object(wait, "verify_request"),

@@ -130,6 +130,52 @@
     }
   },
   {
+    "route": "/one/welcome",
+    "mode": "standard",
+    "persistentChrome": "none",
+    "shellVerification": {
+      "file": "components/onboarding/initial-contacts-welcome.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.welcome",
+      "purpose": "Review confirmed initial contacts, optionally manage circles or invite people, and continue into One.",
+      "screen": "one_welcome",
+      "entryCue": "Your welcome is ready. Review it and continue when you like.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Keep Continue available; require the existing owner authority for membership changes.",
+        "cancelled": "Respect source cancellation and keep the welcome available.",
+        "failed": "Show only confirmed results and offer explicit retry.",
+        "timeout": "Keep Continue available without claiming empty contacts.",
+        "callbackError": "Ignore late callbacks outside the owner signup session.",
+        "routeMismatch": "Stay within the registered welcome surface."
+      },
+      "completionBoundary": "Continue acknowledges only this welcome and resumes the validated original destination.",
+      "nextRoute": "/",
+      "returnPolicy": "resolve_root",
+      "outOfScopeBehavior": "No persistent agent chrome is mounted before this welcome is acknowledged."
+    },
+    "backVerification": {
+      "kind": "surface-owned",
+      "reason": "Back acknowledges the optional welcome; active selection and roster layers unwind first.",
+      "cases": [
+        {
+          "href": "/one/welcome",
+          "expected": null
+        }
+      ]
+    }
+  },
+  {
     "route": "/one/setup",
     "mode": "standard",
     "shellVerification": {

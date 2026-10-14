@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      initial_contacts_onboarding:
+        description: "Build the optional initial Contacts welcome for UAT testing"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   # write: this workflow tags a healthy release as "last known good"
@@ -50,6 +55,7 @@ env:
   BACKEND_REVISION_RETENTION: "2"
   FRONTEND_REVISION_RETENTION: "10"
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
+  INITIAL_CONTACTS_ONBOARDING_ENABLED: ${{ inputs.initial_contacts_onboarding && 'true' || 'false' }}
 
 concurrency:
   # Backend candidates share one admission queue. Explicit frontend-only
@@ -126,7 +132,7 @@ jobs:
     needs: select-target
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 10
     permissions:
       contents: read
       checks: read
@@ -361,6 +367,18 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Require paired backend for initial Contacts onboarding
+        id: initial-contacts-pairing
+        shell: bash
+        env:
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
+        run: |
+          set -euo pipefail
+          if [ "$INITIAL_CONTACTS_ONBOARDING_ENABLED" = "true" ] && [ "$DEPLOY_BACKEND" != "true" ]; then
+            echo "Refusing initial Contacts onboarding without its paired backend deployment. Use scope=all, or scope=auto when it selects the backend." >&2
+            exit 1
+          fi
 
       - name: Enforce UAT database connection budget before deployment
         shell: bash
@@ -712,7 +730,7 @@ jobs:
           image_tag="uat-${{ steps.resolve-sha.outputs.sha }}"
           # The single definition of every value compiled into the web image.
           # The deploy step reuses it, so the build and deploy cannot disagree.
-          build_substitutions="_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=true,_LOCATION_MAP_DEMO=false"
+          build_substitutions="_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=true,_LOCATION_MAP_DEMO=false,_INITIAL_CONTACTS_ONBOARDING_ENABLED=${INITIAL_CONTACTS_ONBOARDING_ENABLED}"
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "build_substitutions=${build_substitutions}" >> "$GITHUB_OUTPUT"
           # A deployment SHA from before the split has no build-only config.
@@ -1066,9 +1084,10 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_WORK_DRAIN_ENABLED=true##_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}##_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com##_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
-          # E5's measured isolated query leaf peaks near 0.93 GiB RSS; the API
-          # also has two gunicorn workers. UAT must not retain the 1Gi default.
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_CLOUD_RUN_MEMORY=4Gi"
+          # The serving two-worker runtime held 86.9–87.85% of 4Gi during the
+          # 2026-10-13 read-only 5 RPS stage. Keep CPU/pools/instances unchanged;
+          # 6Gi gives that measured steady working set its required headroom.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_CLOUD_RUN_MEMORY=6Gi"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}##_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
           if gcloud secrets describe PWM_TAVILY_API_KEY --project="${{ env.GCP_PROJECT_ID }}" >/dev/null 2>&1; then

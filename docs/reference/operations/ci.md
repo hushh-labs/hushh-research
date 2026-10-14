@@ -464,8 +464,17 @@ drain deadlines and returns; scheduled passes revalidate the healthy source
 release and live traffic before deleting eligible revisions. The deployment
 workflow finishes without awaiting retirement. Maintenance creates no environment
 deployment record and holds the shared mutation lock only during a short pass,
-never during the request drain. Production skips cloud authentication for settled
-or not-yet-due drain receipts; both lanes reuse the existing timer. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
+never during the request drain. Both environments skip cloud authentication for settled
+or not-yet-due drain receipts; requested deployments explicitly wake inspection.
+UAT capacity admission is bounded to five minutes and longer shortages require a
+governed operator retry; no runner sleeps through request drainage. Both lanes reuse the existing timer. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
+
+Before increasing database pools or tiers after a failed load stage, inspect the
+existing request query counts and acquisition timing. Drive's consent projection
+checks its rolling schema capabilities once inside each existing transaction;
+those checks are not cached across requests. Owner filters, revocation rules and
+projection totals still execute against the current schema. The PostgreSQL
+projection suite guards this query bound and its missing-schema and error cases.
 
 See [Branch Governance](./branch-governance.md).
 
