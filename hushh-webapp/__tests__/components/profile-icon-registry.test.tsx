@@ -2,7 +2,7 @@ import { render, cleanup } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { XIcon, PlusIcon, ShieldIcon, WalletIcon } from "@/components/icons";
+import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon } from "@/components/icons";
 import {
   AccountProfileIcon,
   DevicesProfileIcon,
@@ -17,13 +17,31 @@ import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-ic
 
 afterEach(cleanup);
 
-it("uses transparent official close/add glyphs while retaining capability duotone", () => {
+it("uses transparent official outline glyphs for controls and capabilities", () => {
   const { container } = render(<><XIcon /><PlusIcon /><ShieldIcon /><WalletIcon /></>);
   const icons = container.querySelectorAll("svg");
   expect(icons).toHaveLength(4);
   for (const icon of icons) expect(icon.getAttribute("viewBox")).toBe("0 0 256 256");
-  for (const icon of [...icons].slice(0, 2)) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
-  for (const icon of [...icons].slice(2)) expect(icon.querySelector('[opacity="0.2"]')).not.toBeNull();
+  for (const icon of icons) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
+});
+
+it("keeps key aliases on one neutral and blue outline despite legacy colour/weight overrides", () => {
+  const keys = [Key, KeyRound, KeyIcon, AccentedKeyIcon, RowIcons.KeyRowIcon, RowIcons.InviteCodeRowIcon, RowIcons.PassphraseRowIcon];
+  const { container } = render(<>{keys.map((Icon, index) => (
+    <Icon key={index} color="yellow" className="text-muted-foreground" style={{ color: "gray" }} weight="duotone" />
+  ))}</>);
+  const icons = [...container.querySelectorAll("svg")];
+  expect(icons).toHaveLength(keys.length);
+  const ids = new Set<string>();
+  for (const icon of icons) {
+    expect(icon.style.color).toBe("var(--ios-account-label)");
+    expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
+    expect(icon.querySelector("pattern circle")?.getAttribute("fill")).toBe("var(--app-key-accent)");
+    const id = icon.querySelector("pattern")!.id;
+    expect(icon.getAttribute("fill")).toBe(`url(#${id})`);
+    ids.add(id);
+  }
+  expect(ids.size).toBe(keys.length);
 });
 
 it("crossfades canonical menu/close icons with reduced-motion support", () => {
@@ -34,7 +52,7 @@ it("crossfades canonical menu/close icons with reduced-motion support", () => {
   expect(container.querySelectorAll("svg")[1]).toHaveClass("opacity-100", "motion-reduce:transition-none");
 });
 
-it("keeps Profile settings on their semantic duotone icon set", () => {
+it("keeps Profile settings on their semantic outline icon set", () => {
   const { container } = render(
     <>
       <AccountProfileIcon />
@@ -58,18 +76,18 @@ it("keeps Profile settings on their semantic duotone icon set", () => {
     "#EF4444",
   ]);
   for (const icon of icons) {
-    expect(icon.querySelector('[opacity="0.2"]')).not.toBeNull();
+    expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
   }
 });
 
-it("keeps every row glyph on native duotone geometry in an authored colour", () => {
+it("keeps every row glyph on native outline geometry in an authored colour", () => {
   const entries = Object.entries(RowIcons);
   expect(entries.length).toBeGreaterThanOrEqual(30);
   for (const [name, RowIcon] of entries) {
     const { container, unmount } = render(<RowIcon />);
     const svg = container.querySelector("svg");
     expect(svg?.getAttribute("viewBox"), name).toBe("0 0 256 256");
-    expect(svg?.querySelector('[opacity="0.2"]'), name).not.toBeNull();
+    expect(svg?.querySelector('[opacity="0.2"]'), name).toBeNull();
     expect(svg?.getAttribute("fill"), name).not.toBe("currentColor");
     unmount();
   }

@@ -304,7 +304,7 @@ describe("application icon and motion contracts", () => {
     );
 
     expect(source).toContain('import * as Phosphor from "@phosphor-icons/react"');
-    expect(source).toContain('defaultWeight: IconWeight = "duotone"');
+    expect(source).toContain('defaultWeight: IconWeight = "regular"');
     expect(source).toContain('Phosphor.CircleNotch, "regular"');
     expect(source).toContain(
       'export const MoreHorizontal = createCanonicalIcon(Phosphor.DotsThree, "regular");',
