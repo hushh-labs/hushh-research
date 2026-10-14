@@ -5379,13 +5379,13 @@ body:has([data-testid="one-location-onboarding"])
 
   .agent-markdown h5 {
     font-size: 15px !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
   }
 
   .agent-markdown h2[data-agent-sources-label] {
     font-size: 12px !important;
     line-height: 16px !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     letter-spacing: normal;
   }
 

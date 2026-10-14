@@ -401,7 +401,7 @@
     color: var(--account-dialog-ink) !important;
     font-family: var(--font-app-body) !important;
     font-size: 15px !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     line-height: 1.2 !important;
   }
 
