@@ -87,10 +87,15 @@ class DriveDocumentPageStore:
         previous = self.progress(connection, job, source_version)
         if previous["complete"] or previous["next_page"] != batch.pages[0].page_number:
             raise DriveReadError("ingestion_superseded")
+        # A render-policy marker can be added while resuming unchanged native
+        # pages; parser/OCR versions must still match and existing gaps persist.
         if previous["total_pages"] is not None and (
             previous["total_pages"] != batch.total_pages
             or previous["unit_kind"] != batch.unit_kind
-            or previous["engine_versions"] != batch.engine_versions
+            or previous["engine_versions"].get("render_policy")
+            not in (None, batch.engine_versions.get("render_policy"))
+            or {k: v for k, v in previous["engine_versions"].items() if k != "render_policy"}
+            != {k: v for k, v in batch.engine_versions.items() if k != "render_policy"}
         ):
             raise DriveReadError("source_changed", retryable=True)
         gaps = previous["has_gaps"] or batch.has_gaps
@@ -103,7 +108,8 @@ class DriveDocumentPageStore:
                     :gaps,:unit,CAST(:engines AS jsonb))
             ON CONFLICT(document_id,extraction_version) DO UPDATE SET
               next_page=EXCLUDED.next_page, complete=EXCLUDED.complete,
-              has_gaps=EXCLUDED.has_gaps, updated_at=clock_timestamp(),
+              has_gaps=EXCLUDED.has_gaps, engine_versions=EXCLUDED.engine_versions,
+              updated_at=clock_timestamp(),
               completed_at=CASE WHEN EXCLUDED.complete THEN clock_timestamp() ELSE NULL END
         """),
             {

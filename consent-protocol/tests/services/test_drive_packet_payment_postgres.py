@@ -36,7 +36,7 @@ from tests.services.test_drive_request_payment import _checkout_sdk_response
 from tests.services.test_drive_sharing_store import request
 
 
-@pytest.mark.parametrize("listing_change", [None, "price", "disable"])
+@pytest.mark.parametrize("listing_change", [None, "price", "disable", "retire"])
 async def test_undated_catalog_allow_freeze_and_checkout_is_idempotent(
     catalog, request_bulk, reusable, sharing, monkeypatch, listing_change
 ):
@@ -99,7 +99,7 @@ async def test_undated_catalog_allow_freeze_and_checkout_is_idempotent(
     for viewer in ["owner", "other"]:
         with pytest.raises(DriveSharingError, match="request_unavailable"):
             await sharing.requester_context(user_id=viewer, request_id=request_id)
-    if listing_change:
+    if listing_change in {"price", "disable"}:
         from hushh_mcp.services.drive_packet_store import LISTING_DISCLOSURE
 
         packet = catalog[1]
@@ -195,6 +195,65 @@ async def test_undated_catalog_allow_freeze_and_checkout_is_idempotent(
             connection.execute(text("SELECT count(*) FROM drive_bulk_share_effects")).scalar_one()
             == 0
         )
+    if listing_change == "retire":
+        from hushh_mcp.services.drive_packet_contract import DocumentFacts
+
+        with sharing.db.engine.begin() as connection:
+            purchase_before = (
+                connection.execute(text("SELECT * FROM drive_request_payment_orders"))
+                .mappings()
+                .one()
+            )
+            request_before = connection.execute(
+                text(
+                    "SELECT request_envelope,reusable_packet_id,reusable_packet_version FROM drive_share_requests"
+                )
+            ).one()
+            version_before = connection.execute(
+                text("SELECT manifest_envelope,digest FROM drive_packet_versions")
+            ).one()
+            facts_row = (
+                connection.execute(text("SELECT * FROM drive_document_facts")).mappings().one()
+            )
+            reusable.packets._authority(connection, user_id="owner")
+            facts = DocumentFacts.model_validate(reusable.facts.facts(dict(facts_row)))
+            facts.canonical_packets = []
+            reusable.packets.update_membership_locked(connection, facts_row, facts)
+            assert (
+                connection.execute(text("SELECT * FROM drive_request_payment_orders"))
+                .mappings()
+                .one()
+                == purchase_before
+            )
+            assert (
+                connection.execute(
+                    text(
+                        "SELECT request_envelope,reusable_packet_id,reusable_packet_version FROM drive_share_requests"
+                    )
+                ).one()
+                == request_before
+            )
+            assert (
+                request_before.reusable_packet_id is not None
+                and request_before.reusable_packet_version == 1
+            )
+            assert (
+                connection.execute(
+                    text("SELECT manifest_envelope,digest FROM drive_packet_versions")
+                ).one()
+                == version_before
+            )
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM drive_packet_version_sources")
+                ).scalar_one()
+                == 1
+            )
+        assert (await reusable.packets.list_packets(user_id="owner"))["packets"] == []
+        assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+            "packets"
+        ] == []
+        assert await reusable.worker.run_packet_one(user_id="owner") == "idle"
     if listing_change == "disable":
         from hushh_mcp.services.google_drive_adapter import DriveReadError
 

@@ -10,7 +10,7 @@ import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 
 const fixture = vi.hoisted(() => ({
   user: { uid: "synthetic-owner", getIdToken: vi.fn().mockResolvedValue("synthetic-id-token") },
-  scan: vi.fn(), success: vi.fn(), completion: 0,
+  scan: vi.fn(), success: vi.fn(), clearMemory: vi.fn(), completion: 0,
   gmail: { status: { connected: true, configured: true, google_sub: "synthetic-account", receipt_sync_available: true, connection_state: "connected", last_sync_status: "completed" },
     loadingStatus: false, statusError: null, syncRun: null, sync: vi.fn(), refreshStatus: vi.fn(),
     presentation: { isConnected: true, state: "connected", badgeLabel: "Connected" } },
@@ -22,6 +22,7 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus:
 vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: () => undefined, useVoiceSurfaceControlTracking: () => ({ activeControlId: null, lastInteractedControlId: null }) }));
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: () => undefined }));
 vi.mock("@/lib/capacitor", () => ({ HushhAuth: {} }));
+vi.mock("@/lib/pkm/markdown-memory", () => ({ clearMarkdownMemory: fixture.clearMemory }));
 vi.mock("sonner", () => ({ toast: { success: fixture.success, error: vi.fn() } }));
 vi.mock("@/components/gmail/gmail-receipt-memory-save", () => ({ GmailReceiptMemorySave: (props: { syncCompletion: number }) => { fixture.completion = props.syncCompletion; return null; } }));
 vi.mock("@/components/gmail/gmail-information-requests-section", () => ({ default: () => null }));
@@ -42,7 +43,7 @@ const sync = async () => { await waitFor(() => expect(screen.getByRole("button",
 // Real encrypted IndexedDB writes need a bounded wait on shared CI runners.
 beforeEach(() => {
   configure({ asyncUtilTimeout: 10000 });
-  vi.restoreAllMocks(); fixture.scan.mockReset(); fixture.success.mockClear(); fixture.completion = 0;
+  vi.restoreAllMocks(); fixture.scan.mockReset(); fixture.success.mockClear(); fixture.clearMemory.mockClear(); fixture.completion = 0;
   publishValidatedAuthSessionOwner(session.userId); clearCachedGmailReceipts(session.userId);
   Object.defineProperty(window, "indexedDB", { value: new IDBFactory(), configurable: true });
   Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
@@ -120,6 +121,7 @@ describe("receipt sync durable completion", () => {
     const decrypt = vi.spyOn(crypto.subtle, "decrypt").mockImplementationOnce(async (...args) => { await gate; return originalDecrypt(...args); });
     open(); await sync(); await waitFor(() => expect(decrypt).toHaveBeenCalled());
     await act(async () => { await Durable.purgeUser(session.userId); });
+    await waitFor(() => expect(fixture.clearMemory).toHaveBeenCalledExactlyOnceWith(session.userId));
     await act(async () => { releaseOld(); });
     await waitFor(() => expect(screen.getByRole("button", { name: /Start sync/ })).toBeEnabled());
     expect(screen.queryByText(/couldn't be saved/)).not.toBeInTheDocument();
@@ -137,6 +139,7 @@ describe("receipt sync durable completion", () => {
     fixture.scan.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     open(); await sync(); await waitFor(() => expect(fixture.scan).toHaveBeenCalled());
     await act(async () => { await Durable.purgeUser(session.userId); finish(response([receipt])); });
+    await waitFor(() => expect(fixture.clearMemory).toHaveBeenCalledExactlyOnceWith(session.userId));
     await waitFor(() => expect(screen.getByRole("button", { name: /Start sync/ })).toBeEnabled());
     expect(screen.queryByText("Plaid")).not.toBeInTheDocument(); expect(fixture.completion).toBe(0);
     expect(await loadReceiptSnapshot(session, account)).toBeNull();

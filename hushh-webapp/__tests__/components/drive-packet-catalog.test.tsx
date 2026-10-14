@@ -35,6 +35,8 @@ describe("agent prepared packets", () => {
     render(<DrivePacketCatalog />);
     await screen.findByText("Schwab statements");
     expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByLabelText("Price for Schwab statements")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit price" }));
     fireEvent.change(screen.getByLabelText("Price for Schwab statements"), { target: { value: "56.78" } });
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     await waitFor(() => expect(state.listing).toHaveBeenCalledWith("private-token", packet, "allow", 5678, expect.any(Function)));
@@ -79,22 +81,45 @@ describe("agent prepared packets", () => {
     await act(async () => resolve({ packets: [packet], nextCursor: null }));
     expect(screen.queryByText("Schwab statements")).toBeNull();
   });
-  it("reports discovered and indexed counts separately before enabling preparation", async () => {
+  it("keeps preparation off until the owner changes the saved switch, with distinct counts under details", async () => {
     state.setProcessing.mockResolvedValue({ ...status, enabled: true, state: "indexing", revision: 1 });
     render(<DriveCollectionPanel backgroundEnabled />);
-    await screen.findByText("No files indexed yet.");
-    fireEvent.click(screen.getByRole("button", { name: "Allow preparation" }));
+    const toggle = await screen.findByRole("switch", { name: "Prepare packets" });
+    await waitFor(() => expect(toggle).toBeEnabled());
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(state.setProcessing).not.toHaveBeenCalled();
+    expect(screen.getByText("No files indexed yet.").closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(screen.getAllByText("View details")[0]);
+    expect(screen.getByText("discovered").nextElementSibling).toHaveTextContent("1,035");
+    expect(screen.getByText("indexed").nextElementSibling).toHaveTextContent("0");
+    fireEvent.click(toggle);
     await waitFor(() => expect(state.setProcessing).toHaveBeenCalledWith("private-token", true, expect.any(Function)));
-    expect(await screen.findByRole("button", { name: "Pause preparation" })).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+  });
+  it("keeps prepared packets visible when preparation is paused without claiming current work", async () => {
+    state.collection.mockResolvedValue({ ...status, enabled: false, state: "paused" });
+    const view = render(<DriveCollectionPanel backgroundEnabled />);
+    expect(await screen.findByText("Schwab statements")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Prepare packets" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.queryByText("Agent One is preparing your packets.")).toBeNull();
+    view.unmount();
+    state.packets.mockResolvedValue({ packets: [], nextCursor: null });
+    render(<DriveCollectionPanel backgroundEnabled={false} />);
+    expect(await screen.findByText("Preparation paused")).toBeInTheDocument();
+    expect(screen.queryByText("Agent One is preparing your packets.")).toBeNull();
+    expect(state.setProcessing).not.toHaveBeenCalled();
   });
   it("finishes a preparation decision when background access changes during the request", async () => {
     let finish!: (value: unknown) => void;
     state.setProcessing.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     const view = render(<DriveCollectionPanel backgroundEnabled />);
-    fireEvent.click(await screen.findByRole("button", { name: "Allow preparation" }));
-    await screen.findByRole("button", { name: "Saving…" });
+    const toggle = await screen.findByRole("switch", { name: "Prepare packets" });
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+    await screen.findByText("Saving…");
     view.rerender(<DriveCollectionPanel backgroundEnabled={false} />);
     await act(async () => finish({ ...status, enabled: true, state: "paused", revision: 1 }));
-    expect(await screen.findByRole("button", { name: "Pause preparation" })).not.toBeDisabled();
+    expect(toggle).not.toBeDisabled();
+    expect(toggle).toHaveAttribute("aria-checked", "true");
   });
 });
