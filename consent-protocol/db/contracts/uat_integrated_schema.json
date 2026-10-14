@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 339,
+  "expected_migration_version": 340,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -199,6 +199,14 @@
       "metadata",
       "created_at",
       "completed_at"
+    ],
+    "calendar_attendance_reviews": [
+      "review_id",
+      "user_id",
+      "state",
+      "result_json",
+      "expires_at",
+      "created_at"
     ],
     "chat_push_device_deliveries": [
       "event_id",

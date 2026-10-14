@@ -249,10 +249,10 @@ class GoogleConnectionService:
         access_level: Literal["read", "manage"],
         redirect_uri: str,
         transport: Literal["web", "native"],
+        include_calendar_list: bool = False,
     ) -> dict[str, Any]:
-        # New web Calendar grants include subscribed-calendar discovery. Native
-        # plugin scope lists still request only the base grant, so their OAuth
-        # attempt must keep matching that exact set until the native pass.
+        # Native base consent stays unchanged. Subscribed-calendar discovery
+        # is an optional upgrade when the connected availability action needs it.
         # Keep scopes(calendar, "read") at its existing base set so owners who
         # connected before this addition retain primary-event/freebusy reads.
         requested_scopes = (
@@ -260,7 +260,11 @@ class GoogleConnectionService:
             "email",
             "profile",
             *self.scopes(service, access_level),
-            *((CALENDAR_LIST_READ_SCOPE,) if service == "calendar" and transport == "web" else ()),
+            *(
+                (CALENDAR_LIST_READ_SCOPE,)
+                if service == "calendar" and (transport == "web" or include_calendar_list)
+                else ()
+            ),
         )
         attempt_id = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(48)
@@ -788,6 +792,7 @@ class GoogleConnectionService:
         user_id: str,
         service: GoogleService,
         access_level: Literal["read", "manage"],
+        include_calendar_list: bool = False,
     ) -> dict[str, Any]:
         """Return the public OAuth client for a platform Google sign-in request."""
         if not self.is_configured():
@@ -798,6 +803,11 @@ class GoogleConnectionService:
             access_level=access_level,
             redirect_uri="",
             transport="native",
+            **(
+                {"include_calendar_list": True}
+                if include_calendar_list and service == "calendar"
+                else {}
+            ),
         )
         return {
             "configured": True,
@@ -805,6 +815,11 @@ class GoogleConnectionService:
             "service": service,
             "access_level": access_level,
             "state": attempt["state"],
+            **(
+                {"include_calendar_list": True}
+                if include_calendar_list and service == "calendar"
+                else {}
+            ),
         }
 
     async def complete_native(
@@ -823,10 +838,12 @@ class GoogleConnectionService:
         if not code:
             raise GoogleConnectionError("Missing native Google authorization code", status_code=400)
         attempt_id, attempt = await self._consume_oauth_attempt(user_id=user_id, state=state)
-        requested_scopes = ("openid", "email", "profile", *self.scopes(service, access_level))
-        if attempt["service"] != service or set(
-            _clean(attempt["requested_scope_csv"]).split()
-        ) != set(requested_scopes):
+        base_scopes = {"openid", "email", "profile", *self.scopes(service, access_level)}
+        requested_scopes = tuple(_clean(attempt["requested_scope_csv"]).split())
+        allowed_sets = [base_scopes]
+        if service == "calendar":
+            allowed_sets.append(base_scopes | {CALENDAR_LIST_READ_SCOPE})
+        if attempt["service"] != service or set(requested_scopes) not in allowed_sets:
             raise GoogleConnectionError(
                 "Google connection permission does not match this attempt", status_code=400
             )

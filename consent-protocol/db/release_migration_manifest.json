@@ -304,7 +304,8 @@
     "336_pwm_claim_invitations.sql",
     "337_initial_contacts_onboarding.sql",
     "338_one_referral_usd_catalogue.sql",
-    "339_pwm_research_lifecycle.sql"
+    "339_calendar_attendance_reviews.sql",
+    "340_pwm_research_lifecycle.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -473,7 +474,7 @@
       "335_pwm_provider_budget.sql",
       "336_pwm_claim_invitations.sql",
       "337_initial_contacts_onboarding.sql",
-      "339_pwm_research_lifecycle.sql"
+      "340_pwm_research_lifecycle.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -646,6 +647,7 @@
     "336_pwm_claim_invitations.sql": "rollback/336_pwm_claim_invitations.rollback.sql",
     "337_initial_contacts_onboarding.sql": "rollback/337_initial_contacts_onboarding.rollback.sql",
     "338_one_referral_usd_catalogue.sql": "rollback/338_one_referral_usd_catalogue.rollback.sql",
-    "339_pwm_research_lifecycle.sql": "rollback/339_pwm_research_lifecycle.rollback.sql"
+    "339_calendar_attendance_reviews.sql": "rollback/339_calendar_attendance_reviews.rollback.sql",
+    "340_pwm_research_lifecycle.sql": "rollback/340_pwm_research_lifecycle.rollback.sql"
   }
 }

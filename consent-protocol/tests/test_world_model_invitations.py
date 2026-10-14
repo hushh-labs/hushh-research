@@ -140,7 +140,7 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         await pool.execute(migration)
         await pool.execute("""CREATE TABLE feed_events(id bigserial PRIMARY KEY,user_id text,source_domain text,event_type text,source_row_id text,metadata jsonb,read_at timestamptz,dismissed_at timestamptz,dismissal_token text);
             CREATE UNIQUE INDEX uq_feed_events_source_projection ON feed_events(user_id,source_domain,event_type,source_row_id) WHERE source_row_id IS NOT NULL;""")
-        lifecycle = (ROOT / "db/migrations/339_pwm_research_lifecycle.sql").read_text()
+        lifecycle = (ROOT / "db/migrations/340_pwm_research_lifecycle.sql").read_text()
         await pool.execute(lifecycle)
         await pool.execute(lifecycle)
         import asyncio
@@ -230,7 +230,7 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
                 await checkpoint_committed(conn, "recipient", state)
         assert await pool.fetchval("SELECT count(*) FROM pwm_completion_events") == 0
         await pool.execute(
-            (ROOT / "db/migrations/rollback/339_pwm_research_lifecycle.rollback.sql").read_text()
+            (ROOT / "db/migrations/rollback/340_pwm_research_lifecycle.rollback.sql").read_text()
         )
         await pool.execute(
             (ROOT / "db/migrations/rollback/336_pwm_claim_invitations.rollback.sql").read_text()

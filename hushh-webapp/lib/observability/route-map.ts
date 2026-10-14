@@ -52,6 +52,7 @@ export const ROUTE_ID_VALUES = [
   "founder_profile_manish",
   "profile_google_oauth_return",
   "one_calendar",
+  "calendar_reschedule",
   "profile_gmail",
   "profile_gmail_connection",
   "profile_gmail_actions",
@@ -234,6 +235,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_google_oauth_return";
   }
   if (pathname === ROUTES.CALENDAR) return "one_calendar";
+  if (pathname === "/calendar/reschedule") return "calendar_reschedule";
   if (pathname === ROUTES.PROFILE_GMAIL) return "profile_gmail";
   if (pathname === ROUTES.PROFILE_GMAIL_CONNECTION)
     return "profile_gmail_connection";

@@ -41,7 +41,8 @@
     "drive_packet_members",
     "drive_packet_versions",
     "drive_packet_version_sources",
-    "drive_packet_listings"
+    "drive_packet_listings",
+    "calendar_attendance_reviews"
   ],
   "retention_registry": [
     {
@@ -528,10 +529,11 @@
         "google_provider_connections",
         "google_service_grants",
         "google_oauth_attempts",
-        "google_calendar_action_proposals"
+        "google_calendar_action_proposals",
+        "calendar_attendance_reviews"
       ],
-      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service",
-      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected.",
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service and connected Schedule attendance review ledger",
+      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected. Attendance review rows contain only submission metadata and redacted outcomes, expire after ten minutes, and are purged on the next review.",
       "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services. Full account deletion snapshots the encrypted refresh token before erasure and, after commit, revokes it at Google best effort (account_deletion_provider_cleanup); a provider failure never rolls back the committed deletion.",
       "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
       "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
