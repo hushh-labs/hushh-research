@@ -224,6 +224,11 @@ def test_receipt_logo_build_boundary(
     assert artifact.read_text() == expected
     assert artifact.stat().st_mode & 0o777 == 0o600
 
+    _verify_receipt_logo_image_build(tmp_path, values, template, expected, artifact)
+    _verify_receipt_logo_run(expected)
+
+
+def _verify_receipt_logo_image_build(tmp_path, values, template, expected, artifact) -> None:
     # Execute the real Docker step, capture arguments without running Docker,
     # and prove query separators/braces survive as one build argument.
     build = _substitute(_body(_steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]), values)
@@ -246,8 +251,9 @@ def test_receipt_logo_build_boundary(
     assert template not in built.stdout + built.stderr
     assert not artifact.exists()
 
-    # Docker exposes ARG in RUN's environment. Exercise the actual build RUN
-    # with a guarded npm command, proving the empty value is truly unset.
+
+def _verify_receipt_logo_run(expected: str) -> None:
+    """Execute Docker's build shell while keeping a blank logo truly unset."""
     dockerfile = (ROOT / "hushh-webapp" / "Dockerfile").read_text()
     assert "ARG NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE\n" in dockerfile
     run = re.search(r"^RUN if .*?npm run build$", dockerfile, re.MULTILINE | re.DOTALL)

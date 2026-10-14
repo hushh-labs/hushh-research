@@ -415,6 +415,31 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services describe" not in backend_build
 
 
+def _vertex_preflight_script(preflight: str) -> str:
+    start = preflight.index("gcloud iam service-accounts describe")
+    end = preflight.index('if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}"', start)
+    decision = preflight[start:end]
+    return (
+        """set -euo pipefail
+    gcloud() {
+      printf 'CALL:%s\\n' "$*" >&2
+      if [[ "$1 $2" == "iam service-accounts" ]]; then return 0; fi
+      if [[ "${DENY_PROJECT_DISCOVERY}" == "true" ]]; then return 7; fi
+      if [[ "$1 $2" == "services list" ]]; then
+    printf 'aiplatform.googleapis.com\\n'
+      elif [[ "$*" == *roles/aiplatform.user* ]]; then
+    printf 'roles/aiplatform.user\\n'
+      elif [[ "$*" == *roles/serviceusage.serviceUsageConsumer* ]]; then
+    printf 'roles/serviceusage.serviceUsageConsumer\\n'
+      else
+    return 8
+      fi
+    }
+    """
+        + decision
+    )
+
+
 def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() -> None:
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     steps = build["steps"]
@@ -430,28 +455,7 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
 
     # Execute the actual preflight decision with a fake build-principal gcloud.
     # Cross-project discovery is denied, as it is in the UAT Cloud Build account.
-    start = preflight.index("gcloud iam service-accounts describe")
-    end = preflight.index('if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}"', start)
-    decision = preflight[start:end]
-    script = (
-        """set -euo pipefail
-gcloud() {
-  printf 'CALL:%s\\n' "$*" >&2
-  if [[ "$1 $2" == "iam service-accounts" ]]; then return 0; fi
-  if [[ "${DENY_PROJECT_DISCOVERY}" == "true" ]]; then return 7; fi
-  if [[ "$1 $2" == "services list" ]]; then
-    printf 'aiplatform.googleapis.com\\n'
-  elif [[ "$*" == *roles/aiplatform.user* ]]; then
-    printf 'roles/aiplatform.user\\n'
-  elif [[ "$*" == *roles/serviceusage.serviceUsageConsumer* ]]; then
-    printf 'roles/serviceusage.serviceUsageConsumer\\n'
-  else
-    return 8
-  fi
-}
-"""
-        + decision
-    )
+    script = _vertex_preflight_script(preflight)
 
     def run_case(
         deploy_env: str,
@@ -504,6 +508,10 @@ gcloud() {
     assert static.returncode == 0, static.stderr
     assert static.stderr.count("CALL:projects get-iam-policy") == 2
 
+    _assert_vertex_candidate_probe(probe)
+
+
+def _assert_vertex_candidate_probe(probe: str) -> None:
     # Deferral is safe only while the exact runtime account probes the pinned
     # candidate image and positive chat/voice verdicts precede any advisory exit.
     assert '--service-account="${_RUNTIME_SERVICE_ACCOUNT}"' in probe
