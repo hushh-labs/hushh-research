@@ -117,6 +117,10 @@ test.beforeEach(async ({ page }) => {
     const relativePath = new URL(route.request().url()).pathname.slice("/onboarding/intro-v2/".length);
     await route.fulfill({ path: path.join(process.cwd(), "public/onboarding/intro-v2", relativePath) });
   });
+  await page.route("http://one-preview.test/onboarding/mentor-v72/**", async (route) => {
+    const relativePath = new URL(route.request().url()).pathname.slice("/onboarding/mentor-v72/".length);
+    await route.fulfill({ path: path.join(process.cwd(), "public/onboarding/mentor-v72", relativePath) });
+  });
 });
 
 test("welcome headline and action remain usable when decorative images fail", async ({
@@ -144,14 +148,15 @@ test("welcome headline and action remain usable when decorative images fail", as
 });
 
 const STORY_TITLES = [
-  "Start with a clearer day.",
-  "Find what you already have.",
-  "Make the next move easier.",
-  "Share only what you choose.",
+  "Big plans.Less busywork.",
+  "Find answers.Not more tabs.",
+  "Your people.Right here.",
+  "Your information.Your call.",
 ] as const;
+const STORY_IDS = ["ask", "know", "connect", "control"] as const;
 
 function storyCard(preview: Locator, index: number) {
-  return preview.locator(`[data-intro-v2-card][data-story-index="${index}"]`);
+  return preview.locator(`.ao-slide[data-story="${STORY_IDS[index - 1]}"]`);
 }
 
 async function mountPreview(
@@ -183,11 +188,8 @@ test("welcome leads into four stories and only the last action starts", async ({
   }
   await preview.getByRole("button", { name: "Create your One", exact: true }).click();
   await expect(preview).toHaveAttribute("data-preview-step", "2");
-  await storyCard(preview, 1).getByRole("button", { name: "Previous screen" }).click();
-  await expect(preview).toHaveAttribute("data-preview-step", "1");
-  await preview.getByRole("button", { name: "Create your One", exact: true }).click();
-
-  await storyCard(preview, 1).getByRole("button", { name: `Screen 2: ${STORY_TITLES[1]}` }).click();
+  await expect(storyCard(preview, 1).locator(".ao-back")).toBeDisabled();
+  await storyCard(preview, 1).getByRole("button", { name: "Screen 2 of 4: Find your answers" }).click();
   await expect(preview).toHaveAttribute("data-preview-step", "3");
   await expect(page.locator("html")).not.toHaveAttribute("data-started", "true");
   await storyCard(preview, 2).getByRole("button", { name: "Previous screen" }).click();
@@ -201,7 +203,7 @@ test("welcome leads into four stories and only the last action starts", async ({
     await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(1);
     await expect(page.locator("html")).not.toHaveAttribute("data-started", "true");
     if (index < STORY_TITLES.length) {
-      await card.getByRole("button", { name: "Next screen" }).click();
+      await card.getByRole("button", { name: "Next", exact: true }).click();
     } else {
       await expect(preview.getByText("Invited by Alex")).toBeVisible();
       await card.getByRole("button", { name: "Join this Circle" }).click();
@@ -242,16 +244,16 @@ for (const viewport of [
         await expect(title).toHaveText(STORY_TITLES[index - 1]);
         await expect(card).toBeVisible();
         await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(1);
-        if (viewport.width > 900) {
-          const cardBounds = (await card.boundingBox())!;
-          expect(cardBounds.width, "desktop remains a card carousel").toBeLessThanOrEqual(441);
-          expect(Math.abs(cardBounds.x + cardBounds.width / 2 - viewport.width / 2), "active card is centered").toBeLessThanOrEqual(2);
+        if (viewport.width >= 800) {
+          const artBounds = (await card.locator(".ao-hero").boundingBox())!;
+          const copyBounds = (await card.locator(".ao-sheet").boundingBox())!;
+          expect(artBounds.x + artBounds.width, "desktop places complete artwork beside the copy").toBeLessThanOrEqual(copyBounds.x);
         }
         await expect.poll(
           () => card.locator("img").evaluateAll((images) =>
             images.filter((image) => image.complete && image.naturalWidth > 0).length),
-          { message: "One and its product icons load" },
-        ).toBeGreaterThanOrEqual(4);
+          { message: "The original One artwork loads" },
+        ).toBeGreaterThanOrEqual(1);
         const size = await page.evaluate(() => ({
           excessWidth: document.documentElement.scrollWidth - innerWidth,
           excessHeight: document.documentElement.scrollHeight - innerHeight,
@@ -262,7 +264,7 @@ for (const viewport of [
         }
         expect(await title.evaluate((element) => element.scrollWidth - element.clientWidth), "story title is not clipped").toBeLessThanOrEqual(1);
         const next = card.getByRole("button", {
-          name: index === STORY_TITLES.length ? "Join this Circle" : "Next screen",
+          name: index === STORY_TITLES.length ? "Join this Circle" : "Next",
           exact: true,
         });
         await next.scrollIntoViewIfNeeded();
