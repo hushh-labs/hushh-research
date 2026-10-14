@@ -12,6 +12,7 @@ import { appInteractionCoordinator } from "../../lib/interaction/interaction-int
 declare const __ONE_PROFILE_TRIGGER_CLASS__: string;
 
 import { OnePresenceAvatar, resolveOnePresenceState } from "../../components/agent/one-presence-avatar";
+import { DriveRecentSharing } from "../../components/agent/drive-background-search";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import type { AgentChatConversation } from "../../lib/services/agent-chat-client";
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
@@ -284,6 +285,7 @@ function Fixture() {
         externalModalOpen={external}
         chats={
           <AgentHistorySidebar
+            driveActivity={location.search.includes("drive-sharing") ? <DriveRecentSharing presentation="sidebar" active={open} /> : undefined}
             conversations={historyRows}
             activeConversationId={historyRows[0]?.id ?? null}
             onCreateNew={() => {}}

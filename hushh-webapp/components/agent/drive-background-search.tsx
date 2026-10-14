@@ -244,7 +244,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
       {ordered.length > 3 ? <button type="button" className="min-h-11 px-3 text-[12px] font-medium text-[color:var(--one-chat-meta)] hover:text-foreground"
         onClick={() => setShowAllShares(value => !value)}>{showAllShares ? "Show fewer updates" : `Show all ${ordered.length} updates`}</button> : null}
       <Sheet modal open={!!selected} onOpenChange={open => { if (!open) { setSelectedShareId(null); void loadBulk(); } }}>
-        <SheetContent side="right" data-chat-detail-pane showCloseButton={false} contentDragDismiss={false} className="profile-pane-sheet gap-0 overflow-hidden p-0"
+        <SheetContent side="right" overlayClassName="z-(--z-dialog-overlay)" data-chat-detail-pane data-app-side-pane showCloseButton={false} contentDragDismiss={false} className="profile-pane-sheet z-(--z-dialog) gap-0 overflow-hidden p-0"
           onCloseAutoFocus={event => { if (dismissingDetail.current) { event.preventDefault(); dismissingDetail.current = false; restoreSidebarFocus(); } }}>
           <SheetHeader className="profile-pane-header profile-pane-header--inner shrink-0 border-b">
             <div><button type="button" aria-label="Back to Chats" onClick={() => setSelectedShareId(null)} className="inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="size-5" /></button><SheetTitle>Drive sharing</SheetTitle></div>

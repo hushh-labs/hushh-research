@@ -9477,27 +9477,18 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   line-height: 1.4;
 }
 [data-chat-detail-body] button {
+  height: auto;
+  min-height: 44px;
+  padding-block: 10px;
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
-[data-chat-detail-pane] [data-connections-panel] > header {
-  min-height: 79px;
-  padding: 16px;
-  border-bottom: 1px solid var(--profile-pane-hair);
-}
-[data-chat-detail-pane] [data-connections-panel] > header h2 {
-  color: var(--ios-account-label);
-  font-family: var(--font-app-display);
-  font-size: 20px;
-  line-height: 1.15;
-  text-align: center;
-  text-wrap: balance;
-}
-[data-chat-detail-pane] [data-connections-panel] > header > h2:first-child {
-  padding-left: 52px;
-}
-[data-chat-detail-pane] [data-connections-panel] > header + div {
-  padding: 22px 28px 28px;
+
+[data-chat-detail-body] button > span {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

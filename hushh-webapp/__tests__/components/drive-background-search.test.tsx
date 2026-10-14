@@ -122,6 +122,11 @@ describe("durable Drive search UI", () => {
     await screen.findByRole("button", { name: "Share 125 files with 1 person" });
     expect(onNeedsReviewChange).toHaveBeenCalledWith(1);
     expect(state.bulk.approveBulkShare).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Back to Chats" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Drive sharing" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Review files. 125 files to review. View details" })).toBeVisible();
+    expect(state.bulk.approveBulkShare).not.toHaveBeenCalled();
+    expect(state.bulk.stopBulkShare).not.toHaveBeenCalled();
   });
 
   it("keeps a pending review visible while limiting old updates above chat history", async () => {
