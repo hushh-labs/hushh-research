@@ -286,7 +286,8 @@
     "318_payout_doorbell_kinds.sql",
     "319_hashcoin_hold_tracking.sql",
     "320_drive_request_initial_quote.sql",
-    "321_drive_request_review_requests.sql"
+    "321_drive_request_review_requests.sql",
+    "322_one_referral_usd_catalogue.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -601,6 +602,7 @@
     "318_payout_doorbell_kinds.sql": "rollback/318_payout_doorbell_kinds.rollback.sql",
     "319_hashcoin_hold_tracking.sql": "rollback/319_hashcoin_hold_tracking.rollback.sql",
     "320_drive_request_initial_quote.sql": "rollback/320_drive_request_initial_quote.rollback.sql",
-    "321_drive_request_review_requests.sql": "rollback/321_drive_request_review_requests.rollback.sql"
+    "321_drive_request_review_requests.sql": "rollback/321_drive_request_review_requests.rollback.sql",
+    "322_one_referral_usd_catalogue.sql": "rollback/322_one_referral_usd_catalogue.rollback.sql"
   }
 }
