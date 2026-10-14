@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 from hushh_mcp.managed_ai_config import load_profile
@@ -73,6 +76,55 @@ def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
 
     assert workflow["jobs"]["rollback-uat"]["environment"] == "uat"
     assert workflow["jobs"]["rollback-production"]["environment"] == "production"
+
+
+@pytest.mark.parametrize(
+    ("enabled", "deploy_backend", "allowed"),
+    [
+        ("true", "false", False),
+        ("true", "", False),
+        ("true", "true", True),
+        ("false", "false", True),
+        ("false", "true", True),
+    ],
+)
+def test_initial_contacts_opt_in_requires_a_paired_backend_before_builds(
+    enabled: str, deploy_backend: str, allowed: bool
+) -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    steps = workflow["jobs"]["deploy"]["steps"]
+    scope_index = next(index for index, step in enumerate(steps) if step.get("id") == "scope")
+    pairing_index = next(
+        index for index, step in enumerate(steps) if step.get("id") == "initial-contacts-pairing"
+    )
+    pairing = steps[pairing_index]
+    frontend_build_index = next(
+        index for index, step in enumerate(steps) if step.get("id") == "start-frontend-image-build"
+    )
+    assert scope_index < pairing_index < frontend_build_index
+    assert "if" not in pairing
+    assert "continue-on-error" not in pairing
+    assert pairing["env"]["DEPLOY_BACKEND"] == "${{ steps.scope.outputs.deploy_backend }}"
+    assert workflow["env"]["INITIAL_CONTACTS_ONBOARDING_ENABLED"] == (
+        "${{ inputs.initial_contacts_onboarding && 'true' || 'false' }}"
+    )
+    bash = shutil.which("bash")
+    assert bash is not None
+    result = subprocess.run(  # noqa: S603 - fixed bash executes only repository YAML.
+        [bash, "-c", pairing["run"]],
+        env={
+            **os.environ,
+            "INITIAL_CONTACTS_ONBOARDING_ENABLED": enabled,
+            "DEPLOY_BACKEND": deploy_backend,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is allowed
+    if not allowed:
+        assert "paired backend deployment" in result.stderr
+        assert "scope=all" in result.stderr
 
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
@@ -619,7 +671,7 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
         assert "LIVE_API_KEY" not in source
 
 
-def test_production_backend_capacity_matches_uat() -> None:
+def test_backend_capacity_keeps_shared_limits_and_reviewed_environment_memory() -> None:
     """Production OOM-killed live chat turns; throttled CPU stalled first turns."""
     production_workflow = _read(".github/workflows/deploy-production.yml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
@@ -630,11 +682,15 @@ def test_production_backend_capacity_matches_uat() -> None:
 
     for setting in (
         "_CLOUD_RUN_CPU=2",
-        "_CLOUD_RUN_MEMORY=4Gi",
         "_CLOUD_RUN_CONCURRENCY=20",
     ):
         assert setting in uat_workflow
         assert setting in production_workflow
+
+    # The measured UAT working set exceeded the 80% memory gate on 4Gi.
+    # Its isolated 6Gi trial must not change production before its own acceptance.
+    assert "_CLOUD_RUN_MEMORY=6Gi" in uat_workflow
+    assert "_CLOUD_RUN_MEMORY=4Gi" in production_workflow
 
 
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:

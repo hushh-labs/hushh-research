@@ -248,6 +248,17 @@ describe("SavedLocationsSection", () => {
     expect(mocks.captureCurrentPosition).not.toHaveBeenCalled();
   });
 
+  it("activates the shared toggle as soon as Add place captures a location", async () => {
+    render(<SavedLocationsSection />);
+    await screen.findByText("Kasturba Road, Bengaluru");
+    expect(readOneLocationControlState("user-123").selfPreviewEnabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /add place/i }));
+    await screen.findByTestId("save-location-modal");
+    expect(readOneLocationControlState("user-123").selfPreviewEnabled).toBe(true);
+    expect(mocks.captureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(mocks.addSavedLocation).not.toHaveBeenCalled();
+  });
+
   it("discards a saved-place capture when Location is paused in flight", async () => {
     let resolveCapture: (point: {
       latitude: number;

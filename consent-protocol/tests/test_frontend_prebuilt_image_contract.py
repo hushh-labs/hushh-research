@@ -170,10 +170,14 @@ def test_receipt_logo_build_boundary(
     config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text())
     values = {name: str(value) for name, value in config["substitutions"].items()}
     values["_DEPLOY_ENV"] = environment
-    script = _substitute(
-        _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
-    ).replace("$$", "$").replace("/workspace/", str(tmp_path) + "/")
-    guards = '''gcloud() {
+    script = (
+        _substitute(
+            _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
+        )
+        .replace("$$", "$")
+        .replace("/workspace/", str(tmp_path) + "/")
+    )
+    guards = """gcloud() {
       case "$*" in
         *--secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID*)
           printf '%s' 'synthetic.apps.googleusercontent.com' ;;
@@ -186,7 +190,7 @@ def test_receipt_logo_build_boundary(
         *) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;;
       esac
     };
-'''
+"""
     guards += f"python3() {{ '{Path(sys.executable).as_posix()}' \"$@\"; }};\n"
     origin = "one.hussh.si" if environment == "production" else f"{environment}.one.hussh.si"
     result = _run(
@@ -223,7 +227,10 @@ def test_receipt_logo_build_boundary(
         f'if [ "$1 $2" = "buildx build" ]; then printf "%s\\n" "$@" > "{capture}"; fi; '
         "return 0; };\n"
     )
-    build_env = {name: "synthetic" for name in _steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]["secretEnv"]}
+    build_env = {
+        name: "synthetic"
+        for name in _steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]["secretEnv"]
+    }
     build_env["PROJECT_ID"] = "synthetic-project"
     built = _run(build_guards + build, env=build_env)
     assert built.returncode == 0, built.stdout + built.stderr

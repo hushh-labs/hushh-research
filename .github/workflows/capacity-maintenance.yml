@@ -242,12 +242,15 @@ jobs:
         if: needs.select-release.outputs.apply == 'true'
         continue-on-error: true
         run: |
-          if python3 scripts/ci/runtime-capacity-budget.py --environment uat --phase post-release; then
-            echo "Capacity: ADMITTED" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Capacity: BLOCKED OR UNVERIFIABLE; cleanup success is independent." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
+          status=0
+          python3 scripts/ci/runtime-capacity-budget.py --environment uat --phase post-release || status=$?
+          case "$status" in
+            0) outcome=ADMITTED ;;
+            1) outcome=BLOCKED ;;
+            *) outcome=UNVERIFIABLE ;;
+          esac
+          echo "Capacity: $outcome; cleanup success is independent." >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
   cleanup:
     concurrency:
@@ -312,9 +315,12 @@ jobs:
         if: needs.select-release.outputs.apply == 'true'
         continue-on-error: true
         run: |
-          if python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release; then
-            echo "Capacity: ADMITTED" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Capacity: BLOCKED OR UNVERIFIABLE; cleanup success is independent." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
+          status=0
+          python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release || status=$?
+          case "$status" in
+            0) outcome=ADMITTED ;;
+            1) outcome=BLOCKED ;;
+            *) outcome=UNVERIFIABLE ;;
+          esac
+          echo "Capacity: $outcome; cleanup success is independent." >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

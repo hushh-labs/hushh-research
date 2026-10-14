@@ -324,6 +324,8 @@ for (const width of [390, 768])
  * A drawer left inside the workspace can never rise above that bar.
  */
 async function mountAppChrome(page: import("@playwright/test").Page, barHeight: number) {
+  // createRoot commits asynchronously after the fixture script is inserted.
+  await page.locator("main").waitFor({ state: "attached" });
   await page.evaluate((height) => {
     document.documentElement.style.setProperty("--app-bottom-shell-height", `${height}px`);
     const main = document.querySelector("main")!;
@@ -810,7 +812,7 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
 });
 
-test("Picker focus, explicit admission, removal, and independent disconnect", async ({
+test("Picker focus, explicit admission, and removal", async ({
   page,
 }) => {
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
@@ -856,6 +858,12 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
   await expect(
     page.getByRole("list", { name: "Selected Drive files" }),
   ).toHaveCount(0);
+});
+
+test("failed Drive revocation preserves the independent Mail connection", async ({ page }) => {
+  await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await expect(page.getByText(/Existing Google sharing stays active until you revoke it/)).toBeVisible();
   await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
