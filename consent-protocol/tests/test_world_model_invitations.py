@@ -235,5 +235,15 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         await pool.execute(
             (ROOT / "db/migrations/rollback/336_pwm_claim_invitations.rollback.sql").read_text()
         )
+        legacy_budget = (ROOT / "db/migrations/340_pwm_provider_budget.sql").read_text()
+        await pool.execute(legacy_budget)
+        await pool.execute(legacy_budget)
+        assert (
+            await pool.fetchval("SELECT to_regclass('pwm_provider_budget')::text")
+            == "pwm_provider_budget"
+        )
+        await pool.execute(
+            (ROOT / "db/migrations/rollback/340_pwm_provider_budget.rollback.sql").read_text()
+        )
     finally:
         await pool.close()
