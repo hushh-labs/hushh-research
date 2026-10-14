@@ -140,12 +140,12 @@ for (const width of [375, 1440]) {
           bodyInk: style.color, bulletGap: parseFloat(bullet.marginBottom),
           scrollWidth: window.document.documentElement.scrollWidth };
       });
-      expect(metrics.font).toContain("InterVariable");
+      expect(metrics.font).toContain("Plus Jakarta Sans");
       expect(metrics.bodySize).toBe(17);
       expect(metrics.lineHeight).toBeGreaterThanOrEqual(28);
       expect(metrics.headingSize).toBe(20);
-      expect(metrics.headingWeight).toBe("700");
-      expect(metrics.titleWeight).toBe("700");
+      expect(metrics.headingWeight).toBe("600");
+      expect(metrics.titleWeight).toBe("600");
       expect(metrics.headingInk).toBe(metrics.bodyInk);
       expect(metrics.bulletGap).toBeGreaterThanOrEqual(8);
       expect(metrics.width).toBeLessThan(800);
@@ -445,7 +445,7 @@ async function measureGrid(page: Page): Promise<GridReport> {
     }
 
     // The exact baseline: a zero-size inline-block's top edge sits on it.
-    const X_HEIGHT = 0.5459; // Inter, as a fraction of the font size
+    const X_HEIGHT = 0.536; // Plus Jakarta Sans 400: OS/2 sxHeight / unitsPerEm
     const textRect = (node: Text, start: number) => {
       const range = document.createRange();
       range.setStart(node, start);

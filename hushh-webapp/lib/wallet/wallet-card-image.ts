@@ -76,8 +76,8 @@ function identitySvg(kind: WalletCardImageKind, profile: WalletCardImageIdentity
   const label = kind === "referral" ? "#6B5326" : nws ? "#9DBFA9" : "#7E7260";
   const value = kind === "referral" ? "#2E2008" : nws ? "#F2EFE3" : "#C9A96A";
   const usernameFit = username.length > (nws ? 10 : 17) ? ` textLength="${nws ? 220 : 416}" lengthAdjust="spacingAndGlyphs"` : "";
-  return `<g data-wallet-identity="true" font-family="WalletLexend,system-ui,sans-serif">
-    <g fill="${label}" font-size="14" font-weight="500" letter-spacing="4.48">
+  return `<g data-wallet-identity="true" font-family="WalletJakarta,system-ui,sans-serif">
+    <g fill="${label}" font-size="14" font-weight="400" letter-spacing="4.48">
       <text x="${nws ? 100 : 402}" y="${nws ? 449 : 281}">NAME</text>
       <text x="${nws ? 390 : 402}" y="${nws ? 449 : 414}">MEMBER SINCE</text>
       <text x="${nws ? 640 : 650}" y="${nws ? 449 : 414}">WALLET ID</text>

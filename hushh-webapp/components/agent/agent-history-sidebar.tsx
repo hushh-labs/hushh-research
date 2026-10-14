@@ -522,7 +522,7 @@ export function AgentHistorySidebar({
           <div data-agent-history-header className="relative flex shrink-0 flex-col border-b text-left">
             <div className="flex min-w-0 items-center gap-2">
               <div className="flex min-w-0 items-center gap-2">
-                <h2 data-agent-history-title className="truncate text-[20px] font-bold leading-[23px] tracking-[-0.025em] text-foreground">
+                <h2 data-agent-history-title className="truncate text-[20px] font-semibold leading-[23px] tracking-[-0.025em] text-foreground">
                   {listTitle}
                 </h2>
                 {conversations.length > 0 ? (

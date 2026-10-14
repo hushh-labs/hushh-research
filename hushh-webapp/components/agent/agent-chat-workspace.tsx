@@ -1579,7 +1579,7 @@ function AgentWelcomePanel({
   return (
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto flex w-full max-w-2xl flex-col items-start px-1 text-left sm:px-2">
-        <h2 className="text-[36px] font-medium leading-[1.12] tracking-[-0.75px] text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold sm:text-[44px]">
+        <h2 className="text-[36px] font-semibold leading-[1.12] tracking-[-0.75px] text-foreground max-sm:font-[family-name:var(--font-app-display)] sm:text-[44px]">
           Hi {name}
         </h2>
         <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]">

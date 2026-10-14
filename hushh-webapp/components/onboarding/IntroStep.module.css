@@ -124,7 +124,7 @@
   color: #0c1020;
   font-family: var(--font-app-display);
   font-size: clamp(16px, 5.15vw, 20px);
-  font-weight: 750;
+  font-weight: 600;
   letter-spacing: -.035em;
   line-height: 1.2;
   text-wrap: balance;
@@ -157,7 +157,7 @@
   color: #687181;
   font-family: var(--font-app-body);
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: 400;
 }
 .link {
   display: grid;

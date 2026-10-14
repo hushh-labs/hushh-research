@@ -81,8 +81,10 @@ Morphy adopts the Apple web design principles as enforceable grammar
 4. **Elevation doctrine.** No shadows on chrome; elevation = surface change +
    backdrop blur (`--app-blur-frosted`). The single photographic shadow is
    `--app-shadow-product`, reserved for imagery resting on a surface.
-5. **Fonts are system-stack only.** `--font-app-*` resolves SF Pro on Apple
-   platforms; never bundle Apple font files.
+5. **Product text uses Plus Jakarta Sans.** `--font-app-*` loads the self-hosted
+   400, 600 and 700 faces; unsupported glyphs use the platform fallback. Code
+   and uppercase metadata use the system monospace stack. Never bundle Apple
+   font files.
 
 ## Motion system (single source of truth)
 
