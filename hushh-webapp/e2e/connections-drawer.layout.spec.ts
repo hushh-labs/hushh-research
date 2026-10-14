@@ -1593,7 +1593,7 @@ test.describe("One profile artwork and animated presence", () => {
             proof.minPeakAlpha = peak;
             proof.minLayers = [...node.querySelectorAll<HTMLElement>("[data-one-presence-artwork]")].map(layer => {
               const style = getComputedStyle(layer);
-              return { state: layer.dataset.onePresenceArtwork, opacity: style.opacity, duration: style.transitionDuration, blend: style.mixBlendMode, visible: getComputedStyle(layer.querySelector("canvas")!).visibility };
+              return { state: layer.dataset.onePresenceArtwork, layer: layer.dataset.onePresenceLayer, opacity: style.opacity, desiredOpacity: layer.style.opacity, duration: style.transitionDuration, blend: style.mixBlendMode, visible: getComputedStyle(layer.querySelector("canvas")!).visibility };
             });
           }
         }

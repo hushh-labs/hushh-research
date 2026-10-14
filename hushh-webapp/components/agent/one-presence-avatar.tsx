@@ -54,20 +54,26 @@ export function OnePresenceAvatar({ state, className, presentation = "compact" }
     const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0
       : parseFloat(getComputedStyle(surfaceRef.current!).getPropertyValue("--motion-duration-xl")) || 150;
     const target = surfaceRef.current!.querySelector<HTMLElement>(`[data-one-presence-artwork="${fadingTo.state}"]`)!;
-    let timer: number;
+    let frame: number | null = null;
+    let completedFrame = false;
     const finish = () => {
-      // A busy main thread can delay the CSS transition's start. Elapsed wall
-      // time alone must never remove artwork that still contributes to the fade.
-      if (Number(getComputedStyle(target).opacity) < 1) {
-        timer = window.setTimeout(finish, 16);
+      // A timer's computed style can reach the endpoint ahead of a painted
+      // frame. Keep both layers until the endpoint survives a paint boundary.
+      const complete = Number(getComputedStyle(target).opacity) === 1;
+      if (!complete || !completedFrame) {
+        completedFrame = complete;
+        frame = window.requestAnimationFrame(finish);
         return;
       }
       setDisplayed(fadingTo);
       setFadingTo(null);
       setReady(current => current === fadingTo ? null : current);
     };
-    timer = window.setTimeout(finish, duration);
-    return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => { frame = window.requestAnimationFrame(finish); }, duration);
+    return () => {
+      window.clearTimeout(timer);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
   }, [fadingTo]);
 
   return (
