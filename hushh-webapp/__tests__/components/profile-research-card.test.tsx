@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
   addToPKM: vi.fn(),
   append: vi.fn(),
+  loadMemory: vi.fn(),
   receipts: vi.fn(),
   clear: vi.fn(),
   candidates: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock("@/lib/pkm/pkm-natural-language-ingestion", async (original) => ({
 vi.mock("@/lib/pkm/markdown-memory", async (original) => ({
   ...(await original<typeof import("@/lib/pkm/markdown-memory")>()),
   appendMarkdownMemoryFacts: mocks.append,
+  loadMarkdownMemory: mocks.loadMemory,
 }));
 vi.mock("@/lib/agent/agent-pkm-memory", async (original) => ({
   ...(await original<typeof import("@/lib/agent/agent-pkm-memory")>()),
@@ -89,12 +91,31 @@ import {
 } from "@/lib/agent/profile-research-review";
 import {
   prepareProfileMemoryReview,
+  ProfileMemoryRejected,
   saveProfileMemoryReview,
   selectedProfileFacts,
 } from "@/lib/agent/profile-memory-review";
 import type { ProfileReport } from "@/lib/services/profile-research-service";
 
 let memoryCommitted = false;
+const EMPTY_MEMORY = `# memory.md
+
+## Facts
+
+## Preferences
+
+## Commitments
+`;
+const FULL_MEMORY = `# memory.md
+
+## Facts
+
+- ${"x".repeat(17_990)}
+
+## Preferences
+
+## Commitments
+`;
 const FACT = "I work in engineering.";
 const UNSURE = "I may have studied mathematics.";
 const props = {
@@ -185,6 +206,7 @@ beforeEach(() => {
     failed: 0,
     results: [{ success: true, result: { dataVersion: 2 } }],
   });
+  mocks.loadMemory.mockResolvedValue({ markdown: EMPTY_MEMORY });
   // A memory.md commit is acknowledged only after a write that succeeded.
   memoryCommitted = false;
   mocks.append.mockImplementation(async () => {
@@ -536,6 +558,23 @@ describe("onboarding profile draft and owner confirmation", () => {
     expect(() => assertExactProfileSelection(prepared, details)).toThrow();
   });
 
+  it("refuses a selection that cannot fit before any write, leaving it editable", async () => {
+    mocks.loadMemory.mockResolvedValue({ markdown: FULL_MEMORY });
+    render(<ProfileResearchCard {...props} />);
+    await screen.findByText("Alex Example");
+    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save to Memory" })).toBeEnabled(),
+    );
+    expect(mocks.append).not.toHaveBeenCalled();
+    expect(
+      mocks.apiFetch.mock.calls.some(([path]) => path.endsWith("/complete")),
+    ).toBe(false);
+    // Not pinned: the owner can still change the selection, and no Retry is offered.
+    expect(screen.getByRole("checkbox", { name: `Keep ${FACT}` })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Retry save" })).toBeNull();
+  });
+
   it("retries an unconfirmed save with the pinned facts and scope", async () => {
     mocks.append.mockResolvedValueOnce({
       success: false,
@@ -879,6 +918,19 @@ describe("memory.md review writer", () => {
     // A scope already acknowledged on the vault is completed, never rewritten.
     mocks.receipts.mockResolvedValue([{ exists: true, dataVersion: 3 }]);
     await saveProfileMemoryReview(session, review());
+    expect(mocks.append).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a full memory.md before any write, but a failed read never blocks the writer", async () => {
+    const reviewed = review();
+    mocks.loadMemory.mockResolvedValueOnce({ markdown: FULL_MEMORY });
+    await expect(saveProfileMemoryReview(session, reviewed)).rejects.toBeInstanceOf(
+      ProfileMemoryRejected,
+    );
+    expect(mocks.append).not.toHaveBeenCalled();
+    expect(completions()).toHaveLength(0);
+    mocks.loadMemory.mockRejectedValueOnce(new Error("offline"));
+    await saveProfileMemoryReview(session, reviewed);
     expect(mocks.append).toHaveBeenCalledTimes(1);
   });
 });

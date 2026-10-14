@@ -23,6 +23,7 @@ import { HelperText, MediumRowLabel } from "@/components/app-ui/typography";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
   prepareProfileMemoryReview,
+  ProfileMemoryRejected,
   saveProfileMemoryReview,
   selectedProfileFacts,
   type ProfileMemoryReview,
@@ -273,8 +274,11 @@ export function ProfileResearchCard({
       } catch (error) {
         if (session.isCurrent()) {
           // Retain the exact scope after a lost response; Retry must never
-          // write a different selection or duplicate a committed write.
-          if (!writeStarted) setReview(null);
+          // write a different selection or duplicate a committed write. A
+          // refusal came before any write, so the selection is editable again.
+          const refused = error instanceof ProfileMemoryRejected;
+          if (refused) setSaveStarted(false);
+          if (!writeStarted || refused) setReview(null);
           setPhase("draft");
           morphyToast.error(
             error instanceof Error

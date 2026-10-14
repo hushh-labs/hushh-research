@@ -1238,8 +1238,9 @@ The whole selection is one atomic encrypted write by the registered
 life. Source links are shown during review but are not saved; earlier structured
 saves keep theirs. Company findings are plain bullets and carry no
 business-directory identity binding. The writer skips exact duplicates only, so a
-paraphrase of an existing bullet is added, and the 18,000-character memory.md limit
-applies. The acknowledged `one_memory` commit receipt, never the write response,
+paraphrase of an existing bullet is added. The 18,000-character memory.md limit
+applies: a selection that cannot fit is refused before any write, with the writer's
+own message, and stays editable. The acknowledged `one_memory` commit receipt, never the write response,
 decides whether completion may be requested. The earlier structured path
 (`profile_review_v1`, pinned inventory and business-origin binding in
 `lib/agent/profile-research-review.ts`) remains as a compatibility rollback and is

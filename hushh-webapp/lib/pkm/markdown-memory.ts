@@ -208,7 +208,8 @@ function storedFactKeys(markdown: string): Set<string> {
   return keys;
 }
 
-function appendFactsToMarkdown(markdown: string, facts: readonly SoulFact[]): {
+/** Pure; the Personal World Model review also uses it to check fit before writing. */
+export function appendFactsToMarkdown(markdown: string, facts: readonly SoulFact[]): {
   markdown: string;
   saved: number;
 } {

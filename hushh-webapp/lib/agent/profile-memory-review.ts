@@ -4,10 +4,12 @@ import {
 } from "@/lib/agent/profile-research-review";
 import { pkmPlanIdForIdempotencyScope } from "@/lib/personal-knowledge-model/mutation-plan";
 import {
+  appendFactsToMarkdown,
   appendMarkdownMemoryFacts,
+  loadMarkdownMemory,
   MARKDOWN_MEMORY_DOMAIN,
 } from "@/lib/pkm/markdown-memory";
-import type { SoulFact } from "@/lib/pkm/soul-document";
+import { emptySoulDocument, type SoulFact } from "@/lib/pkm/soul-document";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import {
   ProfileResearchService,
@@ -27,6 +29,9 @@ const PREFERENCE_KINDS: ReadonlySet<ProfileReport["sections"][number]["kind"]> =
     "shopping",
     "communication",
   ]);
+
+/** Refused before any write was attempted, so the owner can change the selection. */
+export class ProfileMemoryRejected extends Error {}
 
 export type ProfileMemoryReview = {
   /** Exactly the checked, owner-edited statements; nothing is rewritten or added. */
@@ -67,6 +72,31 @@ export function prepareProfileMemoryReview(
 }
 
 /**
+ * The write path reports a full memory.md only as a generic failure. Dry-run the
+ * writer's own append so the owner learns why, before anything is pinned. This is
+ * advisory: a failed read skips it, and the write remains the authority.
+ */
+async function assertFits(
+  session: ProfileReviewSession,
+  facts: readonly SoulFact[],
+): Promise<void> {
+  const current = await loadMarkdownMemory({
+    userId: session.userId,
+    vaultKey: session.vaultKey,
+    vaultOwnerToken: session.vaultOwnerToken,
+  }).catch(() => undefined);
+  await session.assertCurrent();
+  if (current === undefined) return;
+  try {
+    appendFactsToMarkdown(current?.markdown ?? emptySoulDocument(), facts);
+  } catch (error) {
+    throw new ProfileMemoryRejected(
+      error instanceof Error ? error.message : "These details can't be added.",
+    );
+  }
+}
+
+/**
  * One atomic memory.md commit, then owner-bound completion. The acknowledged
  * receipt, never a write response, decides whether the save happened, so a lost
  * response is recovered by lookup and a committed write is never replayed.
@@ -88,6 +118,7 @@ export async function saveProfileMemoryReview(
   };
   await session.assertCurrent();
   if (!review.committed && !(await acknowledged())) {
+    await assertFits(session, review.facts);
     let failure: string | undefined;
     try {
       const result = await appendMarkdownMemoryFacts({
