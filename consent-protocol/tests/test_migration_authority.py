@@ -172,7 +172,7 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
             cursor.execute("INSERT INTO synthetic_reward_reference VALUES (2)")
             catalogue_sql = (
                 Path(__file__).resolve().parents[1]
-                / "db/migrations/337_one_referral_usd_catalogue.sql"
+                / "db/migrations/338_one_referral_usd_catalogue.sql"
             ).read_text(encoding="utf-8")
             cursor.execute(catalogue_sql)
             cursor.execute(catalogue_sql)

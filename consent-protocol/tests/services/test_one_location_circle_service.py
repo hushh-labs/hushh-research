@@ -1736,9 +1736,25 @@ def test_the_people_being_added_are_locked_before_the_connection_rows() -> None:
     profile_lock_index = next(
         index
         for index, sql in enumerate(conn.sql)
-        if "FROM actor_profiles" in sql and "FOR UPDATE" in sql
+        if "FROM actor_profiles" in sql and "FOR NO KEY UPDATE" in sql
     )
     assert "ORDER BY user_id" in conn.sql[profile_lock_index]
+
+
+def test_profile_coordination_allows_chat_actor_foreign_key_checks() -> None:
+    """Reciprocal adds must not deadlock on the chat event's actor KEY SHARE.
+
+    Both helpers must use the same compatible lock, including explicit adds and
+    invite acceptance; weakening only the signup path leaves a mixed-path cycle.
+    """
+    conn = _CapacityConnection({"user_id": "owner"}, [{"user_id": "friend"}])
+    OneLocationCircleService._lock_user_circle_memberships(conn, user_id="owner")
+    OneLocationCircleService._lock_invitees(conn, user_ids=["friend"])
+
+    assert len(conn.sql) == 2
+    assert all("FOR NO KEY UPDATE" in sql for sql in conn.sql)
+    assert all("FOR UPDATE" not in sql for sql in conn.sql)
+    assert "ORDER BY user_id" in conn.sql[1]
 
 
 def test_a_member_cannot_add_anybody_to_a_circle_they_do_not_own() -> None:
@@ -4371,3 +4387,96 @@ def test_circle_deleted_invite_fanout_continues_after_one_delivery_fails(
     )
 
     assert delivered == ["healthy-invite"]
+
+
+class _SignupConnection(_CapacityConnection):
+    def execute(self, statement, params):
+        if "pg_advisory_xact_lock" in str(statement):
+            self.sql.append(str(statement))
+            self.params.append(dict(params))
+            return _Rows()
+        return super().execute(statement, params)
+
+
+@pytest.mark.parametrize("status", ["active", "removed", "left"])
+def test_signup_fill_never_restores_existing_membership(status):
+    circle = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _SignupConnection(
+        {"id": circle, "owner_user_id": "owner", "name": "Contacts"},
+        {"role": "owner"},
+        [{"user_id": "person"}],
+        {"initial_contacts_welcome_acknowledged": False, "initial_contacts_circle_id": circle},
+        None,
+        [{"user_id": "person", "status": status, "left_recently": status == "left"}],
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn), hmac_key="a" * 32)
+    result = service.create_member_invites(
+        actor_user_id="owner",
+        circle_id=circle,
+        invitee_user_ids=["person"],
+        signup_insert_only=True,
+    )
+    assert result["addedUserIds"] == []
+    assert result["skippedUserIds"] == ["person"]
+    assert result["skippedReasons"]["person"] == (
+        "already_member" if status == "active" else "previous_membership"
+    )
+    assert not any("INSERT INTO" in sql for sql in conn.sql)
+    profile_lock = next(i for i, sql in enumerate(conn.sql) if "FROM actor_profiles" in sql)
+    lifecycle_lock = next(i for i, sql in enumerate(conn.sql) if "FROM vault_keys" in sql)
+    assert profile_lock < lifecycle_lock
+    assert "pg_advisory_xact_lock_shared" in conn.sql[0]
+    assert not any("pg_advisory_xact_lock(" in sql for sql in conn.sql)
+
+
+@pytest.mark.parametrize("ack,reference", [(True, "same"), (False, "other"), (None, "same")])
+def test_signup_fill_requires_pending_exact_server_reference(ack, reference):
+    circle = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _SignupConnection(
+        {"id": circle, "owner_user_id": "owner", "name": "Contacts"},
+        {"role": "owner"},
+        [{"user_id": "person"}],
+        {
+            "initial_contacts_welcome_acknowledged": ack,
+            "initial_contacts_circle_id": circle
+            if reference == "same"
+            else "550e8400-e29b-41d4-a716-446655440001",
+        },
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn), hmac_key="a" * 32)
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner",
+            circle_id=circle,
+            invitee_user_ids=["person"],
+            signup_insert_only=True,
+        )
+    assert raised.value.code == "INITIAL_CONTACTS_CLOSED"
+    assert not any("INSERT INTO" in sql for sql in conn.sql)
+
+
+def test_signup_fill_filters_tombstones_without_blocking_new_people():
+    circle = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _SignupConnection(
+        {"id": circle, "owner_user_id": "owner", "name": "Contacts"},
+        {"role": "owner"},
+        [{"user_id": "removed"}, {"user_id": "new"}],
+        {"initial_contacts_welcome_acknowledged": False, "initial_contacts_circle_id": circle},
+        None,
+        [{"user_id": "removed", "status": "removed"}],
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn), hmac_key="a" * 32)
+    with pytest.raises(OneLocationCircleError):
+        # Missing live connection fixture intentionally stops after filtering.
+        service.create_member_invites(
+            actor_user_id="owner",
+            circle_id=circle,
+            invitee_user_ids=["removed", "new"],
+            signup_insert_only=True,
+        )
+    lookup = next(
+        params
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "connection.id AS connection_id" in sql
+    )
+    assert lookup["invitee_user_ids"] == ["new"]

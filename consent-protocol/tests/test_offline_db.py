@@ -135,3 +135,120 @@ def test_offline_pool_is_asyncpg_compatible(offline_env):
             assert count == 1
 
     asyncio.run(_run())
+
+
+def _offline_vault_service():
+    from db.db_client import get_db
+    from hushh_mcp.services.vault_keys_service import VaultKeysService
+
+    service = VaultKeysService()
+    service._db = get_db()
+    return service
+
+
+@pytest.mark.parametrize("offline,dialect", [("0", "sqlite"), ("1", "postgresql"), ("1", None)])
+def test_initial_contacts_projection_fallback_requires_offline_sqlite(
+    monkeypatch, offline, dialect
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.vault_keys_service import VaultKeysService
+
+    monkeypatch.setenv("DB_OFFLINE", offline)
+    service = VaultKeysService()
+    # There is deliberately no execute_raw: neither case may inspect SQLite.
+    service._db = (
+        SimpleNamespace(engine=SimpleNamespace(dialect=SimpleNamespace(name=dialect)))
+        if dialect is not None
+        else SimpleNamespace()
+    )
+    assert service._offline_initial_contacts_columns() is None
+    projection = service._user_entry_projection().split(",")
+    assert "initial_contacts_source" in projection
+    assert "initial_contacts_welcome_acknowledged" in projection
+    assert "initial_contacts_circle_id" in projection
+
+
+def test_legacy_offline_vault_bootstrap_and_setup_preserve_metadata(offline_env):
+    service = _offline_vault_service()
+    projection = service._user_entry_projection().split(",")
+    assert not any(column.startswith("initial_contacts_") for column in projection)
+
+    first = service._get_pre_vault_state_sync("legacy-offline-owner")
+    returning = service._get_pre_vault_state_sync("legacy-offline-owner")
+    assert returning["loginCount"] == first["loginCount"] + 1
+    for state in (first, returning):
+        assert state["initialContactsSource"] is None
+        assert state["initialContactsWelcomeAcknowledged"] is None
+        assert state["initialContactsCircleId"] is None
+
+    finished = service._update_pre_vault_state_sync(
+        user_id="legacy-offline-owner", setup_completed=True
+    )
+    assert finished["setupCompleted"] is True
+    assert finished["initialContactsCircleId"] is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"initial_contacts_source": "device"},
+        {"initial_contacts_welcome_acknowledged": True},
+    ],
+)
+def test_legacy_offline_vault_refuses_initial_contacts_writes(offline_env, payload):
+    service = _offline_vault_service()
+    before = service._get_pre_vault_state_sync("legacy-offline-owner")
+    with pytest.raises(ValueError, match="initial contacts unavailable in offline schema"):
+        service._update_pre_vault_state_sync(user_id="legacy-offline-owner", **payload)
+    row = service._db.table("vault_keys").select("*").execute().data[0]
+    assert row["login_count"] == before["loginCount"]
+    assert row["setup_completed"] == 0
+
+
+def test_partial_offline_initial_contacts_schema_reads_only_present_columns(offline_env):
+    service = _offline_vault_service()
+    service._db.execute_raw("ALTER TABLE vault_keys ADD COLUMN initial_contacts_source TEXT")
+    projection = service._user_entry_projection().split(",")
+    assert "initial_contacts_source" in projection
+    assert "initial_contacts_welcome_acknowledged" not in projection
+    assert "initial_contacts_circle_id" not in projection
+    service._get_pre_vault_state_sync("partial-offline-owner")
+    service._db.table("vault_keys").update({"initial_contacts_source": "device"}).eq(
+        "user_id", "partial-offline-owner"
+    ).execute()
+    state = service._get_pre_vault_state_sync("partial-offline-owner")
+    assert state["initialContactsSource"] == "device"
+    assert state["initialContactsWelcomeAcknowledged"] is None
+    assert state["initialContactsCircleId"] is None
+    with pytest.raises(ValueError, match="initial contacts unavailable in offline schema"):
+        service._update_pre_vault_state_sync(
+            user_id="partial-offline-owner", initial_contacts_source="device"
+        )
+
+
+def test_current_offline_initial_contacts_metadata_roundtrips(offline_env):
+    service = _offline_vault_service()
+    # Only this test database is upgraded; the generated snapshot stays untouched.
+    for column, column_type in (
+        ("initial_contacts_source", "TEXT"),
+        ("initial_contacts_welcome_acknowledged", "INTEGER"),
+        ("initial_contacts_circle_id", "TEXT"),
+    ):
+        service._db.execute_raw(f"ALTER TABLE vault_keys ADD COLUMN {column} {column_type}")
+    service._get_pre_vault_state_sync("current-offline-owner")
+    enrolled = service._update_pre_vault_state_sync(
+        user_id="current-offline-owner", initial_contacts_source="device"
+    )
+    assert enrolled["initialContactsSource"] == "device"
+    assert enrolled["initialContactsWelcomeAcknowledged"] is False
+    circle_id = "00000000-0000-0000-0000-000000000001"
+    service._db.table("vault_keys").update(
+        {"vault_status": "active", "initial_contacts_circle_id": circle_id}
+    ).eq("user_id", "current-offline-owner").execute()
+    service._update_pre_vault_state_sync(user_id="current-offline-owner", setup_completed=True)
+    acknowledged = service._update_pre_vault_state_sync(
+        user_id="current-offline-owner", initial_contacts_welcome_acknowledged=True
+    )
+    assert acknowledged["initialContactsWelcomeAcknowledged"] is True
+    assert acknowledged["initialContactsCircleId"] == circle_id

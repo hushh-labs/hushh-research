@@ -1,6 +1,7 @@
 -- Publication reconciliation: activated in UAT in replay mode under unpublished
 -- 322_one_referral_usd_catalogue.sql. Replay creates no ledger entry.
--- Upstream assigned 322 to wallet sharing; this publication uses 337.
+-- Upstream assigned 322 to wallet sharing and 337 to initial Contacts onboarding;
+-- this publication uses 338.
 -- Original normalized SQL SHA-256: e65bda802ef10df1798bbd7c1dd49012f5b5640de54ed6f097bf9f423ac22fb9
 -- The original transition and exact-match guards below are retained.
 -- Referral catalogue v3: $25 voucher and approved Apple Watch reward.

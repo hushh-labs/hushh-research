@@ -6088,6 +6088,49 @@
       "native_surface_id": "native-route-one-wallet-card"
     },
     {
+      "route_pattern": "/one/welcome",
+      "page_file": "app/one/welcome/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.welcome",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.welcome",
+        "purpose": "Review confirmed initial contacts, optionally manage circles or invite people, and continue into One.",
+        "screen": "one_welcome",
+        "entry_cue": "Your welcome is ready. Review it and continue when you like.",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Keep Continue available; require the existing owner authority for membership changes.",
+          "cancelled": "Respect source cancellation and keep the welcome available.",
+          "failed": "Show only confirmed results and offer explicit retry.",
+          "timeout": "Keep Continue available without claiming empty contacts.",
+          "callback_error": "Ignore late callbacks outside the owner signup session.",
+          "route_mismatch": "Stay within the registered welcome surface."
+        },
+        "completion_boundary": "Continue acknowledges only this welcome and resumes the validated original destination.",
+        "next_route": "/",
+        "return_policy": "resolve_root",
+        "out_of_scope_behavior": "No persistent agent chrome is mounted before this welcome is acknowledged."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_welcome",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-welcome"
+    },
+    {
       "route_pattern": "/people/[personRef]",
       "page_file": "app/people/[personRef]/page.tsx",
       "route_mode": "standard",
