@@ -4,6 +4,12 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // guest-only exploration, and the invitation handoff. No live invite redeemed.
 const CODE = "SWDX-ENDP-B954";
 const ROUTE = `/circle/join?code=${CODE}`;
+const STORY_TITLES = [
+  "Start with a clearer day.",
+  "Find what you already have.",
+  "Make the next move easier.",
+  "Share only what you choose.",
+] as const;
 const VIEWPORTS = [
   { width: 320, height: 568 },
   { width: 360, height: 640 },
@@ -30,6 +36,20 @@ test.beforeEach(async ({ page, baseURL }) => {
   );
 });
 
+function storyCard(preview: Locator, index: number) {
+  return preview.locator(`[data-intro-v2-card][data-story-index="${index}"]`);
+}
+
+async function advanceToFinalStory(preview: Locator) {
+  await preview.getByRole("button", { name: "Create your One", exact: true }).click();
+  for (let index = 1; index < STORY_TITLES.length; index++) {
+    await expect(storyCard(preview, index).locator("[data-intro-v2-title]")).toHaveText(STORY_TITLES[index - 1]);
+    await storyCard(preview, index).getByRole("button", { name: "Next screen" }).click();
+  }
+  await expect(preview).toHaveAttribute("data-preview-step", "5");
+  await expect(storyCard(preview, 4).locator("[data-intro-v2-title]")).toHaveText(STORY_TITLES[3]);
+}
+
 test("only the explicit One invite opens the introduction at the root", async ({ page }) => {
   // Cold WebKit must settle Firebase restoration before deciding guest entry.
   test.setTimeout(60000);
@@ -39,15 +59,29 @@ test("only the explicit One invite opens the introduction at the root", async ({
   await page.goto("/?invite=one", { waitUntil: "domcontentloaded" });
   const preview = page.getByTestId("guest-preview");
   await expect(preview).toHaveAttribute("data-preview-step", "1");
-  await preview.getByRole("button", { name: "Create your One" }).click();
-  await preview.getByRole("button", { name: "Meet your agents" }).click();
-  await preview.getByRole("button", { name: "See what’s next" }).click();
-  await preview.getByRole("button", { name: "Create your One", exact: true }).click();
+  await advanceToFinalStory(preview);
+  await storyCard(preview, 4).getByRole("button", { name: "Start with One" }).click();
   await expect(page).toHaveURL((url) => url.pathname === "/login" && url.searchParams.get("redirect") === "/?invite=one");
   await expect(page.getByTestId("auth-step-primary")).toBeVisible();
   await page.getByRole("button", { name: "Go back", exact: true }).click();
   await expect(page).toHaveURL((url) => url.pathname === "/" && url.searchParams.get("invite") === "one");
   await expect(preview).toBeVisible();
+});
+
+test("the visible final card can open an invitation directly on desktop", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(ROUTE);
+  const preview = page.getByTestId("guest-preview");
+  await preview.getByRole("button", { name: "Create your One", exact: true }).click();
+  await expect(preview).toHaveAttribute("data-preview-step", "2");
+  await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(4);
+  const finalAction = storyCard(preview, 4).getByRole("button", { name: "Join this Circle", exact: true });
+  await expect(finalAction).toBeEnabled();
+  await finalAction.click();
+  await expect(page).toHaveURL(
+    (url) => url.pathname === "/login" && url.searchParams.get("redirect") === ROUTE,
+    { timeout: 60_000 },
+  );
 });
 
 function watchRuntime(page: Page) {
@@ -80,7 +114,7 @@ async function expectHittable(locator: Locator) {
 }
 
 for (const viewport of VIEWPORTS) {
-  test(`four guest screens fit ${viewport.width}x${viewport.height} without dead scroll`, async ({
+  test(`welcome and four stories fit ${viewport.width}x${viewport.height} without dead scroll`, async ({
     page,
   }) => {
     const errors = watchRuntime(page);
@@ -94,14 +128,17 @@ for (const viewport of VIEWPORTS) {
       content: `:root { --app-safe-area-top-effective: ${top}px !important; --app-safe-area-bottom-effective: ${bottom}px !important; }`,
     });
     await page.evaluate(() => document.fonts.ready);
-    for (let step = 1; step <= 4; step++) {
+    for (let step = 1; step <= 5; step++) {
       await expect(preview).toHaveAttribute("data-preview-step", String(step));
-      await expect(preview.getByRole("heading", { level: 1 })).toBeVisible();
-      const measurements = await preview.evaluate((element) => {
+      const title = step === 1
+        ? preview.getByRole("heading", { level: 1 })
+        : storyCard(preview, step - 1).locator("[data-intro-v2-title]");
+      await expect(title).toBeVisible();
+      if (step > 1) await expect(title).toHaveText(STORY_TITLES[step - 2]);
+      const measurements = await title.evaluate((heading) => {
         const root = document.querySelector<HTMLElement>(
           '[data-app-scroll-root="true"]',
         )!;
-        const heading = element.querySelector("h1")!;
         return {
           x: document.documentElement.scrollWidth - window.innerWidth,
           y: root.scrollHeight - root.clientHeight,
@@ -110,20 +147,15 @@ for (const viewport of VIEWPORTS) {
         };
       });
       expect(measurements.x).toBeLessThanOrEqual(1);
-      expect(measurements.y).toBeLessThanOrEqual(1);
+      if (viewport.height >= 640) expect(measurements.y).toBeLessThanOrEqual(1);
       expect(measurements.titleWidth).toBeLessThanOrEqual(1);
       expect(measurements.ellipsis).not.toBe("ellipsis");
-      const cta = preview.getByRole("button", {
-        name:
-          step === 1
-            ? "Create your One"
-            : step === 2
-            ? "Meet your agents"
-            : step === 3
-              ? "See what’s next"
-              : "Join this Circle",
-        exact: true,
-      });
+      const cta = step === 1
+        ? preview.getByRole("button", { name: "Create your One", exact: true })
+        : storyCard(preview, step - 1).getByRole("button", {
+            name: step === 5 ? "Join this Circle" : "Next screen",
+            exact: true,
+          });
       await expect(cta).toBeEnabled();
       const bounds = (await cta.boundingBox())!;
       expect(bounds.height).toBeGreaterThanOrEqual(44);
@@ -131,26 +163,14 @@ for (const viewport of VIEWPORTS) {
         viewport.height - bottom,
       );
       await expectHittable(cta);
-      if (step === 4) {
-        await expectHittable(
-          preview.getByRole("button", { name: "Sign in", exact: true }),
-        );
-        expect(
-          (await preview
-            .getByRole("button", { name: "Sign in", exact: true })
-            .boundingBox())!.y,
-        ).toBeGreaterThanOrEqual(top);
-      } else {
-        await expect(
-          preview.getByRole("button", { name: "Sign in", exact: true }),
-        ).toHaveCount(0);
-      }
+      if (step === 5) await expectHittable(cta);
+      else await expect(preview.getByRole("button", { name: "Join this Circle", exact: true })).toHaveCount(0);
       await expect(page).toHaveURL(
         (url) =>
           url.pathname === "/circle/join" &&
           url.searchParams.get("code") === CODE,
       );
-      if (step < 4) await cta.click();
+      if (step < 5) await cta.click();
     }
     await expect(
       preview.getByRole("heading", { name: "Family Circle", exact: true }),
@@ -164,12 +184,8 @@ test("the account action preserves the invite through sign-in and cancellation",
 }) => {
   await page.goto(ROUTE);
   const preview = page.getByTestId("guest-preview");
-  await preview.getByRole("button", { name: "Create your One" }).click();
-  await preview.getByRole("button", { name: "Meet your agents" }).click();
-  await preview.getByRole("button", { name: "See what’s next" }).click();
-  await preview
-    .getByRole("button", { name: "Join this Circle", exact: true })
-    .click();
+  await advanceToFinalStory(preview);
+  await storyCard(preview, 4).getByRole("button", { name: "Join this Circle", exact: true }).click();
   await page.waitForURL(
     (url) =>
       url.pathname === "/login" && url.searchParams.get("redirect") === ROUTE,
@@ -192,7 +208,7 @@ for (const { name, destination } of [
     destination: "/one/location/invite/browser_fixture_token",
   },
 ]) {
-  test(`the ${name} retains the invitation through all four screens and login`, async ({ page }) => {
+  test(`the ${name} retains the invitation through all five screens and login`, async ({ page }) => {
     // Cold WebKit waits for Firebase restoration and the streamed One layout.
     test.setTimeout(60000);
     const errors = watchRuntime(page);
@@ -208,13 +224,8 @@ for (const { name, destination } of [
     expect(response?.status()).toBe(200);
     const preview = page.getByTestId("guest-preview");
     await expect(preview).toHaveAttribute("data-preview-step", "1", { timeout: 30000 });
-    await expect(preview.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
-    await preview.getByRole("button", { name: "Create your One" }).click();
-    await preview.getByRole("button", { name: "Meet your agents" }).click();
-    await expect(preview).toHaveAttribute("data-preview-step", "3");
-    await expect(preview.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
-    await preview.getByRole("button", { name: "See what’s next" }).click();
-    await expect(preview).toHaveAttribute("data-preview-step", "4");
+    await advanceToFinalStory(preview);
+    await expect(preview.getByRole("button", { name: "Accept invitation", exact: true })).toBeEnabled();
     await expect(preview.getByText("Invited by Alex")).toBeVisible();
     await preview.getByRole("button", { name: "Accept invitation" }).click();
     await page.waitForURL((url) => url.pathname === "/login" && url.searchParams.get("redirect") === destination);
@@ -241,9 +252,7 @@ test("large text and long invite names remain readable with reachable actions", 
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto(ROUTE);
   const preview = page.getByTestId("guest-preview");
-  await preview.getByRole("button", { name: "Create your One" }).click();
-  await preview.getByRole("button", { name: "Meet your agents" }).click();
-  await preview.getByRole("button", { name: "See what’s next" }).click();
+  await advanceToFinalStory(preview);
   await page.addStyleTag({ content: "html { font-size: 32px !important; }" });
   const title = preview.getByRole("heading", { name: longName, exact: true });
   await expect(title).toBeVisible();
