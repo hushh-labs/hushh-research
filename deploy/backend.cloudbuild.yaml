@@ -417,6 +417,7 @@ steps:
       - "_WALLET_PASS_PROVIDER=${_WALLET_PASS_PROVIDER}"
       - "_WORKOS_SSO_ENABLED=${_WORKOS_SSO_ENABLED}"
       - "_WORKOS_REDIRECT_URI=${_WORKOS_REDIRECT_URI}"
+      - "_WORKOS_REDIRECT_ORIGINS=${_WORKOS_REDIRECT_ORIGINS}"
       - "_APP_REVIEW_MODE=${_APP_REVIEW_MODE}"
       - "_HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}"
       - "_HUSHH_PROD_PHONE_TEST_ENABLED=${_HUSHH_PROD_PHONE_TEST_ENABLED}"
@@ -811,6 +812,8 @@ substitutions:
   # The redirect URI is the web /login URL registered in the WorkOS dashboard.
   _WORKOS_SSO_ENABLED: ""
   _WORKOS_REDIRECT_URI: ""
+  # Comma-separated origins SSO may return to (every hostname the app is served on).
+  _WORKOS_REDIRECT_ORIGINS: ""
   _ONE_EMAIL_ADDRESS: ""
   _ONE_EMAIL_DELEGATED_USER: ""
   _ONE_EMAIL_PUBSUB_TOPIC: ""
