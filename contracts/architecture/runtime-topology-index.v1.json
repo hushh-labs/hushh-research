@@ -6356,7 +6356,7 @@
     "route_index": "335300eb4fa1c0c28f7dd651b477ba9e2182d94fa223330432c78bc2977d52eb",
     "route_layout": "85f8d52e7d9d0a5b87f415a44d84077e029b14ae31171f16743203cc23b0ca5d",
     "surface_map": "6945b9595e0518f382a07ed7dbc51000330cae677fed654aa4be92455c765567",
-    "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
+    "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
@@ -6368,7 +6368,7 @@
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
     "physical_routes": 151,
-    "semantic_routes": 14,
+    "semantic_routes": 17,
     "table_families": 103
   }
 }

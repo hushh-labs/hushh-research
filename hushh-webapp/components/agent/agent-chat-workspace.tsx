@@ -8957,13 +8957,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     // one when it is read out of context.
                     aria-label="One's model"
                     title={`Running ${modelPreference.effective_model}`}
-                    className="h-8 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
+                    className="h-11 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
                   >
                     {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
                         header cannot afford. The full label stays in the menu
                         and in the tooltip. */}
-                    <Cpu aria-hidden="true" className="agent-chat-model-icon hidden" />
+                    <Cpu aria-hidden="true" className="agent-chat-model-icon size-4 shrink-0" />
                     <span className="truncate">
                       {(
                         modelPreference.choices.find(
@@ -8995,7 +8995,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   if (next === "puppy") enterPuppySurface();
                   else setAgentSurface(next);
                 }} focusRef={agentSurfaceFocusRef}
-                className="agent-chat-surface-control flex h-11 w-[88px] shrink-0 items-center justify-center sm:w-[116px]">
+                className="agent-chat-surface-control flex h-11 w-[94px] shrink-0 items-center justify-center sm:w-[116px]">
               <SegmentedControl
                 selectedButtonRef={agentSurfaceFocusRef}
                 variant="sliding"

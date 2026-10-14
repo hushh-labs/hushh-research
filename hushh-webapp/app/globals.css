@@ -9535,6 +9535,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   .agent-chat-header { column-gap: 2px; }
   .agent-chat-header [data-agent-chat-header-region="identity"],
   .agent-chat-header [data-agent-chat-header-region="actions"] { gap: 2px; }
+  .agent-chat-header [data-agent-chat-header-region="identity"] > div:last-child > div { font-size: 13px; }
 }
 
 @media (min-width: 1280px) {

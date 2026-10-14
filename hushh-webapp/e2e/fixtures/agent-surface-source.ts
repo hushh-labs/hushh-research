@@ -430,6 +430,7 @@ const segmentedSegmentBase = one(
 )[1];
 const segmentedSlidingGap = one(segmented, /isSliding \? "(gap-[^"]+)" :/, "the sliding segment gap", SEGMENTED_PATH)[1];
 const segmentedSlidingSize = one(segmented, /isSliding \? "([^"]+)" : config\.segment/, "the sliding segment sizing", SEGMENTED_PATH)[1];
+const segmentedMinimum = one(segmented, /minWidth: options\.length \* (\d+) \+ (\d+)/, "the sliding minimum hit measure", SEGMENTED_PATH);
 
 export const AGENT_SURFACE_SOURCE = {
   header: {
@@ -502,6 +503,7 @@ export const AGENT_SURFACE_SOURCE = {
     ariaLabel: toggleAriaLabel,
     options: toggleOptions,
     frameClass: toggleFrameClass,
+    minimumWidth: toggleOptions.length * Number(segmentedMinimum[1]) + Number(segmentedMinimum[2]),
     containerClass: [segmentedGroupBase, segmentedSlidingGroup, toggleClass].join(" "),
     segmentClass: `${segmentedSegmentBase} ${segmentedSlidingGap} ${segmentedSlidingSize} flex-1`,
     iconClass: `${segmentedSm.icon} ${toggleIconClass}`,

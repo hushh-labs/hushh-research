@@ -14,7 +14,11 @@ enum NativeDrawerQualificationPolicy {
         return admits(UIDevice.current.userInterfaceIdiom, enabled: enabled, coherentShell: coherentShell)
     }
     static var coherentShell: Bool {
-        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        #if HUSHH_NATIVE_SHELL_QUALIFICATION
+        // Explicit qualification binaries keep the selected renderer across
+        // manual launches. This does not enable ordinary Debug/Release builds.
+        return true
+        #elseif DEBUG
         return ProcessInfo.processInfo.arguments.contains("--hushh-native-shell-qualification")
         #else
         return false

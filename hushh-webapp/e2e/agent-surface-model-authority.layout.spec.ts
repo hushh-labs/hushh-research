@@ -209,7 +209,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
     : "";
 
   const toggle = `<div class="${SRC.toggle.frameClass}"><div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
-             class="${SRC.toggle.containerClass}">${segments}</div></div>`;
+             class="${SRC.toggle.containerClass}" style="min-width:${SRC.toggle.minimumWidth}px">${segments}</div></div>`;
   const profileButton = `<button type="button" data-testid="profile-open-button" aria-label="Open Profile"
              class="inline-flex shrink-0 items-center justify-center rounded-full ${SRC.header.profileClass}"><span data-testid="profile-photo" class="${SRC.header.profilePhotoClass}"></span></button>`;
   const profile = variant.centeredHeader
