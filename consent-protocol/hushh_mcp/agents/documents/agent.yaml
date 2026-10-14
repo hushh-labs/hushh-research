@@ -369,6 +369,20 @@ subagents:
       combination, guess missing identifiers, or group unrelated records. An
       ambiguous document may have no canonical packet. Titles and descriptions
       omit account identifiers, balances and other unnecessary private details.
+      Keep indexing facts even when canonical_packets=[]. Automatic packet keys
+      require a substantive document or coherent collection that a recipient
+      could use outside the source workflow. Raw code, tests, development audit
+      output, generated system projections, notification metadata, and action
+      queues alone are operational artifacts; do not turn them into purchasable
+      packets solely because they have a subject, date or several cited facts.
+      This is a content decision, never a filename or file-format rule. A real
+      internal financial report, company record, substantive brief, useful
+      draft, or actual meeting notes may still be valuable when its content
+      supports the claimed purpose. Do not suppress those because they are
+      internal, preliminary, or written as text. An invite or event metadata
+      page is not meeting notes; absent notes cannot be filled in from the
+      invitation. An explicit buyer request can still search indexed operational
+      material through the request path; this rule concerns automatic packets.
       Useful undated briefs, drafts and notes can form canonical packets. Their
       keys describe the actual subject and document status; do not invent a
       year or imply a coverage window from dates of events discussed inside.
@@ -398,6 +412,20 @@ subagents:
       pending or requested transaction similarly needs that status in the title
       and description; it is not an executed or settled transaction. Never hide
       these qualifications only in technical details, a score or a citation.
+      Return standalone_value=supported only when the selected content has a
+      concrete, independently understandable use for a potential recipient,
+      supported by cited facts rather than by the key, filename or price.
+      Otherwise use unsupported or unknown and explain the specific limitation
+      in utility_rationale. Ready requires supported standalone value. Internal
+      provenance alone is not a reason to fail; useful internal financial and
+      company records can pass. Raw diagnostic projections, code tests, action
+      queues and notification stubs generally lack standalone buyer value.
+      An invite without minutes, decisions or summary cannot be sold as meeting
+      notes. If the useful role is uncertain, keep the packet incomplete or
+      unable_to_verify and name the gap; do not create a broad title to hide it.
+      Type, subject, account and event dates alone are metadata, not substantive
+      packet evidence. A Ready automatic packet needs at least one selected
+      source with cited substantive facts or an actual content period.
       Read every selected source's typed record_status, explanation and citations.
       Carry its qualifications through title, description, coverage_summary and
       pricing.rationale. A correctly labeled draft packet may be ready and priced
@@ -486,6 +514,22 @@ subagents:
       named counterpart is outside that batch; the complete summary must compare
       both records' substantive facts. If those do not establish equivalence,
       do not verify the duplicate exclusion as Ready.
+      For automatic canonical packets (batch_scope.mode is member_batch or
+      complete_compact_summary), independently judge standalone buyer value
+      from substantive facts in ALL supplied sources, not from title, filename,
+      price or assessment score. Return correct_standalone_value=false for a
+      raw operational artifact without a concrete standalone recipient use, or
+      when the proposed form is absent from the source. An invite or metadata
+      page with no notes is not meeting notes: set correct_issuer_and_type=false
+      as well. Preserve genuinely useful internal records and qualified drafts.
+      In the final canonical summary, source identity and event metadata alone
+      cannot support Ready without cited substantive facts or a content period.
+      For an explicit document_request or request, check usefulness against that
+      buyer's stated need instead: an explicitly requested code or operational
+      artifact can be useful when the exact source supports the request. Never
+      apply the automatic-packet market test to deny an otherwise valid explicit
+      request. In either mode, when value is uncertain, return a nonready state
+      and name the missing evidence in issues.
       Independently audit temporal_scope against the surrounding cited source
       text and typed date_evidence, even when every quotation is exact. Check
       what each date refers to: coverage window, event, publication, planned
@@ -506,7 +550,7 @@ subagents:
       cannot become verified corporate facts or authenticated authorship. A
       material dropped attribution also makes correct_record_status=false.
       Do not reject a plainly qualified useful draft merely for being a draft.
-      Ready requires all six checks true, no material issues,
+      Ready requires all seven checks true, no material issues,
       and all_evidence_current_and_complete=true. Report conflicting evidence.
       First compare every source's authenticity and event status with the
       packet's visible title and description. Read all cited facts, not only

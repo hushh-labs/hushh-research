@@ -106,6 +106,8 @@ async def construct(**kwargs):
         "gaps": [] if complete else ["More evidence remains"],
         "assessment_score": 91,
         "importance": 120,
+        "standalone_value": "supported",
+        "utility_rationale": "A standalone synthetic statement packet for test recipients",
         "pricing": {
             "rubric_version": "drive-packet-price-v1",
             "useful_scope": "collection",
@@ -123,6 +125,7 @@ async def check(**kwargs):
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
         "correct_record_status": True,
+        "correct_standalone_value": True,
         "correct_coverage": kwargs["complete"],
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
@@ -257,6 +260,35 @@ async def test_exact_version_reuse_and_summary_listing_need_separate_allow(reusa
         )
     with pytest.raises((DriveReadError, DriveSharingError)):
         await reusable.packets.list_packets(user_id="unrelated", owner_user_id="owner")
+
+
+async def test_new_facts_policy_hides_prior_ready_listing_until_rechecked(reusable, monkeypatch):
+    packet = await ready_packet(reusable)
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=125,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ]
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_packet_intelligence.facts_policy_version",
+        lambda: "new-facts-policy",
+    )
+    owner = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+    assert owner["state"] == "incomplete" and not owner["canList"]
+    assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ] == []
+    with pytest.raises(DriveReadError, match="packet_unavailable"):
+        await reusable.packets.current_packet_manifest(
+            owner_user_id="owner", packet_id=packet["packetId"], version=1
+        )
 
 
 async def test_source_change_invalidates_listing_without_rewriting_history(reusable):

@@ -20,7 +20,7 @@ from hushh_mcp.services.drive_document_facts_store import (
 from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
-    PacketAssessment,
+    PacketProposal,
     PacketVerificationProposal,
     evidence_digest,
 )
@@ -532,7 +532,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
         await self._transaction(operation)
 
     async def finalize_packet(self, job, *, assessment, verification):
-        packet = PacketAssessment.model_validate(assessment)
+        packet = PacketProposal.model_validate(assessment)
         checked = PacketVerificationProposal.model_validate(verification)
 
         def operation(connection):
@@ -735,12 +735,14 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 AND v.version IS NOT NULL AND v.document_count>0
                 AND EXISTS(SELECT 1 FROM drive_packet_members m WHERE m.packet_id=h.packet_id)
                 AND (:after IS NULL OR h.packet_id>CAST(:after AS uuid))
-                AND (:is_owner OR l.enabled) ORDER BY h.packet_id LIMIT :limit"""),
+                AND (:is_owner OR (l.enabled AND v.policy_version=:policy))
+              ORDER BY h.packet_id LIMIT :limit"""),
                     {
                         "owner": owner,
                         "generation": active["connection_generation"],
                         "after": after,
                         "is_owner": user_id == owner,
+                        "policy": policy,
                         "limit": max(1, min(100, limit)) + 1,
                     },
                 ).mappings()
@@ -784,7 +786,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
                         "listingRevision": row["listing_revision"] or 0,
                         "title": assessment.get("title", key.get("title", "Document packet")),
                         "description": description,
-                        "state": row["state"] or "incomplete",
+                        "state": row["state"] if row["policy_version"] == policy else "incomplete",
                         "coverageSummary": assessment.get(
                             "coverage_summary", "Evidence is being prepared."
                         ),

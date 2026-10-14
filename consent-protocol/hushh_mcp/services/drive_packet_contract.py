@@ -218,6 +218,9 @@ class PacketAssessment(EvidenceModel):
     assessment_score: int = Field(ge=0, le=100)
     importance: int = Field(ge=1, le=500)
     pricing: PricingAssessment
+    # Historical immutable manifests predate a separate buyer-usefulness check.
+    standalone_value: Literal["supported", "unsupported", "unknown"] | None = None
+    utility_rationale: str | None = Field(default=None, min_length=1, max_length=500)
 
     @model_validator(mode="after")
     def coherent(self):
@@ -245,9 +248,13 @@ class PacketAssessment(EvidenceModel):
 
 class PacketProposal(PacketAssessment):
     temporal_scope: TemporalScope
+    standalone_value: Literal["supported", "unsupported", "unknown"]
+    utility_rationale: str = Field(min_length=1, max_length=500)
 
     @model_validator(mode="after")
     def temporal_claim(self):
+        if self.state == "ready" and self.standalone_value != "supported":
+            raise ValueError("ready packet requires supported standalone value")
         if self.periods and self.temporal_scope != "document_period":
             raise ValueError("periods require document-period scope")
         if self.state == "ready" and (
@@ -272,6 +279,8 @@ class PacketVerification(EvidenceModel):
     # Historical immutable checker records predate this separate assertion.
     # Current model output must supply it through PacketVerificationProposal.
     correct_record_status: bool | None = None
+    # Legacy checker rows are readable; new Ready verdicts must assess this.
+    correct_standalone_value: bool | None = None
     no_unrelated_inclusions: bool
     no_unexplained_omissions: bool
     issues: list[str] = Field(max_length=64)
@@ -286,7 +295,10 @@ class PacketVerification(EvidenceModel):
             self.no_unexplained_omissions,
         )
         if self.state == "ready" and (
-            not all(checks) or self.correct_record_status is False or self.issues
+            not all(checks)
+            or self.correct_record_status is False
+            or self.correct_standalone_value is False
+            or self.issues
         ):
             raise ValueError("checker cannot declare unresolved packet ready")
         return self
@@ -294,6 +306,7 @@ class PacketVerification(EvidenceModel):
 
 class PacketVerificationProposal(PacketVerification):
     correct_record_status: bool
+    correct_standalone_value: bool
 
 
 class PacketRequestMatch(EvidenceModel):
