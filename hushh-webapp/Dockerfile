@@ -45,6 +45,7 @@ ARG NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID
 ARG NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID
 ARG NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI
 ARG NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED=false
+ARG NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE
 ARG NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY
 ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 
@@ -80,7 +81,12 @@ ENV CAPACITOR_BUILD=false
 ENV NODE_ENV=production
 
 # Build Next.js (produces .next/standalone with monorepo-aware paths)
-RUN npm run build
+# ARG values are available in the RUN environment. A blank optional logo
+# argument must stay unset so the existing receipt fallback remains unchanged.
+RUN if [ -z "$NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE" ]; then \
+      unset NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE; \
+    fi; \
+    npm run build
 
 # Stage 2: Production runner
 FROM node:20-alpine AS runner

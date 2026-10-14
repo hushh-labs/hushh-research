@@ -151,7 +151,7 @@ BACKEND_RUNTIME_REQUIRED = (
     "GOOGLE_GENAI_USE_VERTEXAI",
     "GOOGLE_CLOUD_PROJECT",
     "GENAI_GOOGLE_CLOUD_PROJECT",
-    "GOOGLE_CLOUD_LOCATION",
+    # Hosted text locations belong to the packaged managed AI profile.
     "GOOGLE_MAPS_API_KEY",
     "APP_SIGNING_KEY",
     "VAULT_DATA_KEY",

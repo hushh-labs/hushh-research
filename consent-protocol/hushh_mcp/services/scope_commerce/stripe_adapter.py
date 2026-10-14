@@ -66,6 +66,16 @@ class ScopeCommerceProvider(Protocol):
     async def balance_transactions(self, *, source_id: str) -> list[dict[str, Any]]: ...
 
 
+async def _stripe_call(secret_key: str, callback: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        result = await asyncio.to_thread(callback, *args, api_key=secret_key, **kwargs)
+        return provider_dict(result)
+    except CommerceProviderError:
+        raise
+    except Exception:
+        raise CommerceProviderError("provider_unavailable") from None
+
+
 @dataclass
 class StripeScopeCommerceAdapter:
     """SDK calls use per-call credentials and run outside database transactions."""
@@ -77,13 +87,7 @@ class StripeScopeCommerceAdapter:
     webhook_mode: str = "endpoints"
 
     async def _call(self, callback: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        try:
-            result = await asyncio.to_thread(callback, *args, api_key=self.secret_key, **kwargs)
-            return provider_dict(result)
-        except CommerceProviderError:
-            raise
-        except Exception:
-            raise CommerceProviderError("provider_unavailable") from None
+        return await _stripe_call(self.secret_key, callback, *args, **kwargs)
 
     async def platform_identity(self) -> dict[str, Any]:
         return await self._call(self.stripe_api.Account.retrieve)

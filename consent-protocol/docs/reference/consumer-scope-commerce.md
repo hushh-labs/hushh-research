@@ -48,10 +48,11 @@ or Topups. No paid scope purchase or withdrawal has yet been accepted.
 The primary's $10 Checkout completed through the normal auxiliary-window return:
 the hosted window closed and the original document retained its unlocked vault.
 The earlier $0.50 Checkout required separate cold recovery of the same unpaid
-intent; it is not normal warm-return evidence. The current primary Connect
-onboarding attempt remains incomplete; a refused provider preparation request
-prevents claiming clean onboarding acceptance. The counterpart's information-access
-payout account is eligible. One's authenticated Stripe reads and the real-clock
+intent; it is not normal warm-return evidence. At `2026-10-14T04:04:07Z`, a
+read-only provider check confirmed that primary Connect onboarding still requires
+individual identity, bank and terms completion. The counterpart's information-access
+payout account is eligible with a verified USD destination and manual schedule.
+One's authenticated Stripe reads and the real-clock
 purchase/refund/maturity/payout cases remain outstanding.
 
 Dev's document-bank read returned `PAYOUT_UNAVAILABLE` because neither its
@@ -74,6 +75,36 @@ Normal **Close Profile** followed by same-document navigation reveals exactly
 **Saved** and **Add**, no Sharing tab, and the Saved sharing controls with vault
 continuity. This is browser evidence for the primary; counterpart dismissal and
 normally encrypted synthetic scope preparation remain acceptance work.
+
+The counterpart rehearsal independently reproduced a modal ordering defect:
+the release notice's overlay intercepted both Payments Close and its own
+**Got it** control. The correction defers the cosmetic notice while the canonical
+Profile pane query is active, then resumes the pending notice after normal pane
+dismissal. Eight real-modal browser cases pass across the configured engines and
+device profiles. The immutable preceding implementation fails the notice-first
+negative control. Deployed counterpart readback is still required.
+
+Main `9f017ef6fcde` was merged normally into the existing infrastructure branch.
+The first combined core run passed web-core and 19,071 protocol cases, but failed
+the unchanged Cloud Build argument-size gate. Extracting the identical native
+public-client resolver into its deploy-script owner restores the size contract;
+prebuilt deployments skip source loading and native secret discovery. Focused
+build contracts and Dev/UAT source-free negative controls pass. Candidate
+`d1d7417c0922` passed canonical core in 622 seconds. Concurrent branch revision
+`e7005fca8c8b` is now being integrated normally before push; its native, AI and
+Files changes retain their existing authorities. The union preserves canonical
+migration head 348 and accepts only the separate private-lane 959 append. Focused
+build contracts pass 129 cases, and the consolidated Profile contracts pass 15
+cases with vault, financial-source and hosted-return exclusions retained. The
+combined candidate still requires core, hosted CI and Dev release.
+
+A read-only observation at `2026-10-14T04:31:05Z` established that both existing
+private Azure runtimes lack `APP_FRONTEND_ORIGIN`; the counterpart also lacks the
+public Sandbox test pin. The hub's correct Dev origin does not supply a pod's
+local OAuth callback. Fresh rendering and approved existing-pod configuration
+reconciliation must carry these validated public values. No SDK or webhook
+credential belongs in a private pod. This is a verified prerequisite for One's
+separate Stripe OAuth, not evidence that the OAuth route is missing.
 
 The accompanying source change adds **Manage payout account** inside the
 information-access withdrawal disclosure. Its empty-body authenticated
