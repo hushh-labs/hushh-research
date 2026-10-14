@@ -368,6 +368,18 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      - name: Require paired backend for initial Contacts onboarding
+        id: initial-contacts-pairing
+        shell: bash
+        env:
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
+        run: |
+          set -euo pipefail
+          if [ "$INITIAL_CONTACTS_ONBOARDING_ENABLED" = "true" ] && [ "$DEPLOY_BACKEND" != "true" ]; then
+            echo "Refusing initial Contacts onboarding without its paired backend deployment. Use scope=all, or scope=auto when it selects the backend." >&2
+            exit 1
+          fi
+
       - name: Enforce UAT database connection budget before deployment
         shell: bash
         env:

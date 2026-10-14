@@ -192,3 +192,5 @@ compilation passed. A production web build with the feature enabled compiled
 and generated all 173 pages, including `/one/welcome`. Browser screenshots use synthetic names, profiles and
 counts; the production component uses confirmed server profile information.
 These results do not substitute for the release proof listed above.
+
+An enabled hosted UAT build requires a paired backend deployment. The workflow rejects initial_contacts_onboarding=true when scope resolves without backend deployment; use scope=all, or auto when it selects the backend. This prevents new signup Circle semantics from reaching an older backend.
