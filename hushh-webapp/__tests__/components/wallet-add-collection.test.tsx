@@ -99,6 +99,43 @@ describe("Wallet Add collection", () => {
     vi.useRealTimers();
   });
 
+  it("defers deck sizing out of resize delivery and cancels pending writes on unmount", () => {
+    vi.useFakeTimers();
+    const observers: Array<{ notify: () => void; targets: Element[] }> = [];
+    vi.stubGlobal("ResizeObserver", class {
+      entry: (typeof observers)[number];
+      constructor(notify: () => void) { this.entry = { notify, targets: [] }; observers.push(this.entry); }
+      observe(target: Element) { this.entry.targets.push(target); }
+      disconnect() {}
+      unobserve() {}
+    });
+    const view = render(<div data-testid="deck-host"><WalletAddCollection {...props} cards={cards.slice(0, 3)} scrollReveal /></div>);
+    try {
+      const host = screen.getByTestId("deck-host");
+      const collection = screen.getByTestId("wallet-add-collection");
+      const stack = screen.getByTestId("wallet-add-stack");
+      collection.style.transform = "none";
+      Object.defineProperty(host, "clientWidth", { configurable: true, value: 360 });
+      const observer = observers.find(candidate => candidate.targets.includes(stack))!;
+      const before = collection.style.getPropertyValue("--wallet-deck-max-width");
+      act(() => { observer.notify(); observer.notify(); });
+      // Writing here resizes observed ancestors during the same delivery and
+      // triggers WebKit's undelivered-notifications error.
+      expect(collection.style.getPropertyValue("--wallet-deck-max-width")).toBe(before);
+      act(() => vi.advanceTimersByTime(20));
+      expect(collection.style.getPropertyValue("--wallet-deck-max-width")).toBe("360.00px");
+      Object.defineProperty(host, "clientWidth", { configurable: true, value: 320 });
+      act(() => observer.notify());
+      view.unmount();
+      act(() => vi.advanceTimersByTime(20));
+      expect(collection.style.getPropertyValue("--wallet-deck-max-width")).toBe("360.00px");
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it("shows every card when a tall viewport has no native scroll range", () => {
     vi.useFakeTimers();
     const view = render(<WalletAddCollection {...props} cards={cards.slice(0, 3)} scrollReveal showDetailsLink />);
