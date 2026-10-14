@@ -23,7 +23,7 @@ jobs:
   wait-capacity:
     name: Wait for UAT One chat capacity outside the mutation lock
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 7
     permissions:
       contents: read
       checks: read
@@ -82,6 +82,13 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - name: Require reconciled maintenance mutations under deployment lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --check-mutations --state-dir "$RUNNER_TEMP/uat-maintenance-guard"
+
       - name: Preserve current capacity tooling
         shell: bash
         run: |
@@ -134,7 +141,7 @@ jobs:
 
       - name: Enforce UAT database connection budget
         shell: bash
-        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat --inherit-candidate-service consent-protocol
+        run: timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat --inherit-candidate-service consent-protocol
 
       - name: Deploy and verify only the backend service
         id: deploy-backend

@@ -8,10 +8,10 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
-import textwrap
 import unittest
 from unittest import mock
 
@@ -1042,7 +1042,9 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             with (
                 self.subTest(present=present),
                 mock.patch.object(
-                    MAINTENANCE.subprocess, "run", return_value=mock.Mock(returncode=0)
+                    MAINTENANCE.retention,
+                    "run_command",
+                    return_value=mock.Mock(returncode=0),
                 ),
                 mock.patch.object(MAINTENANCE, "command", return_value=known_good),
                 mock.patch.object(
@@ -1086,23 +1088,31 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         owner_sha = "c" * 40
         frontend_sha = "d" * 40
         owner = {
-            "status": "healthy", "scope": "all", "sha": owner_sha,
+            "status": "healthy",
+            "scope": "all",
+            "sha": owner_sha,
             "predeploy": {"backend_revision": rollback},
             "final": {"backend_revision": backend, "backend_sha": owner_sha},
         }
         release = {
-            "status": "healthy", "scope": "frontend", "sha": frontend_sha,
+            "status": "healthy",
+            "scope": "frontend",
+            "sha": frontend_sha,
             "predeploy": {"backend_revision": backend},
             "current": {
-                "backend_candidate_revision": "", "backend_revision": backend,
+                "backend_candidate_revision": "",
+                "backend_revision": backend,
             },
             "final": {
-                "backend_revision": backend, "backend_sha": owner_sha,
+                "backend_revision": backend,
+                "backend_sha": owner_sha,
                 "frontend_sha": frontend_sha,
             },
             "verification": {
-                "frontend_provenance": "success", "parity_success": "true",
-                "semantic_success": "true", "blocking_classifications": "",
+                "frontend_provenance": "success",
+                "parity_success": "true",
+                "semantic_success": "true",
+                "blocking_classifications": "",
             },
         }
         with mock.patch.object(
@@ -1121,11 +1131,14 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         )
         with (
             mock.patch.object(
-                MAINTENANCE.subprocess, "run", return_value=mock.Mock(returncode=0)
+                MAINTENANCE.retention,
+                "run_command",
+                return_value=mock.Mock(returncode=0),
             ),
             mock.patch.object(MAINTENANCE, "command", return_value=backend),
             mock.patch.object(
-                MAINTENANCE.retention, "revision_state",
+                MAINTENANCE.retention,
+                "revision_state",
                 return_value=[
                     {"metadata": {"name": backend}},
                     {"metadata": {"name": rollback}},
@@ -1151,7 +1164,8 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 else:
                     bad["current"]["backend_candidate_revision"] = rollback
                 with mock.patch.object(
-                    MAINTENANCE, "prior_healthy_uat_backend_release",
+                    MAINTENANCE,
+                    "prior_healthy_uat_backend_release",
                     return_value=(200, owner),
                 ):
                     with self.assertRaises(MAINTENANCE.retention.UnsafeState):
@@ -1762,18 +1776,35 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             "predeploy": {"backend_revision": rollback},
         }
         with (
-            mock.patch.object(MAINTENANCE.subprocess, "run", return_value=mock.Mock(returncode=0)),
-            mock.patch.object(MAINTENANCE, "command", return_value="consent-protocol-01129-gom"),
+            mock.patch.object(
+                MAINTENANCE.retention,
+                "run_command",
+                return_value=mock.Mock(returncode=0),
+            ),
+            mock.patch.object(
+                MAINTENANCE, "command", return_value="consent-protocol-01129-gom"
+            ),
             mock.patch.object(
                 MAINTENANCE.retention,
                 "revision_state",
-                return_value=[{"metadata": {"name": current}}, {"metadata": {"name": rollback}}],
+                return_value=[
+                    {"metadata": {"name": current}},
+                    {"metadata": {"name": rollback}},
+                ],
             ),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(
-                MAINTENANCE.release_protection_flags("consent-protocol", "backend", release),
-                [current, "--rollback-revision", rollback, "--last-known-good-revision", rollback],
+                MAINTENANCE.release_protection_flags(
+                    "consent-protocol", "backend", release
+                ),
+                [
+                    current,
+                    "--rollback-revision",
+                    rollback,
+                    "--last-known-good-revision",
+                    rollback,
+                ],
             )
 
     def test_missing_uat_tag_uses_verified_rollback_anchor(self):
@@ -1784,47 +1815,334 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             "predeploy": {"backend_revision": rollback},
         }
         with (
-            mock.patch.object(MAINTENANCE.subprocess, "run", return_value=mock.Mock(returncode=1)),
-            mock.patch.object(MAINTENANCE, "command", side_effect=AssertionError("missing tag must not be resolved")),
+            mock.patch.object(
+                MAINTENANCE.retention,
+                "run_command",
+                return_value=mock.Mock(returncode=1),
+            ),
+            mock.patch.object(
+                MAINTENANCE,
+                "command",
+                side_effect=AssertionError("missing tag must not be resolved"),
+            ),
             mock.patch.object(
                 MAINTENANCE.retention,
                 "revision_state",
-                return_value=[{"metadata": {"name": current}}, {"metadata": {"name": rollback}}],
+                return_value=[
+                    {"metadata": {"name": current}},
+                    {"metadata": {"name": rollback}},
+                ],
             ),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(
-                MAINTENANCE.release_protection_flags("consent-protocol", "backend", release),
-                [current, "--rollback-revision", rollback, "--last-known-good-revision", rollback],
+                MAINTENANCE.release_protection_flags(
+                    "consent-protocol", "backend", release
+                ),
+                [
+                    current,
+                    "--rollback-revision",
+                    rollback,
+                    "--last-known-good-revision",
+                    rollback,
+                ],
             )
 
-    def test_failed_uat_workflow_event_is_observation_only(self):
-        workflow = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows/capacity-maintenance.yml"
-        source = workflow.read_text()
-        self.assertIn("github.event.workflow_run.name == 'Deploy to UAT' && (github.event.action == 'requested' || github.event.workflow_run.conclusion == 'failure')", source)
-        script = textwrap.dedent(source.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = pathlib.Path(temporary)
-            run = self.trusted_source(203)
-            run.update(name="Deploy to UAT", conclusion="failure")
-            event = directory / "event.json"
-            output = directory / "output"
-            event.write_text(json.dumps({"action": "completed", "workflow_run": run}))
-            subprocess.run(
-                [sys.executable, "-c", script],
-                check=True,
-                env={
-                    **os.environ,
-                    "GITHUB_REF_NAME": "main",
-                    "GITHUB_EVENT_PATH": str(event),
-                    "GITHUB_EVENT_NAME": "workflow_run",
-                    "GITHUB_REPOSITORY": "org/repo",
-                    "GITHUB_OUTPUT": str(output),
-                },
+    def test_deployments_check_pending_mutations_inside_the_environment_lock(self):
+        root = pathlib.Path(__file__).resolve().parents[2]
+        for filename, environment in (
+            ("deploy-uat.yml", "uat"),
+            ("deploy-uat-one-chat.yml", "uat"),
+            ("deploy-production.yml", "production"),
+        ):
+            with self.subTest(workflow=filename):
+                source = (root / ".github/workflows" / filename).read_text()
+                deploy = source.split("  deploy:\n", 1)[1]
+                self.assertIn("--check-mutations", deploy)
+                self.assertIn("--environment " + environment, deploy)
+                self.assertLess(
+                    deploy.index("--check-mutations"),
+                    deploy.index("google-github-actions/auth@"),
+                )
+                self.assertIn("group: deploy-" + environment, source)
+                def check_actions_read(document):
+                    # These authored mappings use block YAML. Keep the governance
+                    # runner stdlib-only and respect job permission replacement.
+                    def block(text, header):
+                        lines = text.splitlines()
+                        if header not in lines:
+                            return None
+                        start = lines.index(header) + 1
+                        indent = len(header) - len(header.lstrip())
+                        end = start
+                        while end < len(lines):
+                            line = lines[end]
+                            if line.strip() and len(line) - len(line.lstrip()) <= indent:
+                                break
+                            end += 1
+                        return "\n".join(lines[start:end])
+
+                    job = block(document, "  deploy:")
+                    self.assertIsNotNone(job)
+                    permissions = block(job, "    permissions:")
+                    if permissions is None:
+                        permissions = block(document, "permissions:")
+                    self.assertIsNotNone(permissions)
+                    self.assertRegex(permissions, r"(?m)^\s+actions: read\s*$")
+                    guards = [step for step in re.split(r"(?m)(?=^      - )", job)
+                              if "--check-mutations" in step]
+                    self.assertEqual(len(guards), 1)
+                    environment = block(guards[0], "        env:")
+                    self.assertIsNotNone(environment)
+                    self.assertIn("          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}", environment.splitlines())
+
+                check_actions_read(source)
+                missing_read = source.replace(
+                    "  deploy:\n", "  deploy:\n    permissions:\n      contents: read\n", 1
+                )
+                with self.assertRaises(AssertionError):
+                    check_actions_read(missing_read)
+                missing_token = source.replace(
+                    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n", "", 1
+                )
+                with self.assertRaises(AssertionError):
+                    check_actions_read(missing_token)
+                wrong_token = source.replace(
+                    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
+                    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}suffix\n", 1
+                )
+                with self.assertRaises(AssertionError):
+                    check_actions_read(wrong_token)
+
+    def test_production_does_not_restore_older_settled_receipt_before_newer_uncertain_one(self):
+        runs = {n: self.trusted_source(n, "capacity-maintenance.yml") for n in (10, 20)}
+        def api(_repository, endpoint):
+            if endpoint.startswith("artifacts?"):
+                return {"artifacts": [{"name": "production-retention-state", "expired": False,
+                    "workflow_run": {"id": n}, "created_at": f"2026-10-14T20:{n:02d}:00Z"} for n in (10, 20)]}
+            return next(run for n, run in runs.items() if endpoint == f"runs/{n}")
+        def download(_repository, run_id, _artifact, directory):
+            (directory / "completed.json").write_text(json.dumps({
+                "schema_version": 1, "checkpoint_version": 2, "environment": "production", "project": "hushh-pda",
+                "release_run_id": 9, "observed_run_id": 9, "pass_status": "complete" if run_id == 10 else "unresolved",
+                "pending_services": [] if run_id == 10 else ["consent-protocol"],
+            }))
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(MAINTENANCE, "api", side_effect=api), mock.patch.object(MAINTENANCE, "download", side_effect=download), mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"):
+            with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "unresolved"):
+                MAINTENANCE.assert_no_pending_mutations("org/repo", pathlib.Path(temporary), "production")
+
+    def test_finished_environment_checkpoint_fences_while_other_environment_runs(self):
+        import hashlib
+        from zipfile import ZipFile
+
+        run = {
+            **self.trusted_source(123, "capacity-maintenance.yml"),
+            "status": "in_progress",
+            "conclusion": None,
+        }
+        steps = [
+            {
+                "name": name, "conclusion": "success",
+                "started_at": "2026-10-14T19:59:59Z",
+                "completed_at": "2026-10-14T20:00:01Z",
+            }
+            for name in (
+                "Checkout mutation tooling and rollback history",
+                "Recheck due source under the deployment lock",
+                "Authenticate to uat",
+                "Save uat cleanup checkpoint",
+                "Prepare or finish eligible uat revision cleanup",
             )
-            self.assertIn("release_run_id=\n", output.read_text())
-            self.assertIn("environment=uat\n", output.read_text())
-            self.assertIn("apply=true\n", output.read_text())
+        ]
+        jobs = {
+            "total_count": 2,
+            "jobs": [
+                {
+                    "name": "UAT bounded revision cleanup",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "steps": steps,
+                },
+                {
+                    "name": "Production bounded revision cleanup",
+                    "status": "in_progress",
+                    "steps": [],
+                },
+            ],
+        }
+        stream = io.BytesIO()
+        with ZipFile(stream, "w") as bundle:
+            bundle.writestr("README.txt", "checkpoint")
+            bundle.writestr(
+                "completed.json",
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "checkpoint_version": 2,
+                        "environment": "uat",
+                        "project": "hushh-pda-uat",
+                        "release_run_id": 122,
+                        "observed_run_id": 122,
+                        "pass_status": "unresolved",
+                        "pending_services": ["consent-protocol"],
+                    }
+                ),
+            )
+            bundle.writestr(
+                "consent-protocol.json",
+                json.dumps({"pending_mutation": {"kind": "delete"}}),
+            )
+        archive = stream.getvalue()
+        artifact = {
+            "id": 999,
+            "name": MAINTENANCE.STATE_ARTIFACT,
+            "expired": False,
+            "created_at": "2026-10-14T20:00:00Z",
+            "workflow_run": {"id": 123},
+            "size_in_bytes": len(archive),
+            "digest": "sha256:" + hashlib.sha256(archive).hexdigest(),
+        }
+
+        def api(_repository, endpoint):
+            if endpoint.startswith("workflows/"):
+                return {"workflow_runs": [run]}
+            if endpoint.startswith("artifacts?"):
+                return {"artifacts": [artifact]}
+            if "/attempts/1/jobs?" in endpoint:
+                return jobs
+            if "/jobs?" in endpoint:
+                if run.get("run_attempt") == 2:
+                    return {"total_count": 1, "jobs": [{
+                        "name": "UAT bounded revision cleanup",
+                        "status": "completed", "conclusion": "failure", "steps": [],
+                    }]}
+                return jobs
+            self.assertEqual(endpoint, "runs/123")
+            return run
+
+        for attempt in (1, 2):
+            run.update(run_attempt=attempt,
+                       status="in_progress" if attempt == 1 else "completed",
+                       conclusion=None if attempt == 1 else "failure")
+            with (
+                self.subTest(attempt=attempt),
+                tempfile.TemporaryDirectory() as temporary,
+                mock.patch.object(MAINTENANCE, "api", side_effect=api),
+                mock.patch.object(
+                    MAINTENANCE.retention, "run_command",
+                    return_value=subprocess.CompletedProcess([], 0, archive, b""),
+                ),
+            ):
+                with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "unresolved"):
+                    MAINTENANCE.assert_no_pending_mutations(
+                        "org/repo", pathlib.Path(temporary), "uat"
+                    )
+
+    def test_failed_rerun_preserves_prior_attempt_checkpoint_authority(self):
+        run = {**self.trusted_source(123, "capacity-maintenance.yml"), "run_attempt": 2, "conclusion": "failure"}
+        artifact = {"created_at": "2026-10-14T20:00:00Z"}
+        names = ("Checkout mutation tooling and rollback history", "Recheck due source under the deployment lock",
+                 "Authenticate to uat", "Save uat cleanup checkpoint")
+        prior = {"total_count": 1, "jobs": [{"name": "UAT bounded revision cleanup", "status": "completed", "steps": [
+            {"name": name, "conclusion": "success", "started_at": "2026-10-14T19:59:59Z", "completed_at": "2026-10-14T20:00:01Z"} for name in names]}]}
+        latest = {"total_count": 1, "jobs": [{"name": "UAT bounded revision cleanup", "status": "completed", "steps": []}]}
+        with mock.patch.object(MAINTENANCE, "api", side_effect=[latest, prior]):
+            self.assertTrue(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "uat", artifact))
+        with mock.patch.object(MAINTENANCE, "api", side_effect=[latest, prior]):
+            self.assertFalse(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "uat", {"created_at": "2026-10-14T22:00:00Z"}))
+
+    def test_publication_guard_accepts_newer_checkpoint_but_rejects_missing_upload(
+        self,
+    ):
+        run = self.trusted_source(123, "capacity-maintenance.yml")
+
+        def inventory(saved):
+            return {
+                "total_count": 1,
+                "jobs": [
+                    {
+                        "name": "UAT bounded revision cleanup",
+                        "status": "completed",
+                        "steps": [
+                            {
+                                "name": "Prepare or finish eligible uat revision cleanup",
+                                "conclusion": "failure",
+                            },
+                            {
+                                "name": "Save uat cleanup checkpoint",
+                                "conclusion": saved,
+                            },
+                        ],
+                    }
+                ],
+            }
+
+        for saved in ("success", "failure"):
+            with (
+                self.subTest(saved=saved),
+                mock.patch.object(
+                    MAINTENANCE,
+                    "api",
+                    side_effect=[{"workflow_runs": [run]}, inventory(saved)],
+                ),
+                mock.patch.object(
+                    MAINTENANCE, "trusted_checkpoint_run", return_value=True
+                ),
+            ):
+                if saved == "success":
+                    MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
+                else:
+                    with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                        MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
+
+    def test_maintenance_is_hourly_and_independent_of_deployments(self):
+        source = (
+            pathlib.Path(__file__).resolve().parents[2]
+            / ".github/workflows/capacity-maintenance.yml"
+        ).read_text()
+
+        def check_policy(text):
+            triggers = text.split("\npermissions:", 1)[0]
+            self.assertIn('cron: "17 * * * *"', triggers)
+            self.assertIn("  workflow_dispatch:", triggers)
+            self.assertNotIn("workflow_run:", triggers)
+            self.assertNotIn("uat-drain-wait:", text)
+            self.assertNotIn("uat-drain-recheck:", text)
+            self.assertNotIn('sleep "$wait_seconds"', text)
+            self.assertNotIn("--force-inspection", text)
+            concurrency = text.split("\nconcurrency:\n", 1)[1].split(
+                "\npermissions:", 1
+            )[0]
+            self.assertIn("cancel-in-progress: false", concurrency)
+            self.assertIn("github.run_id", concurrency)
+            self.assertNotIn("queue: max", concurrency)
+
+        check_policy(source)
+        for broken in (
+            source.replace("  schedule:", "  workflow_run:\n  schedule:"),
+            source + '\n  uat-drain-wait:\n    run: sleep "$wait_seconds"\n',
+        ):
+            with self.assertRaises(AssertionError):
+                check_policy(broken)
+
+    def test_direct_deployment_capacity_checks_have_bounded_process_groups(self):
+        workflow_dir = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
+        prefix = "timeout --signal=TERM --kill-after=2s 295s "
+
+        def check_deadlines(text):
+            calls = [line for line in text.splitlines()
+                     if "python3 scripts/ci/runtime-capacity-budget.py" in line]
+            self.assertTrue(calls)
+            for line in calls:
+                self.assertIn(prefix + "python3 scripts/ci/runtime-capacity-budget.py", line)
+                self.assertNotIn("--foreground", line)
+
+        for name in ("deploy-uat.yml", "deploy-uat-one-chat.yml", "deploy-production.yml"):
+            with self.subTest(workflow=name):
+                source = (workflow_dir / name).read_text()
+                check_deadlines(source)
+                with self.assertRaises(AssertionError):
+                    check_deadlines(source.replace(prefix, "", 1))
 
     def test_release_artifact_is_required_and_must_prove_health_and_revisions(self):
         healthy = {
@@ -1982,6 +2300,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         mock.patch.object(
                             MAINTENANCE, "download", side_effect=download
                         ),
+                        mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                         mock.patch.object(MAINTENANCE, "restore_state"),
                         mock.patch.object(
                             MAINTENANCE.retention,
@@ -2003,9 +2322,13 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         if not allowed:
                             if environment == "uat" and not requested:
                                 self.assertEqual(MAINTENANCE.main(), 0)
-                                self.assertEqual(output.read_text(), "cleanup_ready=false\n")
+                                self.assertEqual(
+                                    output.read_text(), "cleanup_ready=false\n"
+                                )
                             else:
-                                with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                                with self.assertRaises(
+                                    MAINTENANCE.retention.UnsafeState
+                                ):
                                     MAINTENANCE.main()
                                 self.assertFalse(output.exists())
                         else:
@@ -2014,7 +2337,6 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                                 output.read_text(),
                                 f"cleanup_ready={str(artifact_available).lower()}\n",
                             )
-
 
     def test_schedule_finds_older_healthy_release_matching_rollback(self):
         def download(_repository, run_id, _name, directory):
@@ -2114,10 +2436,12 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     (directory / "completed.json").write_text('{"schema_version": 1}')
                     if has_state:
                         (directory / "consent-protocol.json").write_text(
-                            json.dumps({
-                                "observed_at": 1000 if run_id == 10 else 900,
-                                "fingerprint": [10 if run_id == 10 else 9],
-                            })
+                            json.dumps(
+                                {
+                                    "observed_at": 1000 if run_id == 10 else 900,
+                                    "fingerprint": [10 if run_id == 10 else 9],
+                                }
+                            )
                         )
 
                 with (
@@ -2137,6 +2461,8 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                                 ]
                             }
                             if endpoint.startswith("artifacts?")
+                            else {"total_count": 0, "jobs": []}
+                            if "/jobs?" in endpoint
                             else next(
                                 run for run in runs if endpoint == f"runs/{run['id']}"
                             )
@@ -2195,45 +2521,72 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             def run(command, **_kwargs):
                 if command[2] == "consent-protocol":
                     (state_dir / "consent-protocol.json").write_text(
-                        json.dumps({
-                            "schema_version": 1,
-                            "service": "consent-protocol",
-                            "project": "hushh-pda-uat",
-                            "region": "us-central1",
-                            "release_run_id": "123",
-                            "not_before": 13660,
-                            "revisions": ["consent-protocol-00001-abc"],
-                        })
+                        json.dumps(
+                            {
+                                "schema_version": 1,
+                                "service": "consent-protocol",
+                                "project": "hushh-pda-uat",
+                                "region": "us-central1",
+                                "release_run_id": "123",
+                                "not_before": 13660,
+                                "revisions": ["consent-protocol-00001-abc"],
+                            }
+                        )
                     )
 
             with (
-                mock.patch.dict("os.environ", {
-                    "GITHUB_REPOSITORY": "org/repo",
-                    "GITHUB_OUTPUT": str(output),
-                }),
-                mock.patch.object(sys, "argv", [
-                    "maintenance", "--state-dir", str(state_dir), "--apply",
-                ]),
-                mock.patch.object(
-                    MAINTENANCE, "find_release", return_value=(123, {"status": "healthy"})
+                mock.patch.dict(
+                    "os.environ",
+                    {
+                        "GITHUB_REPOSITORY": "org/repo",
+                        "GITHUB_OUTPUT": str(output),
+                    },
                 ),
-                mock.patch.object(MAINTENANCE, "live_release_matches", return_value=True),
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "maintenance",
+                        "--state-dir",
+                        str(state_dir),
+                        "--apply",
+                    ],
+                ),
+                mock.patch.object(
+                    MAINTENANCE,
+                    "find_release",
+                    return_value=(123, {"status": "healthy"}),
+                ),
+                mock.patch.object(
+                    MAINTENANCE, "live_release_matches", return_value=True
+                ),
+                mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                 mock.patch.object(MAINTENANCE, "restore_state"),
-                mock.patch.object(MAINTENANCE, "latest_deploy_observation", return_value=123),
-                mock.patch.object(MAINTENANCE, "release_protection_flags", return_value=[]),
-                mock.patch.object(MAINTENANCE.subprocess, "run", side_effect=run) as cloudrun,
+                mock.patch.object(
+                    MAINTENANCE, "latest_deploy_observation", return_value=123
+                ),
+                mock.patch.object(
+                    MAINTENANCE, "release_protection_flags", return_value=[]
+                ),
+                mock.patch.object(
+                    MAINTENANCE, "run_retention", side_effect=run
+                ) as cloudrun,
                 mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
             ):
                 self.assertEqual(MAINTENANCE.main(), 0)
             self.assertEqual(
-                output.read_text(),
+                "\n".join(
+                    line
+                    for line in output.read_text().splitlines()
+                    if not line.startswith("checkpoint_ready=")
+                )
+                + "\n",
                 "verified_source_run_id=123\ndrain_not_before=13660\n"
                 "cleanup_outcome=applied\n",
             )
             self.assertEqual(cloudrun.call_count, 3)
             for call in cloudrun.call_args_list:
                 self.assertIn("--carry-uat-clock", call.args[0])
-
 
     def test_wrong_source_run_never_downloads_release_artifacts(self):
         good = {
@@ -2280,10 +2633,13 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 state_dir.mkdir()
                 output = directory / "output"
                 with (
-                    mock.patch.dict("os.environ", {
-                        "GITHUB_REPOSITORY": "org/repo",
-                        "GITHUB_OUTPUT": str(output),
-                    }),
+                    mock.patch.dict(
+                        "os.environ",
+                        {
+                            "GITHUB_REPOSITORY": "org/repo",
+                            "GITHUB_OUTPUT": str(output),
+                        },
+                    ),
                     mock.patch.object(
                         sys,
                         "argv",
@@ -2295,19 +2651,18 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     mock.patch.object(
                         MAINTENANCE, "live_release_matches", return_value=False
                     ),
+                    mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                     mock.patch.object(MAINTENANCE, "restore_state") as restore,
-                    mock.patch.object(MAINTENANCE.subprocess, "run") as run,
+                    mock.patch.object(MAINTENANCE, "run_retention") as run,
                     contextlib.redirect_stdout(io.StringIO()),
                 ):
                     self.assertEqual(MAINTENANCE.main(), 0)
-                    if release is None:
-                        restore.assert_not_called()
-                    else:
-                        restore.assert_called_once()
+                    restore.assert_called_once()
                     run.assert_not_called()
                     self.assertEqual(list(state_dir.iterdir()), [])
-                    self.assertEqual(output.read_text(), "cleanup_outcome=no_live_source\n")
-
+                    self.assertEqual(
+                        output.read_text(), "cleanup_outcome=no_live_source\n"
+                    )
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):
         root = SCRIPT.parents[2]
@@ -2467,6 +2822,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     mock.patch.object(
                         MAINTENANCE, "latest_deploy_observation", return_value=observed
                     ),
+                    mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                     mock.patch.object(MAINTENANCE, "restore_state") as restore,
                     mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
                     mock.patch.object(
@@ -2526,9 +2882,14 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     mock.patch.object(
                         MAINTENANCE,
                         "find_release",
-                        side_effect=(AssertionError("settled source must skip lineage") if not expected else None),
+                        side_effect=(
+                            AssertionError("settled source must skip lineage")
+                            if not expected
+                            else None
+                        ),
                         return_value=(19, {"status": "healthy"}),
                     ),
+                    mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                     mock.patch.object(MAINTENANCE, "restore_state"),
                     mock.patch.object(
                         MAINTENANCE, "latest_deploy_observation", return_value=observed
@@ -2543,6 +2904,257 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     self.assertEqual(
                         output.read_text(), f"cleanup_ready={str(expected).lower()}\n"
                     )
+
+    def test_partial_pass_keeps_progress_and_never_claims_settled(self):
+        for failure, expected in (
+            (MAINTENANCE.retention.BudgetExpired("deadline"), "deferred"),
+            (MAINTENANCE.retention.MutationUncertain("provider"), "unresolved"),
+        ):
+            with (
+                self.subTest(outcome=expected),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                directory = pathlib.Path(temporary)
+                output = directory / "output"
+                calls = []
+
+                def execute(argv):
+                    service = argv[2]
+                    calls.append(service)
+                    if len(calls) == 2:
+                        raise failure
+                    MODULE.atomic_state(
+                        directory / (service + ".json"),
+                        {
+                            "schema_version": 1,
+                            "service": service,
+                            "project": "hushh-pda-uat",
+                            "region": "us-central1",
+                            "release_run_id": "123",
+                            "not_before": 13660,
+                            "revisions": [service + "-00001-abc"],
+                        },
+                    )
+
+                with (
+                    mock.patch.dict(
+                        os.environ,
+                        {"GITHUB_REPOSITORY": "org/repo", "GITHUB_OUTPUT": str(output)},
+                    ),
+                    mock.patch.object(
+                        sys,
+                        "argv",
+                        ["maintenance", "--apply", "--state-dir", str(directory)],
+                    ),
+                    mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
+                    mock.patch.object(MAINTENANCE, "restore_state"),
+                    mock.patch.object(
+                        MAINTENANCE, "maintenance_due", return_value=True
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE,
+                        "find_release",
+                        return_value=(123, {"status": "healthy"}),
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE, "live_release_matches", return_value=True
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE, "latest_deploy_observation", return_value=123
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE, "release_protection_flags", return_value=[]
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE, "run_retention", side_effect=execute
+                    ),
+                ):
+                    self.assertEqual(MAINTENANCE.main(), 0)
+                receipt = json.loads((directory / "completed.json").read_text())
+                self.assertEqual(receipt["pass_status"], expected)
+                self.assertEqual(
+                    receipt["pending_services"],
+                    ["hushh-webapp", "consent-protocol-drive-worker"],
+                )
+                self.assertEqual(
+                    json.loads((directory / "consent-protocol.json").read_text())[
+                        "not_before"
+                    ],
+                    13660,
+                )
+                self.assertIn("cleanup_outcome=" + expected, output.read_text())
+                self.assertNotIn("cleanup_outcome=applied", output.read_text())
+                with (
+                    mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
+                    mock.patch.object(MAINTENANCE, "restore_state"),
+                ):
+                    self.assertTrue(
+                        MAINTENANCE.maintenance_due(
+                            "org/repo", directory, environment="uat"
+                        )
+                    )
+
+    def test_pending_provider_mutation_blocks_deployment_until_observed_absent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            path = directory / "consent-protocol.json"
+            state = {
+                "service": "consent-protocol",
+                "project": "hushh-pda-uat",
+                "region": "us-central1",
+                "pending_mutation": {
+                    "kind": "delete",
+                    "revision": revision(1)["metadata"]["name"],
+                    "service_uid": "service-uid",
+                },
+            }
+            MODULE.atomic_state(path, state)
+            with (
+                mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
+                mock.patch.object(MAINTENANCE, "restore_state"),
+            ):
+                with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                    MAINTENANCE.assert_no_pending_mutations(
+                        "org/repo", directory, "uat"
+                    )
+            with (
+                mock.patch.object(
+                    MODULE,
+                    "service_state",
+                    return_value=service(
+                        {
+                            "revisionName": revision(3)["metadata"]["name"],
+                            "percent": 100,
+                        }
+                    ),
+                ),
+                mock.patch.object(
+                    MODULE, "revision_state", return_value=[revision(1), revision(3)]
+                ),
+            ):
+                with self.assertRaises(MODULE.MutationUncertain):
+                    MODULE.reconcile_mutation(
+                        path, "consent-protocol", "hushh-pda-uat", "us-central1"
+                    )
+            with (
+                mock.patch.object(
+                    MODULE,
+                    "service_state",
+                    return_value=service(
+                        {
+                            "revisionName": revision(3)["metadata"]["name"],
+                            "percent": 100,
+                        }
+                    ),
+                ),
+                mock.patch.object(MODULE, "revision_state", return_value=[revision(3)]),
+            ):
+                MODULE.reconcile_mutation(
+                    path, "consent-protocol", "hushh-pda-uat", "us-central1"
+                )
+            with (
+                mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
+                mock.patch.object(MAINTENANCE, "restore_state"),
+            ):
+                MAINTENANCE.assert_no_pending_mutations("org/repo", directory, "uat")
+
+    def test_provider_timeout_preserves_intent_and_does_not_retry(self):
+        from argparse import Namespace
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = pathlib.Path(temporary) / "consent-protocol.json"
+            args = Namespace(
+                defer_state=path,
+                service="consent-protocol",
+                project="hushh-pda-uat",
+                region="us-central1",
+                release_run_id="123",
+            )
+            with mock.patch.object(
+                MODULE, "gcloud", side_effect=MODULE.BudgetExpired("timeout")
+            ) as mutate:
+                with self.assertRaises(MODULE.MutationUncertain):
+                    MODULE.mutate(
+                        args,
+                        ["revisions", "delete", revision(1)["metadata"]["name"]],
+                        ((), "[]", 1, "service-uid"),
+                        {"kind": "delete", "revision": revision(1)["metadata"]["name"]},
+                    )
+                self.assertEqual(mutate.call_count, 1)
+            self.assertEqual(
+                json.loads(path.read_text())["pending_mutation"]["kind"], "delete"
+            )
+
+    def test_cleanup_budget_reaps_a_command_and_its_descendant(self):
+        import time
+
+        token = MODULE.PASS_DEADLINE.set(time.monotonic() + 0.2)
+        try:
+            with self.assertRaises(MODULE.BudgetExpired):
+                MODULE.run_command(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); time.sleep(30)",
+                    ]
+                )
+        finally:
+            MODULE.PASS_DEADLINE.reset(token)
+
+    def test_queued_settled_pass_checks_inside_lock_before_cloud_steps(self):
+        import re
+
+        source = (
+            pathlib.Path(__file__).resolve().parents[2]
+            / ".github/workflows/capacity-maintenance.yml"
+        ).read_text()
+        gate = "steps.locked-source.outputs.cleanup_ready == 'true'"
+
+        def assert_guarded(job):
+            self.assertIn("cancel-in-progress: false", job)
+            steps = re.split(r"(?m)^      - name: ", job)[1:]
+            check_index = next(
+                i
+                for i, step in enumerate(steps)
+                if "        id: locked-source\n" in step
+            )
+            check = steps[check_index]
+            self.assertIn("--verify-source-only", check)
+            self.assertIn("--release-run-id", check)
+            self.assertNotIn("--force-inspection", check)
+            self.assertNotIn("--apply", check)
+            for i, step in enumerate(steps):
+                protected = any(
+                    marker in step
+                    for marker in (
+                        "google-github-actions/auth@",
+                        "google-github-actions/setup-gcloud@",
+                        "actions/upload-artifact@",
+                        "runtime-capacity-budget.py",
+                        "--apply",
+                    )
+                )
+                if protected:
+                    self.assertGreater(i, check_index)
+                    match = re.search(r"(?m)^        if: (.+)$", step)
+                    condition = match.group(1) if match else ""
+                    self.assertTrue(
+                        condition == gate
+                        or condition.startswith(gate + " && ")
+                        or condition.startswith("success() && " + gate + " && ")
+                        or condition.startswith("always() && " + gate + " && "),
+                        step.splitlines()[0],
+                    )
+                    self.assertNotIn("||", condition)
+
+        jobs = re.split(r"(?m)^  (?:uat-maintenance|cleanup):\n", source)[1:]
+        self.assertEqual(len(jobs), 2)
+        for job in jobs:
+            assert_guarded(job)
+            # Original wiring authenticated even after a predecessor settled.
+            broken = job.replace("        if: " + gate + "\n", "", 1)
+            with self.assertRaises(AssertionError):
+                assert_guarded(broken)
 
     def test_newest_artifact_is_available_without_eager_history_scan(self):
         first = {"id": 1}
@@ -2578,6 +3190,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             (directory / "completed.json").write_text(json.dumps(receipt))
             (directory / "consent-protocol.json").write_text(json.dumps(pending))
             with (
+                mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                 mock.patch.object(MAINTENANCE, "restore_state"),
                 mock.patch.object(
                     MAINTENANCE, "latest_deploy_observation", return_value=10
@@ -2589,7 +3202,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     side_effect=AssertionError("not-due must not read cloud"),
                 ),
             ):
-                self.assertTrue(
+                self.assertFalse(
                     MAINTENANCE.maintenance_due(
                         "org/repo", directory, environment="uat", release_run_id=9
                     )
@@ -2615,7 +3228,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         "org/repo", directory, environment="uat"
                     )
 
-    def test_trusted_inherited_uat_drain_receipt_schedules_another_wait(self):
+    def test_trusted_inherited_future_receipt_stays_quiet_and_preserves_clock(self):
         receipt = {
             "schema_version": 1,
             "environment": "uat",
@@ -2632,12 +3245,14 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         def api(_repository, endpoint):
             if endpoint.startswith("artifacts?"):
                 return {
-                    "artifacts": [{
-                        "name": MAINTENANCE.STATE_ARTIFACT,
-                        "expired": False,
-                        "created_at": "2026-10-14T12:56:00Z",
-                        "workflow_run": {"id": trusted["id"]},
-                    }]
+                    "artifacts": [
+                        {
+                            "name": MAINTENANCE.STATE_ARTIFACT,
+                            "expired": False,
+                            "created_at": "2026-10-14T12:56:00Z",
+                            "workflow_run": {"id": trusted["id"]},
+                        }
+                    ]
                 }
             self.assertEqual(endpoint, f"runs/{trusted['id']}")
             return trusted
@@ -2645,15 +3260,19 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         def download(_repository, _run_id, _name, directory):
             (directory / "completed.json").write_text(json.dumps(receipt))
             for name, deadline in deadlines.items():
-                (directory / f"{name}.json").write_text(json.dumps({
-                    "schema_version": 1,
-                    "service": name,
-                    "project": "hushh-pda-uat",
-                    "region": "us-central1",
-                    "release_run_id": "123",
-                    "not_before": deadline,
-                    "revisions": [f"{name}-00001-abc"],
-                }))
+                (directory / f"{name}.json").write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "service": name,
+                            "project": "hushh-pda-uat",
+                            "region": "us-central1",
+                            "release_run_id": "123",
+                            "not_before": deadline,
+                            "revisions": [f"{name}-00001-abc"],
+                        }
+                    )
+                )
 
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
@@ -2662,22 +3281,36 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     state_dir = root / ("apply" if apply else "source")
                     output = root / ("apply-output" if apply else "source-output")
                     with (
-                        mock.patch.dict("os.environ", {
-                            "GITHUB_REPOSITORY": "org/repo",
-                            "GITHUB_OUTPUT": str(output),
-                            "GITHUB_STEP_SUMMARY": str(root / "summary"),
-                        }),
-                        mock.patch.object(sys, "argv", [
-                            "maintenance", "--state-dir", str(state_dir),
-                            "--apply" if apply else "--verify-source-only",
-                        ]),
+                        mock.patch.dict(
+                            "os.environ",
+                            {
+                                "GITHUB_REPOSITORY": "org/repo",
+                                "GITHUB_OUTPUT": str(output),
+                                "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                            },
+                        ),
+                        mock.patch.object(
+                            sys,
+                            "argv",
+                            [
+                                "maintenance",
+                                "--state-dir",
+                                str(state_dir),
+                                "--apply" if apply else "--verify-source-only",
+                            ],
+                        ),
                         mock.patch.object(MAINTENANCE, "api", side_effect=api),
-                        mock.patch.object(MAINTENANCE, "download", side_effect=download),
+                        mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
+                        mock.patch.object(
+                            MAINTENANCE, "download", side_effect=download
+                        ),
                         mock.patch.object(
                             MAINTENANCE, "latest_deploy_observation", return_value=123
                         ),
                         mock.patch.object(
-                            MAINTENANCE, "find_release", return_value=(123, {"status": "healthy"})
+                            MAINTENANCE,
+                            "find_release",
+                            return_value=(123, {"status": "healthy"}),
                         ) as find_release,
                         mock.patch.object(
                             MAINTENANCE, "live_release_matches", return_value=True
@@ -2685,20 +3318,13 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         mock.patch.object(
                             MAINTENANCE, "release_protection_flags", return_value=[]
                         ),
-                        mock.patch.object(MAINTENANCE.subprocess, "run") as run,
+                        mock.patch.object(MAINTENANCE, "run_retention") as run,
                         mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
                     ):
                         self.assertEqual(MAINTENANCE.main(), 0)
-                        find_release.assert_called_once()
-                        self.assertEqual(run.call_count, 3 if apply else 0)
-                    if apply:
-                        self.assertEqual(
-                            output.read_text(),
-                            "verified_source_run_id=123\ndrain_not_before=13660\n"
-                            "cleanup_outcome=applied\n",
-                        )
-                    else:
-                        self.assertEqual(output.read_text(), "cleanup_ready=true\n")
+                        find_release.assert_not_called()
+                        self.assertEqual(run.call_count, 0)
+                    self.assertEqual(output.read_text(), "cleanup_ready=false\n")
                     self.assertEqual(
                         json.loads((state_dir / "consent-protocol.json").read_text())[
                             "not_before"
@@ -2709,25 +3335,34 @@ class MaintenanceAuthorityTest(unittest.TestCase):
     def test_uat_pending_receipt_checks_all_services_before_waking(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = pathlib.Path(temporary)
-            (directory / "completed.json").write_text(json.dumps({
-                "schema_version": 1,
-                "environment": "uat",
-                "project": "hushh-pda-uat",
-                "observed_run_id": 123,
-                "release_run_id": 123,
-            }))
+            (directory / "completed.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "environment": "uat",
+                        "project": "hushh-pda-uat",
+                        "observed_run_id": 123,
+                        "release_run_id": 123,
+                    }
+                )
+            )
             for name, project in (
                 ("consent-protocol", "hushh-pda-uat"),
                 ("consent-protocol-drive-worker", "different-project"),
             ):
-                (directory / f"{name}.json").write_text(json.dumps({
-                    "service": name,
-                    "project": project,
-                    "region": "us-central1",
-                    "release_run_id": "123",
-                    "not_before": 13660,
-                }))
+                (directory / f"{name}.json").write_text(
+                    json.dumps(
+                        {
+                            "service": name,
+                            "project": project,
+                            "region": "us-central1",
+                            "release_run_id": "123",
+                            "not_before": 13660,
+                        }
+                    )
+                )
             with (
+                mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                 mock.patch.object(MAINTENANCE, "restore_state"),
                 mock.patch.object(
                     MAINTENANCE, "latest_deploy_observation", return_value=123
@@ -2763,6 +3398,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 mock.patch.object(
                     MAINTENANCE, "live_release_matches", return_value=True
                 ),
+                mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                 mock.patch.object(MAINTENANCE, "restore_state") as restore,
                 mock.patch.object(
                     MAINTENANCE, "release_protection_flags", return_value=["protected"]
@@ -2770,7 +3406,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 mock.patch.object(
                     MAINTENANCE, "latest_deploy_observation", return_value=123
                 ),
-                mock.patch.object(MAINTENANCE.subprocess, "run") as run,
+                mock.patch.object(MAINTENANCE, "run_retention") as run,
             ):
                 self.assertEqual(MAINTENANCE.main(), 0)
                 restore.assert_called_once_with(
@@ -2793,7 +3429,12 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 run.side_effect = RuntimeError("provider read failed")
                 with self.assertRaises(RuntimeError):
                     MAINTENANCE.main()
-                self.assertFalse((directory / "completed.json").exists())
+                self.assertEqual(
+                    json.loads((directory / "completed.json").read_text())[
+                        "pass_status"
+                    ],
+                    "in_progress",
+                )
 
 
 if __name__ == "__main__":

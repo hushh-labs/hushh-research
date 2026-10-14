@@ -109,7 +109,7 @@ class PendingUatStateTests(unittest.TestCase):
             run_id = int(endpoint.split('/')[1])
             return jobs[run_id] if endpoint.endswith('/jobs?filter=latest&per_page=100') else runs[run_id]
 
-        def download(_repository: str, item: dict, directory: Path) -> None:
+        def download(_repository: str, item: dict, directory: Path, *, environment: str = "uat") -> None:
             backend_at, worker_at = states[item['id']]
             (directory / 'README.txt').write_text('drain evidence')
             for service, observed_at, duration in (
@@ -183,7 +183,7 @@ class PendingUatStateTests(unittest.TestCase):
                 return jobs
             raise AssertionError(endpoint)
 
-        def download(_repository: str, selected: dict, directory: Path) -> None:
+        def download(_repository: str, selected: dict, directory: Path, *, environment: str = "uat") -> None:
             self.assertEqual(selected['id'], artifact['id'])
             (directory / 'README.txt').write_text('drain evidence')
             (directory / 'consent-protocol.json').write_text(json.dumps(saved))
@@ -284,7 +284,7 @@ class PendingUatStateTests(unittest.TestCase):
         def api(_repository: str, endpoint: str) -> dict:
             return {'artifacts': [artifact]} if endpoint.startswith('artifacts?') else run
 
-        def download(_repository: str, _run_id: int, _name: str, directory: Path) -> None:
+        def download(_repository: str, _run_id: int, _name: str, directory: Path, *, environment: str = "uat") -> None:
             (directory / 'README.txt').write_text('empty pass')
             (directory / 'completed.json').write_text(json.dumps({
                 'schema_version': 1, 'observed_run_id': 200,
@@ -335,7 +335,7 @@ class PendingUatStateTests(unittest.TestCase):
                 selected = {**artifact,
                             'size_in_bytes': len(content),
                             'digest': 'sha256:' + hashlib.sha256(content).hexdigest()}
-                with mock.patch.object(maintenance.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                with mock.patch.object(maintenance.retention, 'run_command', return_value=subprocess.CompletedProcess(
                     [], 0, content, b''
                 )) as call:
                     if accepted:
@@ -348,7 +348,7 @@ class PendingUatStateTests(unittest.TestCase):
             bad_digest = {**artifact,
                           'size_in_bytes': len(safe),
                           'digest': 'sha256:' + '0' * 64}
-            with mock.patch.object(maintenance.subprocess, 'run', return_value=subprocess.CompletedProcess(
+            with mock.patch.object(maintenance.retention, 'run_command', return_value=subprocess.CompletedProcess(
                 [], 0, safe, b''
             )):
                 with self.assertRaisesRegex(maintenance.retention.UnsafeState, 'digest changed'):
