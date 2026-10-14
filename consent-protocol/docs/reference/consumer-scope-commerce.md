@@ -46,6 +46,31 @@ frontend cases pass, with zero architecture regressions. The canonical financial
 rehearsal now opens Payments and earnings and its existing withdrawal/refund
 disclosures, reusing signed funding receipts rather than submitting them again.
 
+Main's subsequent onboarding update `ae85461ceb8e` is merged normally on the
+same branch. The composed flow retains early voice refusal, exact invitation
+returns and authentication boundaries, and restores the final sign-in action's
+shared button primitive. The three nearest component contracts pass 25 cases;
+all 451 Back cases, generated UI verification, type checking and the 157-screen
+cache contract pass. The architecture ratchet reports zero regressions.
+
+Core exposed two configuration-verification defects before completion. Files
+project selection now uses its canonical runtime-settings getter with identical
+custody and explicitly approved Dev-bridge validation; 160 focused cases pass.
+The deployment secret parser recognizes shell empty-default bindings, with 12
+focused cases and a negative control proving missing-lane enforcement. Existing
+secret omission policy, gate authority and architecture budgets are unchanged.
+The verification clone's main reference is aligned to the root repository for
+the final exact-candidate run; earlier failed attempts remain failure evidence.
+
+The fresh read-only Dev observation at `2026-10-14T00:09:51Z` still serves source
+`49074b1f72a1`, preserves all 59 private migration receipts with no baseline,
+and records two funding payments, zero purchases and zero withdrawals. A
+headless counterpart check proves normal authentication and vault unlock;
+navigation to the consolidated payment destination timed out on this older
+release. It is not warm payment-screen acceptance. The existing shared Chrome
+connection refuses this client with HTTP 403; no browser restart, tab closure,
+credential extraction or financial action was performed by these checks.
+
 Research now uses existing private-placement admission before checkpoint reads,
 provider dispatch and result release. Invitation requests revalidate the owner
 and vault session after asynchronous key preparation; claims evaluate expiry

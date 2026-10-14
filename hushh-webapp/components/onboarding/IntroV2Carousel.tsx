@@ -2,6 +2,7 @@
 
 import { useRef, type KeyboardEvent, type ReactNode, type TouchEvent } from "react";
 import Image from "next/image";
+import { Button } from "@/components/ui/button";
 
 import styles from "./IntroV2Carousel.module.css";
 
@@ -231,15 +232,16 @@ export function IntroV2Carousel({
                         <ArrowIcon />
                       </button>
                     ) : (
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
                         className={styles["start-action"]}
                         data-voice-control-id="onboarding_claim_one"
                         disabled={finalActionDisabled}
                         onClick={onStart}
                       >
                         {finalActionLabel}<ArrowIcon />
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
