@@ -61,6 +61,10 @@ focused cases and a negative control proving missing-lane enforcement. Existing
 secret omission policy, gate authority and architecture budgets are unchanged.
 The verification clone's main reference is aligned to the root repository for
 the final exact-candidate run; earlier failed attempts remain failure evidence.
+The getter now returns an explicit string when both project variables are unset;
+67 focused cases, focused type checking and its configuration ownership gate pass.
+The independent review retains the existing 1383-line measurement and all prior
+architecture findings; no ceiling or authority policy changes.
 
 The fresh read-only Dev observation at `2026-10-14T00:09:51Z` still serves source
 `49074b1f72a1`, preserves all 59 private migration receipts with no baseline,
@@ -70,6 +74,16 @@ navigation to the consolidated payment destination timed out on this older
 release. It is not warm payment-screen acceptance. The existing shared Chrome
 connection refuses this client with HTTP 403; no browser restart, tab closure,
 credential extraction or financial action was performed by these checks.
+The follow-up uses the authored Payments pane destination, preserving exact
+arrival and owner/vault continuity. It verifies warm vault continuity, but the
+new consolidated heading remains unverified on the older serving source. The
+canonical financial rehearsal uses this same ordinary pane destination while
+retaining the exact opaque hosted-return URL and financial admission checks.
+A primary headless read at `2026-10-14T00:31Z` confirms the same selected Azure
+subscription and failed provisioning job; no subscription reselection or
+provider flow was submitted. IAM-authenticated Monitoring verifies all 17
+aggregate metrics at `2026-10-14T00:26:19Z`, with fresh worker/provider observations,
+zero backing shortfall, zero unbalanced journals and zero receipt failures.
 
 Research now uses existing private-placement admission before checkpoint reads,
 provider dispatch and result release. Invitation requests revalidate the owner

@@ -12,7 +12,7 @@ export async function proveExternalFunding(runtime, role, amountCents) {
     ["paid", "refund_pending", "refunded"].includes(item.status) && item.providerVerified === true && item.creditedOnce === true &&
     (!retained || item.fundingId === retained.id));
   if (!candidates.length) {
-    runtime.externalStep = { type: "hostedCheckout", role, amountCents, destination: "/one/profile/payouts",
+    runtime.externalStep = { type: "hostedCheckout", role, amountCents, destination: "/one?profile_pane=1&profile_panel=payouts",
       maximumAggregateCents: COMMERCE_REHEARSAL.fundingCapCents };
     throw new CommerceRehearsalWait("EXTERNAL_HUMAN_CHECKOUT_AND_RECEIPT_REQUIRED");
   }
@@ -32,7 +32,7 @@ export async function requireSellerOnboarding(runtime) {
   for (const role of ["primary", "counterpart"]) {
     const account = await checkedCall(runtime.actors[role].session, "/api/scope-commerce/account");
     if (!account.seller.onboarded || !account.seller.eligible || account.seller.country !== "US") {
-      runtime.externalStep = { type: "hostedConnectOnboarding", role, destination: "/one/profile/payouts", country: "US" };
+      runtime.externalStep = { type: "hostedConnectOnboarding", role, destination: "/one?profile_pane=1&profile_panel=payouts", country: "US" };
       throw new CommerceRehearsalWait("EXTERNAL_ELIGIBLE_CONNECT_ONBOARDING_REQUIRED");
     }
   }
@@ -56,7 +56,7 @@ export async function requestManualWithdrawal(runtime) {
   const retained = runtime.state.withdrawals.primary[0];
   if (retained) return;
   const actor = runtime.actors.primary;
-  await actor.harness.navigateInApp(actor.session.page, "/one/profile/payouts");
+  await actor.harness.navigateInApp(actor.session.page, "/one?profile_pane=1&profile_panel=payouts");
   await openFinanceSection(actor.session.page, "Withdraw information-access earnings");
   const response = commercialResponse(actor.session.page, runtime.options.appOrigin, "GET", "/api/scope-commerce/withdrawals/preview");
   await actor.session.page.getByRole("button", { name: "Review withdrawal", exact: true }).click();
@@ -114,7 +114,7 @@ export async function refundUnusedFunding(runtime, role) {
   const lot = lots[0];
   const prefix = `/api/scope-commerce/funding/${lot.id}`;
   actor.admission.replace({ type: "refundPreview", pathname: `${prefix}/refund-preview`, expected: { amountCents: lot.refundable_cents } });
-  await actor.harness.navigateInApp(actor.session.page, "/one/profile/payouts");
+  await actor.harness.navigateInApp(actor.session.page, "/one?profile_pane=1&profile_panel=payouts");
   await openFinanceSection(actor.session.page, "Refund unused balance");
   const response = commercialResponse(actor.session.page, runtime.options.appOrigin, "POST", `${prefix}/refund-preview`);
   const review = actor.session.page.getByRole("button", { name: commerceMoneyButtonName("refund", lot.refundable_cents) });
