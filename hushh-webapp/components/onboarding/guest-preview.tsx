@@ -7,7 +7,7 @@ import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { IntroV2Carousel } from "./IntroV2Carousel";
-import { OneWelcomeStory, OneWelcomePrivacy } from "./OneWelcomeStory";
+import { OneWelcomeStory } from "./OneWelcomeStory";
 import introStyles from "./IntroV2Carousel.module.css";
 import welcomeStyles from "./IntroStep.module.css";
 
@@ -126,10 +126,8 @@ export function GuestPreview({
     >
       {step === 0 ? (
         <div className={welcomeStyles.stage}>
-          <div className={welcomeStyles.composition}>
-            <OneWelcomeStory headingRef={headingRef} motionEnabled={motionEnabled} />
+          <OneWelcomeStory headingRef={headingRef} motionEnabled={motionEnabled}>
             <footer className={welcomeStyles.footer}>
-              <OneWelcomePrivacy />
               <Button
                 variant="blue"
                 effect="fill"
@@ -148,7 +146,7 @@ export function GuestPreview({
                 </nav>
               )}
             </footer>
-          </div>
+          </OneWelcomeStory>
         </div>
       ) : (
         <IntroV2Carousel
