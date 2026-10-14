@@ -8309,6 +8309,15 @@ body[data-persona-surface="ria"] {
     letter-spacing: var(--type-page-title-tracking) !important;
   }
 
+  /* Circle details place a wrapping H1 beside Edit. Keep the semantic title
+     line box above the foundation h1 lock so Jakarta glyphs never clip. */
+  .circle-detail-header h1.ui-text-page-title {
+    font-size: var(--type-page-title-size) !important;
+    line-height: var(--type-page-title-line) !important;
+    font-weight: var(--type-page-title-weight) !important;
+    letter-spacing: var(--type-page-title-tracking) !important;
+  }
+
   [data-one-feature-card] [data-one-use-case-tag] {
     color: var(--app-label) !important;
     letter-spacing: normal !important;

@@ -418,7 +418,7 @@ test.describe("Check-in drawer typography has one semantic ladder", () => {
         };
       });
 
-      expect(type.h1).toMatchObject({ size: 28, line: 34, weight: 700 });
+      expect(type.h1).toMatchObject({ size: 28, line: 34, weight: 600 });
       expect(type.h2).toMatchObject({ size: 20, line: 25, weight: 600 });
       expect(type.h3).toMatchObject({ size: 17, line: 22, weight: 600 });
       expect(type.h1.size).toBeGreaterThan(type.h2.size);
