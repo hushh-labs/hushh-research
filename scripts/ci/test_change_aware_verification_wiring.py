@@ -53,7 +53,7 @@ def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
         ".github/workflows/deploy-uat.yml",
         "DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}",
         "--candidate-service consent-protocol-drive-worker",
-        "--no-candidates",
+        "--frontend-only",
         'cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"',
         'cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json"',
         'cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"',
