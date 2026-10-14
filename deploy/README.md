@@ -293,3 +293,13 @@ requests/s for five minutes, with at most 40 workers and no live model calls.
 Require no server errors/pool acquire timeouts, p95 <=2s, p99 <=5s, sufficient
 generator throughput, sustained CPU <70% and memory <80%. Stop at the first
 failing stage. UAT evidence does not establish production's maximum throughput.
+
+The 2026-10-13 UAT baseline on `consent-protocol-02115-faq` completed 3,000
+read-only requests at 5 requests/s with no server errors, but its steady memory
+utilization remained 86.9–87.85% of 4 GiB. UAT therefore selects 6 GiB at unchanged
+2 CPU, five maximum instances and existing connection pools. This is a candidate
+working-set adjustment, not passing burst evidence. Repeat the same 5 requests/s
+stage before increasing load. Maximum incremental RAM allocation at all five
+instances for 730 hours is US$52.56/month at current Tier 1 instance-based list
+pricing; actual allocation and the remaining verification resources must be
+reconciled against the approved ceiling. Production memory remains unchanged.
