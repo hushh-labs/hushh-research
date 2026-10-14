@@ -7,30 +7,33 @@ message text or change agent decisions.
 | Activity | State | HD fallback | Animation in header and profile |
 | --- | --- | --- | --- |
 | One generating a draft | `working` | `drafting-hd.png` | `working.riv` |
-| One preparing or delivering an answer, or running a local action | `thinking` | `thinking-hd.png` | `thinking.riv` |
-| No foreground work | `connected` | Original `profile-hd.png` | Original `profile-hd.png`, still |
+| One preparing an answer or running a local action | `thinking` | `thinking-hd.png` | `thinking.riv` |
+| Response tokens arriving or voice speaking | `answering` | `thinking-hd.png` (shared static fallback) | `answering.riv` |
+| No foreground work | `connected` | Original `profile-hd.png` | `connected.riv` |
 
 An open editor, completed draft, queued proposal or pending confirmation is
 not drafting. Draft activity comes from `EmailDraftCard`'s actual generation
-request and clears on completion, failure and unmount. Chat activity uses live
-loading/streaming and existing local-action busy flags. Stale tool rows and
-background memory persistence do not keep the artwork busy.
+request and clears on completion, failure and unmount. Answering starts only
+on the current turn's first nonempty response delta, or voice playback. Loading,
+provisional progress messages and a restored partial answer remain thinking.
+New and reattached turns reset the output marker. Background memory persistence
+does not keep the artwork busy.
 
-The legacy `answering` state also displays the thinking pose. Native Rive work
-animations preserve the existing 24 FPS, 72-frame loops with reduced-motion and visibility
-guards. A matching transparent HD portrait is their loading/error and reduced-motion
-fallback. Both the header and open Feed/Profile panel use the existing work
-frames, preserving the shared activity mapping. Animation pauses when offscreen,
-when the document is hidden, or when the app lifecycle is inactive/background.
-No React state updates occur per frame. Idle keeps the sharp native HD image.
+All four native Rive Solo timelines preserve the authored 24 FPS, 72-frame
+loops. The header and open Feed/Profile panel share one activity state. The
+outgoing animation remains mounted while its replacement loads and paints,
+then both crossfade using the shared opacity motion token. Additive blending
+inside an isolated avatar prevents transparent artwork from dimming mid-fade.
+Superseded loads and transitions cannot change the current request.
 
-Rive uses native Solo switching between embedded lossless PNG frames. Only the
-current visible state loads, and WASM is self-hosted as `rive.wasm`, matching
-`@rive-app/canvas` 2.44.2 (MIT). Runtime CDN fallback and asset CDN loading are
-explicitly disabled; load failures retain the HD portrait. Instances and
-observers are cleaned up on state changes and unmount. Connected and Answering
-Rive exports are included as additional authored assets; existing idle and
-legacy-answering presentation policy stays unchanged.
+Rive loads only for visible, active surfaces without reduced motion. Animation
+pauses offscreen, when the document is hidden or the native app is inactive.
+HD portraits remain the loading/error and reduced-motion fallback; answering
+currently shares the thinking HD portrait for that static fallback only.
+WASM is self-hosted as `rive.wasm`, matching `@rive-app/canvas` 2.44.2 (MIT).
+Runtime CDN fallback and asset CDN loading are disabled. Instances, pending
+render callbacks, observers and transition timers are cleaned up on replacement
+or unmount. No React state updates occur per animation frame.
 
 `rive-manifest.json` records deployed binary sizes and SHA-256 hashes.
 `rive-validation.json` records exact comparison of every native rendered frame
@@ -38,8 +41,8 @@ against its 128px PNG reference, plus default state-machine looping checks.
 Browser playback and lifecycle regressions are verified separately; physical
 native frame pacing remains unverified.
 
-Active frames have a 128px source and are displayed at 192 CSS px in the panel,
-so animated work artwork is softer than the HD idle/reduced-motion portraits.
+Animated frames have a 128px source and are displayed at 192 CSS px in the panel,
+so animated work artwork is softer than the HD fallback portraits.
 The artwork, canvas and owning avatar surfaces have no opaque background disk.
 
 ## HD variant provenance

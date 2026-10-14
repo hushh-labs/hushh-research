@@ -1523,7 +1523,88 @@ async function presencePixels(artwork: Locator) {
 
 test.describe("One profile artwork and animated presence", () => {
   test.use({ deviceScaleFactor: 3 });
-  test("keeps header and profile presence in sync through drafting, answering and idle", async ({ page }) => {
+  test("retains painted artwork through delayed loads and interrupted transitions", async ({ page }) => {
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    await page.route("http://localhost/one-presence/working.riv", async route => {
+      await waiting;
+      await route.fulfill({ contentType: "application/octet-stream", body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/working.riv")) });
+    });
+    await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("http://localhost/connections-fixture?one-profile=1");
+    await page.addScriptTag({ content: script });
+    await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+    const panel = page.getByRole("dialog", { name: "One", exact: true });
+    const profile = panel.locator("[data-one-presence-state]");
+    await expect(profile.locator("canvas")).toHaveCSS("visibility", "visible");
+    await expect.poll(async () => (await presencePixels(profile.locator("canvas"))).opaque).toBeGreaterThan(0);
+    await page.evaluate(() => {
+      const nodes = [...document.querySelectorAll<HTMLElement>("[data-one-presence-state]")];
+      const sample = document.createElement("canvas");
+      sample.width = sample.height = 32;
+      const context = sample.getContext("2d")!;
+      const proof = { blank: 0, detached: 0, minPeakAlpha: 255, minLayers: [] as unknown[], frames: 0, intervals: [] as number[], previous: performance.now(), stop: false };
+      const sampleFrame = (now: number) => {
+        if (proof.stop) return;
+        proof.frames++;
+        proof.intervals.push(now - proof.previous);
+        proof.previous = now;
+        for (const node of nodes) {
+          if (!node.isConnected) proof.detached++;
+          context.clearRect(0, 0, 32, 32);
+          for (const layer of node.querySelectorAll<HTMLElement>("[data-one-presence-artwork]")) {
+            const style = getComputedStyle(layer);
+            context.globalAlpha = Number(style.opacity);
+            context.globalCompositeOperation = style.mixBlendMode === "plus-lighter" ? "lighter" : "source-over";
+            const canvas = layer.querySelector("canvas")!;
+            const image = layer.querySelector("img")!;
+            if (getComputedStyle(canvas).visibility === "visible") context.drawImage(canvas, 0, 0, 32, 32);
+            else if (image.complete && image.naturalWidth) context.drawImage(image, 0, 0, 32, 32);
+          }
+          const pixels = context.getImageData(0, 0, 32, 32).data;
+          let peak = 0;
+          for (let index = 3; index < pixels.length; index += 4) peak = Math.max(peak, pixels[index]!);
+          if (!peak) proof.blank++;
+          if (peak < proof.minPeakAlpha) {
+            proof.minPeakAlpha = peak;
+            proof.minLayers = [...node.querySelectorAll<HTMLElement>("[data-one-presence-artwork]")].map(layer => {
+              const style = getComputedStyle(layer);
+              return { state: layer.dataset.onePresenceArtwork, opacity: style.opacity, duration: style.transitionDuration, blend: style.mixBlendMode, visible: getComputedStyle(layer.querySelector("canvas")!).visibility };
+            });
+          }
+        }
+        requestAnimationFrame(sampleFrame);
+      };
+      Object.assign(window, { __presenceContinuity: proof });
+      requestAnimationFrame(sampleFrame);
+      (window as any).__setOnePresenceWork({ drafting: true, answering: false, thinking: true });
+    });
+    await expect(profile.locator('[data-one-presence-layer="incoming"]')).toHaveAttribute("data-one-presence-artwork", "working");
+    await page.waitForTimeout(180);
+    await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "connected");
+    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false, thinking: true }));
+    await expect.poll(() => profile.locator('[data-one-presence-artwork="thinking"]').evaluate(layer => Number(getComputedStyle(layer).opacity)), { intervals: [5] }).toBeGreaterThan(0);
+    expect(await profile.locator('[data-one-presence-artwork="thinking"]').evaluate(layer => Number(getComputedStyle(layer).opacity))).toBeLessThan(1);
+    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: true, thinking: true }));
+    release();
+    await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
+    await expect(profile.locator("[data-one-presence-artwork]")).toHaveAttribute("data-one-presence-artwork", "answering");
+    await expect(profile.locator("canvas")).toHaveCSS("visibility", "visible");
+    const proof = await page.evaluate(() => {
+      const proof = (window as any).__presenceContinuity;
+      proof.stop = true;
+      return proof;
+    });
+    const probePath = test.info().outputPath("presence-frame-probe.json");
+    fs.writeFileSync(probePath, JSON.stringify(proof, null, 2));
+    await test.info().attach("presence-transition-frame-probe", { path: probePath, contentType: "application/json" });
+    expect(proof.frames).toBeGreaterThan(5);
+    expect(proof.blank, "no empty animation frame").toBe(0);
+    expect(proof.detached, "avatar geometry stays mounted").toBe(0);
+    expect(proof.minPeakAlpha, JSON.stringify(proof.minLayers)).toBeGreaterThanOrEqual(250);
+  });
+  test("keeps header and profile presence in sync through all four native Rive states", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.goto("http://localhost/connections-fixture?one-profile=1");
@@ -1541,14 +1622,15 @@ test.describe("One profile artwork and animated presence", () => {
     const header = page.getByTestId("one-presence-header").locator("[data-one-presence-state]");
     const profile = panel.locator("[data-one-presence-state]");
     for (const phase of [
-      { drafting: false, answering: false, state: "connected", file: "profile-hd.png" },
-      { drafting: true, answering: true, state: "working", file: "drafting-hd.png" },
-      { drafting: false, answering: true, state: "thinking", file: "thinking-hd.png" },
-      { drafting: false, answering: false, state: "connected", file: "profile-hd.png" },
+      { drafting: false, answering: false, thinking: false, state: "connected" },
+      { drafting: false, answering: false, thinking: true, state: "thinking" },
+      { drafting: true, answering: true, thinking: true, state: "working" },
+      { drafting: false, answering: true, thinking: true, state: "answering" },
+      { drafting: false, answering: false, thinking: false, state: "connected" },
     ]) {
       await page.evaluate(work => {
-        (window as unknown as { __setOnePresenceWork: (work: { drafting: boolean; answering: boolean }) => void }).__setOnePresenceWork(work);
-      }, { drafting: phase.drafting, answering: phase.answering });
+        (window as unknown as { __setOnePresenceWork: (work: { drafting: boolean; answering: boolean; thinking: boolean }) => void }).__setOnePresenceWork(work);
+      }, { drafting: phase.drafting, answering: phase.answering, thinking: phase.thinking });
       await expect(header).toHaveAttribute("data-one-presence-state", phase.state);
       await expect(profile).toHaveAttribute("data-one-presence-state", phase.state);
       await expect(profile).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
@@ -1556,20 +1638,17 @@ test.describe("One profile artwork and animated presence", () => {
       expect(await profile.evaluate(element => getComputedStyle(element.parentElement!).borderRadius)).toBe("0px");
       const bounds = (await profile.boundingBox())!;
       expect(bounds.width).toBe(192); expect(bounds.height).toBe(192);
-      if (phase.state === "connected") {
-        await expect(profile).toHaveAttribute("src", `/one-presence/${phase.file}`);
-        await expect(header).toHaveAttribute("src", "/one-presence/profile-hd.png");
-        await expect.poll(() => profile.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
-      } else {
-        for (const artwork of [header, profile]) {
-          const canvas = artwork.locator("canvas");
-          await expect(canvas).toHaveCSS("visibility", "visible");
-          await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
-          await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
-          expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
-          const first = (await presencePixels(canvas)).hash;
-          await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(first);
-        }
+      for (const artwork of [header, profile]) {
+        await expect(artwork.locator("[data-one-presence-artwork]")).toHaveCount(1);
+        await expect(artwork.locator("[data-one-presence-artwork]")).toHaveAttribute("data-one-presence-artwork", phase.state);
+        const canvas = artwork.locator("canvas");
+        await expect(canvas).toHaveCSS("visibility", "visible");
+        await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
+        await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
+        expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
+        const first = (await presencePixels(canvas)).hash;
+        // Connected's authored blink occurs only twice in the three-second loop.
+        await expect.poll(async () => (await presencePixels(canvas)).hash, { timeout: 6500, intervals: [50] }).not.toBe(first);
       }
       await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
     }
@@ -1582,8 +1661,9 @@ test.describe("One profile artwork and animated presence", () => {
     await awaitProductFont(page);
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
-    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
+    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true, thinking: true }));
     const profile = panel.locator("[data-one-presence-state]");
+    await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
     const canvas = profile.locator("canvas");
     const poster = profile.locator("img");
     await expect(canvas).toHaveCSS("visibility", "visible");
@@ -1613,7 +1693,8 @@ test.describe("One profile artwork and animated presence", () => {
     await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(paused);
     await page.getByRole("button", { name: "Close One profile", exact: true }).click();
     await expect(panel).toBeHidden();
-    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false }));
+    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false, thinking: false }));
+    await expect(page.getByTestId("one-presence-header").locator("[data-one-presence-artwork]")).toHaveCount(1);
     await expect(page.getByTestId("one-presence-header").locator("img")).toHaveAttribute("src", "/one-presence/profile-hd.png");
   });
   for (const viewport of [
@@ -1642,11 +1723,11 @@ test.describe("One profile artwork and animated presence", () => {
       // Geometry is measured after the sheet's entrance motion settles.
       await expect.poll(() => panel.evaluate(element =>
         new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
-      const avatar = panel.locator('img[src="/one-presence/profile-hd.png"]');
+      const avatar = panel.locator("[data-one-presence-state]");
       await expect(avatar).toBeVisible();
       // A loaded thumbnail still fails: the source must cover the actual
       // profile presentation at the device's physical pixel density.
-      await expect.poll(() => avatar.evaluate((image: HTMLImageElement) => {
+      await expect.poll(() => avatar.locator("img").evaluate((image: HTMLImageElement) => {
         const bounds = image.getBoundingClientRect();
         return image.complete &&
           image.naturalWidth >= Math.ceil(bounds.width * devicePixelRatio) &&
