@@ -1,8 +1,3 @@
-/** Build-time rollout gate; existing Connect/Location flows do not read it. */
-export function initialContactOnboardingEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED === "true";
-}
-
 export const GOOGLE_CONTACTS_READ_SCOPE =
   "https://www.googleapis.com/auth/contacts.readonly";
 
