@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hushh_mcp.services import drive_packet_intelligence
 from hushh_mcp.services.drive_citation_references import page_references
 from hushh_mcp.services.drive_packet_contract import (
     DocumentPageFacts,
@@ -18,6 +19,14 @@ from hushh_mcp.services.drive_packet_intelligence import (
     extract_page_facts,
     verify_packet,
 )
+
+
+def test_facts_policy_changes_with_extraction_profile(monkeypatch):
+    current = drive_packet_intelligence.facts_policy_version()
+    monkeypatch.setattr(
+        drive_packet_intelligence, "EXTRACTION_PROFILE", "future-extraction-profile"
+    )
+    assert drive_packet_intelligence.facts_policy_version() != current
 
 
 def page_facts():

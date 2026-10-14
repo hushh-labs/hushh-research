@@ -262,6 +262,22 @@ async def test_exact_version_reuse_and_summary_listing_need_separate_allow(reusa
         await reusable.packets.list_packets(user_id="unrelated", owner_user_id="owner")
 
 
+async def test_extraction_profile_upgrade_fences_old_packet_before_reprocessing(
+    reusable, monkeypatch
+):
+    packet = await ready_packet(reusable)
+    assert packet["canList"]
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_packet_store.EXTRACTION_PROFILE", "future-extraction-profile"
+    )
+    owner = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+    assert owner["state"] == "ready" and not owner["canList"]
+    with pytest.raises(DriveReadError, match="packet_unavailable"):
+        await reusable.packets.current_packet_manifest(
+            owner_user_id="owner", packet_id=packet["packetId"], version=packet["version"]
+        )
+
+
 async def test_new_facts_policy_hides_prior_ready_listing_until_rechecked(reusable, monkeypatch):
     packet = await ready_packet(reusable)
     await reusable.packets.set_listing(
@@ -1426,3 +1442,35 @@ async def test_request_priority_facts_use_exact_targets_and_reuse_complete_evide
     await reusable.facts.release(claim)
     next_claim = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
     assert str(next_claim["document_id"]) == ids[0]
+
+
+async def test_targeted_facts_enqueue_scopes_membership_reconciliation(reusable, monkeypatch):
+    await originals(reusable, count=2)
+    with reusable.collection.db.engine.connect() as connection:
+        ids = [
+            str(identity)
+            for identity in connection.execute(
+                text("SELECT document_id FROM connected_documents ORDER BY document_id")
+            ).scalars()
+        ]
+    observed = []
+    reconcile = reusable.facts._reconcile_membership_locked
+
+    def scoped_reconcile(connection, **kwargs):
+        observed.append(kwargs["document_ids"])
+        return reconcile(connection, **kwargs)
+
+    monkeypatch.setattr(reusable.facts, "_reconcile_membership_locked", scoped_reconcile)
+    assert (
+        await reusable.facts.enqueue(user_id="owner", policy_version=POLICY, document_ids=[ids[0]])
+        == 1
+    )
+    assert observed == [(ids[0],)]
+    with reusable.collection.db.engine.connect() as connection:
+        rows = [
+            str(identity)
+            for identity in connection.execute(
+                text("SELECT document_id FROM drive_document_facts")
+            ).scalars()
+        ]
+    assert rows == [ids[0]]

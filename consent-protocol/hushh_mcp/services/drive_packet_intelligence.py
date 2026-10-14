@@ -22,6 +22,7 @@ from hushh_mcp.services.drive_citation_references import (
     page_references,
     resolve_references,
 )
+from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
     DocumentPageFacts,
@@ -95,6 +96,8 @@ def facts_policy_version() -> str:
             + model.encode()
             + b"\0"
             + FACTS_SCHEMA_VERSION.encode()
+            + b"\0"
+            + EXTRACTION_PROFILE.encode()
         ).hexdigest()
     )
 

@@ -702,13 +702,21 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 text("""SELECT NOT EXISTS(SELECT 1 FROM drive_packet_members WHERE packet_id=:id)
               OR EXISTS(SELECT 1 FROM drive_packet_version_sources s
               LEFT JOIN connected_documents d ON d.document_id=s.document_id AND d.user_id=:user
+              LEFT JOIN drive_document_facts f ON f.document_id=s.document_id
+                AND f.facts_version=s.facts_version AND f.user_id=:user
               WHERE s.packet_id=:id AND s.version=:version AND (d.document_id IS NULL OR d.source_version<>s.source_version
-                OR d.active_version IS NULL OR d.status<>'ready' OR d.connection_generation<>:generation))"""),
+                OR d.active_version IS NULL OR d.status<>'ready' OR d.connection_generation<>:generation
+                OR f.document_id IS NULL OR f.source_version<>s.source_version
+                OR f.connection_generation<>:generation OR f.extraction_profile<>:profile
+                OR f.extraction_version<>d.active_version OR f.facts_profile<>:policy
+                OR f.status<>'complete' OR f.has_gaps))"""),
                 {
                     "id": row["packet_id"],
                     "version": row["version"],
                     "user": row["user_id"],
                     "generation": row["connection_generation"],
+                    "profile": EXTRACTION_PROFILE,
+                    "policy": policy,
                 },
             ).scalar_one()
         )
