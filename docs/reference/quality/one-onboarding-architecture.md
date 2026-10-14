@@ -3,6 +3,11 @@
 Status: canonical reference. Source of truth for how setup is structured,
 gated, reset, resumed, and skipped across the app.
 
+The optional [initial Contacts welcome](../../guides/initial-signup-contacts.md)
+is a post-root terminal at `/one/welcome`. It preserves Finance and invitation
+continuations, delays the chat entry welcome until Continue, and leaves existing
+capability setup and Connect/Location contact acquisition unchanged.
+
 > Naming: the account‑level flow and its surfaces are now called **setup**
 > (formerly "onboarding"). The canonical routes are `/one/setup` (hub),
 > `/one/setup/finance` (Finance preferences), and static

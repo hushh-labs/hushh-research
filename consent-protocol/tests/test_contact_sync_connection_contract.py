@@ -232,6 +232,7 @@ def _behavior_sync(
     count: int = 1,
     activation_suppressed: bool = False,
     sync_started_at: datetime | None = None,
+    allow_reconnect: bool = True,
 ):
     lookups: list[dict[str, str]] = []
     matches: list[dict[str, str]] = []
@@ -287,6 +288,7 @@ def _behavior_sync(
             phone_lookups=lookups,
             matches=matches,
             sync_started_at=sync_started_at,
+            allow_reconnect=allow_reconnect,
         )
 
 
@@ -1292,3 +1294,18 @@ def test_read_models_expose_only_viewer_relative_contact_provenance() -> None:
     assert '"connectedFromContacts"' in circle_source
     assert "contact_origin.source_ref = :viewer_user_id" in circle_source
     assert "contact_origin.source_ref = :actor_user_id" in circle_source
+
+
+def test_initial_signup_never_reconnects_a_previously_removed_contact():
+    removed_at = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    service = _ContactSyncService(
+        existing_status="revoked",
+        revoked_by_user_id="requester",
+        revoked_at=removed_at,
+        revoked_by_at=removed_at,
+    )
+    result = _behavior_sync(
+        service, sync_started_at=removed_at + timedelta(seconds=1), allow_reconnect=False
+    )
+    assert result["items"][0]["outcome"] == "suppressed"
+    assert service.writes == []
