@@ -6,7 +6,7 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 Runtime boundaries: [private-agent north star](../architecture/private-agent-north-star.md)
 and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-## Decision — 2026-10-13 UTC
+## Decision — 2026-10-14 UTC
 
 **Hold the application merge and production BYOC rollout.** The hub and frontend
 currently serve `7dffd92928`; the personal Azure pod completed its Dev 19
@@ -21,7 +21,7 @@ Existing owners retain their resources and selected configuration.
 
 ## Current implementation slice — Azure AI and Shared Files
 
-**2026-10-14; unserved source pilot.** Frozen ADK `3501811eb6b` and browser/scheduling work are preserved. Candidate `e4f9dcbc68` passed the complete local core in 639 seconds; the subsequently published Contacts/main union `2c2e43c7e3` is reconciled with its own focused checks. Published migration checksums remain unchanged. The bucket-incarnation boundary has 21 lifecycle passes and a failing missing-guard control. The incoming union adds 144 backend passes, five real PostgreSQL race/replay cases and eight Chromium/WebKit dismissal cases. Final combined core, exact-SHA hosted CI and serving readback remain required; original failures remain available.
+**2026-10-14; unserved source pilot.** Frozen ADK `3501811eb6b` and browser/scheduling work are preserved. Exact candidate `810733d7fc` passed the local core in 647 seconds and every required hosted lane in [run 38552254645](https://github.com/hushh-labs/hushh-research/actions/runs/38552254645). Governed [dev run 38554694721](https://github.com/hushh-labs/hushh-research/actions/runs/38554694721) failed before traffic promotion: the frontend upload filter omitted its native-Google configuration helper. The original failed receipt is retained. The corrected filter passes the nearest 101 cases; both original frontend negative controls fail. The published peer union `bd3e866dbd` is preserved and independently reviewed. The final union requires its own exact-SHA validation and governed retry. ADC readback confirms the prior backend `00170-s9x` and frontend `00145-pzd` still receive 100% traffic; no owner-pod installation occurred. Published migration checksums remain unchanged.
 
 | Journey | Source / local evidence | Dev / release status |
 | --- | --- | --- |

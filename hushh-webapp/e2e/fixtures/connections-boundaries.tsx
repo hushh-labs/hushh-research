@@ -58,6 +58,11 @@ export function useCalendarConnectionStatus() {
     },
   };
 }
+export const PkmDomainResourceService = {
+  invalidateDomain: () => {
+    throw new Error("No PKM invalidation in the Connections layout fixture");
+  },
+};
 export function usePkmDomainResource() {
   return { data: null, loading: false, error: null };
 }

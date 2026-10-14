@@ -205,7 +205,7 @@ export default function TrustedDeviceAuthorizePage() {
           Connect this Hermes device
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Approve this computer to use One. Your passphrase stays on Hermes.
+          Approve this computer to use One. Your password stays on Hermes.
         </p>
 
         <dl className="mt-6 rounded-2xl bg-muted/50 p-4 text-sm">

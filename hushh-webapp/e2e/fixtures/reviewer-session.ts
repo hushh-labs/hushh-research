@@ -39,7 +39,7 @@ export async function openReviewerSession(
 
   const unlockInput = page.locator("#unlock-passphrase");
   const unlockButton = page
-    .getByRole("button", { name: /unlock with passphrase/i })
+    .getByRole("button", { name: /unlock with password/i })
     .first();
   const terminalFailures = new Set([
     "auth_error",

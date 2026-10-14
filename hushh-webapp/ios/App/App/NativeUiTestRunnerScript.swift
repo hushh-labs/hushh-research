@@ -121,7 +121,7 @@ enum NativeUiTestRunnerScript {
 
   function dismissBlockingScreens() {
     var exactLabels = [
-      "not now, continue with passphrase",
+      "not now, continue with password",
       "not now",
       "skip tour",
       "got it",

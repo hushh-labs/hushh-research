@@ -146,23 +146,23 @@ describe("WalletWorkspace at scale", () => {
     };
     await waitFor(() => expect(completions).toHaveLength(1));
     await act(async () => { completions[0]!({ card: { cardPayload: { full_name: "Saved owner A" } }, shareUrl: null }); });
-    await waitFor(async () => expect(await renderedName()).toContain("saved.owner.a"));
+    await waitFor(async () => expect(await renderedName()).toContain("Saved owner A"));
     authMock.user = { uid: "owner_b", displayName: "Public owner B" };
     workspace.rerender(<WalletWorkspace />);
     await waitFor(() => expect(completions).toHaveLength(2));
-    expect(await renderedName()).not.toContain("saved.owner.a");
+    expect(await renderedName()).not.toContain("Saved owner A");
     authMock.user = { uid: "user_1", displayName: "Public owner A" };
     workspace.rerender(<WalletWorkspace />);
     await waitFor(() => expect(completions).toHaveLength(3));
     await act(async () => { completions[1]!({ card: { cardPayload: { full_name: "Late owner B" } }, shareUrl: null }); });
-    expect(await renderedName()).not.toContain("late.owner.b");
-    expect(await renderedName()).not.toContain("saved.owner.a");
+    expect(await renderedName()).not.toContain("Late owner B");
+    expect(await renderedName()).not.toContain("Saved owner A");
     vaultMock.locked = true; workspace.rerender(<WalletWorkspace />);
     await screen.findByTestId("one-wallet-locked");
     await act(async () => { completions[2]!({ card: { cardPayload: { full_name: "Late owner A" } }, shareUrl: null }); });
     vaultMock.locked = false; workspace.rerender(<WalletWorkspace />);
     await waitFor(() => expect(completions).toHaveLength(4));
-    expect(await renderedName()).not.toContain("late.owner.a");
+    expect(await renderedName()).not.toContain("Late owner A");
   });
 
   it("loads cards when the owner token arrives after the vault key", async () => {
@@ -374,7 +374,7 @@ describe("WalletWorkspace at scale", () => {
     render(<WalletWorkspace />);
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     await screen.findByTestId("wallet-add-collection");
-    fireEvent.click(screen.getByRole("button", { name: "View details for Card 0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0" }));
     await screen.findByTestId("wallet-selected-card");
     fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
     const browser = screen.getByTestId("wallet-card-browser");
@@ -598,11 +598,12 @@ describe("WalletWorkspace at scale", () => {
   });
 
   it("search narrows metadata and reports no match", async () => {
+    navigationMock.search = "q=amex";
     render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
-    await waitFor(() => expect(screen.getByTestId("wallet-add-collection")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Search cards" }));
+    await screen.findByRole("textbox", { name: "Search cards" });
+    expect(screen.queryByRole("button", { name: "Search cards" })).toBeNull();
     await act(async () => {
       fireEvent.change(screen.getByTestId("one-wallet-search"), { target: { value: "amex" } });
     });

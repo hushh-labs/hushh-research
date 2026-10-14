@@ -977,6 +977,7 @@ textarea {
   --motion-duration-md: 125ms;
   --motion-duration-lg: 140ms;
   --motion-duration-xl: 150ms;
+  --motion-shortcut-icon-cycle-duration: 850ms;
   --motion-duration-xxl: 150ms;
 
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
@@ -6527,7 +6528,7 @@ html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-
   --one-chat-field: rgba(0, 0, 0, 0.045);
   --one-chat-field-strong: rgba(0, 0, 0, 0.07);
   --one-chat-row-hover: rgba(0, 0, 0, 0.04);
-  --one-chat-row-active: rgba(0, 0, 0, 0.07);
+  --one-chat-row-active: rgba(0, 0, 0, 0.045);
   --one-chat-meta: rgba(60, 60, 67, 0.64);
   --one-chat-composer: #ffffff;
   --one-chat-composer-border: rgba(0, 0, 0, 0.1);
@@ -6548,7 +6549,7 @@ html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-
   --one-chat-field: rgba(255, 255, 255, 0.06);
   --one-chat-field-strong: rgba(255, 255, 255, 0.1);
   --one-chat-row-hover: rgba(255, 255, 255, 0.05);
-  --one-chat-row-active: rgba(255, 255, 255, 0.09);
+  --one-chat-row-active: rgba(255, 255, 255, 0.065);
   --one-chat-meta: rgba(235, 235, 245, 0.55);
   --one-chat-composer: #2a2a2a;
   --one-chat-composer-border: rgba(255, 255, 255, 0.06);

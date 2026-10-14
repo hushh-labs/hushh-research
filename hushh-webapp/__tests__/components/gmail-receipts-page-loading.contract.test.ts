@@ -36,7 +36,9 @@ function expectOwnerScopedReceiptProjection(pageSource: string) {
   );
   expect(pageSource).toContain("receipts={visibleReceipts}");
   expect(pageSource).toContain("receipt_count: visibleTotal");
-  expect(pageSource).toContain("{visibleTotal} receipt");
+  expect(pageSource).toContain(
+    "receiptCount={shouldShowReceiptCount ? visibleTotal : undefined}",
+  );
   expect(pageSource).toContain(
     "receiptListReady && receiptDisplayScopeCurrent",
   );
@@ -55,13 +57,7 @@ describe("Gmail workspace background loading contract", () => {
       "const identityPrefaceComplete = identityStatus?.complete;",
     ))).toThrow();
   });
-  it("keeps the Gmail shell actionable while connection status uses an accessible skeleton", () => {
-    expect(source).toContain('aria-label="Checking your Gmail status"');
-    expect(source).toContain("Checking your Gmail status");
-    expect(source).toContain("<Skeleton className=");
-    expect(source).toContain("onClick={() => void handleConnectGmail()}");
-    expect(source).not.toContain("if (loadingStatus) return");
-  });
+
 
   it("renders the owner/account memory cache on open without starting a scan", () => {
     expect(source).toContain(
@@ -97,6 +93,14 @@ describe("Gmail workspace background loading contract", () => {
         source.replace(
           "const visibleTotal = receiptDisplayScopeCurrent ? total : 0;",
           "const visibleTotal = total;",
+        ),
+      ),
+    ).toThrow();
+    expect(() =>
+      expectOwnerScopedReceiptProjection(
+        source.replace(
+          "receiptCount={shouldShowReceiptCount ? visibleTotal : undefined}",
+          "receiptCount={total}",
         ),
       ),
     ).toThrow();

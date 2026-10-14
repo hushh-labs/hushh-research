@@ -20,6 +20,7 @@ const BOUNDARY_MODULES = [
   "@/lib/referral/use-referral-stream",
   "@/lib/vault/vault-context",
   "@/lib/services/wallet-service",
+  "@/lib/services/wallet-card-share-service",
   "@/lib/services/api-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
@@ -275,7 +276,8 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   expect(initialGeometry.zoom).toBe(1);
   expect(initialGeometry.first.width).toBeGreaterThanOrEqual(260);
   expect(initialGeometry.first.bottom).toBeLessThan(initialGeometry.dockTop - 8);
-  expect(initialGeometry.edges[0].top - initialGeometry.first.bottom).toBeGreaterThanOrEqual(44);
+  expect(initialGeometry.edges[0].top - initialGeometry.first.bottom).toBeGreaterThanOrEqual(-1);
+  expect(initialGeometry.edges[0].top - initialGeometry.first.bottom).toBeLessThanOrEqual(37);
   expect(initialGeometry.edges[1].top - initialGeometry.edges[0].top).toBeGreaterThanOrEqual(11.9);
   expect(initialGeometry.edges[1].top + 12).toBeLessThanOrEqual(initialGeometry.dockTop - 7);
   expect(initialGeometry.edges.every(edge => edge.hitOwnCard)).toBe(true);
@@ -300,10 +302,13 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
     return boxes.slice(1).every((box,i) => box.top >= boxes[i].bottom + 15 && Math.abs(box.left - boxes[0].left) < 1 && Math.abs(box.right - boxes[0].right) < 1);
   })).toBe(true);
   expect(await scrollRoot.evaluate(root => root.scrollWidth <= root.clientWidth + 1)).toBe(true);
-  // WebKit can report 43.99997 after transform composition; CSS still owns 44px.
-  expect(await stack.locator('[data-stack-details] button').evaluateAll(buttons => buttons.every(button => parseFloat(getComputedStyle(button).height) >= 44 && Math.round(button.getBoundingClientRect().height) >= 44))).toBe(true);
-  await expect(stack.locator('[data-card-details-label]')).toHaveCount(3 + (viewport.savedCards ?? 0));
-  expect(await stack.locator('[data-card-details-label]').evaluateAll(labels => labels.every(label => label.getBoundingClientRect().height <= 28))).toBe(true);
+  const cardTargets = stack.locator('button[aria-pressed]');
+  await expect(cardTargets).toHaveCount(3 + (viewport.savedCards ?? 0));
+  expect(await cardTargets.evaluateAll(buttons => buttons.every(button => {
+    const box = button.getBoundingClientRect();
+    return box.width >= 44 && box.height >= 44;
+  }))).toBe(true);
+  await expect(stack.locator('[data-card-details-label]')).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("wallet-unfolded.png") });
   const card = layers.nth(1);
   await card.scrollIntoViewIfNeeded();
@@ -334,7 +339,7 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect(card.locator('[data-card-controls]').getByText("Username", { exact:true })).toBeVisible();
   await expect(card.locator('[data-card-controls]').getByRole("button", { name:"View details", exact:true })).toHaveCount(0);
   await card.getByRole("button", { name:"Back to card", exact:true }).click();
-  await card.getByRole("button", { name:"View details for Agent One Referral", exact:true }).click();
+  await card.getByRole("button", { name:"Agent One Referral", exact:true }).click();
   await expect(page.getByRole("region", { name: "Referral card details" })).toBeVisible();
   expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
   await page.getByRole("button", { name:"All cards", exact:true }).click();

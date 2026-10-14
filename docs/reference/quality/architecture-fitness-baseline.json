@@ -20020,7 +20020,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 1008
+      "value": 1066
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20110,7 +20110,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
       "symbol": null,
-      "value": 2592
+      "value": 2593
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20173,7 +20173,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-agent-page.test.tsx",
       "symbol": null,
-      "value": 609
+      "value": 674
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20506,7 +20506,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
       "symbol": null,
-      "value": 704
+      "value": 705
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21118,7 +21118,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 11054
+      "value": 11057
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21289,7 +21289,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/app-ui/top-app-bar.tsx",
       "symbol": null,
-      "value": 1509
+      "value": 1516
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21307,7 +21307,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/calendar/calendar-agent-page.tsx",
       "symbol": null,
-      "value": 773
+      "value": 787
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21874,7 +21874,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/__tests__/saved-locations-section.test.tsx",
       "symbol": null,
-      "value": 529
+      "value": 540
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22063,7 +22063,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/saved-locations-section.tsx",
       "symbol": null,
-      "value": 919
+      "value": 925
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22279,7 +22279,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/vault/vault-flow.tsx",
       "symbol": null,
-      "value": 2377
+      "value": 2380
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22333,7 +22333,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
-      "value": 897
+      "value": 898
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22369,7 +22369,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1720
+      "value": 1727
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22450,7 +22450,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1090
+      "value": 1101
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22810,7 +22810,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/navigation/profile-pane.ts",
       "symbol": null,
-      "value": 501
+      "value": 511
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -43495,6 +43495,172 @@
     "reason": "Canonical reset removes sealed packet material after financial fences; nearest PostgreSQL regression also verifies late-worker refusal and original request-term preservation. Independent source review qualifies only these two existing size slots.",
     "source_revision": "3cf500486eece51830bde9b138530901c92ad90a",
     "verification": "34 packet/retention cases pass; immutable predecessor retains a packet head and fails the reset negative control, while connector-deletion control passes."
+  },
+  "scope_commerce_password_calendar_main_merge_20261014": {
+    "composed_revision": "0948a34c7499119fa880f33aa4374faf699c8a99",
+    "incoming_main_revision": "4e92edf790ba982df7943ac61b53f2dd89334249",
+    "prior_baseline_sha256": "fb3b49389a0327dd39e5a3093918a1b24715a66a8558b34335e458932e470a7f",
+    "qualified_updates": [
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 11054,
+        "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
+        "rationale": "Bounded name/welcome union retains guarded dispatch and owner/generation authority.",
+        "reviewer": "architecture_review",
+        "source_sha256": "2b3d0afdb13e777251fc97703bb0b8225791c019defac0e015ccefffdcfce9ea",
+        "value": 11057
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/__tests__/app/profile/receipts/page.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 2592,
+        "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
+        "rationale": "Mail status/recovery preserves vault rotation, disconnect, stale response, cache and notification guards.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "c05baf60a94c1b2c7495888b9173cdd6298d697a584ebc212cd3624992675906",
+        "value": 2593
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/components/vault/vault-flow.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 2377,
+        "path": "hushh-webapp/components/vault/vault-flow.tsx",
+        "rationale": "Password copy/icons retain accessible controls and vault attempt logic.",
+        "reviewer": "architecture_review",
+        "source_sha256": "00b79f34965f78f3e225407108c209f4bc856a0699536e897142a5e4c6c2c7ab",
+        "value": 2380
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1720,
+        "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
+        "rationale": "Independent failed Drive revoke retains Mail; animated nonempty presence retains History focus/geometry/inert proof.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "929470139ae7b9cb56743229ccc21f035e98a3b69954edb50d1bb8d90c448258",
+        "value": 1727
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/components/app-ui/top-app-bar.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1509,
+        "path": "hushh-webapp/components/app-ui/top-app-bar.tsx",
+        "rationale": "Desktop visibility retains native presentation, avatar admission, Back and focus.",
+        "reviewer": "architecture_review",
+        "source_sha256": "712a4183c8f86581cd6f55c35f7500b53534769e81cf617734a02729fe801b78",
+        "value": 1516
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1090,
+        "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
+        "rationale": "Received history lacks revoke authority; preview restoration retains QR failure, keyboard and financial detail controls.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "479a322536918914d21698fcd96a9325e0c2f685b0efdfa98c6af43cc6391195",
+        "value": 1101
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1008,
+        "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+        "rationale": "Hermetic hydrated-profile undeclared-key negative retains payment defaults, secret binding, worker, candidate, no-traffic and rollback contracts.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "c25f258f6e6780a870c5719bbd4a7953d47700191286b1c8ce1ce115cafdadc0",
+        "value": 1066
+      },
+      {
+        "classification": "exact_inherited_main_module",
+        "key": "module_size|hushh-webapp/components/one-location/saved-locations-section.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 919,
+        "path": "hushh-webapp/components/one-location/saved-locations-section.tsx",
+        "rationale": "Exact incoming self-preview remains current-owner/vault/request/pause bound.",
+        "reviewer": "architecture_review",
+        "source_sha256": "f0ac090f79f0065a877b50f201d6c0b1edfd87c0ba67b5a5a58edc4eb39e32ad",
+        "value": 925
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 897,
+        "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
+        "rationale": "Authored display name fixture retains width-dependent controls and negative variants; no routing authority added.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "2262b58578da6ae557139493c2d896fa8310c769334c78e91b7d15234f5bb526",
+        "value": 898
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/components/calendar/calendar-agent-page.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 773,
+        "path": "hushh-webapp/components/calendar/calendar-agent-page.tsx",
+        "rationale": "Loading/error/retry retains private connector authority and transition review.",
+        "reviewer": "architecture_review",
+        "source_sha256": "b2f8dec6e31777dd303a6aeb0e8304ae44b70538ba45bec9be9253eeee18341c",
+        "value": 787
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 704,
+        "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
+        "rationale": "Current labels/query search retain owner return, delayed result, lock, masking and late deletion controls.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "940c85a264d073c2ea0b54de212a9ae3ec0b5bc71dbd2bc286988d83d4ee1f44",
+        "value": 705
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-agent-page.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 609,
+        "path": "hushh-webapp/__tests__/components/calendar-agent-page.test.tsx",
+        "rationale": "Unresolved/retry/stale-owner and late resolve/reject cases retain Shared runtime mocks and exact OAuth fixtures.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "ccff137a5623b12f95b281016addab5dcb84f7b7b7cd5d5d97394b4542987f4b",
+        "value": 674
+      },
+      {
+        "classification": "exact_inherited_main_module",
+        "key": "module_size|hushh-webapp/components/one-location/__tests__/saved-locations-section.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 529,
+        "path": "hushh-webapp/components/one-location/__tests__/saved-locations-section.test.tsx",
+        "rationale": "Exact incoming single Add-place capture/self-preview with no saved-place write and pause-in-flight discard.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "123aa5fa8d5e328a4a7bea555a444cab077936c7b7d71dc1df4aa328d091de2c",
+        "value": 540
+      },
+      {
+        "classification": "reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/lib/navigation/profile-pane.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 501,
+        "path": "hushh-webapp/lib/navigation/profile-pane.ts",
+        "rationale": "History-depth reader retains Back layers, preview and authored focus return.",
+        "reviewer": "architecture_review",
+        "source_sha256": "3221c220cd1da1b39d5ea4459f8e74d738f4899a1a191adb0f680ebcf01b9116",
+        "value": 511
+      }
+    ],
+    "retained_task_revision": "74eab3095d",
+    "review": "Independent production and test reviews qualify exactly fourteen existing rank-zero module ceilings. Preserve every other occurrence, multiplicity, history, scanner, exclusions and budgets500/250/80. Retained debt is visible; no architectural-compliance or deployment claim.",
+    "reviewed_report_sha256": "54abc98869c8b1d2812e2a26561dee556c5874c29d5ea14e6a45e1719d08eab8",
+    "source_tree": "8ec97c156bd393e75c450b99c0d5c0a80aa07369",
+    "verification": "259 nearest frontend cases,460 Back cases,18 reviewer cases,9 CI-lane cases,typecheck and UI-contract parity pass. Exact-candidate core/full CI and deployed acceptance remain required."
   },
   "scope_commerce_prepared_answer_merge_20261012": {
     "findings": [

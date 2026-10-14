@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     if (!wrappers.some((wrapper) => wrapper.method === "passphrase")) {
       return NextResponse.json(
-        { error: "Passphrase wrapper is required" },
+        { error: "Password wrapper is required" },
         { status: 400 },
       );
     }

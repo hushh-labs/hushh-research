@@ -108,7 +108,9 @@ together. Verification and the pre-push hook never stamp or repair files.
 Web browser history correction uses the authored Back owner only for a verified
 backward traversal. Forward or unknown direction stays native; browsers without
 Navigation API entry indices retain native browser history. Profile pane history
-remains with its existing owner. `npm run test:web-history-boundary` exercises
+remains with its existing owner. Its confirmation overlay can consume a declined
+Profile history depth when entry indices are unavailable; known Forward traversal
+never dismisses that overlay or triggers route-parent correction. `npm run test:web-history-boundary` exercises
 trusted Back and Forward in Chromium; pure synthetic events cannot prove this.
 
 CI has one mandatory **UI Contracts** job for Back/Search structure, source

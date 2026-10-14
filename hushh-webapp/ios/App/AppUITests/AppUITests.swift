@@ -619,8 +619,8 @@ final class AppUITests: XCTestCase {
             ("reconnect", "Reconnect to continue securely"),
             ("welcome_loading", "Preparing welcome…"),
             ("chat_loading", "Opening chat…"),
-            ("passphrase_method", "Passphrase"),
-            ("passphrase_fallback", "Use passphrase instead"),
+            ("passphrase_method", "Password"),
+            ("passphrase_fallback", "Use password instead"),
         ] {
             let visible = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch.exists
             print("NATIVE_ENTRY_STATE kind=\(code) present=\(visible)")
@@ -636,8 +636,8 @@ final class AppUITests: XCTestCase {
         // Public hit geometry separates a blocked fallback tap from credential
         // rejection. Never inspect field values or dump the private hierarchy.
         print("VAULT_GATE_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists)")
-        for (name, control) in [("method", web.buttons["Passphrase"].firstMatch),
-                                ("entry", web.secureTextFields["Vault passphrase"].firstMatch)] {
+        for (name, control) in [("method", web.buttons["Password"].firstMatch),
+                                ("entry", web.secureTextFields["Vault password"].firstMatch)] {
             let bounds = control.exists ? control.frame : .zero
             print("VAULT_GATE_CONTROL name=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) x=\(Int(bounds.minX.rounded())) y=\(Int(bounds.minY.rounded())) width=\(Int(bounds.width.rounded())) height=\(Int(bounds.height.rounded()))")
         }
@@ -655,7 +655,7 @@ final class AppUITests: XCTestCase {
             // Credential-free clipping diagnosis: public geometry only, no
             // screenshots, field values, account text or accessibility dump.
             let entry = web.secureTextFields.matching(NSPredicate(
-                format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase"
+                format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password"
             )).firstMatch
             for (name, element) in [("window", app), ("web", web), ("keyboard", app.keyboards.firstMatch), ("entry", entry), ("unlock", unlock)] {
                 let bounds = element.exists ? element.frame : .zero
@@ -674,7 +674,7 @@ final class AppUITests: XCTestCase {
         app.activate()
         returnToRehearsalChat(app)
         let field = app.webViews.secureTextFields.matching(NSPredicate(
-            format: "label == %@ OR identifier == %@", "Vault passphrase", "unlock-passphrase"
+            format: "label == %@ OR identifier == %@", "Vault password", "unlock-passphrase"
         )).firstMatch
         let unlock = app.buttons.matching(NSPredicate(format: "label == %@", "Unlock"))
         guard waitForAdmittedControl(field), unlock.count == 1,
@@ -759,8 +759,8 @@ final class AppUITests: XCTestCase {
         let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
         let nativeEditor = app.textViews["native-dock-editor"].firstMatch
         let signIn = web.buttons["Continue with Google"].firstMatch
-        let passphraseMethod = web.buttons["Passphrase"].firstMatch
-        let passphraseFallback = web.buttons["Use passphrase instead"].firstMatch
+        let passphraseMethod = web.buttons["Password"].firstMatch
+        let passphraseFallback = web.buttons["Use password instead"].firstMatch
         // A newly installed iPad can expose WebKit before Firebase/vault
         // restoration settles. Absence of Unlock at that instant does not
         // prove admission; wait for an actual public gate or protected shell.
@@ -782,7 +782,7 @@ final class AppUITests: XCTestCase {
                 return
             }
         }
-        let rejected = web.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "That passphrase did not match")).firstMatch
+        let rejected = web.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "That password did not match")).firstMatch
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !unlock.exists || rejected.exists
         }, object: web)
@@ -812,12 +812,12 @@ final class AppUITests: XCTestCase {
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15), "VAULT_LAYOUT_HOST_UNAVAILABLE")
         let entry = web.secureTextFields.matching(NSPredicate(
-            format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase"
+            format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password"
         )).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 30) && entry.isHittable, "VAULT_LAYOUT_ENTRY_CLIPPED")
         func assertFieldHitRegions() {
             XCTAssertGreaterThanOrEqual(entry.frame.height, 44, "VAULT_LAYOUT_ENTRY_TARGET_TOO_SMALL")
-            let visibility = web.buttons["Show passphrase"].firstMatch
+            let visibility = web.buttons["Show password"].firstMatch
             XCTAssertTrue(visibility.exists && visibility.isHittable, "VAULT_LAYOUT_VISIBILITY_CLIPPED")
             XCTAssertGreaterThanOrEqual(visibility.frame.width, 44, "VAULT_LAYOUT_VISIBILITY_TARGET_TOO_NARROW")
             XCTAssertGreaterThanOrEqual(visibility.frame.height, 44, "VAULT_LAYOUT_VISIBILITY_TARGET_TOO_SHORT")
@@ -1467,7 +1467,7 @@ final class AppUITests: XCTestCase {
         if !open.waitForExistence(timeout: 120) {
             let vaultLockVisible = webView.buttons["Unlock"].exists
             let rejected = webView.staticTexts.matching(NSPredicate(
-                format: "label CONTAINS[c] %@", "That passphrase did not match"
+                format: "label CONTAINS[c] %@", "That password did not match"
             )).firstMatch.exists
             XCTFail("Signed-in Chat did not load from the local build. Vault lock visible: \(vaultLockVisible) auth_rejected=\(rejected)")
             return
@@ -4066,7 +4066,7 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Continue with Apple"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts["Unable to verify setup progress. Please retry."].exists)
         XCTAssertFalse(app.secureTextFields["Enter vault key"].exists)
-        XCTAssertFalse(app.secureTextFields["Enter your passphrase"].exists)
+        XCTAssertFalse(app.secureTextFields["Enter your password"].exists)
         XCUIDevice.shared.press(.home)
         let resumeDeadline = Date().addingTimeInterval(30)
         app.activate()
@@ -4525,7 +4525,7 @@ final class AppUITests: XCTestCase {
         let exactLabels = [
             "Don\u{2019}t Allow",
             "Don't Allow",
-            "Not now, continue with passphrase",
+            "Not now, continue with password",
             "Not now",
             "Skip",
             "Skip tour",
@@ -4723,7 +4723,7 @@ final class AppUITests: XCTestCase {
         }
 
         let unlockControls = app.buttons.matching(NSPredicate(
-            format: "label IN %@", ["Unlock", "Unlock with passphrase"]
+            format: "label IN %@", ["Unlock", "Unlock with password"]
         ))
         let hosts = app.webViews.matching(identifier: "native-webview")
         guard hosts.count == 1 else {
@@ -4736,8 +4736,8 @@ final class AppUITests: XCTestCase {
         ]
         let authoredField = NSPredicate(
             format: "label IN %@ OR placeholderValue IN %@ OR identifier IN %@",
-            ["Vault passphrase", "Enter vault key", "Enter your passphrase"],
-            ["Enter passphrase", "Enter vault key", "Enter your passphrase"],
+            ["Vault password", "Enter vault key", "Enter your password"],
+            ["Enter password", "Enter vault key", "Enter your password"],
             ["unlock-passphrase", "vault-key"]
         )
         let hasAuthoredField = {
@@ -4747,7 +4747,7 @@ final class AppUITests: XCTestCase {
         // is chosen. Existing passphrase entry must not trigger another choice.
         if !hasAuthoredField() {
             let methods = hosts.firstMatch.buttons.matching(NSPredicate(
-                format: "label IN %@", ["Passphrase", "Use passphrase instead", "Vault Key"]
+                format: "label IN %@", ["Password", "Use password instead", "Vault Key"]
             ))
             guard hosts.count == 1, methods.count == 1, methods.firstMatch.isEnabled,
                   methods.firstMatch.isHittable else {
@@ -6095,7 +6095,7 @@ final class AppUITests: XCTestCase {
                 perfSettle(1.5)
                 return tapFirst(labelled("Open Profile"))
             }
-            let gateField = NSPredicate(format: "label == %@ OR placeholderValue == %@ OR label == %@", "Vault passphrase", "Enter passphrase", "Passphrase")
+            let gateField = NSPredicate(format: "label == %@ OR placeholderValue == %@ OR label == %@", "Vault password", "Enter password", "Password")
             func unlockOffCamera() throws {
                 pauseCapture("passphrase")
                 try perfUnlockVault(app, passphrase: passphrase, timeout: 240)
@@ -6623,7 +6623,7 @@ final class AppUITests: XCTestCase {
                 }
             }
             if shellOptional && attempts > 0 {
-                let gateField = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
+                let gateField = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password")).firstMatch
                 let rejected = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "did not match")).firstMatch.exists
                 if !gateField.exists && !rejected {
                     if let since = fieldGoneSince {
@@ -6651,9 +6651,9 @@ final class AppUITests: XCTestCase {
                     continue
                 }
             }
-            let field = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
+            let field = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password")).firstMatch
             if !field.exists && attempts == 0 && !passphrase.isEmpty {
-                let reveal = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Passphrase")).firstMatch
+                let reveal = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Password")).firstMatch
                 if reveal.exists {
                     reveal.tap()
                     perfSettle(0.8)

@@ -22,7 +22,7 @@ import { useNativePresentationRegions } from "@/lib/capacitor/native-presentatio
 import {
   BriefcaseBusiness,
   Code2,
-  KeyRound,
+  AccentedKeyIcon,
   LayoutDashboard,
   type LucideIcon,
   Loader2,
@@ -531,6 +531,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     normalizedPathname === ROUTES.ONE_SETUP ||
     normalizedPathname.startsWith(`${ROUTES.ONE_SETUP}/`),
   );
+  const isOneDashboardRef = useRef(false);
+  isOneDashboardRef.current = normalizedPathname === ROUTES.ONE_HOME;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -619,7 +621,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       // way off the screen — Location deliberately draws no in-content back
       // control, so a collapsed bar there leaves nothing to press, which is
       // exactly how "I keep tapping the top and nothing happens" happened.
-      if (hasBackControlRef.current) {
+      // Desktop dashboard navigation stays visible when a shorter viewport
+      // needs to scroll. Mobile retains its existing space-saving collapse.
+      if (
+        hasBackControlRef.current ||
+        (isOneDashboardRef.current && window.matchMedia("(min-width: 768px)").matches)
+      ) {
         topChromeProgress = 0;
       }
       if (!barRow?.isConnected) {
@@ -1269,7 +1276,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                             aria-label="Unlock vault"
                             onClick={() => setVaultUnlockOpen(true)}
                           >
-                            <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
+                            <AccentedKeyIcon size={20} className="h-5 w-5" />
                           </ShellActionSurface>
                         ) : null}
 

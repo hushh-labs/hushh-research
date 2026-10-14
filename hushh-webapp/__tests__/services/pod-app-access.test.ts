@@ -2,9 +2,18 @@ import { generateKeyPairSync, sign as nodeSign } from "node:crypto";
 import { expect, it, vi } from "vitest";
 import { canonicalJson } from "@/lib/services/owner-pod-crypto";
 import { agentChatRequest, ownerPodRequest } from "@/lib/services/pod-app-access";
+import { requestPkmMemoryPreparation } from "@/lib/agent/agent-pkm-memory-preparation";
 import { canonical, openAsAgent } from "../lib/one/open-ai-selection";
 
 const pod = vi.hoisted(() => ({ currentPodConnection: vi.fn() }));
+const memory = vi.hoisted(() => ({ fetch: vi.fn(), shared: vi.fn() }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: {
+  getPersonalAgentStatus: async () => ({ hostingMode: "byoc" }),
+  apiFetch: memory.shared,
+  ownerPodRequest: (path: string, init: RequestInit, _streaming: boolean,
+    _onAdmission: unknown, _expectedPod: unknown, isCurrent?: () => boolean) =>
+    ownerPodRequest(path, init, { transport: async () => ({}), fetch: memory.fetch, isCurrent } as Parameters<typeof ownerPodRequest>[2]),
+} }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: "owner" }) } }));
 vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app" }),
@@ -61,6 +70,29 @@ it("refuses a retired Stop before hosting dispatch and after deferred pod admiss
   current = true;
   await ownerPodRequest("agent-chat/runs/old/stop", { method: "POST" }, ports);
   expect(fetch).toHaveBeenCalledOnce();
+});
+
+it("does not process a retired Memory review after same-owner pod admission", async () => {
+  let current = true;
+  let admitted!: (connection: unknown) => void;
+  const cancellation = new AbortController();
+  memory.fetch.mockReset().mockResolvedValue(Response.json({}));
+  memory.shared.mockClear();
+  pod.currentPodConnection.mockClear().mockReturnValue(new Promise(resolve => { admitted = resolve; }));
+  const preparation = requestPkmMemoryPreparation({
+    userId: "owner", message: "Synthetic library role", currentDomains: [],
+    vaultOwnerToken: "synthetic-owner-token", signal: cancellation.signal,
+    isEffectCurrent: () => current,
+  });
+  const refused = expect(preparation).rejects.toThrow();
+  await vi.waitFor(() => expect(pod.currentPodConnection).toHaveBeenCalledOnce());
+  current = false;
+  admitted({ endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session" } });
+  await refused;
+  expect(cancellation.signal.aborted).toBe(false);
+  expect(memory.fetch).not.toHaveBeenCalled();
+  expect(memory.shared).not.toHaveBeenCalled();
 });
 
 it("refuses a cancelled chat while preserving another caller's shared admission", async () => {

@@ -477,7 +477,7 @@ function readableMethod(method: VaultMethod | null): string {
     return "Device biometric";
   if (method === "generated_default_native_passkey_prf") return "Passkey";
   if (method === "generated_default_web_prf") return "Passkey";
-  if (method === "passphrase") return "Passphrase";
+  if (method === "passphrase") return "Password";
   return "Unknown";
 }
 
@@ -2053,14 +2053,14 @@ function ProfilePageContent({
           (candidate.wrapperId ?? "default") !== (wrapper.wrapperId ?? "default")));
         setPasskeyRemovalTarget(null);
       }
-    }, "Passkey removed. Passphrase is still available.", "We couldn't remove this passkey.");
+    }, "Passkey removed. Password unlock is still available.", "We couldn't remove this passkey.");
   }
 
   async function changePassphrase() {
     if (!user?.uid) return;
 
     if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change passphrase.");
+      toast.info("Unlock your vault to change password.");
       requestVaultUnlock("profile_data");
       return;
     }
@@ -2081,7 +2081,7 @@ function ProfilePageContent({
           acknowledgeCommit();
         },
       });
-    }, "Passphrase updated.", "We couldn't change your passphrase.");
+    }, "Password updated.", "We couldn't change your password.");
   }
 
   async function runVaultMethodChange(operation: (isCurrent: () => boolean, signal: AbortSignal, acknowledgeCommit: () => void) => Promise<void>, success: string, failure: string) {
@@ -2465,7 +2465,7 @@ function ProfilePageContent({
                       vaultAccess.needsVaultCreation
                         ? "Create your vault"
                         : "Unlock vault",
-                      "Change passphrase",
+                      "Change password",
                       "Delete account",
                     ]
                   : [
@@ -3680,7 +3680,7 @@ function ProfilePageContent({
           }
           iconTone="capability"
           title="Vault methods"
-          description="Passphrase, passkey, and unlock method."
+          description="Password, passkey, and unlock method."
           chevron
           onClick={() =>
             updateProfileView({ panel: "security", detail: "vault" }, "push")
@@ -3952,7 +3952,7 @@ function ProfilePageContent({
                 }
                 iconTone="capability"
                 title="Unlock vault"
-                description="Change methods or passphrase."
+                description="Change methods or password."
                 chevron
                 onClick={() => requestVaultUnlock("profile_data")}
               />
@@ -4649,7 +4649,7 @@ function ProfilePageContent({
           open={showVaultCreation}
           onOpenChange={handleVaultCreationOpenChange}
           title="Create your vault"
-          description="Set up a passphrase to secure your saved details."
+          description="Set up a password to secure your saved details."
           onSuccess={() => {
             vaultCreationCompletingRef.current = true;
             setShowVaultCreation(false);
@@ -4683,22 +4683,22 @@ function ProfilePageContent({
         onOpenChange={setPassphraseDialogOpen}
       >
         <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
-          <DialogTitle>Change passphrase</DialogTitle>
+          <DialogTitle>Change password</DialogTitle>
           <DialogDescription>
-            Set a new passphrase for Vault unlock. Your passkey and biometric
+            Set a new password for Vault unlock. Your passkey and biometric
             methods stay active.
           </DialogDescription>
           <div className="space-y-3 pt-2">
             <Input
               type="password"
-              placeholder="New passphrase (min 8 characters)"
+              placeholder="New password (min 8 characters)"
               autoComplete="new-password"
               value={newPassphrase}
               onChange={(event) => setNewPassphrase(event.target.value)}
             />
             <Input
               type="password"
-              placeholder="Confirm passphrase"
+              placeholder="Confirm password"
               autoComplete="new-password"
               value={confirmPassphrase}
               onChange={(event) => setConfirmPassphrase(event.target.value)}
@@ -4724,7 +4724,7 @@ function ProfilePageContent({
                 }
                 onClick={() => void changePassphrase()}
               >
-                {switchingVaultMethod ? "Saving..." : "Save new passphrase"}
+                {switchingVaultMethod ? "Saving..." : "Save new password"}
               </Button>
             </div>
           </div>
@@ -4742,7 +4742,7 @@ function ProfilePageContent({
             <AlertDialogTitle>Remove passkey?</AlertDialogTitle>
             <AlertDialogDescription>
               This removes the saved passkey from One. It may still remain in
-              your password manager, and passphrase unlock will stay available.
+              your password manager, and password unlock will stay available.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {passkeyRemovalTarget ? (
@@ -4778,6 +4778,7 @@ function ProfilePageContent({
         <AlertDialogContent
           className={cn(
             "w-[calc(100%-1rem)] sm:max-w-lg",
+            accountStyles.accountDialogCompact,
             isPanePresentation && accountStyles.accountDialog,
             isPanePresentation && accountStyles.dangerDialog,
           )}
@@ -4790,7 +4791,7 @@ function ProfilePageContent({
               <Icon icon={AlertTriangle} size="md" />
               {deleteDialogTitle}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className={accountStyles.accountDialogDescription}>
               {deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -4820,6 +4821,7 @@ function ProfilePageContent({
         <AlertDialogContent
           className={cn(
             "w-[calc(100%-1rem)] sm:max-w-lg",
+            accountStyles.accountDialogCompact,
             isPanePresentation && accountStyles.accountDialog,
           )}
           overlayClassName={
@@ -4831,7 +4833,7 @@ function ProfilePageContent({
               <Icon icon={RefreshCw} size="md" />
               {resetDialogTitle}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className={accountStyles.accountDialogDescription}>
               {resetDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>

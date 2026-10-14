@@ -29,6 +29,8 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
     expect(await screen.findByText("VISA •••• 4242 | First")).toBeVisible();
     expect(screen.getByRole("region", { name: "Shared cards | 7" })).toBeVisible();
+    expect(screen.getByText("Identity verification required")).not.toBeVisible();
+    fireEvent.click(screen.getByText("Activity"));
     expect(screen.getAllByText(/share opened/)).toHaveLength(1);
     expect(screen.getByText(/15 minutes/)).toBeVisible();
     expect(screen.getByText("Identity verification required")).toBeVisible();
@@ -60,10 +62,12 @@ describe("Wallet's participant-scoped sharing ledger", () => {
   });
   it("does not claim an empty ledger when loading fails, and uses the received direction", async () => {
     mocks.history.mockRejectedValueOnce(new Error("offline"));
-    render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
     await screen.findByRole("alert");
     expect(screen.queryByText("No cards shared yet")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Received cards" }));
+    view.rerender(<WalletSharingHistory ownerId="owner" active getContext={getContext} direction="received" />);
     await waitFor(() => expect(mocks.history).toHaveBeenLastCalledWith(context, { direction: "received" }, expect.any(AbortSignal)));
+    await screen.findByText("VISA •••• 4242 | Owner");
+    expect(screen.queryByRole("button", { name: /Revoke/ })).toBeNull();
   });
 });

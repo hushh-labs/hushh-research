@@ -99,7 +99,7 @@ describe("buildMemoryExport", () => {
     // Without this the export reads as a full account backup, which it is not.
     const result = await PkmExportService.buildMemoryExport(UNLOCKED);
     expect(result.meta.excludes.length).toBeGreaterThan(0);
-    expect(result.meta.restore_requires).toContain("passphrase");
+    expect(result.meta.restore_requires).toContain("password");
   });
 });
 

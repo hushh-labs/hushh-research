@@ -879,7 +879,7 @@ for (const width of [390, 768, 1024]) {
   });
 }
 
-test("Picker focus, explicit admission, removal, and independent disconnect", async ({
+test("Picker focus, explicit admission, and removal", async ({
   page,
 }) => {
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
@@ -925,6 +925,12 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
   await expect(
     page.getByRole("list", { name: "Selected Drive files" }),
   ).toHaveCount(0);
+});
+
+test("failed Drive revocation preserves the independent Mail connection", async ({ page }) => {
+  await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await expect(page.getByText(/Existing Google sharing stays active until you revoke it/)).toBeVisible();
   await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
@@ -1563,8 +1569,9 @@ test.describe("One profile artwork and animated presence", () => {
     await page.waitForTimeout(200);
     expect((await presencePixels(canvas)).hash).toBe(reduced);
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect(canvas).toBeVisible();
-    await expect(poster).toBeHidden();
+    await expect(canvas).toHaveCSS("visibility", "visible");
+    await expect(poster).toHaveCSS("visibility", "hidden");
+    await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(reduced);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
     await expect(canvas).toBeHidden();

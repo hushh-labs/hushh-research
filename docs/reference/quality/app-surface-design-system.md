@@ -184,6 +184,11 @@ The law, which holds for every signed-in route:
    visible body heading suppresses that fallback chip, so its title remains in
    one place below the back-only bar. Nested pages whose trail already names
    the screen pass `titleVisuallyHidden` and draw the title once, in the bar.
+8. Browser Back dismisses a Reset/Delete confirmation above Profile before
+   moving the pane underneath. `useWebHistoryBack` registers during layout,
+   delegates dismissal to the owning alert, and restores the original pane
+   entry by history traversal. Cancel, Escape, and popup dismissal preserve
+   the pane's metadata and existing Forward history.
 
 `PkmSettingsShell` is not a second shell. It is a composition of exactly these
 primitives, and surfaces that use it are conformant.
@@ -195,10 +200,13 @@ Their next content or tab slot consumes `--page-header-section-gap` once: 0px
 on phones and 6px from 640px upward. Nested hub stacks, body tab rails and
 custom heading/action layouts use this same token instead of adding local
 margins or padding. The 56px segmented rail retains its 10px inset above the
-visible pill, giving a 10px/16px heading-to-pill gap. Calendar's workspace
-connection action follows the compact token; its focused onboarding
-illustration keeps the existing setup layout. General page headers retain
-their standard spacing.
+visible pill, giving a 10px/16px heading-to-pill gap. Calendar's connection
+hero centers its action 24px below the heading. Its collage keeps a 420px cap
+on mobile and grows to 480px from the desktop breakpoint. Unknown Calendar
+connection evidence renders a neutral checking state; only confirmed
+disconnection shows the connect hero. A failed check offers retry, and the
+disconnect action uses `--app-destructive`. General page headers retain their
+standard spacing.
 
 1. The top shell is the single authority for header clearance.
 2. The top shell is one public visual component with three route-declared
@@ -285,6 +293,9 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     The top row, contextual tabs, and top mask all follow the same live scroll
     progress variables directly; do not add an independent CSS transition that
     continues after the gesture or makes the edge lag the bottom compositor.
+    On the `/one` Agents dashboard, desktop widths from 768px keep the One
+    brand and Profile control visible while content scrolls. Mobile retains
+    the existing scroll collapse and upward-scroll restoration.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
     safe-area stack and scroll-hide transform, and renders bottom navigation
     and Agent Bar as separate accessible slots without a full-width fade. Keep route
@@ -890,6 +901,17 @@ Rules:
    - do not use generic `Sparkles` as a fallback for AI, optimize, onboarding, or premium semantics
 3. For application-owned surfaces, import icons from `@/components/icons`. The registry owns official Phosphor geometry, native viewBoxes, and default weight so that shell, route, and Profile treatments stay visually aligned. Do not use dynamic icon loading for normal page chrome.
 4. Icon emphasis must match text emphasis in active and highlighted states.
+   Password fields and the shell's vault unlock control use `AccentedKeyIcon`:
+   the original canonical key artwork with Profile ink and an accent pinpoint.
+   Field keys remain 18px and the shell key remains 20px.
+   Chat's To-do, Get the app and Connectors shortcuts use foreground ink.
+   All three use a finite 850ms registry-owned part animation on whole-row hover or
+   keyboard focus. Paper folds and redraws its text, the download arrow enters
+   a masked tray, and diagonal plug halves join briefly before separating.
+   Labels and whole glyphs stay anchored. Playback finishes on pointer leave,
+   ignores re-entry while running, and replays only on a later entry. Reduced
+   motion is static; touch actions remain immediate. The paper's soft hover
+   circle is a separate layer. Dark mode uses the corresponding semantic ink.
 5. Prefer relative icons that describe the section or action directly.
 6. When building custom icon wells or icon-bearing surfaces, preserve the canonical Phosphor assumptions:
    - native `viewBox="0 0 256 256"` and the registry's duotone geometry
