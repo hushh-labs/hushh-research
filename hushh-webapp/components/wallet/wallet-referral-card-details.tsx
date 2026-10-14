@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ProfilePaneCopyIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
+import { WalletCardQrActions } from "@/components/wallet-card/wallet-card-qr-actions";
 import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
 import {
   copyWalletCardLink,
@@ -72,12 +73,7 @@ export function WalletReferralCardDetails({
     <SettingsPresentationProvider separatorInset density="compact">
     <section aria-label="Referral card details" className={`${profileStyles.walletContent} space-y-4`}>
       <SettingsGroup title="Your referral QR">
-        <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-          <div className="mx-auto w-full max-w-[220px]">
-            <WalletCardQr value={summary.link} label="Your referral QR code" />
-          </div>
-          <p className="break-all rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">{summary.link}</p>
-          <div className="flex flex-wrap gap-2">
+        <WalletCardQrActions qr={<WalletCardQr value={summary.link} label="Your referral QR code" />}>
             <Button type="button" size="sm" className="min-h-11 text-[13px]" loading={busy === "wallet"} disabled={!shareToken || Boolean(busy)} onClick={() => void addToWallet()}>
               <ProfilePaneWalletIcon className="mr-2 h-4 w-4" aria-hidden />Add to Apple Wallet
             </Button>
@@ -86,9 +82,8 @@ export function WalletReferralCardDetails({
               <ProfilePaneCopyIcon className="mr-2 h-4 w-4" aria-hidden />Copy link
             </Button>
             <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" disabled={!onRevoke || Boolean(busy)} onClick={() => setConfirmRevoke(true)}>Revoke access</Button>
-          </div>
           <a href={summary.link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[13px] text-primary underline-offset-4 hover:underline">Preview referral page</a>
-        </div>
+        </WalletCardQrActions>
       </SettingsGroup>
       <SettingsGroup title="Referral activity">
         <SettingsRow density="compact" title="Link opens" trailing={<span data-testid="wallet-referral-opens">{summary.link_open_count?.toLocaleString() ?? "—"}</span>} />
