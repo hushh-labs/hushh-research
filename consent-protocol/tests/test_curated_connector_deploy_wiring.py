@@ -8,6 +8,7 @@ dropping the binding."""
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -111,6 +112,28 @@ def test_cloud_build_has_one_generic_loop_and_no_per_provider_lines():
 
 def test_the_coverage_check_sees_the_generic_binding():
     assert "_CURATED_CONNECTOR_SECRETS" in coverage_check.bound_substitutions()
+
+
+def test_empty_default_secret_binding_retains_missing_lane_enforcement(
+    tmp_path, monkeypatch, capsys
+):
+    secret = "_PWM_TAVILY_API_KEY_SECRET"
+    assert secret in coverage_check.bound_substitutions()
+    assert coverage_check.main() == 0
+
+    baseline = json.loads(coverage_check.BASELINE.read_text(encoding="utf-8"))
+    baseline["lanes"]["deploy-dev.yml"]["absent"].remove(secret)
+    baseline["lanes"]["deploy-dev.yml"]["reasons"].pop(secret)
+    fixture = tmp_path / "coverage.json"
+    fixture.write_text(json.dumps(baseline), encoding="utf-8")
+    deploy_script = tmp_path / "scripts/deploy/backend-deploy.sh"
+    deploy_script.parent.mkdir(parents=True)
+    deploy_script.write_text(DEPLOY_SCRIPT, encoding="utf-8")
+    monkeypatch.setattr(coverage_check, "BASELINE", fixture)
+    monkeypatch.setattr(coverage_check, "REPO_ROOT", tmp_path)
+
+    assert coverage_check.main() == 1
+    assert f"deploy-dev.yml: {secret} is bound" in capsys.readouterr().err
 
 
 def test_the_uat_lane_passes_the_derived_names_and_checks_they_exist():

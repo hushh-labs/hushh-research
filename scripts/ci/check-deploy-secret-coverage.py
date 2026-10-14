@@ -33,7 +33,7 @@ CLOUDBUILD = REPO_ROOT / "deploy" / "backend.cloudbuild.yaml"
 BASELINE = REPO_ROOT / "config" / "deploy-env-coverage.json"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
-_BIND = re.compile(r'(?:add_secret|append_optional_secret) "\$\{(_[A-Z0-9_]+_SECRET)\}"')
+_BIND = re.compile(r'(?:add_secret|append_optional_secret) "\$\{(_[A-Z0-9_]+_SECRET)(?::-)?\}"')
 # Most secrets are bound through an indirect-expansion loop rather than a
 # literal `add_secret "${_X_SECRET}"`:
 #     for n in FOO BAR BAZ; do v="_${n}_SECRET"; add_secret "${!v}" "${n}"; done
