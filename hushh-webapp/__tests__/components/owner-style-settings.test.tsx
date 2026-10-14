@@ -36,7 +36,7 @@ import {
   stageOwnerStyleProposal,
   takeOwnerStyleProposal,
 } from "@/lib/agent/owner-style-settings";
-import { ROUTES } from "@/lib/navigation/routes";
+
 
 afterEach(cleanup);
 beforeEach(() => {
@@ -63,8 +63,9 @@ describe("chat offers a style change; it never writes", () => {
     expect(screen.getByTestId("style-offer-values").textContent).toBe("Call meKayLengthShort");
     fireEvent.click(screen.getByRole("button", { name: "Review in Settings" }));
 
-    expect(mocks.push).toHaveBeenCalledWith(ROUTES.PROFILE_PREFERENCES);
-    expect(String(mocks.push.mock.calls[0]?.[0])).not.toMatch(/[?#]|Kay|short/);
+    expect(window.location.search).toContain("profile_panel=preferences");
+    expect(window.location.search).not.toMatch(/Kay|short/);
+    expect(mocks.push).not.toHaveBeenCalled();
     expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
     // Single use and owner-bound.
     expect(takeOwnerStyleProposal("someone-else")).toBeNull();
@@ -112,6 +113,51 @@ describe("Settings commits through the reserved writer", () => {
       owner_style_note: "Lead with numbers.",
     });
     await screen.findByText("Saved in your vault.");
+  });
+
+  it("keeps the proposed name across a Settings remount until it is saved", async () => {
+    mocks.getStaleFirst.mockResolvedValue({ data: {} });
+    mocks.saveMergedDomain.mockResolvedValue({ success: true, saveState: "saved" });
+    stageOwnerStyleProposal("owner-1", { preferred_name: "Kay" });
+    const first = render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Kay"));
+    first.unmount();
+    render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Kay"));
+    expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("style-settings-save"));
+    await screen.findByText("Saved in your vault.");
+    const write = mocks.saveMergedDomain.mock.calls[0]![0];
+    expect(write.build({ currentDomainData: {} }).domainData.communication_preferences.preferred_name).toBe("Kay");
+    expect(takeOwnerStyleProposal("owner-1")).toBeNull();
+  });
+
+  it("keeps a proposed name available for retry when its PKM save fails", async () => {
+    mocks.getStaleFirst.mockResolvedValue({ data: {} });
+    mocks.saveMergedDomain.mockResolvedValue({ success: false });
+    stageOwnerStyleProposal("owner-1", { preferred_name: "Kay" });
+    const view = render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Kay"));
+    fireEvent.click(screen.getByTestId("style-settings-save"));
+    await waitFor(() => expect(mocks.saveMergedDomain).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("style-settings-save")).toBeEnabled());
+    view.unmount();
+    render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Kay"));
+    expect(screen.getByText("Suggested in chat. Check it, then save.")).toBeInTheDocument();
+  });
+
+  it("does not expose or save the previous owner's draft while another owner loads", async () => {
+    mocks.getStaleFirst.mockResolvedValueOnce({ data: { communication_preferences: { preferred_name: "Kay" } } });
+    const view = render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Kay"));
+    fireEvent.change(screen.getByLabelText("Name One calls you"), { target: { value: "Private draft" } });
+    mocks.getStaleFirst.mockImplementationOnce(() => new Promise(() => {}));
+    view.rerender(<CommunicationPreferencesSection userId="owner-2" vaultKey="k2" vaultOwnerToken="t2" onRequestUnlock={() => undefined} />);
+    expect(screen.getByLabelText("Name One calls you")).toHaveValue("");
+    expect(screen.getByTestId("style-settings-save")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("style-settings-save"));
+    expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
   });
 
   it("never saves over a branch it could not read, and keeps edits across a token renewal", async () => {

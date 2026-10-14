@@ -654,9 +654,10 @@ export function usePkmDomainResource(
     enabled: Boolean(params.enabled ?? true) && Boolean(params.userId && params.domain),
     resourceLabel: `pkm_domain:${params.domain}`,
     refreshKey,
-    load: async () =>
+    load: async (options) =>
       await PkmDomainResourceService.getStaleFirst({
         ...params,
+        forceRefresh: options?.force,
         backgroundRefresh: params.backgroundRefresh,
       }),
   });

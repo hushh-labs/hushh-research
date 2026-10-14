@@ -19,7 +19,9 @@ import {
   OWNER_STYLE_DOMAIN,
   OWNER_STYLE_PROPOSAL_EVENT,
   ownerStyleFromBranch,
-  takeOwnerStyleProposal,
+  readOwnerStyleProposal,
+  clearOwnerStyleProposal,
+  type OwnerStyleProposal,
   type OwnerStyleSettings,
 } from "@/lib/agent/owner-style-settings";
 import { saveOwnerStyleSettings } from "@/lib/agent/owner-style-settings-writer";
@@ -30,17 +32,19 @@ function sameSettings(left: OwnerStyleSettings, right: OwnerStyleSettings): bool
   return JSON.stringify(ownerStyleFromBranch(left)) === JSON.stringify(ownerStyleFromBranch(right));
 }
 
-export function CommunicationPreferencesSection({
-  userId,
-  vaultKey,
-  vaultOwnerToken,
-  onRequestUnlock,
-}: {
+type PreferencesSectionProps = {
   userId: string | null;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
   onRequestUnlock: () => void;
-}) {
+};
+
+export function CommunicationPreferencesSection(props: PreferencesSectionProps) {
+  const unlocked = Boolean(props.userId && props.vaultKey && props.vaultOwnerToken);
+  return <OwnerCommunicationPreferencesSection key={`${props.userId ?? "signed-out"}:${unlocked}`} {...props} />;
+}
+
+function OwnerCommunicationPreferencesSection({ userId, vaultKey, vaultOwnerToken, onRequestUnlock }: PreferencesSectionProps) {
   const [saved, setSaved] = useState<OwnerStyleSettings | null>(null);
   const [draft, setDraft] = useState<OwnerStyleSettings>({});
   const [suggested, setSuggested] = useState(false);
@@ -49,6 +53,7 @@ export function CommunicationPreferencesSection({
   const unlocked = Boolean(userId && vaultKey && vaultOwnerToken);
   // The owner token renews while the screen is open; that must not reload the
   // form and throw away unsaved edits, so credentials are read, not watched.
+  const appliedProposal = useRef<OwnerStyleProposal | null>(null);
   const credentials = useRef({ vaultKey, vaultOwnerToken });
   credentials.current = { vaultKey, vaultOwnerToken };
 
@@ -68,7 +73,8 @@ export function CommunicationPreferencesSection({
         if (cancelled) return;
         const stored = ownerStyleFromBranch(snapshot?.data?.[OWNER_STYLE_BRANCH]);
         // A chat offer is applied over what is stored, and only shown here.
-        const proposal = takeOwnerStyleProposal(userId);
+        const proposal = readOwnerStyleProposal(userId);
+        appliedProposal.current = proposal;
         setSaved(stored);
         setDraft(proposal ? { ...stored, ...proposal } : stored);
         setSuggested(Boolean(proposal));
@@ -85,8 +91,9 @@ export function CommunicationPreferencesSection({
   useEffect(() => {
     if (!userId || saved === null) return;
     const apply = () => {
-      const proposal = takeOwnerStyleProposal(userId);
+      const proposal = readOwnerStyleProposal(userId);
       if (!proposal) return;
+      appliedProposal.current = proposal;
       setDraft((current) => ({ ...current, ...proposal }));
       setSuggested(true);
     };
@@ -124,11 +131,14 @@ export function CommunicationPreferencesSection({
       suggested={suggested && dirty}
       onSave={async () => {
         if (!userId) return;
+        const proposal = appliedProposal.current;
         setSaving(true);
         try {
           const ok = await saveOwnerStyleSettings({ userId, ...credentials.current, settings: draft });
           if (!ok) throw new Error("save failed");
           const clean = ownerStyleFromBranch(draft);
+          if (proposal) clearOwnerStyleProposal(userId, proposal);
+          appliedProposal.current = null;
           setSaved(clean);
           setDraft(clean);
           setSuggested(false);
