@@ -675,6 +675,8 @@ for (const width of [320, 390, 1440]) {
     await expect(history).toBeVisible();
     await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toBeVisible();
     await expect(sharing.getByText("Everyday •••• 4242 | Sample recipient", { exact: true })).toBeVisible();
+    await expect(sharing.getByText(/15 minutes/)).toBeHidden();
+    await history.getByText("Activity", { exact: true }).click();
     await expect(sharing.getByText(/15 minutes/)).toBeVisible();
     const revoke = sharing.getByRole("button", { name: "Revoke Everyday •••• 4242 shared with Sample recipient", exact: true });
     const revocations = () => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("sharing-revoke:")));
@@ -701,7 +703,8 @@ for (const width of [320, 390, 1440]) {
     await confirmation.getByRole("button", { name: "Revoke access", exact: true }).click();
     await expect.poll(revocations).toEqual(["sharing-revoke:fixture-history-grant"]);
     await expect(confirmation).toBeHidden();
-    await expect(sharing.getByText("Revoked | Connection", { exact: true })).toBeVisible();
+    await expect(sharing.getByText(/^Revoked.*Expires/)).toBeVisible();
+    await expect(sharing.getByText("Connection", { exact: true })).toBeVisible();
     await expect(revoke).toHaveCount(0);
     await expect(sharing.getByText("Everyday •••• 4242 | Sample recipient", { exact: true })).toBeVisible();
     // Terminal settle must remove fractional interpolation so the Sharing
