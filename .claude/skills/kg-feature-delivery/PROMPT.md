@@ -248,7 +248,7 @@ detached worktree off `origin/main`, name it in the PR, and leave it. Never wide
 ## 5. Ship it
 
 ```bash
-git fetch --prune origin && git rebase origin/main     # Base Freshness Gate hard-fails if behind
+git fetch --prune origin && git rebase origin/main     # Base Freshness Gate blocks a stale or overlapping base
 git push -u origin <branch> && gh pr create --base main ...
 # watch CI on the EXACT head SHA (use the Monitor tool; a bash sleep-loop gets blocked)
 gh pr merge <N> --repo hushh-labs/hushh-research --admin --merge --match-head-commit <FULL_40_SHA>
