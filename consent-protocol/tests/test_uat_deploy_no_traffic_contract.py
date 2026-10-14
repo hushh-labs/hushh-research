@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,6 +15,62 @@ import yaml
 from hushh_mcp.managed_ai_config import load_profile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize(
+    ("flag_value", "unexpected_key"),
+    [("false", None), ("true", None), ("true", "UNDECLARED_RUNTIME_KEY")],
+)
+def test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract(
+    tmp_path: Path, monkeypatch, capsys, flag_value: str, unexpected_key: str | None
+) -> None:
+    # UAT bootstrap adds this flag before invoking the real strict shape checker.
+    # Reproduce that boundary without cloud credentials or changing local envs.
+    checker_path = REPO_ROOT / "scripts/ops/verify-runtime-profile-env-shape.py"
+    spec = importlib.util.spec_from_file_location("runtime_profile_shape", checker_path)
+    assert spec is not None and spec.loader is not None
+    checker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checker)
+    flag = "NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED"
+    for templates, runtimes in (
+        (checker.BACKEND_TEMPLATE_FILES, checker.BACKEND_RUNTIME_FILES),
+        (checker.FRONTEND_TEMPLATE_FILES, checker.FRONTEND_RUNTIME_FILES),
+    ):
+        for template, runtime in zip(templates, runtimes, strict=True):
+            template_text = (REPO_ROOT / template).read_text(encoding="utf-8")
+            (tmp_path / template).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / template).write_text(template_text, encoding="utf-8")
+            runtime_text = template_text
+            if template in checker.FRONTEND_TEMPLATE_FILES:
+                runtime_text = (
+                    "\n".join(
+                        line
+                        for line in template_text.splitlines()
+                        if not line.startswith(f"{flag}=")
+                    )
+                    + f"\n{flag}={flag_value}\n"
+                )
+            (tmp_path / runtime).write_text(runtime_text, encoding="utf-8")
+    uat_runtime = tmp_path / "hushh-webapp/.env.uat.local"
+    if unexpected_key is not None:
+        with uat_runtime.open("a", encoding="utf-8") as runtime_file:
+            runtime_file.write(f"{unexpected_key}=true\n")
+    active_runtime = tmp_path / checker.FRONTEND_ACTIVE_RUNTIME_FILES[0]
+    active_runtime.write_text(uat_runtime.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(checker, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys, "argv", ["verify-runtime-profile-env-shape", "--include-runtime", "--include-active"]
+    )
+    result = checker.main()
+    output = capsys.readouterr()
+    if unexpected_key is not None:
+        assert result == 1
+        assert f"unexpected extra keys {unexpected_key}" in output.err
+        assert flag not in output.err
+    else:
+        assert result == 0, output.err
+        for template in checker.FRONTEND_TEMPLATE_FILES:
+            assert f"{flag}=false" in (tmp_path / template).read_text(encoding="utf-8").splitlines()
 
 
 def _read(path: str) -> str:
