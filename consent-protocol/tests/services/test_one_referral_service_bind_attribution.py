@@ -84,6 +84,8 @@ def _policy_row(*, new_users_only: bool = True):
 def _harness(*, attribution, existing_relationship: bool, predates_attribution: bool):
     def execute(query, params=None):
         sql = str(query)
+        if "pg_advisory_xact_lock" in sql:
+            return _Result([])
         if "FROM one_referral_attributions" in sql and "SELECT id, referrer_user_id" in sql:
             return _Result([attribution] if attribution is not None else [])
         if "FROM one_referral_relationships" in sql and "SELECT 1" in sql:

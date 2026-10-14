@@ -61,6 +61,8 @@ def _code_row():
 def _relationship_row(status: str):
     return SimpleNamespace(
         status=status,
+        id="opaque-relationship",
+        display_name="Display name",
         created_at=NOW,
         qualified_at=None,
         credited_seconds=0,
@@ -75,7 +77,7 @@ def _conn_with_relationships(all_statuses: list[str]):
     `one_referral_relationships`, so they are told apart by whether the SQL
     text carries the LATERAL join that only the detail query uses.
     """
-    all_rows = [SimpleNamespace(status=s) for s in all_statuses]
+    all_rows = [SimpleNamespace(status=s, total=1) for s in all_statuses]
     detail_rows = [_relationship_row(s) for s in all_statuses[:50]]
 
     def execute(query, params=None):

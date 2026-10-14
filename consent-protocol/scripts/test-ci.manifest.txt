@@ -793,3 +793,5 @@ tests/test_one_referral_dashboard_routes.py
 
 # WorkOS enterprise SSO: signatures, state, exchange refusals and deprovisioning.
 tests/test_workos_enterprise_sso_flow.py
+tests/test_one_referral_dashboard_routes.py
+tests/test_one_referral_lifecycle_postgres.py

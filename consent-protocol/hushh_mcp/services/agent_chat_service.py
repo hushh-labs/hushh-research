@@ -1644,6 +1644,15 @@ class AgentChatService:
                 "model": model,
             },
         )
+        if role == "assistant" and status == "complete" and not error_code:
+            try:
+                from hushh_mcp.services.one_referral_activity_service import (
+                    reconcile_product_activity,
+                )
+                await asyncio.to_thread(reconcile_product_activity, user_id, message_id)
+            except Exception:
+                # The transactional reply event remains available to the maintenance sweep.
+                logger.exception("referral.completed_reply_reconciliation_failed")
         return self._message_from_row((result.data or [])[0])
 
     async def get_recent_messages(

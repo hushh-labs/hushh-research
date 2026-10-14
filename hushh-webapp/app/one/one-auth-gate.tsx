@@ -1,6 +1,7 @@
 "use client";
 
 import { useRedeemReferralAttribution } from "@/lib/referral/use-redeem-referral-attribution";
+import { useDailyAppActivity } from "@/lib/referral/use-daily-app-activity";
 
 import type { ReactNode } from "react";
 import { useEffect } from "react";
@@ -108,6 +109,7 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
   // never opens the Referrals tab, so redeeming there would mean no referral
   // ever completes. Silent by design; see the hook.
   useRedeemReferralAttribution();
+  useDailyAppActivity();
 
   // Mounted outside the guards on purpose: the observer needs to see the
   // pre-authentication state too, and anything rendered as a child of

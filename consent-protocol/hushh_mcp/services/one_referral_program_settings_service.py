@@ -129,40 +129,25 @@ def get_or_create_reward_round(cutoff_at: datetime, program_timezone: str) -> di
         if existing:
             return _round_row_to_dict(existing)
 
-        try:
+        row = connection.execute(
+            text("""
+            INSERT INTO one_referral_reward_rounds(settings_version,cutoff_at,timezone)
+            VALUES(:version,:cutoff_at,:tz) ON CONFLICT(cutoff_at) DO NOTHING
+            RETURNING id,settings_version,cutoff_at,timezone,status,created_at,finalized_at
+        """),
+            {"version": settings.version, "cutoff_at": cutoff_at, "tz": program_timezone},
+        ).fetchone()
+        if row is None:
             row = connection.execute(
-                text(
-                    """
-                    INSERT INTO one_referral_reward_rounds
-                      (settings_version, cutoff_at, timezone)
-                    VALUES (:version, :cutoff_at, :tz)
-                    RETURNING id, settings_version, cutoff_at, timezone, status,
-                              created_at, finalized_at
-                    """
-                ),
-                {
-                    "version": settings.version,
-                    "cutoff_at": cutoff_at,
-                    "tz": program_timezone,
-                },
-            ).fetchone()
-            return _round_row_to_dict(row)
-        except Exception:  # noqa: BLE001 -- unique violation on cutoff_at
-            reread = connection.execute(
-                text(
-                    """
-                    SELECT id, settings_version, cutoff_at, timezone, status,
-                           created_at, finalized_at
-                      FROM one_referral_reward_rounds
-                     WHERE cutoff_at = :cutoff_at
-                     LIMIT 1
-                    """
-                ),
+                text("""
+                SELECT id,settings_version,cutoff_at,timezone,status,created_at,finalized_at
+                FROM one_referral_reward_rounds WHERE cutoff_at=:cutoff_at
+            """),
                 {"cutoff_at": cutoff_at},
             ).fetchone()
-            if reread is None:
-                raise RewardRoundError("could not create or read reward round") from None
-            return _round_row_to_dict(reread)
+        if row is None:
+            raise RewardRoundError("could not create or read reward round")
+        return _round_row_to_dict(row)
 
 
 def _round_row_to_dict(row) -> dict:
@@ -175,3 +160,19 @@ def _round_row_to_dict(row) -> dict:
         "created_at": row.created_at,
         "finalized_at": row.finalized_at,
     }
+
+
+def get_program_settings_at(occurred_at: datetime) -> ProgramSettings:
+    """A delayed job settles under the rules effective when its event occurred."""
+    with get_db_connection() as connection:
+        row = connection.execute(
+            text("""
+          SELECT * FROM one_referral_program_settings
+           WHERE activated_at<=:at AND (retired_at IS NULL OR retired_at>:at)
+           ORDER BY activated_at DESC LIMIT 1
+        """),
+            {"at": occurred_at},
+        ).fetchone()
+    if row is None:
+        raise ProgramSettingsUnavailable("event has no effective referral settings")
+    return _row_to_settings(row)

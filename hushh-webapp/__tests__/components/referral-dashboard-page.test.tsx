@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   getEngagement: vi.fn(),
   getChallenge: vi.fn(),
   getCircleSelection: vi.fn(),
+  onReferralChange: () => {},
+  claimReward: vi.fn(),
   hasSeenReferralIntroduction: vi.fn(),
   markReferralIntroductionSeen: vi.fn(),
 }));
@@ -31,7 +33,7 @@ vi.mock("@/lib/firebase/auth-context", () => ({
 }));
 
 vi.mock("@/lib/referral/use-referral-stream", () => ({
-  useReferralStream: () => ({ connected: true }),
+  useReferralStream: (_user: unknown, onChange: () => void) => { mocks.onReferralChange = onChange; return { connected: true }; },
 }));
 
 vi.mock("@/lib/services/onboarding-local-service", () => ({
@@ -52,6 +54,7 @@ vi.mock("@/lib/services/referral-service", () => ({
     getEngagement: mocks.getEngagement,
     getChallenge: mocks.getChallenge,
     getCircleSelection: mocks.getCircleSelection,
+    claimReward: mocks.claimReward,
   },
 }));
 
@@ -90,22 +93,46 @@ describe("formatCountdown", () => {
 });
 
 describe("ReferralDashboardPage", () => {
-  it("hides incompatible backend rewards until the new catalogue is active", async () => {
+  it("revalidates a change received while the first request is still in flight", async () => {
+    let finish: (value: typeof SUMMARY) => void = () => {};
+    mocks.getSummary.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    mocks.getSummary.mockResolvedValue({ ...SUMMARY, qualified_count: 88, in_progress_count: 0, total_count: 88 });
+    render(<ReferralDashboardPage />);
+    await act(async () => { mocks.onReferralChange(); finish(SUMMARY); });
+    expect(await screen.findByText("88")).toBeInTheDocument();
+    expect(mocks.getSummary).toHaveBeenCalledTimes(2);
+  });
+  it("shows the owner's server circle rank outside the first leaderboard page", async () => {
+    mocks.getCircleSelection.mockResolvedValue({ circle_id: "network", circle_name: "Our circle", rank: 41, contribution_count: 3 });
+    mocks.getCircleLeaderboard.mockResolvedValue({ teams: [] });
+    render(<ReferralDashboardPage />);
+    expect(await screen.findByText("#41")).toBeInTheDocument();
+    expect(screen.getByText("Our circle")).toBeInTheDocument();
+  });
+
+  it("keeps a threshold unearned until the backend records an entitlement", async () => {
+    mocks.getMilestones.mockResolvedValue({ lifetime_qualified_count: 10, earned: [],
+      next_milestone: { milestone_key: "voucher_10", threshold: 10, reward: "Saved voucher", progress: 10 },
+      available_milestones: [{ milestone_key: "voucher_10", threshold: 10, reward: "Saved voucher" }],
+    });
+    render(<ReferralDashboardPage />);
+    await screen.findByText("Weekly challenge ends in");
+    fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
+    expect(screen.getByText("0 of 1 unlocked")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Claim reward" })).toBeNull();
+    expect(screen.queryByText("All rewards unlocked")).toBeNull();
+  });
+  it("renders a configured catalogue without imposing frontend thresholds", async () => {
     mocks.getMilestones.mockResolvedValue({
-      lifetime_qualified_count: 0,
-      earned: [],
-      next_milestone: null,
-      available_milestones: [
-        { milestone_key: "current_reward", threshold: 42, reward: "Current program reward" },
-      ],
+      lifetime_qualified_count: 0, earned: [],
+      next_milestone: { milestone_key: "current_reward", threshold: 42, reward: "Current program reward", progress: 0 },
+      available_milestones: [{ milestone_key: "current_reward", threshold: 42, reward: "Current program reward" }],
     });
     await act(async () => { render(<ReferralDashboardPage />); });
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
-    expect(await screen.findByText("Rewards policy unavailable")).toBeInTheDocument();
-    expect(screen.queryByText("Current program reward")).toBeNull();
-    expect(screen.queryByText("42 referrals")).toBeNull();
-    expect(screen.queryByText("₹250 Amazon voucher")).toBeNull();
-    expect(screen.queryByText("All milestones earned. Incredible work.")).toBeNull();
+    expect(await screen.findByRole("heading", { level: 3, name: "Current program reward" })).toBeInTheDocument();
+    expect(screen.queryByText("Rewards policy unavailable")).toBeNull();
+    expect(screen.queryByText("All rewards unlocked")).toBeNull();
   });
 
   it("keeps loaded content visible and deduplicates focus refreshes", async () => {
@@ -222,21 +249,18 @@ describe("ReferralDashboardPage", () => {
     [500, "iPhone", 10000], [9999, "iPhone", 10000],
     [10000, null, null], [12000, null, null],
   ] as const)("selects the correct reward at %s qualified referrals", async (count, title, threshold) => {
+    const catalogue = [
+      { milestone_key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
+      { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds, worth ₹10,000" },
+      { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods, worth ₹30,000" },
+      { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
+    ];
+    const next = catalogue.find((entry) => entry.threshold === threshold);
     mocks.getMilestones.mockResolvedValue({
       lifetime_qualified_count: count,
-      earned: [
-        { milestone_key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
-        { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds" },
-        { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods" },
-        { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
-      ].filter((entry) => count >= entry.threshold).map((entry) => ({ ...entry, earned_at: "2026-10-01T00:00:00Z" })),
-      next_milestone: null,
-      available_milestones: [
-        { milestone_key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
-        { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds, worth ₹10,000" },
-        { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods, worth ₹30,000" },
-        { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
-      ],
+      earned: catalogue.filter((entry) => entry.threshold <= count).map((entry) => ({ ...entry, earned_at: "2026-10-14T00:00:00Z" })),
+      next_milestone: next ? { ...next, progress: count } : null,
+      available_milestones: catalogue,
     });
     await act(async () => { render(<ReferralDashboardPage />); });
     await screen.findByText("Weekly challenge ends in");
@@ -291,7 +315,7 @@ describe("ReferralDashboardPage", () => {
     currentUser = { uid: "user-a", getIdToken: mocks.getIdToken };
     mocks.getIdToken.mockResolvedValue("token-a");
     mocks.getSummary.mockResolvedValue(SUMMARY);
-    mocks.getPoints.mockResolvedValue({ points: 2450 });
+    mocks.getPoints.mockResolvedValue({ points: 2465, coins: 2450 });
     mocks.getPolicy.mockResolvedValue({ version: 2, points: { qualified_referral_points: 100, flash_window_total_points: 200, streak_three_day_bonus_points: 15 }, streak_rules: { run_length_days: 3, bonus_points: 15 }, challenge_duration_days: 7, weekly_prizes_enabled: false });
     mocks.getLeaderboard.mockResolvedValue({
       snapshot_generated_at: null,
@@ -448,7 +472,7 @@ describe("ReferralDashboardPage", () => {
   });
 
   it("discards a stale account's in-flight response after an account switch", async () => {
-    let resolvePointsForA: ((value: { points: number }) => void) | undefined;
+    let resolvePointsForA: ((value: { points: number; coins: number }) => void) | undefined;
     mocks.getPoints.mockImplementation(() => {
       return new Promise((resolve) => {
         resolvePointsForA = resolve;
@@ -460,13 +484,13 @@ describe("ReferralDashboardPage", () => {
 
     // Switch accounts before account A's points request resolves.
     currentUser = { uid: "user-b", getIdToken: mocks.getIdToken };
-    mocks.getPoints.mockResolvedValue({ points: 9 });
+    mocks.getPoints.mockResolvedValue({ points: 19, coins: 9 });
     rerender(<ReferralDashboardPage />);
     await screen.findByText("9");
 
     // Account A's late response must not overwrite account B's real balance.
     await act(async () => {
-      resolvePointsForA?.({ points: 2450 });
+      resolvePointsForA?.({ points: 2465, coins: 2450 });
     });
     expect(screen.getByText("9")).toBeInTheDocument();
     expect(screen.queryByText("2,450")).toBeNull();

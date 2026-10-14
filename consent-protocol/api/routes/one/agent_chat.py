@@ -576,7 +576,7 @@ _intro_app = App(
     root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
-_session_service = EncryptedAdkSessionService()
+_session_service = EncryptedAdkSessionService(referral_usage_app_name=ONE_APP_NAME)
 _intro_session_service = InMemorySessionService()
 
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import { ApiError } from "@/lib/services/api-client";
@@ -70,6 +70,7 @@ function mockSummary(value: Partial<ReferralSummary> = {}) {
  * test that only cares about ONE section does not have to mock all six.
  */
 function mockGamificationDefaults() {
+  vi.spyOn(ReferralService, "getPoints").mockResolvedValue({ points: 20, coins: 100 });
   vi.spyOn(ReferralService, "getLeaderboard").mockResolvedValue({
     snapshot_generated_at: null,
     entries: [],
@@ -282,10 +283,10 @@ describe("ReferralsPanel", () => {
     render(<ReferralsPanel />);
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
 
-    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
 
-    window.dispatchEvent(new Event("focus"));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
   });
 
@@ -408,8 +409,8 @@ describe("ReferralsPanel gamification", () => {
 
     render(<ReferralsPanel />);
 
-    await waitFor(() => expect(screen.getByText("Referral streak")).toBeTruthy());
-    expect(screen.getByText("2 of 3 days")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Daily app streak")).toBeTruthy());
+    expect(screen.getByText("2 consecutive days")).toBeTruthy();
   });
 
   it("hides the engagement section with no live streak and no active flash", async () => {
