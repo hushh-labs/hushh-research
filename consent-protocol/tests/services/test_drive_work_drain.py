@@ -101,7 +101,7 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
             "packet_orders": {"deferred": 1},
         },
     }
-    workers[0].run.assert_awaited_once_with(max_jobs=8, deadline_seconds=180)
+    workers[0].run.assert_awaited_once_with(max_jobs=20, deadline_seconds=180)
     for worker in workers[1:]:
         worker.run.assert_not_awaited()
     assert "document-id" not in str(result)

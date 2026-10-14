@@ -260,7 +260,11 @@ class GoogleConnectionService:
             "email",
             "profile",
             *self.scopes(service, access_level),
-            *((CALENDAR_LIST_READ_SCOPE,) if service == "calendar" and (transport == "web" or include_calendar_list) else ()),
+            *(
+                (CALENDAR_LIST_READ_SCOPE,)
+                if service == "calendar" and (transport == "web" or include_calendar_list)
+                else ()
+            ),
         )
         attempt_id = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(48)
@@ -799,7 +803,11 @@ class GoogleConnectionService:
             access_level=access_level,
             redirect_uri="",
             transport="native",
-            **({"include_calendar_list": True} if include_calendar_list and service == "calendar" else {}),
+            **(
+                {"include_calendar_list": True}
+                if include_calendar_list and service == "calendar"
+                else {}
+            ),
         )
         return {
             "configured": True,
@@ -807,7 +815,11 @@ class GoogleConnectionService:
             "service": service,
             "access_level": access_level,
             "state": attempt["state"],
-            **({"include_calendar_list": True} if include_calendar_list and service == "calendar" else {}),
+            **(
+                {"include_calendar_list": True}
+                if include_calendar_list and service == "calendar"
+                else {}
+            ),
         }
 
     async def complete_native(

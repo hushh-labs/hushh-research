@@ -56,7 +56,11 @@ def _schedule():
 
 
 @router.post("/schedule/today")
-async def schedule_today(payload: CalendarDay, response: Response, firebase_uid: str = Depends(require_firebase_auth_read_only)):
+async def schedule_today(
+    payload: CalendarDay,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth_read_only),
+):
     try:
         response.headers["Cache-Control"] = "private, no-store"
         return await _schedule().today(user_id=firebase_uid, **payload.model_dump())
@@ -66,7 +70,9 @@ async def schedule_today(payload: CalendarDay, response: Response, firebase_uid:
 
 @router.post("/schedule/availability")
 async def schedule_availability(
-    payload: CalendarOpeningWindow, response: Response, firebase_uid: str = Depends(require_firebase_auth_read_only)
+    payload: CalendarOpeningWindow,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth_read_only),
 ):
     try:
         response.headers["Cache-Control"] = "private, no-store"

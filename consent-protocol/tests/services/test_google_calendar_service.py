@@ -1443,7 +1443,6 @@ def test_schedule_pages_reject_replaced_original_binding_before_google(
 
 def test_calendar_execute_rejects_missing_provider_event_id(
     monkeypatch: pytest.MonkeyPatch,
-
 ) -> None:
     class _ClaimDb(_Db):
         def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
@@ -1497,17 +1496,22 @@ def test_booking_rechecks_every_included_calendar(monkeypatch, occupied):
     from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 
     calls = []
+
     async def inventory(self, user_id, *, binding):
         return [{"id": "personal"}, {"id": "work"}]
+
     async def intervals(self, **kwargs):
         calls.append(kwargs)
         return [(kwargs["start"], kwargs["end"])] if occupied else []
+
     monkeypatch.setattr(CalendarScheduleService, "_included_calendars", inventory)
     monkeypatch.setattr(CalendarScheduleService, "_busy_intervals", intervals)
     service = GoogleCalendarService(db=_Db(), connections=_Connections())
     work = service._creation_conflicts(
-        user_id="owner", binding=("owner", "grant"),
-        plan={"start_at": "2030-10-14T09:00:00Z", "end_at": "2030-10-14T09:30:00Z"})
+        user_id="owner",
+        binding=("owner", "grant"),
+        plan={"start_at": "2030-10-14T09:00:00Z", "end_at": "2030-10-14T09:30:00Z"},
+    )
     conflicts = asyncio.run(work)
     assert len(conflicts) == (1 if occupied else 0)
     if occupied:

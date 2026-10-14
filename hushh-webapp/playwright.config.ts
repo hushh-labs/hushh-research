@@ -22,6 +22,19 @@ function ciWorkers(): number {
   return Number(raw);
 }
 
+/** Partition every existing browser command using Playwright's native shard. */
+function ciShard(): { current: number; total: number } | undefined {
+  const raw = process.env.PLAYWRIGHT_SHARD;
+  if (raw === undefined || raw === "") return undefined;
+  const match = /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(raw);
+  const current = Number(match?.[1]);
+  const total = Number(match?.[2]);
+  if (!match || !Number.isSafeInteger(current) || !Number.isSafeInteger(total) || current > total) {
+    throw new Error(`PLAYWRIGHT_SHARD must be current/total with 1 <= current <= total, got ${JSON.stringify(raw)}`);
+  }
+  return { current, total };
+}
+
 /**
  * Playwright E2E Configuration for Hushh Webapp (Kai)
  *
@@ -40,6 +53,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? ciWorkers() : undefined,
+  shard: ciShard(),
   reporter: process.env.CI ? "github" : "html",
 
   use: {

@@ -59,24 +59,30 @@ _REVIEW = {**_WINDOW, "event_id": "invitation", "calendar_id": "primary", "offer
 _CONFIRM = {"review_id": "a-valid-review-identifier", "review_token": "a" * 40}
 
 
-@pytest.mark.parametrize(("path", "payload"), [
-    ("/schedule/today", _TODAY),
-    ("/schedule/availability", _WINDOW),
-    ("/attendance/review", _REVIEW),
-    ("/attendance/confirm", _CONFIRM),
-])
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/schedule/today", _TODAY),
+        ("/schedule/availability", _WINDOW),
+        ("/attendance/review", _REVIEW),
+        ("/attendance/confirm", _CONFIRM),
+    ],
+)
 def test_protected_schedule_actions_require_authentication(path: str, payload: dict) -> None:
     response = TestClient(_app()).post("/api/one/calendar" + path, json=payload)
 
     assert response.status_code == 401
 
 
-@pytest.mark.parametrize(("path", "payload", "method"), [
-    ("/schedule/today", _TODAY, "today"),
-    ("/schedule/availability", _WINDOW, "free_windows"),
-    ("/attendance/review", _REVIEW, "review"),
-    ("/attendance/confirm", _CONFIRM, "confirm"),
-])
+@pytest.mark.parametrize(
+    ("path", "payload", "method"),
+    [
+        ("/schedule/today", _TODAY, "today"),
+        ("/schedule/availability", _WINDOW, "free_windows"),
+        ("/attendance/review", _REVIEW, "review"),
+        ("/attendance/confirm", _CONFIRM, "confirm"),
+    ],
+)
 def test_authenticated_token_owns_schedule_calls_not_a_body_account(
     monkeypatch, path: str, payload: dict, method: str
 ) -> None:
@@ -87,6 +93,7 @@ def test_authenticated_token_owns_schedule_calls_not_a_body_account(
             async def call(**kwargs: object) -> dict:
                 calls.append((name, kwargs))
                 return {}
+
             return call
 
     monkeypatch.setattr(calendar_workspace, "_schedule", lambda: _Schedule())
@@ -102,7 +109,8 @@ def test_authenticated_token_owns_schedule_calls_not_a_body_account(
         app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
         app.dependency_overrides[require_firebase_auth] = lambda: "owner"
     response = TestClient(app).post(
-        "/api/one/calendar" + path, json={**payload, "user_id": "body-attacker"},
+        "/api/one/calendar" + path,
+        json={**payload, "user_id": "body-attacker"},
     )
 
     assert response.status_code == 200
@@ -113,10 +121,13 @@ def test_authenticated_token_owns_schedule_calls_not_a_body_account(
         assert response.headers["cache-control"] == "private, no-store"
 
 
-@pytest.mark.parametrize(("path", "payload"), [
-    ("/schedule/today", _TODAY),
-    ("/schedule/availability", _WINDOW),
-])
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/schedule/today", _TODAY),
+        ("/schedule/availability", _WINDOW),
+    ],
+)
 def test_schedule_reads_reject_vault_authority_without_verified_firebase_identity(
     monkeypatch, path: str, payload: dict
 ) -> None:
@@ -135,10 +146,13 @@ def test_schedule_reads_reject_vault_authority_without_verified_firebase_identit
     assert response.status_code == 401
 
 
-@pytest.mark.parametrize(("path", "payload"), [
-    ("/attendance/review", _REVIEW),
-    ("/attendance/confirm", _CONFIRM),
-])
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/attendance/review", _REVIEW),
+        ("/attendance/confirm", _CONFIRM),
+    ],
+)
 def test_firebase_schedule_authority_alone_cannot_change_attendance(
     monkeypatch, path: str, payload: dict
 ) -> None:
@@ -153,10 +167,13 @@ def test_firebase_schedule_authority_alone_cannot_change_attendance(
     assert response.status_code == 401
 
 
-@pytest.mark.parametrize(("path", "payload"), [
-    ("/attendance/review", _REVIEW),
-    ("/attendance/confirm", _CONFIRM),
-])
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/attendance/review", _REVIEW),
+        ("/attendance/confirm", _CONFIRM),
+    ],
+)
 def test_mail_capable_attendance_rejects_mismatched_firebase_and_vault_owners(
     monkeypatch, path: str, payload: dict
 ) -> None:
@@ -173,7 +190,9 @@ def test_mail_capable_attendance_rejects_mismatched_firebase_and_vault_owners(
     assert result.status_code == 403
 
 
-def test_public_rescheduling_options_use_capability_without_owner_login_and_disable_caching(monkeypatch) -> None:
+def test_public_rescheduling_options_use_capability_without_owner_login_and_disable_caching(
+    monkeypatch,
+) -> None:
     calls: list[dict[str, object]] = []
 
     class _Schedule:
@@ -182,7 +201,9 @@ def test_public_rescheduling_options_use_capability_without_owner_login_and_disa
             return {"openings": [], "time_zone": "UTC", "reply_to": "owner@example.com"}
 
     monkeypatch.setattr(calendar_workspace, "_schedule", lambda: _Schedule())
-    response = TestClient(_app()).post("/api/one/calendar/rescheduling/options", json={"token": "a" * 40})
+    response = TestClient(_app()).post(
+        "/api/one/calendar/rescheduling/options", json={"token": "a" * 40}
+    )
 
     assert response.status_code == 200
     assert calls == [{"token": "a" * 40}]
@@ -190,7 +211,9 @@ def test_public_rescheduling_options_use_capability_without_owner_login_and_disa
     assert response.headers["referrer-policy"] == "no-referrer"
 
 
-def test_mail_permission_failure_stays_typed_and_does_not_look_like_calendar_failure(monkeypatch) -> None:
+def test_mail_permission_failure_stays_typed_and_does_not_look_like_calendar_failure(
+    monkeypatch,
+) -> None:
     from hushh_mcp.services.gmail_receipts_service import GmailApiError
 
     class _Schedule:
@@ -206,7 +229,9 @@ def test_mail_permission_failure_stays_typed_and_does_not_look_like_calendar_fai
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
     app.dependency_overrides[require_firebase_auth] = lambda: "owner"
 
-    result = TestClient(app).post("/api/one/calendar/attendance/review", json={**_REVIEW, "offer_times": True})
+    result = TestClient(app).post(
+        "/api/one/calendar/attendance/review", json={**_REVIEW, "offer_times": True}
+    )
 
     assert result.status_code == 409
     assert result.json()["detail"]["reason_code"] == "GMAIL_SEND_PERMISSION_REQUIRED"

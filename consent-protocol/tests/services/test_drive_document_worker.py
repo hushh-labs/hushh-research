@@ -61,3 +61,100 @@ async def test_busy_extraction_reserves_parallel_facts_and_packet_budget(monkeyp
     packet_worker.run.assert_awaited_once()
     assert result["outcomes"] == {"ready": 4, "synced": 2, "queued": 2}
     wake.assert_awaited_once_with("documents")
+
+
+async def test_single_owner_uses_bounded_sweep_for_packet_phase_progress(monkeypatch):
+    """A large owner must not stall after one facts and one packet phase."""
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    service = SimpleNamespace(run_one=AsyncMock(return_value={"status": "ready"}))
+    discovery = SimpleNamespace(run=AsyncMock(return_value={"outcomes": {"synced": 2}}))
+    packet_worker = SimpleNamespace(
+        run=AsyncMock(
+            side_effect=[
+                {"facts_complete": 1, "packet_queued": 1},
+                {"facts_complete": 1, "packet_queued": 1},
+                {"facts_complete": 1, "ready": 1},
+            ]
+        )
+    )
+    worker = DriveDocumentWorker(service, collection_sync=discovery, packet_worker=packet_worker)
+    worker.due_owners = AsyncMock(return_value=["owner"])
+    wake = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", wake)
+
+    result = await worker.run(max_jobs=20, deadline_seconds=160)
+
+    assert service.run_one.await_count == 12
+    assert [call.kwargs["max_jobs"] for call in packet_worker.run.await_args_list] == [6, 4, 2]
+    assert sum(result["outcomes"].values()) == 20
+    assert result["outcomes"] == {"ready": 13, "synced": 2, "queued": 5}
+    wake.assert_awaited_once_with("documents")
+
+
+@pytest.mark.parametrize("outcome", [{"idle": 2}, {"facts_unavailable": 2}, {}])
+async def test_semantic_sweep_does_not_spin_when_no_progress(monkeypatch, outcome):
+    packet_worker = SimpleNamespace(run=AsyncMock(return_value=outcome))
+    worker = DriveDocumentWorker(SimpleNamespace(), packet_worker=packet_worker)
+    worker.due_owners = AsyncMock(return_value=[])
+    wake = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", wake)
+
+    await worker.run(max_jobs=20)
+
+    packet_worker.run.assert_awaited_once()
+    wake.assert_not_awaited()
+
+
+async def test_larger_sweep_still_cancels_all_lanes_at_shared_deadline(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    cancelled = set()
+
+    async def wait(lane):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.add(lane)
+
+    service = SimpleNamespace(run_one=lambda **kwargs: wait("extraction"))
+    discovery = SimpleNamespace(run=lambda **kwargs: wait("discovery"))
+    packet_worker = SimpleNamespace(run=lambda **kwargs: wait("semantics"))
+    worker = DriveDocumentWorker(service, collection_sync=discovery, packet_worker=packet_worker)
+    worker.due_owners = AsyncMock(return_value=["owner"])
+
+    result = await worker.run(max_jobs=20, deadline_seconds=1)
+
+    assert result["outcomes"] == {"deadline": 1}
+    assert cancelled == {"extraction", "discovery", "semantics"}
+
+
+async def test_completed_extraction_wakes_next_semantic_sweep(monkeypatch):
+    """Facts can be idle before parallel extraction publishes its first result."""
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    semantic_finished = asyncio.Event()
+
+    async def semantics(**kwargs):
+        semantic_finished.set()
+        return {"idle": 2}
+
+    async def extraction(**kwargs):
+        await semantic_finished.wait()
+        return {"status": "ready"}
+
+    worker = DriveDocumentWorker(
+        SimpleNamespace(run_one=extraction),
+        packet_worker=SimpleNamespace(run=semantics),
+    )
+    worker.due_owners = AsyncMock(return_value=["owner"])
+    wake = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", wake)
+
+    result = await worker.run(max_jobs=4)
+
+    assert result["outcomes"] == {"idle": 2, "ready": 2}
+    wake.assert_awaited_once_with("documents")

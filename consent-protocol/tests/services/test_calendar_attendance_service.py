@@ -112,7 +112,11 @@ class _Mail:
 
     async def prepare(self, **kwargs: object) -> dict[str, object]:
         self.prepares.append(copy.deepcopy(kwargs))
-        return {"action_id": "mail-review", "sender_token": "sender-token", "sender_label": "Connected Mail"}
+        return {
+            "action_id": "mail-review",
+            "sender_token": "sender-token",
+            "sender_label": "Connected Mail",
+        }
 
     async def execute(self, **kwargs: object) -> dict[str, object]:
         self.sends.append(copy.deepcopy(kwargs))
@@ -138,24 +142,47 @@ def _service(monkeypatch: pytest.MonkeyPatch):
 
 
 def _review(service: CalendarScheduleService, *, offer_times: bool = False):
-    return asyncio.run(service.review(
-        user_id="owner", event_id="event/id", offer_times=offer_times,
-        message="Could we meet tomorrow instead?", date="2030-10-15", time_zone="UTC",
-    ))
+    return asyncio.run(
+        service.review(
+            user_id="owner",
+            event_id="event/id",
+            offer_times=offer_times,
+            message="Could we meet tomorrow instead?",
+            date="2030-10-15",
+            time_zone="UTC",
+        )
+    )
 
 
 def _confirm(service: CalendarScheduleService, review: dict[str, object], *, user_id="owner"):
-    return asyncio.run(service.confirm(
-        user_id=user_id, review_id=review["review_id"], review_token=review["review_token"],
-    ))
+    return asyncio.run(
+        service.confirm(
+            user_id=user_id,
+            review_id=review["review_id"],
+            review_token=review["review_token"],
+        )
+    )
 
 
-@pytest.mark.parametrize("origin", [
-    "http://localhost:3000", "https://localhost", "https://127.0.0.1", "https://10.0.0.1",
-    "https://user@one.example.com", "https://localhost.", "https://2130706433",
-    "https://one", "https://one.local", "https://224.0.0.1", "https://127.1",
-])
-def test_local_or_private_origins_cannot_be_sent_as_recipient_accessible_rescheduling_links(monkeypatch: pytest.MonkeyPatch, origin: str) -> None:
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost:3000",
+        "https://localhost",
+        "https://127.0.0.1",
+        "https://10.0.0.1",
+        "https://user@one.example.com",
+        "https://localhost.",
+        "https://2130706433",
+        "https://one",
+        "https://one.local",
+        "https://224.0.0.1",
+        "https://127.1",
+    ],
+)
+def test_local_or_private_origins_cannot_be_sent_as_recipient_accessible_rescheduling_links(
+    monkeypatch: pytest.MonkeyPatch, origin: str
+) -> None:
     service, calendar, db, mail = _service(monkeypatch)
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", origin)
     clear_runtime_settings_caches()
@@ -174,7 +201,9 @@ def test_local_or_private_origins_cannot_be_sent_as_recipient_accessible_resched
         clear_runtime_settings_caches()
 
 
-def test_configured_origin_normalization_does_not_leak_a_query_into_the_recipient_link(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_configured_origin_normalization_does_not_leak_a_query_into_the_recipient_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from urllib.parse import urlparse
 
     service, calendar, _, mail = _service(monkeypatch)
@@ -207,7 +236,9 @@ def test_review_cannot_decline_without_management_access(monkeypatch: pytest.Mon
     assert mail.prepares == []
 
 
-def test_provider_self_flag_cannot_impersonate_the_connected_google_account(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_self_flag_cannot_impersonate_the_connected_google_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, calendar, db, mail = _service(monkeypatch)
     calendar.event["attendees"][1]["email"] = "different-google-account@example.com"
 
@@ -232,16 +263,25 @@ def test_foreign_owner_cannot_confirm_a_review(monkeypatch: pytest.MonkeyPatch) 
     assert mail.sends == []
 
 
-def test_confirm_updates_only_self_and_replay_does_not_send_twice(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_confirm_updates_only_self_and_replay_does_not_send_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, calendar, _, mail = _service(monkeypatch)
     review = _review(service, offer_times=True)
 
     first = _confirm(service, review)
     replay = _confirm(service, review)
 
-    assert first == replay == {
-        "calendar": "declined", "email": "sent", "calendar_error": None, "email_error": None,
-    }
+    assert (
+        first
+        == replay
+        == {
+            "calendar": "declined",
+            "email": "sent",
+            "calendar_error": None,
+            "email_error": None,
+        }
+    )
     mutations = [request for request in calendar.requests if request["method"] == "PATCH"]
     assert len(mutations) == 1
     assert mutations[0]["path"] == "/calendars/primary/events/event%2Fid"
@@ -261,8 +301,12 @@ def test_parallel_confirmations_claim_the_review_once(monkeypatch: pytest.Monkey
 
     async def confirm_twice() -> list[object]:
         return await asyncio.gather(
-            service.confirm(user_id="owner", review_id=review["review_id"], review_token=review["review_token"]),
-            service.confirm(user_id="owner", review_id=review["review_id"], review_token=review["review_token"]),
+            service.confirm(
+                user_id="owner", review_id=review["review_id"], review_token=review["review_token"]
+            ),
+            service.confirm(
+                user_id="owner", review_id=review["review_id"], review_token=review["review_token"]
+            ),
             return_exceptions=True,
         )
 
@@ -286,7 +330,13 @@ def test_changed_invitation_or_grant_requires_a_new_review(
     if changed == "etag":
         calendar.event["etag"] = '"updated-by-organizer"'
     else:
-        calendar.connections.binding = ("owner", "calendar", "other-provider", "connected-at", "new-grant")
+        calendar.connections.binding = (
+            "owner",
+            "calendar",
+            "other-provider",
+            "connected-at",
+            "new-grant",
+        )
 
     result = _confirm(service, review)
 
@@ -297,7 +347,9 @@ def test_changed_invitation_or_grant_requires_a_new_review(
     assert mail.sends == []
 
 
-@pytest.mark.parametrize(("status", "expected"), [(403, "failed"), (502, "unknown"), (503, "unknown"), (504, "unknown")])
+@pytest.mark.parametrize(
+    ("status", "expected"), [(403, "failed"), (502, "unknown"), (503, "unknown"), (504, "unknown")]
+)
 def test_calendar_failure_never_sends_the_organizer_email(
     monkeypatch: pytest.MonkeyPatch, status: int, expected: str
 ) -> None:
@@ -313,7 +365,9 @@ def test_calendar_failure_never_sends_the_organizer_email(
     assert mail.sends == []
 
 
-def test_email_failure_preserves_confirmed_decline_and_safe_replay(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_email_failure_preserves_confirmed_decline_and_safe_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, calendar, _, mail = _service(monkeypatch)
     review = _review(service, offer_times=True)
     mail.fail_send = TimeoutError("Gmail timed out after accepting request")
@@ -330,7 +384,9 @@ def test_email_failure_preserves_confirmed_decline_and_safe_replay(monkeypatch: 
     assert len([request for request in calendar.requests if request["method"] == "PATCH"]) == 1
 
 
-def test_nullable_mail_error_code_cannot_erase_a_confirmed_decline(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_nullable_mail_error_code_cannot_erase_a_confirmed_decline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from hushh_mcp.services.gmail_receipts_service import GmailApiError
 
     service, calendar, _, mail = _service(monkeypatch)
@@ -348,7 +404,9 @@ def test_nullable_mail_error_code_cannot_erase_a_confirmed_decline(monkeypatch: 
     assert len([request for request in calendar.requests if request["method"] == "PATCH"]) == 1
 
 
-def test_offered_times_are_requested_from_the_future_window_before_review(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_offered_times_are_requested_from_the_future_window_before_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, _, _, _ = _service(monkeypatch)
     observed: list[dict[str, object]] = []
 
@@ -365,7 +423,9 @@ def test_offered_times_are_requested_from_the_future_window_before_review(monkey
     assert observed[0]["future_only"] is True
 
 
-def test_provider_must_confirm_self_declined_before_email_is_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_must_confirm_self_declined_before_email_is_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, calendar, _, mail = _service(monkeypatch)
     review = _review(service, offer_times=True)
 
@@ -383,7 +443,9 @@ def test_provider_must_confirm_self_declined_before_email_is_sent(monkeypatch: p
     assert mail.sends == []
 
 
-def test_tampering_with_a_review_cannot_dispatch_a_calendar_mutation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tampering_with_a_review_cannot_dispatch_a_calendar_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, calendar, _, mail = _service(monkeypatch)
     review = _review(service, offer_times=True)
     token = review["review_token"]
@@ -398,7 +460,9 @@ def test_tampering_with_a_review_cannot_dispatch_a_calendar_mutation(monkeypatch
     assert mail.sends == []
 
 
-def test_organizer_gets_exact_edited_message_and_a_public_rechecked_link(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_organizer_gets_exact_edited_message_and_a_public_rechecked_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, calendar, _, mail = _service(monkeypatch)
     review = _review(service, offer_times=True)
 
@@ -414,12 +478,16 @@ def test_organizer_gets_exact_edited_message_and_a_public_rechecked_link(monkeyp
     options = asyncio.run(service.public_options(token=capability))
 
     assert options["reply_to"] == "owner@example.com"
-    assert options["openings"] == [{"start_at": "2030-10-15T10:00:00Z", "end_at": "2030-10-15T10:30:00Z"}]
+    assert options["openings"] == [
+        {"start_at": "2030-10-15T10:00:00Z", "end_at": "2030-10-15T10:30:00Z"}
+    ]
     check = next(request for request in calendar.requests if request["method"] == "FREEBUSY")
     assert check["calendar_ids"] == ["primary", "work"]
 
 
-def test_public_link_expires_and_revoked_grant_cannot_reveal_options(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_public_link_expires_and_revoked_grant_cannot_reveal_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, calendar, _, _ = _service(monkeypatch)
     review = _review(service, offer_times=True)
     _, capability = urldefrag(review["rescheduling_link"])
@@ -437,7 +505,9 @@ def test_public_link_expires_and_revoked_grant_cannot_reveal_options(monkeypatch
     assert not any(request["method"] == "FREEBUSY" for request in calendar.requests)
 
 
-def test_new_busy_period_removes_previously_offered_public_option(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_new_busy_period_removes_previously_offered_public_option(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, calendar, _, _ = _service(monkeypatch)
     review = _review(service, offer_times=True)
     _, capability = urldefrag(review["rescheduling_link"])
@@ -446,7 +516,9 @@ def test_new_busy_period_removes_previously_offered_public_option(monkeypatch: p
         return {
             "calendars": {
                 "primary": {"busy": []},
-                "work": {"busy": [{"start": "2030-10-15T10:10:00Z", "end": "2030-10-15T10:20:00Z"}]},
+                "work": {
+                    "busy": [{"start": "2030-10-15T10:10:00Z", "end": "2030-10-15T10:20:00Z"}]
+                },
             }
         }
 
@@ -456,7 +528,9 @@ def test_new_busy_period_removes_previously_offered_public_option(monkeypatch: p
     assert result["openings"] == []
 
 
-def test_public_options_cannot_cross_a_reconnect_during_availability_read(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_public_options_cannot_cross_a_reconnect_during_availability_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, calendar, _, _ = _service(monkeypatch)
     review = _review(service, offer_times=True)
     _, capability = urldefrag(review["rescheduling_link"])

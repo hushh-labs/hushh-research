@@ -578,16 +578,21 @@ gcloud() {
         genai_project: str,
         *,
         deny_project_discovery: bool,
+        deploy_project: str = "hushh-pda-uat",
+        image: str = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
+        sha: str = "b" * 40,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # noqa: S603 - fixed bash executes only repository YAML with a fake gcloud
             ["/bin/bash", "-c", script],
             env={
-                "PROJECT_ID": "hushh-pda-uat",
+                "PROJECT_ID": deploy_project,
                 "genai_project_id": genai_project,
                 "_RUNTIME_SERVICE_ACCOUNT": "runtime@hushh-pda-uat.iam.gserviceaccount.com",
                 "_DEPLOY_ENV": deploy_env,
                 "_CLOUD_RUN_NO_TRAFFIC": no_traffic,
                 "_VERIFY_MANAGED_VERTEX_RUNTIME": probe_enabled,
+                "_IMAGE_REFERENCE": image,
+                "_DEPLOY_SHA": sha,
                 "DENY_PROJECT_DISCOVERY": "true" if deny_project_discovery else "false",
             },
             capture_output=True,
@@ -602,8 +607,6 @@ gcloud() {
     assert "CALL:iam service-accounts describe" in deferred.stderr
 
     for deploy_env, no_traffic, probe_enabled, project in (
-        ("uat", "false", "true", uat),
-        ("uat", "true", "false", uat),
         ("dev", "true", "true", uat),
         ("production", "true", "true", uat),
         ("uat", "true", "true", "hushh-pda-uat"),
@@ -617,6 +620,29 @@ gcloud() {
         )
         assert denied.returncode != 0, (deploy_env, no_traffic, probe_enabled, project)
         assert "CALL:services list --enabled" in denied.stderr
+
+    # Missing capability-proof prerequisites fail even when administrative
+    # reads would succeed; static IAM must not replace the mandatory probe.
+    for overrides in (
+        {"no_traffic": "false"},
+        {"probe_enabled": "false"},
+        {"deploy_project": "another-project"},
+        {"image": "gcr.io/hushh-pda-uat/consent-protocol:latest"},
+        {"image": "gcr.io/another-project/consent-protocol@sha256:" + "a" * 64},
+        {"sha": "short-sha"},
+    ):
+        rejected = run_case(
+            **{
+                "deploy_env": "uat",
+                "no_traffic": "true",
+                "probe_enabled": "true",
+                "genai_project": uat,
+                "deny_project_discovery": False,
+                **overrides,
+            }
+        )
+        assert rejected.returncode != 0, overrides
+        assert "CALL:services list" not in rejected.stderr
 
     static = run_case("production", "true", "true", uat, deny_project_discovery=False)
     assert static.returncode == 0, static.stderr
@@ -635,6 +661,106 @@ gcloud() {
         'verdict.get("one_voice_probe_ok") is not True',
     ):
         assert probe.index(required) < advisory
+
+
+def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
+    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    probe = next(
+        step["args"][-1]
+        for step in build["steps"]
+        if step.get("id") == "verify-managed-vertex-runtime"
+    )
+    # Run the owning receipt parser and release decision. The job itself is
+    # represented by its exit status/log line; no provider or gcloud is called.
+    script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
+    project = load_profile("uat")["project"]
+    healthy = {
+        "check": "managed_vertex_runtime",
+        "ok": True,
+        "classification": "dependency_ok",
+        "candidate_models_exercised": True,
+        "config_hash": "checked-profile-hash",
+        "one_chat_project": project,
+        "one_chat_probe_ok": True,
+        "one_voice_project": project,
+        "one_voice_probe_ok": True,
+        "live_model": "reviewed-live-model",
+        "live_location": "reviewed-live-location",
+        "probes": [
+            {"probe": name, "ok": True, "classification": "dependency_ok"}
+            for name in ("one_chat", "embedding", "one_voice_live")
+        ],
+    }
+
+    def run_verdict(
+        report: dict | str,
+        exit_status: int = 0,
+        *,
+        deploy_env: str = "uat",
+        voice_enabled: str = "true",
+    ) -> subprocess.CompletedProcess[str]:
+        line = (
+            "managed_vertex_probe_result " + json.dumps(report)
+            if isinstance(report, dict)
+            else report
+        )
+        return subprocess.run(  # noqa: S603 - fixed shell executes repository verdict logic with synthetic values
+            ["/bin/bash", "-c", script],
+            env={
+                "PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath,
+                "PROJECT_ID": "hushh-pda-uat",
+                "genai_project_id": project,
+                "_DEPLOY_ENV": deploy_env,
+                "_ONE_VOICE_LIVE_ENABLED": voice_enabled,
+                "_MANAGED_AI_CONFIG_HASH": "checked-profile-hash",
+                "_GENAI_PROJECT_ID": project,
+                "_VERTEX_LIVE_MODEL_ID": "reviewed-live-model",
+                "_VERTEX_LIVE_LOCATION": "reviewed-live-location",
+                "probe_line": line,
+                "execute_status": str(exit_status),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    passed = run_verdict(healthy)
+    assert passed.returncode == 0, passed.stderr
+    for invalid in (
+        "",
+        "managed_vertex_probe_result not-json",
+        {**healthy, "config_hash": "different-profile"},
+        {**healthy, "one_chat_project": "different-project"},
+        {**healthy, "one_chat_probe_ok": False},
+        {**healthy, "one_voice_probe_ok": False},
+        {**healthy, "ok": False},
+        {**healthy, "check": "different-check"},
+        {**healthy, "candidate_models_exercised": False},
+        {**healthy, "classification": "provider_unavailable"},
+        {**healthy, "probes": []},
+        {k: v for k, v in healthy.items() if k != "probes"},
+        {**healthy, "probes": ["invalid-probe"]},
+        {**healthy, "probes": [{"probe": "embedding", "ok": False}]},
+    ):
+        rejected = run_verdict(invalid)
+        assert rejected.returncode != 0, invalid
+
+    # Regression: chat success alone used to let a failed full runtime job
+    # enter the provider-outage advisory and green the candidate build.
+    partial = {
+        **healthy,
+        "ok": False,
+        "classification": "provider_unavailable",
+        "probes": [
+            healthy["probes"][0],
+            {"probe": "embedding", "ok": False, "classification": "provider_unavailable"},
+        ],
+    }
+    assert run_verdict(partial, 85).returncode != 0
+    assert run_verdict(healthy, 1).returncode != 0
+    legacy = run_verdict(partial, 85, deploy_env="dev", voice_enabled="false")
+    assert legacy.returncode == 0, legacy.stderr
+    assert "Release CONTINUES" in legacy.stdout
 
 
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
