@@ -213,7 +213,7 @@ export function OnboardingStepReview({
         onClick={onAskKaiUpdateAnything}
         className="inline-flex min-h-9 items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3.5 text-sm font-medium text-primary transition-colors hover:bg-primary/15"
       >
-        <Sparkles className="h-3.5 w-3.5" />
+        <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
         Ask Kai to update anything
       </button>
     </div>
