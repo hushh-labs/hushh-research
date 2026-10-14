@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Wallet } from "@/components/icons";
+import { ProfilePaneCopyIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
@@ -36,7 +36,7 @@ export function WalletReferralCardDetails({
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   if (!summary) {
     return <div className="space-y-3 py-6">
-      <p role={failed ? "alert" : "status"} className="text-sm text-muted-foreground">{failed ? "Your referral card could not be loaded." : "Your referral card is loading."}</p>
+      <p role={failed ? "alert" : "status"} className="text-xs text-muted-foreground">{failed ? "Your referral card could not be loaded." : "Your referral card is loading."}</p>
       {failed && onRetry ? <Button type="button" size="sm" onClick={onRetry}>Try again</Button> : null}
     </div>;
   }
@@ -78,16 +78,16 @@ export function WalletReferralCardDetails({
           </div>
           <p className="break-all rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">{summary.link}</p>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" className="min-h-11" loading={busy === "wallet"} disabled={!shareToken || Boolean(busy)} onClick={() => void addToWallet()}>
-              <Wallet className="mr-2 h-4 w-4" aria-hidden />Add to Apple Wallet
+            <Button type="button" size="sm" className="min-h-11 text-[13px]" loading={busy === "wallet"} disabled={!shareToken || Boolean(busy)} onClick={() => void addToWallet()}>
+              <ProfilePaneWalletIcon className="mr-2 h-4 w-4" aria-hidden />Add to Apple Wallet
             </Button>
             <WalletCardImageShareButton cardId="agent-one-referral" profile={{ ...profile, displayName: profile?.displayName ?? null, shareUrl: profile?.shareUrl ?? null, referralUrl: summary.link }} disabled={!profile || Boolean(busy)} />
-            <Button type="button" size="sm" className="min-h-11" variant="none" effect="fade" onClick={() => void copyWalletCardLink(summary.link).then((copied) => copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"))}>
-              <Copy className="mr-2 h-4 w-4" aria-hidden />Copy link
+            <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" onClick={() => void copyWalletCardLink(summary.link).then((copied) => copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"))}>
+              <ProfilePaneCopyIcon className="mr-2 h-4 w-4" aria-hidden />Copy link
             </Button>
-            <Button type="button" size="sm" className="min-h-11" variant="none" effect="fade" disabled={!onRevoke || Boolean(busy)} onClick={() => setConfirmRevoke(true)}>Revoke access</Button>
+            <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" disabled={!onRevoke || Boolean(busy)} onClick={() => setConfirmRevoke(true)}>Revoke access</Button>
           </div>
-          <a href={summary.link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">Preview referral page</a>
+          <a href={summary.link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[13px] text-primary underline-offset-4 hover:underline">Preview referral page</a>
         </div>
       </SettingsGroup>
       <SettingsGroup title="Referral activity">

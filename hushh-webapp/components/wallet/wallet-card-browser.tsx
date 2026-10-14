@@ -47,6 +47,12 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
   useEffect(() => {
     if (!active) { setMode("all"); setAgentCardId(null); }
   }, [active]);
+  useEffect(() => {
+    if (agentCardId && !isAgentWalletCard(agentCardId) && !cards.some(card => card.cardId === agentCardId)) {
+      setMode("all");
+      setAgentCardId(null);
+    }
+  }, [agentCardId, cards]);
   const content = useRef<HTMLDivElement>(null);
   const gesture = useRef<{ x: number; y: number } | null>(null);
   const automaticScrollUntil = useRef(0);
@@ -154,7 +160,7 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
         {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} cardholderName={cardholderNames[selected.cardId]} revealed={active && selected.cardId === selectedCardId && selectedCardNumber ? { pan: selectedCardNumber, cardholderName: cardholderNames[selected.cardId] || "" } : null} collection />}
       </div>
       {selected.cardId === "agent-one-referral" ? <WalletReferralCardDetails summary={referralSummary ?? null} shareToken={demoProfile?.shareToken ?? null} profile={demoProfile} failed={referralError} onRetry={onRetryReferral} onRevoke={active ? onRevokeReferral : undefined} /> : isAgentWalletCard(selected.cardId) ? <div className="space-y-4">
-        {selected.cardId === "agent-one-nws" ? <p className="text-sm text-muted-foreground">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}
+        {selected.cardId === "agent-one-nws" ? <p className="text-xs text-muted-foreground">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}
         <WalletCardWorkspace embedded active={active} passVariant={selected.cardId === "agent-one-nws" ? "nws" : "profile"} />
       </div> : <div className="space-y-5">
         {details}

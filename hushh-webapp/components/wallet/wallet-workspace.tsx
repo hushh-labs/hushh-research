@@ -13,6 +13,7 @@
  * States and the reveal rule live in `lib/wallet/wallet-view-state.ts`.
  */
 
+import profileStyles from "@/components/profile/profile-your-account.module.css";
 import {
   useCallback,
   useDeferredValue,
@@ -748,10 +749,9 @@ export function WalletWorkspace() {
         setRemovingCardId(cardId);
         if (!prefersReducedMotion()) await new Promise((resolve) => setTimeout(resolve, 220));
         if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-        const index = cards.findIndex((card) => card.cardId === cardId);
-        setSelectedDeckCardId((current) => (current ?? cards[0]?.cardId) === cardId
-          ? cards[index + 1]?.cardId ?? cards[index - 1]?.cardId ?? null
-          : current);
+        // Return to the overview after removal. A neighboring card must be
+        // explicitly opened before loading its number or sharing context.
+        setSelectedDeckCardId(null);
       }
       cardReadRevision.current += 1;
       setCardSnapshot((previous) => {
@@ -894,7 +894,7 @@ export function WalletWorkspace() {
           />
 
           {introductionOpen ? (
-            introductionLoading ? <div role="status" className="py-6 text-center text-sm text-muted-foreground">Opening your wallet…</div> :
+            introductionLoading ? <div role="status" className="py-6 text-center text-xs text-muted-foreground">Opening your wallet…</div> :
             <WalletIntroduction loading={introductionSaving} onConnect={() => void completeIntroduction()} />
           ) : <>
           <TopShellTabs
@@ -1094,7 +1094,7 @@ export function WalletWorkspace() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <AlertDialogContent className={browserStyles.removeDialog} data-testid="one-wallet-remove-confirm">
+          <AlertDialogContent className={cn(profileStyles.accountDialog, profileStyles.dangerDialog)} data-testid="one-wallet-remove-confirm">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {removeTitle}?</AlertDialogTitle>
               <AlertDialogDescription>
