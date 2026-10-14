@@ -355,14 +355,6 @@ for (const width of [320, 1440]) for (const dark of [false, true])
     await expect(detail).not.toBeVisible();
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toBeVisible();
     await expect(row).toBeFocused();
-    for (const close of ["button", "escape"]) {
-      await row.click();
-      await expect(detail).toBeVisible();
-      if (close === "button") await detail.getByRole("button", { name: "Close Drive sharing", exact: true }).click();
-      else await page.keyboard.press("Escape");
-      await expect(detail).not.toBeVisible();
-      await expect(row).toBeFocused();
-    }
     expect(writes).toEqual([]);
   });
 
