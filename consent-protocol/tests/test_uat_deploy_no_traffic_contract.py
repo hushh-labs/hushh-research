@@ -1,15 +1,76 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from hushh_mcp.managed_ai_config import load_profile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize(
+    ("flag_value", "unexpected_key"),
+    [("false", None), ("true", None), ("true", "UNDECLARED_RUNTIME_KEY")],
+)
+def test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract(
+    tmp_path: Path, monkeypatch, capsys, flag_value: str, unexpected_key: str | None
+) -> None:
+    # UAT bootstrap adds this flag before invoking the real strict shape checker.
+    # Reproduce that boundary without cloud credentials or changing local envs.
+    checker_path = REPO_ROOT / "scripts/ops/verify-runtime-profile-env-shape.py"
+    spec = importlib.util.spec_from_file_location("runtime_profile_shape", checker_path)
+    assert spec is not None and spec.loader is not None
+    checker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checker)
+    flag = "NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED"
+    for templates, runtimes in (
+        (checker.BACKEND_TEMPLATE_FILES, checker.BACKEND_RUNTIME_FILES),
+        (checker.FRONTEND_TEMPLATE_FILES, checker.FRONTEND_RUNTIME_FILES),
+    ):
+        for template, runtime in zip(templates, runtimes, strict=True):
+            template_text = (REPO_ROOT / template).read_text(encoding="utf-8")
+            (tmp_path / template).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / template).write_text(template_text, encoding="utf-8")
+            runtime_text = template_text
+            if template in checker.FRONTEND_TEMPLATE_FILES:
+                runtime_text = (
+                    "\n".join(
+                        line
+                        for line in template_text.splitlines()
+                        if not line.startswith(f"{flag}=")
+                    )
+                    + f"\n{flag}={flag_value}\n"
+                )
+            (tmp_path / runtime).write_text(runtime_text, encoding="utf-8")
+    uat_runtime = tmp_path / "hushh-webapp/.env.uat.local"
+    if unexpected_key is not None:
+        with uat_runtime.open("a", encoding="utf-8") as runtime_file:
+            runtime_file.write(f"{unexpected_key}=true\n")
+    active_runtime = tmp_path / checker.FRONTEND_ACTIVE_RUNTIME_FILES[0]
+    active_runtime.write_text(uat_runtime.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(checker, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys, "argv", ["verify-runtime-profile-env-shape", "--include-runtime", "--include-active"]
+    )
+    result = checker.main()
+    output = capsys.readouterr()
+    if unexpected_key is not None:
+        assert result == 1
+        assert f"unexpected extra keys {unexpected_key}" in output.err
+        assert flag not in output.err
+    else:
+        assert result == 0, output.err
+        for template in checker.FRONTEND_TEMPLATE_FILES:
+            assert f"{flag}=false" in (tmp_path / template).read_text(encoding="utf-8").splitlines()
 
 
 def _read(path: str) -> str:
@@ -73,6 +134,55 @@ def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
 
     assert workflow["jobs"]["rollback-uat"]["environment"] == "uat"
     assert workflow["jobs"]["rollback-production"]["environment"] == "production"
+
+
+@pytest.mark.parametrize(
+    ("enabled", "deploy_backend", "allowed"),
+    [
+        ("true", "false", False),
+        ("true", "", False),
+        ("true", "true", True),
+        ("false", "false", True),
+        ("false", "true", True),
+    ],
+)
+def test_initial_contacts_opt_in_requires_a_paired_backend_before_builds(
+    enabled: str, deploy_backend: str, allowed: bool
+) -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    steps = workflow["jobs"]["deploy"]["steps"]
+    scope_index = next(index for index, step in enumerate(steps) if step.get("id") == "scope")
+    pairing_index = next(
+        index for index, step in enumerate(steps) if step.get("id") == "initial-contacts-pairing"
+    )
+    pairing = steps[pairing_index]
+    frontend_build_index = next(
+        index for index, step in enumerate(steps) if step.get("id") == "start-frontend-image-build"
+    )
+    assert scope_index < pairing_index < frontend_build_index
+    assert "if" not in pairing
+    assert "continue-on-error" not in pairing
+    assert pairing["env"]["DEPLOY_BACKEND"] == "${{ steps.scope.outputs.deploy_backend }}"
+    assert workflow["env"]["INITIAL_CONTACTS_ONBOARDING_ENABLED"] == (
+        "${{ inputs.initial_contacts_onboarding && 'true' || 'false' }}"
+    )
+    bash = shutil.which("bash")
+    assert bash is not None
+    result = subprocess.run(  # noqa: S603 - fixed bash executes only repository YAML.
+        [bash, "-c", pairing["run"]],
+        env={
+            **os.environ,
+            "INITIAL_CONTACTS_ONBOARDING_ENABLED": enabled,
+            "DEPLOY_BACKEND": deploy_backend,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is allowed
+    if not allowed:
+        assert "paired backend deployment" in result.stderr
+        assert "scope=all" in result.stderr
 
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:

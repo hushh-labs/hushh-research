@@ -47,6 +47,7 @@ const {
     confirmVerificationCode: vi.fn(),
     getCurrentUser: vi.fn(),
     getIdToken: vi.fn(),
+    getIdTokenResult: vi.fn(),
     signInWithCustomToken: vi.fn(),
     signInWithGoogle: vi.fn(),
     signInWithEmailAndPassword: vi.fn(),
@@ -54,6 +55,7 @@ const {
     unlink: vi.fn(),
   },
   mockHushhAuth: {
+    authorizeGoogleContacts: vi.fn(),
     reauthenticateGoogleIdentity: vi.fn(),
     getCurrentUser: vi.fn(),
     getIdToken: vi.fn(),
@@ -106,9 +108,10 @@ vi.mock("firebase/app", () => ({
 }));
 
 vi.mock("firebase/auth", () => ({
+  getAdditionalUserInfo: (result: { additionalUserInfo?: unknown }) => result.additionalUserInfo ?? null,
   GoogleAuthProvider: Object.assign(
     function GoogleAuthProvider() {
-      return { setCustomParameters: mockGoogleSetCustomParameters };
+      return { setCustomParameters: mockGoogleSetCustomParameters, addScope: mockOAuthAddScope };
     },
     {
       credential: vi.fn(),
@@ -1235,6 +1238,59 @@ describe("AuthService native Google provider parity", () => {
     expect(result.idToken).toBeTruthy();
   });
 
+  it("uses native sign-in metadata for Apple recovery even when JS holds a linked Google session", async () => {
+    mockAuth.currentUser = { uid: "owner", getIdTokenResult: vi.fn().mockResolvedValue({ signInProvider: "google.com" }) };
+    const metadata: import("@capacitor-firebase/authentication").GetIdTokenResultResult = {
+      authTime: 0, expirationTime: 3600, issuedAtTime: 0, signInProvider: "apple.com",
+      signInSecondFactor: null, claims: { sub: "owner" },
+    };
+    mockFirebaseAuthentication.getIdTokenResult.mockResolvedValue(metadata);
+    await expect(AuthService.initialContactsSignInProvider({ uid: "owner" } as any, () => true)).resolves.toBe("apple.com");
+    expect(mockAuth.currentUser.getIdTokenResult).not.toHaveBeenCalled();
+  });
+
+  it("rejects native source metadata for a replacement owner", async () => {
+    mockFirebaseAuthentication.getIdTokenResult.mockResolvedValue({ claims: { sub: "other" }, signInProvider: "apple.com" });
+    await expect(AuthService.initialContactsSignInProvider({ uid: "owner" } as any, () => true)).rejects.toThrow("session_changed");
+  });
+
+  it("captures a real Contacts token during signup without accepting a stale JS owner", async () => {
+    mockCapacitor.getPlatform.mockReturnValue("android");
+    mockAuth.currentUser = { uid: "old-owner" };
+    mockHushhAuth.signIn.mockResolvedValue({ user: { id: "new-owner", phoneNumber: "+16505550101" },
+      idToken: createIdToken(3600, "new-owner"), accessToken: "legacy-identity-alias", isNewUser: true });
+    mockHushhAuth.authorizeGoogleContacts.mockResolvedValue({ accessToken: "contacts-only-token",
+      grantedScopes: ["https://www.googleapis.com/auth/contacts.readonly"], authority: "android-contacts-only" });
+    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
+    expect(result.user.uid).toBe("new-owner");
+    expect(result.contactsGrant?.accessToken).toBe("contacts-only-token");
+    expect(mockHushhAuth.authorizeGoogleContacts).toHaveBeenCalledWith({ expectedUserId: "new-owner" });
+    expect(mockSignInWithCredential).not.toHaveBeenCalled();
+  });
+
+  it("keeps native signup successful when Contacts authorization is denied", async () => {
+    mockCapacitor.getPlatform.mockReturnValue("android");
+    mockAuth.currentUser = { uid: "new-owner" };
+    mockHushhAuth.signIn.mockResolvedValue({ user: { id: "new-owner" },
+      idToken: createIdToken(3600, "new-owner"), accessToken: "legacy-identity-alias", isNewUser: true });
+    mockHushhAuth.authorizeGoogleContacts.mockRejectedValue({ code: "contacts_not_granted" });
+    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
+    expect(result.user.uid).toBe("new-owner"); expect(result.contactsUnavailable).toBe(true);
+    expect(result.contactsGrant).toBeUndefined();
+  });
+
+  it("keeps the authenticated native user when no optional Google access token was returned", async () => {
+    mockCapacitor.getPlatform.mockReturnValue("android");
+    mockAuth.currentUser = null;
+    mockHushhAuth.signIn.mockResolvedValue({ user: { id: "new-owner", phoneNumber: "+16505550101" },
+      idToken: createIdToken(3600, "new-owner"), isNewUser: true });
+    mockHushhAuth.authorizeGoogleContacts.mockRejectedValue({ code: "contacts_not_granted" });
+    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
+    expect(result.user.uid).toBe("new-owner"); expect(result.contactsUnavailable).toBe(true);
+    expect(mockSignInWithCredential).not.toHaveBeenCalled();
+    expect(result.user.phoneNumber).toBe("+16505550101");
+  });
+
   it("ends the Android loading toast on success", async () => {
     const { toast } = await import("sonner");
     mockCapacitor.getPlatform.mockReturnValue("android");
@@ -1385,6 +1441,17 @@ describe("AuthService web provider popup continuity", () => {
       prompt: "select_account",
     });
     expect(mockSignInWithPopup).toHaveBeenCalledTimes(1);
+    expect(mockOAuthAddScope).not.toHaveBeenCalled();
+  });
+
+  it("requests Contacts only for the explicit signup purpose and returns the invocation-local grant", async () => {
+    const user = { uid: "signup", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
+    mockSignInWithPopup.mockResolvedValue({ user, additionalUserInfo: { isNewUser: true } });
+    mockGoogleCredentialFromResult.mockReturnValue({ accessToken: "ephemeral-contacts-token" });
+    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
+    expect(mockOAuthAddScope).toHaveBeenCalledExactlyOnceWith("https://www.googleapis.com/auth/contacts.readonly");
+    expect(result.isNewUser).toBe(true);
+    expect(result.contactsGrant).toEqual({ accessToken: "ephemeral-contacts-token", authority: "firebase-signup" });
   });
 
   it("uses Firebase popup authentication for Apple on web", async () => {

@@ -13,8 +13,15 @@ self.onmessage = async (event) => {
       workerBlobURL: false, logger: () => {}, errorHandler: fail,
     });
     await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT });
-    const result = await worker.recognize(event.data);
-    self.postMessage({ text: result.data.text });
+    const result = await worker.recognize(event.data.original);
+    let enhancedText;
+    try {
+      if (event.data.enhanced) {
+        const enhanced = await worker.recognize(event.data.enhanced);
+        enhancedText = enhanced.data.text;
+      }
+    } catch { /* Preserve the original reading if enhancement is unavailable. */ }
+    self.postMessage({ text: result.data.text, enhancedText });
   } catch {
     fail();
   } finally {

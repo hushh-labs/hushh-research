@@ -562,7 +562,7 @@ export function LocationPickerMap({
   // Treat a hard SDK error OR the 5s load timeout as "unavailable" so the owner
   // is never trapped behind an infinite "Loading map…"; both fall back to the
   // captured-point confirm flow below.
-  const unavailable = status === "error" || timedOut;
+  const unavailable = status === "error" || (timedOut && status !== "ready");
 
   // The single definition of "this pin is ready to commit", so the Confirm
   // button, its colour, the carousel swipe and the carousel dots can never
@@ -676,9 +676,9 @@ export function LocationPickerMap({
               status==="ready" deadlocked the picker — the element only mounted
               once ready, but ready only arrives after create succeeds against the
               element — which is what left it stuck on "Loading map…". So on native
-              we always mount the element (unless the map is truly unavailable) and
+              we keep the element mounted through loading and timeout recovery and
               overlay the loader on top until it's ready. */}
-          {native && !unavailable ? (
+          {native && status !== "error" ? (
             <capacitor-google-map
               ref={(element: HTMLElement | null) => {
                 nativeMapElementRef.current = element;
@@ -687,11 +687,17 @@ export function LocationPickerMap({
             />
           ) : null}
 
+          {/* Keep the host through loading and timeout recovery. The ready
+              effect must receive the same mounted element when the SDK arrives. */}
+          {!native && status !== "error" ? (
+            <div key={colorScheme} ref={containerRef} className="h-full w-full" />
+          ) : null}
+
           {unavailable ? (
             <div
               role="status"
               aria-live="polite"
-              className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"
+              className="absolute inset-0 flex h-full flex-col items-center justify-center gap-2 bg-[#eef2f7] px-6 text-center dark:bg-[#10151d]"
             >
               <MapPin
                 className="h-7 w-7 text-[#8b93a1]"
@@ -717,14 +723,6 @@ export function LocationPickerMap({
             </div>
           ) : (
             <>
-              {native ? null : (
-                <div
-                  key={colorScheme}
-                  ref={containerRef}
-                  className="h-full w-full"
-                />
-              )}
-
               {/* Fixed centre marker — the map moves beneath it, so the pin
                   always marks the chosen coordinate. A polished Google-style
                   teardrop (accent fill + white ring) with a soft ground shadow
