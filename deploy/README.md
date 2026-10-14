@@ -92,10 +92,11 @@ provenance checks. Other failed deployments and no-op runs grant no cleanup auth
 Each mutation pass verifies that release against live traffic, removes unused tags, and saves drain evidence in the
 `uat-retention-state` or `production-retention-state` artifact. A later pass deletes only eligible revisions after
 the maximum request timeout plus 60 seconds has elapsed. The backend still
-supports 3,600-second requests. When a UAT pass saves a future drain deadline,
-a tokenless wait job wakes after that deadline and a new short maintenance job
-rechecks the source and live service before deletion. The wait holds no deployment
-lock; the timer remains a backup if the follow-up job fails or is canceled.
+supports 3,600-second requests. Each pass finishes and publishes completed drain
+receipts promptly. The existing timer rechecks due work; no runner sleeps through
+the drain interval. Both environments skip cloud authentication for settled or
+not-yet-due receipts. New deployment requests still wake inspection, and each
+mutation pass rechecks the newest receipt under the shared deployment lock.
 Traffic/generation or release changes invalidate the saved clock; missing or
 expired evidence starts a fresh clock. Current, latest, predeploy rollback, and
 the actual last-known-good revisions remain protected.
@@ -106,20 +107,23 @@ conservatively count every retained UAT database revision while cleanup is
 deferred, so overlapping drains cannot silently exceed the database budget.
 The capacity gate can still reject an unsafe release.
 
-Both UAT deploy workflows now poll capacity for at most 90 minutes before taking
+Both UAT deploy workflows poll capacity for at most five minutes, including
+query and final-verification time, before taking
 the `deploy-uat` mutation lock. A backend request (including One chat and `auto`)
 waits in the backend request group; an explicit `scope=frontend` request uses a
 separate group and can proceed while backend revisions drain. GitHub's
 `queue: max` holds at most 100 pending runs per group; a further run is canceled.
 An exact job inventory drift with extra unprofiled jobs and no missing profiled
-jobs is retried within the 90-minute wait. The wait never admits while that drift
+jobs is retried within the five-minute check. Exhaustion returns `DEFERRED_CAPACITY`
+with the original SHA/scope for a governed operator retry; it does not dispatch
+an automatic release or produce a healthy release receipt. The check never admits while that drift
 persists and reports the extra names if it times out. Missing profiled jobs,
 authentication and query errors, and malformed reports fail immediately. Once
 admitted, the deployment rechecks the exact SHA,
 actor, scope, and connection budget under the mutation lock before any writes.
 
 The UAT deploy request promptly wakes a verified Capacity Maintenance first pass;
-its deferred recheck can free old revisions after drainage. If no eligible source
+later short scheduled passes can free old revisions after drainage. If no eligible source
 is found, a governed operator should verify the live healthy release run and dispatch `capacity-maintenance.yml`
 for `environment=uat`, that `healthy_release_run_id`, and `apply=true`. The
 maintenance workflow verifies the source and live traffic before deletion. If
@@ -268,3 +272,34 @@ records without treating them as current prerequisites. Follow the
 [command runtime contract](../docs/reference/one/one-voice-runtime-architecture.md)
 for checkpoint, receipt and rollback requirements. Provider access and physical
 device acceptance remain release evidence, not conclusions from a static build.
+
+### Capacity scaling acceptance
+
+Configured connection exposure is not the number of active database sessions.
+The admission report accounts for actual worker overrides, both pools, retained
+revisions, scoped candidates, jobs and administrative reserve. Cleanup success and
+capacity admission are reported separately. Unprofiled database jobs remain a
+blocking inventory gap until their owner registers or reconciles them.
+
+Scaling changes require measured traffic/latency/session/pool/CPU/memory evidence,
+a matching live/profile connection budget and a priced cost projection. The approved
+2026-10-13 activity has a US$2,000 incremental monthly ceiling including verification,
+UAT stays zonal, and production regional HA is scheduled for 2026-10-14 22:00–23:00
+America/Los_Angeles after backup, recovery and verification prerequisites pass.
+This is an execution window, not evidence that HA has been enabled.
+
+Use the existing read-only UAT load probe at 5, 10 and 20 requests/s, then 40
+requests/s for five minutes, with at most 40 workers and no live model calls.
+Require no server errors/pool acquire timeouts, p95 <=2s, p99 <=5s, sufficient
+generator throughput, sustained CPU <70% and memory <80%. Stop at the first
+failing stage. UAT evidence does not establish production's maximum throughput.
+
+The 2026-10-13 UAT baseline on `consent-protocol-02115-faq` completed 3,000
+read-only requests at 5 requests/s with no server errors, but its steady memory
+utilization remained 86.9–87.85% of 4 GiB. UAT therefore selects 6 GiB at unchanged
+2 CPU, five maximum instances and existing connection pools. This is a candidate
+working-set adjustment, not passing burst evidence. Repeat the same 5 requests/s
+stage before increasing load. Maximum incremental RAM allocation at all five
+instances for 730 hours is US$52.56/month at current Tier 1 instance-based list
+pricing; actual allocation and the remaining verification resources must be
+reconciled against the approved ceiling. Production memory remains unchanged.

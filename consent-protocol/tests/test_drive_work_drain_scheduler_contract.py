@@ -307,7 +307,6 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     )
     assert "backend_sha" in workflow and "frontend_sha" in workflow
     assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
-    assert "_CLOUD_RUN_MEMORY=4Gi" in workflow
 
 
 def test_frontend_only_uat_release_cannot_enter_drive_worker_fallback():

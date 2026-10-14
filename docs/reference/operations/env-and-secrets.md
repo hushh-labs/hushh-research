@@ -365,8 +365,8 @@ Used by:
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`; do not introduce for new config. |
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Must be `vertex_adc`; hosted API-key mode is rejected. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Explicit `developer_api_key` compatibility mode only; never a hosted secret. |
-| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Vertex routing metadata. Hosted text uses `global` so both Gemini 3.5 Flash and Gemini 3.1 Flash-Lite resolve; credentials come from Cloud Run workload ADC. |
-| `HUSHH_VERTEX_LOCATIONS` | `hushh_mcp/runtime_providers/factory.py` | No | Ordered same-model failover candidates for managed Vertex ADC. Use the approved shared set `global,us,eu`; candidates never change the model or authorization behavior. |
+| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Project metadata hosted; location override local only | Hosted text locations come from the packaged `config/managed-ai-runtime.json` profile; credentials come from workload ADC. `GOOGLE_CLOUD_LOCATION` is a local compatibility override, not a required hosted mount. |
+| `HUSHH_VERTEX_LOCATIONS` | `hushh_mcp/runtime_providers/factory.py` | Local only | Local ordered same-model failover override. Hosted text locations come from the packaged environment profile; candidates never change model or authorization authority. |
 | `GOOGLE_MAPS_API_KEY` | `hushh_mcp/config.py`, `hushh_mcp/services/google_maps_service.py` | Yes (One Location maps) | Server-side Google Maps Platform key for Places New, Geocoding, and Routes. Never expose as `NEXT_PUBLIC_*`. |
 | `ONE_EMAIL_ADDRESS` | `hushh_mcp/services/support_email_service.py`, `hushh_mcp/services/one_email_kyc_service.py` | Optional | Canonical One mailbox identity. Default: `one@hushh.ai`. |
 | `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Prefer `FIREBASE_ADMIN_CREDENTIALS_JSON`; only use by approved exception. |
@@ -477,7 +477,7 @@ values.
 | Variable | Where read | Required | Notes |
 |----------|------------|----------|--------|
 | `NEXT_PUBLIC_BACKEND_URL` | `lib/api/consent.ts`, `lib/config.ts`, api routes, etc. | Yes | Prod build: from Secret Manager `BACKEND_URL` |
-| `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | `components/gmail/gmail-recent-receipts.tsx` | No | Public HTTPS image URL with exactly one `{domain}` placeholder. Receipt rows substitute only a reviewed canonical merchant domain; unset configuration uses the public DuckDuckGo domain icon endpoint; an explicitly empty or invalid template uses the category or generic receipt icon. Never place a provider secret here. |
+| `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | `components/gmail/gmail-recent-receipts.tsx` | No | Public HTTPS image URL with exactly one `{domain}` placeholder. Receipt rows substitute only a reviewed canonical merchant domain; unset configuration uses the public DuckDuckGo domain icon endpoint; an explicitly empty or invalid template uses the category or generic receipt icon. UAT image builds resolve the optional same-named Secret Manager resource; other hosted environments leave it unset. Never place a provider secret here. |
 | `NEXT_PUBLIC_FIREBASE_*` (6 base keys) | `lib/firebase/config.ts` | Yes | API key, auth domain, project ID, storage bucket, messaging sender ID, app ID |
 | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | `lib/notifications/fcm-service.ts` | Yes (prod build) | Web FCM token registration; from Firebase Console. See [fcm-notifications.md](../../../consent-protocol/docs/reference/fcm-notifications.md). |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | `lib/observability/env.ts` | Recommended | Active GA4 measurement ID for the deployed environment |
@@ -496,6 +496,37 @@ values.
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `lib/firebase/admin.ts` | Server-side Firebase | Server-only |
 | `MAIL_API_ENDPOINT` | `lib/runtime/settings.ts` → `lib/mail/mail-client.ts` | For user-requested SOS mail | `hushh-mail-api` origin. Plain env var, set from `_MAIL_API_ENDPOINT` in `deploy/frontend.cloudbuild.yaml`; not used for account notices. |
 | `MAIL_API_KEY` | `lib/runtime/settings.ts` → `lib/mail/mail-client.ts` | For user-requested SOS mail | Server-only. This is not used for One support or account notices. |
+
+### UAT receipt-logo build configuration
+
+`deploy/frontend-image.cloudbuild.yaml` and the combined frontend build resolve
+`NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` from `hushh-pda-uat` Secret Manager only
+when constructing a UAT image. It is optional: precise `NOT_FOUND` leaves the
+variable unset before `next build`; permission/authentication errors and invalid
+configured values fail without printing the value. It is not a Cloud Run runtime
+binding. Changing the resource requires a new reviewed frontend build and the
+normal governed deployment; an existing pinned image is never reconfigured.
+
+The accepted value is the exact Logo.dev HTTPS domain template with one
+`{domain}` placeholder, a publishable `pk_` token, and `fallback=404&redirect=404`.
+The latter flags preserve the category/generic fallback for missing or redirected
+brands. Secret `sk_` API keys are prohibited. The existing reviewed merchant
+registry owns domain selection; no merchant names or receipt content enter the URL.
+
+Obtain the publishable token through the approved provider/deployment credential
+workflow before creating the resource. Validate the complete template with
+`scripts/ops/validate_receipt_logo_template.py` over stdin, then use the existing
+`scripts/ops/upsert_gcp_secret.py --project hushh-pda-uat --secret
+NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE --stdin` path. Keep values in process memory;
+do not put them in command arguments, logs, source, environment examples or files.
+Secret provisioning grants no deploy or traffic authority. Never copy this UAT
+credential to another environment.
+
+Receipt images currently send no Referer. Logo.dev Referer-based domain restrictions
+reject these requests, so the approved publishable token must support that existing
+policy. Do not change the component's referrer policy to enable a restricted token.
+See [Logo.dev API keys](https://www.logo.dev/docs/platform/api-keys) and
+[Logo CDN parameters](https://www.logo.dev/docs/api-reference/logo-cdn/get-a-logo).
 
 ---
 
@@ -516,7 +547,7 @@ values.
 | `PASSKEY_ALLOWED_RP_IDS` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | WebAuthn RP allowlist generated as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment alias; unregistered or cross-environment hosts are rejected by the sync/parity contracts |
 | `HUSHH_GENAI_AUTH_MODE` | Optional local | Yes | Local: `.env`; Prod: Cloud Run env | Hosted value is `vertex_adc`; local API-key compatibility must be selected explicitly. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Optional local | No | Local: `.env` only | Used only with `developer_api_key`; prohibited as hosted Gemini credentials. |
-| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | ADC local/hosted | Yes | Local: env; Prod: Cloud Run env | Vertex routing; authentication comes from ADC. |
+| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | ADC local/hosted | Project metadata hosted; location local only | Local: env; hosted: packaged managed AI profile | Hosted region selection ignores the legacy location override; authentication comes from workload ADC. |
 | `GOOGLE_MAPS_API_KEY` | Yes (One Location maps) | Yes | Local: `.env`; Prod: Secret Manager | Server-side Places New, Geocoding, and Routes key; never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | No | No | Local: `hushh-webapp/.env.local`; Frontend runtime env | Optional Next.js proxy timeout for Agent chat SSE streams. Defaults to `120000`. |
 | `GMAIL_OAUTH_CLIENT_ID` | Yes (Gmail connection and live receipt reads) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
@@ -745,7 +776,7 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `HUSHH_PROD_PHONE_TEST_NUMBERS` | `HUSHH_PROD_PHONE_TEST_NUMBERS` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CODE` | `HUSHH_PROD_PHONE_TEST_CODE` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` (`api/routes/account.py`) |
-**Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GENAI_GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`.
+**Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GENAI_GOOGLE_CLOUD_PROJECT`. Hosted text locations and model failover come from the packaged managed AI profile; `GOOGLE_CLOUD_LOCATION` and `HUSHH_VERTEX_LOCATIONS` remain local compatibility overrides, not hosted mount requirements.
 
 **Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`, `PASSKEY_ALLOWED_RP_IDS`, the non-secret `HUSSH_TECH_*` policy keys, and nonsecret `SCOPE_COMMERCE_*` policy keys (the two Stripe secrets stay direct mounts). Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. `HUSSH_TECH_LAUNCH_PEPPER` is the exception: it is a separate direct secret binding. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
 

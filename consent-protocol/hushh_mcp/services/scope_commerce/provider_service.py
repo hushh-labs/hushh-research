@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from .provider_accounts import ConnectOnboarding
+from .provider_account_management import ConnectAccountManagement
 from .provider_config import CountryPayoutPolicy as CountryPayoutPolicy
 from .provider_config import ScopeCommerceProviderConfig as ScopeCommerceProviderConfig
 from .provider_contracts import _derived_id as _derived_id
@@ -36,7 +36,7 @@ class ScopeCommerceProviderService(
     FundingCheckout,
     FundingReceipt,
     SourceRefundAccess,
-    ConnectOnboarding,
+    ConnectAccountManagement,
     WithdrawalIntent,
     TransferDelivery,
     PayoutReceiptSettlement,

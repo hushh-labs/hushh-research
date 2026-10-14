@@ -508,6 +508,8 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         original_run, original_jobs, original_release = self.uat_hygiene_failure()
         defects = (
             None,
+            "current_three_jobs",
+            "failed_capacity_observer",
             "extra_failed_step",
             "missing_gate",
             "partial_jobs",
@@ -526,7 +528,14 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     (original_run, original_jobs, original_release)
                 )
                 deploy_steps = jobs["jobs"][1]["steps"]
-                if defect == "extra_failed_step":
+                if defect in {"current_three_jobs", "failed_capacity_observer"}:
+                    jobs["total_count"] = 3
+                    jobs["jobs"].append({
+                        "name": "Wait for UAT capacity outside the mutation lock",
+                        "status": "completed",
+                        "conclusion": "failure" if defect == "failed_capacity_observer" else "success",
+                    })
+                elif defect == "extra_failed_step":
                     deploy_steps.append(
                         {
                             "name": "Unexpected release failure",
@@ -585,7 +594,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         ),
                     ),
                 ):
-                    if defect is None:
+                    if defect in {None, "current_three_jobs"}:
                         found = MAINTENANCE.find_release(
                             "org/repo", "204", pathlib.Path(temporary), require_live=False
                         )
@@ -1725,6 +1734,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         mock.patch.object(
                             MAINTENANCE, "download", side_effect=download
                         ),
+                        mock.patch.object(MAINTENANCE, "restore_state"),
                         mock.patch.object(
                             MAINTENANCE.retention,
                             "service_state",
@@ -1756,6 +1766,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                                 output.read_text(),
                                 f"cleanup_ready={str(artifact_available).lower()}\n",
                             )
+
 
     def test_schedule_finds_older_healthy_release_matching_rollback(self):
         def download(_repository, run_id, _name, directory):
@@ -1953,6 +1964,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 ),
                 mock.patch.object(MAINTENANCE, "live_release_matches", return_value=True),
                 mock.patch.object(MAINTENANCE, "restore_state"),
+                mock.patch.object(MAINTENANCE, "latest_deploy_observation", return_value=123),
                 mock.patch.object(MAINTENANCE, "release_protection_flags", return_value=[]),
                 mock.patch.object(MAINTENANCE.subprocess, "run", side_effect=run),
                 mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
@@ -1962,6 +1974,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 output.read_text(),
                 "verified_source_run_id=123\ndrain_not_before=13660\n",
             )
+
 
     def test_wrong_source_run_never_downloads_release_artifacts(self):
         good = {
@@ -2022,9 +2035,13 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()),
                 ):
                     self.assertEqual(MAINTENANCE.main(), 0)
-                    restore.assert_not_called()
+                    if release is None:
+                        restore.assert_not_called()
+                    else:
+                        restore.assert_called_once()
                     run.assert_not_called()
                     self.assertEqual(list(state_dir.iterdir()), [])
+
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):
         root = SCRIPT.parents[2]
@@ -2206,6 +2223,130 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         )
                     restore.assert_called_once_with(
                         "org/repo", directory, environment="production"
+                    )
+
+    def test_anonymous_source_only_does_not_reschedule_settled_rollback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            (directory / "completed.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "environment": "uat",
+                        "project": "hushh-pda-uat",
+                        "release_run_id": 9,
+                        "observed_run_id": 20,
+                    }
+                )
+            )
+            output = directory / "outputs"
+            for observed, expected in [(20, False), (21, True)]:
+                output.unlink(missing_ok=True)
+                with (
+                    mock.patch.dict(
+                        "os.environ",
+                        {"GITHUB_REPOSITORY": "org/repo", "GITHUB_OUTPUT": str(output)},
+                    ),
+                    mock.patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "maintenance",
+                            "--verify-source-only",
+                            "--state-dir",
+                            str(directory),
+                        ],
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE,
+                        "find_release",
+                        side_effect=(AssertionError("settled source must skip lineage") if not expected else None),
+                        return_value=(19, {"status": "healthy"}),
+                    ),
+                    mock.patch.object(MAINTENANCE, "restore_state"),
+                    mock.patch.object(
+                        MAINTENANCE, "latest_deploy_observation", return_value=observed
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE.retention,
+                        "service_state",
+                        side_effect=AssertionError("source-only cannot read cloud"),
+                    ),
+                ):
+                    self.assertEqual(MAINTENANCE.main(), 0)
+                    self.assertEqual(
+                        output.read_text(), f"cleanup_ready={str(expected).lower()}\n"
+                    )
+
+    def test_newest_artifact_is_available_without_eager_history_scan(self):
+        first = {"id": 1}
+        with mock.patch.object(
+            MAINTENANCE,
+            "api",
+            side_effect=[
+                {"artifacts": [first] * 100},
+                AssertionError("unneeded older page"),
+            ],
+        ) as api:
+            history = MAINTENANCE.bounded_artifacts("org/repo", "uat-retention-state")
+            self.assertEqual(next(history), first)
+            self.assertEqual(api.call_count, 1)
+
+    def test_uat_due_receipt_preserves_future_drain_and_rejects_wrong_owner(self):
+        receipt = {
+            "schema_version": 1,
+            "environment": "uat",
+            "project": "hushh-pda-uat",
+            "observed_run_id": 10,
+            "release_run_id": 9,
+        }
+        pending = {
+            "project": "hushh-pda-uat",
+            "region": "us-central1",
+            "service": "consent-protocol",
+            "release_run_id": "9",
+            "not_before": 13660,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            (directory / "completed.json").write_text(json.dumps(receipt))
+            (directory / "consent-protocol.json").write_text(json.dumps(pending))
+            with (
+                mock.patch.object(MAINTENANCE, "restore_state"),
+                mock.patch.object(
+                    MAINTENANCE, "latest_deploy_observation", return_value=10
+                ),
+                mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
+                mock.patch.object(
+                    MAINTENANCE.retention,
+                    "service_state",
+                    side_effect=AssertionError("not-due must not read cloud"),
+                ),
+            ):
+                self.assertFalse(
+                    MAINTENANCE.maintenance_due(
+                        "org/repo", directory, environment="uat", release_run_id=9
+                    )
+                )
+                self.assertTrue(
+                    MAINTENANCE.maintenance_due(
+                        "org/repo", directory, environment="uat", release_run_id=11
+                    )
+                )
+                (directory / "consent-protocol.json").write_text(
+                    json.dumps({**pending, "not_before": 10000})
+                )
+                self.assertTrue(
+                    MAINTENANCE.maintenance_due(
+                        "org/repo", directory, environment="uat"
+                    )
+                )
+                (directory / "completed.json").write_text(
+                    json.dumps({**receipt, "environment": "production"})
+                )
+                with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                    MAINTENANCE.maintenance_due(
+                        "org/repo", directory, environment="uat"
                     )
 
     def test_production_pass_defers_only_its_services_and_commits_completion_last(self):
