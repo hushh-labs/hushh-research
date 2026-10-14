@@ -240,7 +240,7 @@ test.describe("Profile pane custom close layout", () => {
       // The same product component/CSS must keep nested details in the full
       // pane, not return to the shorter reserved-band layout. Bridge acceptance
       // is covered by the focused lifecycle tests, not this geometry fixture.
-      for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 1366 }, { width: 1194, height: 834 }]) {
+      for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 1366 }, { width: 1440, height: 900 }]) {
         await page.setViewportSize(viewport);
         await page.setContent(`<style>${modules}${css}:root { --app-safe-area-top-effective:0px; }</style><div id="root" data-pane="true"></div>`);
         await page.addScriptTag({ content: script });
@@ -257,6 +257,14 @@ test.describe("Profile pane custom close layout", () => {
         expect(control!.width).toBe(44);
         expect(control!.height).toBe(44);
         expect(control!.y).toBeCloseTo(leading!.y, 0);
+        const content = await page.locator('[data-content-start]').boundingBox();
+        expect(Math.abs(leading!.x - content!.x)).toBeLessThanOrEqual(0.5);
+        const formerHeaderInset = await page.addStyleTag({ content:
+          '.native-feature-page[data-content-inset="profile"] .native-feature-page-header { padding-inline:16px; }',
+        });
+        const brokenLeading = await back.boundingBox();
+        expect(Math.abs(brokenLeading!.x - content!.x)).toBeGreaterThan(1);
+        await formerHeaderInset.evaluate(node => node.remove());
         const glyphs = page.locator('[data-icon-tone="capability"] svg');
         expect(await glyphs.count()).toBe(2);
         for (const glyph of await glyphs.all()) {

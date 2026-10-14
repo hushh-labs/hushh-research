@@ -4787,7 +4787,7 @@ function ProfilePageContent({
       surfaceOpen={nativeMenuOpen}
       name={user.displayName || "Your account"} email={user.email} onClose={() => onNativeMenuClose?.()}
       groups={menuGroups} actions={menuActions} />
-    <NativeFeaturePage pane bodyClassName="profile-pane-scroll-root" open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
+    <NativeFeaturePage pane contentInset="profile" bodyClassName="profile-pane-scroll-root" open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
       owner={user.uid} context={JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail])}
       onReady={() => setNativeDetailReady(nativeDetailOwner)}
       onClose={() => onNativeMenuClose?.()}

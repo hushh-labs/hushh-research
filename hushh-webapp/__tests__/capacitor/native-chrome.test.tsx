@@ -16,7 +16,7 @@ import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presenta
 import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
@@ -27,6 +27,7 @@ import { customNativePresentationEnabled } from "@/lib/capacitor/native-presenta
 import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
 import { projectNativeProfileMenu } from "@/components/profile/native-profile-menu";
 import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile/profile-menu-model";
+import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
 
 // Keep qualification-only lifecycle coverage without enabling it in the app.
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
@@ -47,9 +48,17 @@ const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", ca
   subscribe: vi.fn(), prepare: vi.fn(), prepareBackReplacement: vi.fn(), prepareHistoryReplacement: vi.fn(), activate: vi.fn(), update: vi.fn(), suspend: vi.fn(), retire: vi.fn(), restoreFocus: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
+const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: unknown) => void>>(),
+  getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
-  registerPlugin: (plugin: string) => plugin === "HushhNativeDock" ? { ...dockBridge,
+  registerPlugin: (plugin: string) => plugin === "HushhNativeDrawers" ? { ...drawerBridge,
+    addListener: async (name: string, callback: (event: unknown) => void) => {
+      const listeners = drawerBridge.listeners.get(name) ?? new Set<(event: unknown) => void>();
+      listeners.add(callback); drawerBridge.listeners.set(name, listeners);
+      return { remove: async () => { listeners.delete(callback); } };
+    },
+  } : plugin === "HushhNativeDock" ? { ...dockBridge,
     addListener: async (name: string, callback: (event: unknown) => void) => {
       await dockBridge.subscribe(name);
       dockBridge.callbacks.set(name, callback);
@@ -64,17 +73,81 @@ vi.mock("@capacitor/core", () => ({
     return { remove: async () => { listeners.delete(callback); if (!listeners.size) bridge.callbacks.delete(name); } };
   } }),
 }));
-const privacy = vi.hoisted(() => ({ callbacks: new Set<(event: { generation: number; shielded: boolean; appIsActive: boolean }) => void>() }));
+const privacy = vi.hoisted(() => ({ callbacks: new Set<(event: { generation: number; shielded: boolean; appIsActive: boolean }) => void>(),
+  observations: new Set<() => void>(), epoch: 0,
+  state: { generation: 0, shielded: false, appIsActive: true, cause: "inactive" as const } }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => bridge.documentId,
-  subscribeNativePrivacyObservation: () => () => undefined,
-  nativePrivacyObservation: () => ({ state: { generation: 0, shielded: false, appIsActive: true }, epoch: 0 }),
-  getNativeSessionPrivacyState: async () => ({ generation: 0, shielded: false, appIsActive: true }),
+  subscribeNativePrivacyObservation: (callback: () => void) => {
+    privacy.observations.add(callback); return () => { privacy.observations.delete(callback); };
+  },
+  nativePrivacyObservation: () => ({ state: privacy.state, epoch: privacy.epoch }),
+  getNativeSessionPrivacyState: async () => privacy.state,
   subscribeNativeSessionPrivacy: async (callback: (event: { generation: number; shielded: boolean; appIsActive: boolean }) => void) => {
     privacy.callbacks.add(callback);
     return { remove: async () => { privacy.callbacks.delete(callback); } };
   } }));
 const voiceSurface = vi.hoisted(() => ({ current: null as null | { interactionLayer: { blocksUnderlyingActions: boolean } } }));
 vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => voiceSurface.current, getVoiceSurfaceMetadata: () => voiceSurface.current }));
+describe("native drawer resume admission", () => {
+  it("readmits after an accepted privacy release without a native event and rejects old choices", async () => {
+    const original = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    bridge.platform = "ios"; bridge.documentId = crypto.randomUUID();
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    privacy.epoch = 0;
+    publishValidatedAuthSessionOwner("synthetic-resume-owner");
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { configurable: true, value: { contractVersion: 1, enabled: true } });
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
+      historyActions: true, generation: 0, isolated: false });
+    drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
+    drawerBridge.retire.mockReset().mockImplementation(async identity => ({ ...identity, phase: "retired", updateSequence: 1, privacyGeneration: privacy.state.generation }));
+    drawerBridge.confirmChoice.mockReset().mockResolvedValue({ valid: true });
+    const action = vi.fn();
+    function Drawer() {
+      const phase = useNativeDrawerPresentation({ family: "history", owner: "synthetic-resume-owner",
+        vaultEpoch: snapshotVaultSessionEpoch(), ready: true, open: true, title: "Public samples",
+        project: () => ({ sections: [{ id: "samples", rows: [{ id: "sample", label: "Sample chat", enabled: true }] }],
+          actions: { rows: new Map([["sample", action]]), open: vi.fn(), close: vi.fn() } }) });
+      return <output>{phase}</output>;
+    }
+    const view = render(<Drawer />);
+    try {
+      await waitFor(() => expect(view.getByText("native")).toBeInTheDocument());
+      const old = drawerBridge.apply.mock.calls[0][0];
+      const transition = (shielded: boolean, appIsActive: boolean, nativeEvent: boolean) => act(() => {
+        privacy.state = { generation: 1, shielded, appIsActive, cause: "inactive" };
+        privacy.epoch++;
+        privacy.observations.forEach(callback => callback());
+        if (nativeEvent) privacy.callbacks.forEach(callback => callback(privacy.state));
+      });
+      transition(true, false, true);
+      await waitFor(() => expect(drawerBridge.retire).toHaveBeenCalledOnce());
+      transition(true, true, true);
+      expect(drawerBridge.apply).toHaveBeenCalledOnce();
+      transition(false, true, false); // Auth validation receipt, no listener event.
+      await waitFor(() => expect(drawerBridge.apply).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(view.getByText("native")).toBeInTheDocument());
+      const next = drawerBridge.apply.mock.calls[1][0];
+      expect(next.privacyGeneration).toBe(1);
+      expect(next.revision).toBeGreaterThan(old.revision);
+      const emit = (state: NativeDrawerProjection, sequence: number) => act(() => {
+        drawerBridge.listeners.get("choice")?.forEach(callback => callback({ ...state,
+          action: "row", rowId: "sample", sequence, interactionGeneration: 1 }));
+      });
+      emit(old, 1);
+      expect(drawerBridge.confirmChoice).not.toHaveBeenCalled();
+      emit(next, 2);
+      await waitFor(() => expect(action).toHaveBeenCalledOnce());
+    } finally {
+      view.unmount();
+      await act(async () => { await Promise.resolve(); });
+      privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" }; privacy.epoch = 0;
+      publishValidatedAuthSessionOwner(null);
+      if (original) Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", original);
+      else Reflect.deleteProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    }
+  });
+});
 describe("private native drawer action boundary", () => {
   it("selects recovery before discovery unless the wrapper explicitly bootstraps qualification", () => {
     const key = "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__";
@@ -2127,6 +2200,39 @@ describe("native chrome presentation lease", () => {
       backReplacement: true, profileBackReplacement: true, historyReplacement: true, inPlaceUpdates: true, retainedControls });
     return kind === "history" ? bridge.prepareHistoryReplacement : bridge.prepareBackReplacement;
   }
+
+  it("retains pane-bound Back on nested binding changes but retires on a changed pane", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back"], independentControls: true,
+      coherentPresentation: true, retainedControls: true, inPlaceUpdates: true, profileBackReplacement: false });
+    const oldAction = vi.fn(), nextAction = vi.fn();
+    function Back({ context, generation = 1, action }: { context: string; generation?: number; action: () => void }) {
+      const ref = useRef<HTMLButtonElement>(null);
+      return <NativeChatChrome kind="profile-back" label="Back in Profile" owner="synthetic-owner" context={context}
+        eligible focusRef={ref} onActivate={action} contentPane={{ documentId: bridge.documentId, ownerEpoch: "pane-owner", generation }}>
+        <button ref={ref}>Back in Profile</button>
+      </NativeChatChrome>;
+    }
+    const view = render(<Back context="preferences" action={oldAction} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const old = bridge.prepare.mock.calls[0][0];
+    const retired = bridge.retire.mock.calls.length;
+    view.rerender(<Back context="voice" action={nextAction} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    expect(bridge.suspend).toHaveBeenCalledOnce();
+    expect(bridge.retire).toHaveBeenCalledTimes(retired);
+    expect(bridge.prepareBackReplacement).not.toHaveBeenCalled();
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...old, sequence: 1, updateSequence: 0, privacyGeneration: 0 }));
+    expect(bridge.confirmChoice).not.toHaveBeenCalled();
+    const next = bridge.prepare.mock.calls[1][0];
+    expect(next.contentPane).toEqual(old.contentPane);
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...next, sequence: 2, updateSequence: 0, privacyGeneration: 0 }));
+    await waitFor(() => expect(nextAction).toHaveBeenCalledOnce());
+    expect(oldAction).not.toHaveBeenCalled();
+    view.rerender(<Back context="voice" generation={2} action={nextAction} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(3));
+    expect(bridge.retire).toHaveBeenCalledTimes(retired + 1);
+  });
 
   it.each([
     ["back", false], ["history", false], ["profile-back", false],

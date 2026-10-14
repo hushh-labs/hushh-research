@@ -147,12 +147,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                     container.insertSubview(controller.view, belowSubview: cover)
                 } else { container.addSubview(controller.view) }
                 controller.didMove(toParent: parent)
-                controller.isolation = { [weak self] covered in
+                controller.isolation = { [weak self] _ in
                     guard let self else { return }
-                    let anotherCovered = self.controllers.contains { family, other in
-                        family != next.family && (other.model.projection.open || other.motion.progress > 0)
-                    }
-                    self.container?.isolateForOwnedDrawer(covered || anotherCovered)
+                    // Retiring presenters remain owners until their menu/alert
+                    // disappears, even after leaving the active registry.
+                    let covered = self.controllers.values.contains { $0.coversUnderlyingPresentation } ||
+                        self.retiringControllers.values.contains { $0.coversUnderlyingPresentation }
+                    self.container?.isolateForOwnedDrawer(covered)
                 }
                 controller.model.choose = { [weak self] action, row, text in self?.emit(next.family, action: action, row: row, text: text) == true }
                 controller.invalidateInteractions = { [weak self] in self?.leases[next.family]?.invalidateInteractions() }

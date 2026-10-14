@@ -2416,11 +2416,12 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 /* Inner views use the reference's balanced Back / title / Close header. */
+:root { --profile-pane-inline-gutter: 28px; }
 .profile-pane-header--inner {
   display: grid !important;
   align-items: center;
   min-height: 79px;
-  padding: 16px !important;
+  padding: 16px var(--profile-pane-inline-gutter) !important;
 }
 
 .profile-pane-header--inner > div:first-child {
@@ -2740,7 +2741,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
    Keep these selectors inside the pane stack: route-level Profile remains on
    the app's ordinary settings presentation. */
 .profile-pane-scroll-root .profile-pane-page--inner {
-  padding-inline: 28px !important;
+  padding-inline: var(--profile-pane-inline-gutter) !important;
   padding-bottom: 28px !important;
 }
 
@@ -2816,9 +2817,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 @media (max-width: 440px) {
-  .profile-pane-scroll-root .profile-pane-page--inner {
-    padding-inline: 12px !important;
-  }
+  :root { --profile-pane-inline-gutter: 12px; }
 
   .profile-pane-scroll-root [data-profile-stack-content="true"] {
     padding-top: 17px !important;
@@ -3054,7 +3053,8 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   background: var(--background);
 }
 .native-feature-page[data-native-feature-pane="profile"] .native-feature-page-body { flex: 1; }
-.native-feature-page[data-native-feature-pane="profile"] .native-feature-page-header { padding: 12px 16px; }
+.native-feature-page[data-native-feature-pane="profile"] .native-feature-page-header { padding: 12px var(--page-inline-gutter-standard); }
+.native-feature-page[data-content-inset="profile"] .native-feature-page-header { padding-inline: var(--profile-pane-inline-gutter); }
 .native-feature-page[data-native-feature-pane="profile"][data-native-feature-side="left"] {
   inset: 0 auto 0 0;
   width: min(360px, 88vw);

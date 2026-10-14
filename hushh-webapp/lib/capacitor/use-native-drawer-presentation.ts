@@ -6,7 +6,7 @@ import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "./native
 import { NativeDrawerPresentation, type NativeDrawerActions } from "./native-drawer-presentation";
 import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection } from "./native-drawers";
 import { useNativeControlAppearance } from "./native-control-appearance";
-import { getNativeSessionPrivacyState, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
+import { getNativeSessionPrivacyState, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
 
 export type NativeDrawerPort = {
   family: NativeDrawerFamily; owner: string | null; vaultEpoch: number; ready: boolean;
@@ -58,10 +58,19 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     if (!nativeDrawersPlatformEligible()) return;
     let active = true, observed = 0;
     let observer: Awaited<ReturnType<typeof subscribeNativeSessionPrivacy>> | null = null;
-    void subscribeNativeSessionPrivacy(event => {
+    const acceptPrivacy = (event: NativeSessionPrivacyState) => {
       if (!active || event.generation < (privacyRef.current?.generation ?? 0)) return;
       observed++; privacyRef.current = event; setPrivacy(event);
-    }).then(handle => {
+    };
+    // Validation receipts may release the cover without another native event.
+    // Observe the shared authoritative result; this consumer never releases it.
+    const removeObservation = subscribeNativePrivacyObservation(() => {
+      const state = nativePrivacyObservation().state;
+      if (state) acceptPrivacy(state);
+    });
+    const initialPrivacy = nativePrivacyObservation().state;
+    if (initialPrivacy) acceptPrivacy(initialPrivacy);
+    void subscribeNativeSessionPrivacy(acceptPrivacy).then(handle => {
       if (!active) { void handle.remove(); return; }
       observer = handle;
       const ordinal = observed;
@@ -76,7 +85,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
         (port.family !== "agent-profile" || capability.agentProfileMenu === true) &&
         (!port.profileMenuRows || capability.profileMenuRows === true));
     }).catch(() => { if (active) setSupported(false); });
-    return () => { active = false; void observer?.remove(); };
+    return () => { active = false; removeObservation(); void observer?.remove(); };
   }, [port.family, port.profileMenuRows]);
   useEffect(() => {
     if (!supported || !port.ready || !port.owner || snapshotValidatedAuthSessionOwner()?.userId !== port.owner ||

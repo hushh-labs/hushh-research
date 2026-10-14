@@ -30,7 +30,7 @@ export function NativeFeatureBack({ owner, context, layer, label = "Back to Chat
 /** App-owned content layer in the existing WebView. The feature owns Back and
  * dismissal; no URL/operation is derived from the rendered DOM. */
 export function NativeFeaturePage({ open, title, owner, context, onBack, onReady, children, layer = "profile-pane", authoredHeader = false,
-  bodyClassName, pane = false, side = "right", onClose, backLabel, closeLabel = "Close Profile", onOpenAutoFocus, onCloseAutoFocus, onEscapeKeyDown, onKeyDown, ...attributes }: {
+  bodyClassName, pane = false, side = "right", contentInset, onClose, backLabel, closeLabel = "Close Profile", onOpenAutoFocus, onCloseAutoFocus, onEscapeKeyDown, onKeyDown, ...attributes }: {
   open: boolean; title: string; owner: string | null; context: string; onBack: () => void; onReady?: () => void; children: ReactNode;
   layer?: NativeFeatureLayer;
   /** Rich editors keep their existing Title/Cancel/Done row, not a second header. */
@@ -39,6 +39,8 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
   /** Keep nested Profile content in the same full-height pane geometry. */
   pane?: boolean;
   side?: "left" | "right";
+  /** Consume the same authored inset as nested Profile content. */
+  contentInset?: "profile";
   onClose?: () => void;
   backLabel?: string;
   closeLabel?: string;
@@ -74,7 +76,7 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
   }, [pane, open, bindingReady, lifetime, readinessContext]);
   return <Dialog open={open} onOpenChange={next => { if (open && !next) onBack(); }} modal>
     <DialogContent {...attributes} aria-label={pane ? title : undefined} {...(pane ? { "aria-labelledby": undefined } : {})}
-      data-native-feature-pane={pane && paneState.phase !== "web" ? "profile" : undefined} data-native-feature-side={side}
+      data-native-feature-pane={pane && paneState.phase !== "web" ? "profile" : undefined} data-native-feature-side={side} data-content-inset={contentInset}
       data-native-pane-ready={ready} style={ready ? undefined : { visibility: "hidden" }} ref={bindContent} tabIndex={-1} showCloseButton={false} nativeLayer={layer} className="native-feature-page translate-x-0 translate-y-0" overlayClassName={pane ? "native-feature-page-overlay native-feature-pane-overlay" : "native-feature-page-overlay"}
       onOpenAutoFocus={event => {
         event.preventDefault();

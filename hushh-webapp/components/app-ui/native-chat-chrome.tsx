@@ -537,7 +537,8 @@ export function NativeChatChrome(props: Props) {
         if (!replacing && retainHost && retiring) await suspendOwnedNativeChrome(retiring);
         if (cancelled) return;
         const resuming = !replacing && retiring !== removedLease.current && peekNativeChromeCapabilities()?.retainedControls === true && theme && geometry &&
-          await canResumeNativeChrome({ ...control, enabled: true, ...theme, ...geometry }, epoch);
+          await canResumeNativeChrome({ ...control, enabled: true, ...theme, ...geometry,
+            ...(props.contentPane ? { contentPane: props.contentPane } : {}) }, epoch);
         if (cancelled || current.current.epoch !== epoch || current.current.context !== context) return;
         if (!replacing && !resuming && !(inactive && retainHost)) {
           // Qualified warm geometry must not expose its web replacement while

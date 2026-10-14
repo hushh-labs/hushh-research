@@ -1010,6 +1010,69 @@ final class AppUITests: XCTestCase {
         XCTAssertNotNil(resumed)
     }
 
+    func testLocalSessionNativeDrawersRecoverTouchAfterSystemInterruption() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Installed coherent qualification candidate only")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("Attach only; installation and unlock are separate")
+        }
+        app.activate()
+        dismissRehearsalChatKeyboard(app)
+        returnToRehearsalChat(app)
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        let opener = app.buttons["Open Profile"].firstMatch
+        guard waitForAdmittedControl(editor), waitForAdmittedControl(opener), !web.buttons["Unlock"].exists else {
+            printCoherentPresentationAdmission(app)
+            XCTFail("NATIVE_RESUME_REQUIRES_UNLOCKED_CHAT"); return
+        }
+        let draft = editor.value as? String // Process-only comparison; never emitted.
+        let profileClose = app.buttons["Close Profile"].firstMatch
+        func verifyTouchAndReturn() -> Bool {
+            guard waitForAdmittedControl(opener) else { return false }
+            opener.tap()
+            guard waitForAdmittedControl(profileClose) else { return false }
+            profileClose.tap()
+            guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else { return false }
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            XCTAssertTrue((editor.value as? String) == draft, "NATIVE_RESUME_DRAFT_CHANGED")
+            return true
+        }
+        guard verifyTouchAndReturn() else { XCTFail("NATIVE_RESUME_BASELINE_TOUCH_FAILED"); return }
+        for cycle in 0..<2 {
+            opener.tap()
+            guard waitForAdmittedControl(profileClose) else { XCTFail("NATIVE_RESUME_DRAWER_NOT_OPEN"); return }
+            XCUIDevice.shared.press(.home)
+            guard app.wait(for: .runningBackground, timeout: 5) || app.state == .runningBackgroundSuspended else {
+                XCTFail("NATIVE_RESUME_BACKGROUND_NOT_OBSERVED"); return
+            }
+            app.activate()
+            guard waitForAdmittedControl(profileClose) else {
+                printCoherentPresentationAdmission(app)
+                XCTFail("NATIVE_RESUME_DRAWER_NOT_READMITTED"); return
+            }
+            profileClose.tap()
+            guard verifyTouchAndReturn() else { XCTFail("NATIVE_RESUME_TOUCH_NOT_RECOVERED"); return }
+            print("NATIVE_RESUME_TOUCH background_cycle=\(cycle + 1) passed=true")
+        }
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.01))
+        top.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.6)))
+        let controlCenter = springboard.otherElements["Control Center"].firstMatch
+        guard controlCenter.waitForExistence(timeout: 5) else {
+            app.activate()
+            XCTFail("NATIVE_RESUME_CONTROL_CENTER_NOT_OBSERVED"); return
+        }
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+            .press(forDuration: 0.05, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)))
+        app.activate()
+        guard verifyTouchAndReturn() else { XCTFail("NATIVE_RESUME_CONTROL_CENTER_TOUCH_NOT_RECOVERED"); return }
+        print("NATIVE_RESUME_TOUCH control_center=true passed=true")
+    }
+
     /// Actual product port, not the synthetic study. Read-only, attach-only and
     /// credential-free after normal unlock; private labels never enter artifacts.
     func testLocalSessionCoherentNativeShellKeepsWarmChat() throws {

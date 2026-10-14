@@ -293,12 +293,15 @@ final class NativeSupportTests: XCTestCase {
         var retired = false
         controller.retire { retired = true }
         XCTAssertFalse(retired, "A removed menu trigger cannot acknowledge native popup absence")
+        XCTAssertTrue(controller.coversUnderlyingPresentation,
+            "Leaving the active registry cannot release touch isolation before popup disappearance")
         XCTAssertFalse(controller.children.isEmpty)
         let animator = OwnedMenuTestAnimator()
         menu.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
         XCTAssertFalse(retired, "willEnd is not completed disappearance")
         animator.finish()
         XCTAssertTrue(retired)
+        XCTAssertFalse(controller.coversUnderlyingPresentation)
         XCTAssertTrue(controller.children.isEmpty)
         XCTAssertFalse(acted, "Retirement cancels a pending action before its popup completes")
         let editable = NativeDrawerRow(id: "row-handle", label: "Public title", detail: nil, symbol: nil,
@@ -341,6 +344,25 @@ final class NativeSupportTests: XCTestCase {
         rowAnimator.finish()
         XCTAssertTrue(disappeared)
         XCTAssertFalse(rowActed, "A removed row cannot deliver its queued menu action")
+    }
+
+    @MainActor
+    func testDrawerMotionQuarantinesInteractionWithoutDisabledAppearance() {
+        let model = NativeDrawerModel(privateDrawerState())
+        let choose = expectation(description: "Only admitted row choice")
+        model.choose = { _, _, _ in choose.fulfill(); return true }
+        let row = model.projection.sections[0].rows[0]
+        XCTAssertTrue(model.controlsEnabled)
+        XCTAssertFalse(model.interactionEnabled)
+        XCTAssertFalse(model.choice("row", row: row.id))
+        model.interactionEnabled = true
+        XCTAssertTrue(model.controlsEnabled)
+        XCTAssertTrue(model.choice("row", row: row.id))
+        model.interactionEnabled = false
+        XCTAssertTrue(model.controlsEnabled, "A temporary motion quarantine must not dim material")
+        model.update(privateDrawerState(update: 2, enabled: false))
+        XCTAssertFalse(model.controlsEnabled, "Authored disabled state retains its visual semantics")
+        wait(for: [choose], timeout: 1)
     }
 
     @MainActor

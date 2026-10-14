@@ -22,6 +22,8 @@ enum NativeDrawerLayout {
 final class NativeDrawerModel: ObservableObject {
     @Published private(set) var projection: NativeDrawerProjection
     @Published var interactionEnabled = false
+    // Motion/privacy quarantine affects hit testing, not authored appearance.
+    var controlsEnabled: Bool { projection.enabled }
     @Published var search = ""
     @Published var detailRow: String?
     @Published var detailMode = "actions"
@@ -90,6 +92,7 @@ final class NativeDrawerModel: ObservableObject {
     }
     @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil) -> Bool {
         guard projection.allows(action: action, row: row, text: text) else { return false }
+        guard action == "open" || action == "close" || interactionEnabled else { return false }
         guard (action != "row" || !choicePending), choose?(action, row, text) == true else { return false }
         if action == "row" { choicePending = true }
         return true
@@ -177,6 +180,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
 
     private var covered: Bool { motion.progress > 0 || animator != nil || intentPending || model.projection.open }
+    var coversUnderlyingPresentation: Bool { !detached && (motion.retired || covered) }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard !motion.retired else { return }
@@ -437,8 +441,8 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         willMove(toParent: nil)
         view.removeFromSuperview()
         removeFromParent()
-        isolation?(false); isolation = nil
         detached = true
+        isolation?(false); isolation = nil
         let completions = retirementCompletions
         retirementCompletions.removeAll()
         for completion in completions { completion() }
@@ -545,7 +549,9 @@ struct NativeDrawerContent: View {
                         .accessibilityIdentifier("native-history-footer")
                 }
             }
-        }.background {
+        }.allowsHitTesting(model.interactionEnabled)
+            .accessibilityHidden(!model.interactionEnabled)
+            .background {
             if model.projection.family == "history" {
                 UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                     bottomTrailingRadius: model.panelCornerRadius, topTrailingRadius: model.panelCornerRadius, style: .continuous)
@@ -579,7 +585,7 @@ struct NativeDrawerContent: View {
                 }.padding(.horizontal, 12)
             }.buttonStyle(.borderless)
                 .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
-                .disabled(!model.interactionEnabled || model.choicePending || !row.enabled || row.pending == true)
+                .disabled(!model.controlsEnabled || model.choicePending || !row.enabled || row.pending == true)
                 .onAppear { renameFocused = row.id }
         } else {
         HStack(spacing: 0) {
@@ -597,7 +603,7 @@ struct NativeDrawerContent: View {
                     if row.pending == true { ProgressView() }
                 }.padding(.leading, 12).padding(.trailing, 4)
                     .frame(minHeight: 44).contentShape(Rectangle())
-            }.disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
+            }.disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
                 .accessibilityLabel(row.label).accessibilityValue(row.detail ?? "")
                 .accessibilityAddTraits(row.selected == true ? .isSelected : [])
                 .accessibilityIdentifier("native-\(model.projection.family)-row-\(row.id)")
@@ -642,7 +648,7 @@ struct NativeDrawerContent: View {
                                     }
                                     Spacer(minLength: 0)
                                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain).disabled(!row.enabled || !model.interactionEnabled || model.choicePending)
+                            }.buttonStyle(.plain).disabled(!row.enabled || !model.controlsEnabled || model.choicePending)
                                 .accessibilityIdentifier("native-profile-row-\(row.id)")
                         }
                     } else {
@@ -701,7 +707,7 @@ struct NativeDrawerContent: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
                 .padding(.horizontal, 16).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || !model.interactionEnabled || model.choicePending)
+        }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || !model.controlsEnabled || model.choicePending)
             .accessibilityIdentifier("native-profile-row-\(row.id)")
     }
     private var searchContent: some View {
@@ -715,7 +721,7 @@ struct NativeDrawerContent: View {
                     Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle())
                 }.buttonStyle(.borderless).accessibilityLabel("Clear chat search")
             }
-        }.padding(.horizontal, 14).frame(minHeight: 44).disabled(!model.interactionEnabled)
+        }.padding(.horizontal, 14).frame(minHeight: 44).disabled(!model.controlsEnabled)
     }
     @ViewBuilder private var searchField: some View {
         if #available(iOS 26.0, *) {
@@ -731,10 +737,10 @@ struct NativeDrawerContent: View {
             }
                 .buttonStyle(.glass).buttonBorderShape(.circle).frame(width: 44, height: 44).accessibilityLabel(label)
                 .accessibilityIdentifier(identifier)
-                .disabled(!model.interactionEnabled)
+                .disabled(!model.controlsEnabled)
         } else {
             Button(action: action) { Image(systemName: symbol) }.frame(width: 44, height: 44)
-                .accessibilityLabel(label).disabled(!model.interactionEnabled)
+                .accessibilityLabel(label).disabled(!model.controlsEnabled)
                 .accessibilityIdentifier(identifier)
         }
     }
@@ -795,7 +801,9 @@ struct NativeDrawerRowMenu: UIViewRepresentable {
     func updateUIView(_ button: NativeDrawerMenuControl, context: Context) {
         button.accessibilityLabel = "Open actions for \(row.label)"
         button.accessibilityIdentifier = "native-\(model.projection.family)-actions-\(row.id)"
-        button.isEnabled = row.enabled && row.pending != true && model.interactionEnabled
+        button.isEnabled = row.enabled && row.pending != true && model.controlsEnabled
+        button.isUserInteractionEnabled = model.interactionEnabled
+        button.accessibilityElementsHidden = !model.interactionEnabled
         if !button.isEnabled { button.dismissOwnedMenu {} }
         let state = model.projection
         var actions = [UIAction]()
