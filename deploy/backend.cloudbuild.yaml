@@ -116,30 +116,38 @@ steps:
         fi
         gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
           --project="$PROJECT_ID" >/dev/null
-        vertex_api_name="$(gcloud services list --enabled \
-          --project="${genai_project_id}" \
-          --filter='config.name=aiplatform.googleapis.com' \
-          --format='value(config.name)' | head -n 1)"
-        if [[ "${vertex_api_name}" != "aiplatform.googleapis.com" ]]; then
-          echo "Vertex AI API must be enabled in ${genai_project_id}." >&2
-          exit 1
-        fi
-        runtime_vertex_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
-          --flatten='bindings[].members' \
-          --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
-          --format='value(bindings.role)' | head -n 1)"
-        if [[ "${runtime_vertex_role}" != "roles/aiplatform.user" ]]; then
-          echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/aiplatform.user in ${genai_project_id}." >&2
-          exit 1
-        fi
-        if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
-          runtime_service_usage_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
-            --flatten='bindings[].members' \
-            --filter="bindings.role=roles/serviceusage.serviceUsageConsumer AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
-            --format='value(bindings.role)' | head -n 1)"
-          if [[ "${runtime_service_usage_role}" != "roles/serviceusage.serviceUsageConsumer" ]]; then
-            echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/serviceusage.serviceUsageConsumer in ${genai_project_id}." >&2
+        # UAT's cross-project release runs a mandatory no-traffic candidate
+        # probe as the runtime identity before promotion. Cloud Build's separate
+        # build identity need not read managed AI API state or IAM policy.
+        # Direct builds and other environments retain the static preflight.
+        if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" && "${_CLOUD_RUN_NO_TRAFFIC}" == "true" && "${_VERIFY_MANAGED_VERTEX_RUNTIME}" == "true" ]]; then
+          echo "UAT cross-project Vertex access will be verified by the required runtime-identity candidate probe."
+        else
+          vertex_api_name="$(gcloud services list --enabled \
+            --project="${genai_project_id}" \
+            --filter='config.name=aiplatform.googleapis.com' \
+            --format='value(config.name)' | head -n 1)"
+          if [[ "${vertex_api_name}" != "aiplatform.googleapis.com" ]]; then
+            echo "Vertex AI API must be enabled in ${genai_project_id}." >&2
             exit 1
+          fi
+          runtime_vertex_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
+            --flatten='bindings[].members' \
+            --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
+            --format='value(bindings.role)' | head -n 1)"
+          if [[ "${runtime_vertex_role}" != "roles/aiplatform.user" ]]; then
+            echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/aiplatform.user in ${genai_project_id}." >&2
+            exit 1
+          fi
+          if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
+            runtime_service_usage_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
+              --flatten='bindings[].members' \
+              --filter="bindings.role=roles/serviceusage.serviceUsageConsumer AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
+              --format='value(bindings.role)' | head -n 1)"
+            if [[ "${runtime_service_usage_role}" != "roles/serviceusage.serviceUsageConsumer" ]]; then
+              echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/serviceusage.serviceUsageConsumer in ${genai_project_id}." >&2
+              exit 1
+            fi
           fi
         fi
         if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" || "${_ANSWER_WORK_DRAIN_ENABLED}" == "true" ]]; then
