@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -66,8 +66,11 @@ async def get_connector_events(
     if not _LIMIT.fullmatch(limit) or int(limit) > MAX_PAGE_SIZE:
         raise _error(422, "INVALID_JOURNAL_QUERY", "Check the replay page size.")
     try:
-        return await SourceJournalService().connector_events(
-            user_id=token_data["user_id"], after=int(after), limit=int(limit)
+        return cast(
+            dict[str, Any],
+            await SourceJournalService().connector_events(
+                user_id=token_data["user_id"], after=int(after), limit=int(limit)
+            ),
         )
     except (SourceJournalUnavailable, ValueError) as exc:
         logger.warning("source_journal.unavailable type=%s", type(exc).__name__)
