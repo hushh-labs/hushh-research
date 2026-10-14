@@ -41,6 +41,17 @@ measurement spans; all 2567 previous occurrences, review history, detector and
 budgets remain intact. All 77 existing capacity/retention cases pass. Measurement
 qualification does not establish UAT behavior or Sandbox financial acceptance.
 
+Main's following referral-replay fix `bea28e6d40f8` is merged normally at
+`88c984f8825d`; all 42 migration-authority cases pass against an owned synthetic
+PostgreSQL cluster. The 308-entry release manifest, head 348, all 14 task SQL
+bodies, active private SQL and original preservation receipt remain unchanged.
+The exact-source review qualifies five inherited measurement spans while
+preserving the prior 17-span review and all history. The adapter changes only
+the pinned historical referral replay, preserves policy rows and references,
+and creates no migration receipts or new policy activation. Its observed UAT
+v3 policy still requires the owning release lane's exact owner attestation;
+synthetic fixture validation does not supply that approval.
+
 The incoming UAT capacity work has a separate recovery gap: PR #7920 adds a
 third deployment job, while the hygiene-only retention verifier admits exactly
 the historical two-job receipt. A tag-cleanup-only failure on the new workflow
