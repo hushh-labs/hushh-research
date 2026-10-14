@@ -72,13 +72,13 @@ export function WalletCardScanner({ active, disabled, featured = false, onRead, 
       <button type="button" className={styles.scanArtwork} aria-label="Scan card"
         disabled={disabled || busy || !active} onClick={choose}>
         <Image src="/wallet/card-scan-reference.png" alt="" width={253} height={212} unoptimized className={styles.scanReference} />
+        <span className={styles.scanAffordance} aria-hidden="true"><ProfilePaneScanIcon /></span>
       </button>
     </div> : <div className={styles.scanActions}>
       <Button type="button" variant="ghost" className={styles.scanAction} size="compact" disabled={disabled || busy || !active} onClick={choose}>
         <ProfilePaneScanIcon className={styles.fieldIcon} />Scan card
       </Button>
     </div>}
-
     {busy ? <div className={styles.scanProgress} role="status">
       <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
       Reading on your device…

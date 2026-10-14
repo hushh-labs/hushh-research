@@ -24,6 +24,11 @@ function fillRequired() {
   fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
 }
 
+function openAdditional() {
+  const summary = screen.getByText("Additional details");
+  if (!summary.closest("details")?.open) fireEvent.click(summary);
+}
+
 function submit() {
   fireEvent.submit(screen.getByTestId("secure-card-add-form"));
 }
@@ -45,12 +50,14 @@ describe("Secure manual card entry", () => {
     networkApi.supported.mockRejectedValueOnce(new Error("offline"));
     render(<SecureCardAddForm onSubmit={vi.fn()} />);
     fillRequired();
+    openAdditional();
     const retry = await screen.findByRole("button", { name: "Retry network options" });
     await screen.findByText("Network identified from the card prefix. This does not verify the card or its issuer.");
     expect(screen.getByTestId("secure-card-save")).not.toBeDisabled();
     fireEvent.click(retry);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Retry network options" })).toBeNull());
-    fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+    openAdditional();
+  fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
     expect(await screen.findByRole("option", { name: "American Express", exact: true })).toBeVisible();
     expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
     expect(networkApi.supported).toHaveBeenCalledTimes(2);
@@ -70,6 +77,24 @@ describe("Secure manual card entry", () => {
     expect(screen.getByLabelText("CVV")).toHaveAttribute("aria-describedby");
     expect(screen.getByText("Enter the name on your card.")).toBeInTheDocument();
     expect(screen.getByText("Enter the security code on your card.")).toBeInTheDocument();
+  });
+
+  it("reopens hidden optional fields on invalid input and keeps the error focused", async () => {
+    const save = vi.fn();
+    render(<SecureCardAddForm onSubmit={save} />);
+    const additional = screen.getByText("Additional details").closest("details")!;
+    expect(additional.open).toBe(false);
+    fillRequired();
+    openAdditional();
+    fireEvent.change(screen.getByLabelText("PIN (optional)"), { target: { value: "12" } });
+    fireEvent.click(screen.getByText("Additional details"));
+    await waitFor(() => expect(additional.open).toBe(false));
+    await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
+    submit();
+    expect(save).not.toHaveBeenCalled();
+    expect(additional.open).toBe(true);
+    expect(screen.getByLabelText("PIN (optional)")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveFocus();
   });
 
   it("submits once with omitted optional fields and clears credentials only after success", async () => {
@@ -97,7 +122,8 @@ describe("Secure manual card entry", () => {
     const save = vi.fn().mockRejectedValueOnce(new Error("private card request details")).mockResolvedValue(undefined);
     render(<SecureCardAddForm onSubmit={save} initialNickname="Offer label" />);
     fillRequired();
-    fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+    openAdditional();
+  fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("option", { name: "Mastercard", exact: true }));
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
     submit();
@@ -112,7 +138,8 @@ describe("Secure manual card entry", () => {
   it("uses the Profile dropdown for region selection and allows clearing it", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     render(<SecureCardAddForm onSubmit={save} />);
-    const region = screen.getByRole("combobox", { name: "Issuing region (optional)" });
+    openAdditional();
+    const region = screen.getByLabelText("Issuing region (optional)");
     fireEvent.keyDown(region, { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("option", { name: "India", exact: true }));
     expect(region).toHaveTextContent("India");
@@ -133,8 +160,8 @@ describe("Secure manual card entry", () => {
     view.rerender(<SecureCardAddForm active={false} onSubmit={save} />);
     expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
     expect(screen.getByLabelText("Card number")).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Issuing region (optional)" })).toBeDisabled();
+    expect(screen.getByLabelText("Card network (optional)")).toBeDisabled();
+    expect(screen.getByLabelText("Issuing region (optional)")).toBeDisabled();
     submit();
     expect(save).not.toHaveBeenCalled();
   });
@@ -231,7 +258,7 @@ it("shows a neutral label and explains a failed backend lookup", async () => {
   render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
   fillRequired();
   expect(await screen.findByText("Network identification is unavailable. Your card will use a neutral Card label.")).toBeInTheDocument();
-  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect");
+  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect");
   expect(screen.queryByText("private lookup diagnostic")).toBeNull();
   submit();
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ nickname: "Card", brand: undefined })));
@@ -242,7 +269,7 @@ it("explains ambiguous networks without displaying a guessed brand", async () =>
   render(<SecureCardAddForm onSubmit={vi.fn()} scanEnabled={false} />);
   fillRequired();
   expect(await screen.findByText("This number matches more than one network. Choose the network printed on your card.")).toBeInTheDocument();
-  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect");
+  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect");
 });
 
 it("discards a late reply for a previous issuer prefix", async () => {
@@ -254,10 +281,10 @@ it("discards a late reply for a previous issuer prefix", async () => {
   await waitFor(() => expect(networkApi.resolve).toHaveBeenCalledOnce());
   const signal = networkApi.resolve.mock.calls[0][2] as AbortSignal;
   fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "5555555555554444" } });
-  await waitFor(() => expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect · Mastercard"));
+  await waitFor(() => expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect · Mastercard"));
   expect(signal.aborted).toBe(true);
   await act(async () => finish({ network: "amex", source: "prefix", candidates: [] }));
-  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect · Mastercard");
+  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect · Mastercard");
 });
 
 it("hides the previous network when the owner authorization changes", async () => {
@@ -267,12 +294,12 @@ it("hides the previous network when the owner authorization changes", async () =
   const save = vi.fn();
   const view = render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
   fillRequired();
-  await waitFor(() => expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect · Visa"));
+  await waitFor(() => expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect · Visa"));
   view.rerender(<SecureCardAddForm onSubmit={save} scanEnabled={false} getNetworkContext={() => ({ userId: "owner", vaultOwnerToken: "renewed-consent" })} />);
-  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent(/^Auto-detect$/);
+  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent(/^Auto-detect$/);
   await waitFor(() => expect(networkApi.resolve).toHaveBeenCalledTimes(2));
   await act(async () => finish({ network: "mastercard", source: "prefix", candidates: [] }));
-  expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toHaveTextContent("Auto-detect · Mastercard");
+  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect · Mastercard");
 });
 
 it("offers a new backend network and distinguishes owner selection from identification", async () => {
@@ -280,6 +307,7 @@ it("offers a new backend network and distinguishes owner selection from identifi
   render(<SecureCardAddForm onSubmit={vi.fn()} />);
   fillRequired();
   expect(await screen.findByText("Network identified from the card prefix. This does not verify the card or its issuer.")).toBeInTheDocument();
+  openAdditional();
   fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
   fireEvent.click(await screen.findByRole("option", { name: "FUTURE NETWORK" }));
   expect(await screen.findByText("You selected this network. This does not verify the card or its issuer.")).toBeInTheDocument();
@@ -289,6 +317,7 @@ it("explains an incompatible manual network length and recovers after correction
   const save = vi.fn().mockResolvedValue(undefined);
   render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
   fillRequired();
+  openAdditional();
   fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
   fireEvent.click(await screen.findByRole("option", { name: "American Express", exact: true }));
   expect(await screen.findByText("The card number length does not match the selected network.")).toBeInTheDocument();

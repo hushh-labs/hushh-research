@@ -93,3 +93,11 @@
     text-decoration: underline;
   }
 }
+
+/* A visitor preview is its own reading surface; the payment-card face remains in Cards. */
+.browser:has([data-wallet-visitor-preview="true"]) { margin-top: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.browser:has([data-wallet-visitor-preview="true"]) .selectedFace { display: none; }
+
+@layer base {
+  .browser [data-wallet-visitor-preview="true"] h3 { font-family: var(--font-app-body) !important; font-size: 13px !important; font-weight: 500 !important; line-height: 1.2 !important; }
+}
