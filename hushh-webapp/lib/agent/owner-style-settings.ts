@@ -201,6 +201,17 @@ export function stageOwnerStyleProposal(ownerUserId: string, proposal: OwnerStyl
   if (typeof window !== "undefined") window.dispatchEvent(new Event(OWNER_STYLE_PROPOSAL_EVENT));
 }
 
+/** Reading a form must not consume an unsaved proposal during a remount. */
+export function readOwnerStyleProposal(ownerUserId: string): OwnerStyleProposal | null {
+  if (stagedProposal && stagedProposal.expiresAt <= Date.now()) stagedProposal = null;
+  return stagedProposal?.ownerUserId === ownerUserId ? stagedProposal.proposal : null;
+}
+
+/** Clear only the proposal this form saved; a newer offer must survive. */
+export function clearOwnerStyleProposal(ownerUserId: string, proposal: OwnerStyleProposal): void {
+  if (stagedProposal?.ownerUserId === ownerUserId && stagedProposal.proposal === proposal) stagedProposal = null;
+}
+
 /** Take the staged proposal once; another owner or an expired one gets nothing. */
 export function takeOwnerStyleProposal(ownerUserId: string): OwnerStyleProposal | null {
   const staged = stagedProposal;
