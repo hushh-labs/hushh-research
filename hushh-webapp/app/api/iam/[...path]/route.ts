@@ -48,6 +48,17 @@ async function proxyRequest(
 ) {
   const requestId = resolveRequestId(request);
   const query = request.nextUrl.search;
+  if (
+    params.path.length === 0 ||
+    params.path.length > 8 ||
+    params.path.some((segment) => segment.length > 128)
+  ) {
+    return withRequestIdJson(
+      requestId,
+      { error: "Invalid IAM API path" },
+      { status: 400 }
+    );
+  }
   const path = params.path.join("/");
   const targetUrl = `${getPythonApiUrl()}/api/iam/${path}${query}`;
   const authHeader = request.headers.get("authorization") || "";
