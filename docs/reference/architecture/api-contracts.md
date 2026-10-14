@@ -163,7 +163,11 @@ use the same backend route.
 `GET`, `POST` and `DELETE /api/one/hosted-memory/pilot` require the authenticated
 owner's `VAULT_OWNER` token and return `private, no-store`. There is no owner ID
 in the URL or request body. `POST` accepts only
-`{"sourceKind":"curated_oauth_connector","reviewVersion":"hosted_memory_pilot.v1","expectedGeneration":"0","acknowledgeHostedCustody":true,"acknowledgeSourceScope":true}`.
+`{"sourceKind":"curated_oauth_connector","sourceId":"hubspot","reviewVersion":"hosted_memory_pilot.v1","expectedGeneration":"0","acknowledgeHostedCustody":true,"acknowledgeSourceScope":true}`.
+`sourceId` must identify a checked-in curated OAuth MCP provider that is still
+active in the operator-owned reviewed connector catalog. The selected provider
+is pinned to this grant generation. A different provider requires a new review
+generation and erases the preceding staged envelope.
 Unknown fields, including attempted vault keys or owner tokens, are rejected
 with a private 422. The response contains `status` (`off`, `pending`, `expired`,
 or `revoked`), an opaque `grantId`, decimal-string `generation`, selected source,
@@ -179,9 +183,38 @@ it creates a revoked generation-1 fence so a delayed initial POST cannot
 restore pending intent. Owner account reset erases the
 pending record; full account erasure cascades from `vault_keys`.
 
-This endpoint records review intent only. It stores no vault key, owner token,
-DEK, wrapped key, attestation, source value, or runtime credential. No endpoint
-activates a worker or authorizes closed-app source reads. A missing or
+`PUT /api/one/hosted-memory/pilot/envelope` requires the same owner token and
+stages one owner-encrypted `connector_status.v1` snapshot for the selected
+provider. Its strict body has `grantId`, decimal-string `expectedGeneration`,
+`sourceKind`, `sourceId`, `scope`, `envelopeVersion` (`aes256gcm.pilot.v1`),
+decimal-string `expectedRevision`, UUID-v4 `keyId`, unpadded URL-safe base64
+`nonceBase64Url` (12-byte AES-GCM IV), `ciphertextBase64Url` (ciphertext with
+16-byte tag), and lowercase-hex `aadSha256`. The UTF-8 AAD is exactly
+`hushh-hosted-source-v1\n` + unpadded base64url(owner UID) + `\n` + grant UUID
++ `\n` + decimal generation + `\n` + source ID +
+`\nconnector_status.v1\n` + decimal new revision, without a trailing newline.
+The owner encrypts with a locally owner-wrapped pilot key and a fresh random IV
+for every revision. The server verifies the AAD digest, grant, source and
+revision, but cannot inspect the encrypted status. It rejects reuse of the
+immediately preceding `(keyId, nonce)` pair; the client remains responsible
+for never reusing a key and IV across older revisions. A successful PUT and
+`GET /api/one/hosted-memory/pilot/envelope` return exact ciphertext, digest,
+revision and source metadata with `private, no-store` and
+`captureEnabled:false`, `workerPaired:false`. Stale or changed grants return
+private 409; malformed envelopes return private 422; absent current ciphertext
+returns private 404.
+The owner-side plaintext status before encryption uses
+`not_connected|connected|verifying|needs_reauth|revoked|error`; `not_connected`
+is an authoritative tombstone for future client projection merges.
+The server cannot infer or validate any of these values from ciphertext.
+
+Review and owner staging store no vault key, owner token, plaintext source value,
+DEK, wrapped key, attestation or runtime credential. No route activates a worker,
+releases a key, or authorizes closed-app source reads. A pending review expires
+after 15 minutes and immediately blocks envelope readback and new staging.
+The encrypted row remains in storage after expiry until renewed review, source
+switch, revocation, account reset or full erasure; no expiry purge runs yet.
+Grant change and revocation erase that row transactionally. A missing or
 unavailable table returns a private 503 rather than claiming capture is active.
 The owner-facing enrollment and separately reviewed key-custody protocol in
 [the hosted custody ADR](./hosted-confidential-memory-custody-adr.md) remain

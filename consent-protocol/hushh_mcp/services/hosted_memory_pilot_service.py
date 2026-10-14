@@ -15,6 +15,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from db.db_client import get_db
+from hushh_mcp.services.hosted_memory_envelope_contract import (
+    active_catalog_source,
+    admitted_source_id,
+)
 
 SOURCE_KIND = "curated_oauth_connector"
 REVIEW_VERSION = "hosted_memory_pilot.v1"
@@ -35,6 +39,7 @@ def _public_state(row: Any | None) -> dict[str, Any]:
             "grantId": None,
             "generation": "0",
             "sourceKind": None,
+            "sourceId": None,
             "reviewVersion": None,
             "reviewedAt": None,
             "expiresAt": None,
@@ -52,6 +57,7 @@ def _public_state(row: Any | None) -> dict[str, Any]:
         "grantId": str(row["grant_id"]),
         "generation": str(row["generation"]),
         "sourceKind": row["source_kind"],
+        "sourceId": row["source_id"],
         "reviewVersion": row["review_version"],
         "reviewedAt": row["reviewed_at"].isoformat(),
         "expiresAt": expires_at.isoformat(),
@@ -79,7 +85,7 @@ class HostedMemoryPilotService:
                 self._configure(connection)
                 row = (
                     connection.execute(
-                        text("""SELECT grant_id, generation, source_kind, review_version,
+                        text("""SELECT grant_id, generation, source_kind, source_id, review_version,
                                       status, reviewed_at, expires_at, revoked_at,
                                       clock_timestamp() AS observed_at
                                FROM public.live_memory_hosted_pilot_grants
@@ -96,29 +102,36 @@ class HostedMemoryPilotService:
         except SQLAlchemyError:
             raise HostedMemoryPilotUnavailable("hosted memory review unavailable") from None
 
-    async def request_pending(self, *, user_id: str, expected_generation: int) -> dict[str, Any]:
+    async def request_pending(
+        self, *, user_id: str, expected_generation: int, source_id: str
+    ) -> dict[str, Any]:
         if not user_id or not 0 <= expected_generation <= 2**63 - 1:
             raise ValueError("owner identity and valid generation required")
+        if not admitted_source_id(source_id):
+            raise ValueError("source is outside the curated pilot")
 
         def write() -> dict[str, Any]:
             with self.db.engine.begin() as connection:
                 self._configure(connection)
+                if not active_catalog_source(connection, source_id):
+                    raise ValueError("source is outside the active curated catalog")
                 inserted = None
                 if expected_generation == 0:
                     inserted = (
                         connection.execute(
                             text("""INSERT INTO public.live_memory_hosted_pilot_grants
-                                  (user_id, source_kind, review_version, status,
+                                  (user_id, source_kind, source_id, review_version, status,
                                    reviewed_at, expires_at)
-                               VALUES (:user_id, :source_kind, :review_version, 'pending',
+                               VALUES (:user_id, :source_kind, :source_id, :review_version, 'pending',
                                        clock_timestamp(), clock_timestamp() + interval '15 minutes')
                                ON CONFLICT (user_id) DO NOTHING
-                               RETURNING grant_id, generation, source_kind, review_version,
+                               RETURNING grant_id, generation, source_kind, source_id, review_version,
                                          status, reviewed_at, expires_at, revoked_at,
                                          clock_timestamp() AS observed_at"""),
                             {
                                 "user_id": user_id,
                                 "source_kind": SOURCE_KIND,
+                                "source_id": source_id,
                                 "review_version": REVIEW_VERSION,
                             },
                         )
@@ -129,7 +142,7 @@ class HostedMemoryPilotService:
                     return _public_state(inserted)
                 existing = (
                     connection.execute(
-                        text("""SELECT grant_id, generation, source_kind, review_version,
+                        text("""SELECT grant_id, generation, source_kind, source_id, review_version,
                                       status, reviewed_at, expires_at, revoked_at,
                                       clock_timestamp() AS observed_at
                                FROM public.live_memory_hosted_pilot_grants
@@ -148,11 +161,13 @@ class HostedMemoryPilotService:
                         expected_generation == 0
                         and int(existing["generation"]) == 1
                         and existing["status"] == "pending"
+                        and existing["source_id"] == source_id
                         and existing["expires_at"] > existing["observed_at"]
                     ):
                         raise HostedMemoryPilotConflict("review generation changed")
                 if (
                     existing["status"] == "pending"
+                    and existing["source_id"] == source_id
                     and existing["expires_at"] > existing["observed_at"]
                 ):
                     return _public_state(existing)
@@ -160,17 +175,19 @@ class HostedMemoryPilotService:
                     connection.execute(
                         text("""UPDATE public.live_memory_hosted_pilot_grants
                                SET grant_id=gen_random_uuid(), generation=generation+1,
-                                   source_kind=:source_kind, review_version=:review_version,
+                                   source_kind=:source_kind, source_id=:source_id,
+                                   review_version=:review_version,
                                    status='pending', reviewed_at=clock_timestamp(),
                                    expires_at=clock_timestamp() + interval '15 minutes',
                                    revoked_at=NULL, updated_at=clock_timestamp()
                                WHERE user_id=:user_id
-                               RETURNING grant_id, generation, source_kind, review_version,
+                               RETURNING grant_id, generation, source_kind, source_id, review_version,
                                          status, reviewed_at, expires_at, revoked_at,
                                          clock_timestamp() AS observed_at"""),
                         {
                             "user_id": user_id,
                             "source_kind": SOURCE_KIND,
+                            "source_id": source_id,
                             "review_version": REVIEW_VERSION,
                         },
                     )
@@ -213,7 +230,7 @@ class HostedMemoryPilotService:
                                      live_memory_hosted_pilot_grants.revoked_at,
                                      clock_timestamp()),
                                    updated_at=clock_timestamp()
-                               RETURNING grant_id, generation, source_kind, review_version,
+                               RETURNING grant_id, generation, source_kind, source_id, review_version,
                                          status, reviewed_at, expires_at, revoked_at,
                                          clock_timestamp() AS observed_at"""),
                         {

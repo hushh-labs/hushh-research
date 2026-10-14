@@ -1,35 +1,43 @@
 # ADR: Proposed hosted Confidential Space memory runtime and key custody
 
-Status: **Hosted runtime and key custody proposed; pending owner-review
-foundation implemented, capture disabled.**
+Status: **Owner-only scoped ciphertext staging implemented in this branch;
+hosted runtime and key release proposed, capture disabled.**
 Updated: 2026-10-15.
 
 ## Visual Map
 
 ```mermaid
 flowchart LR
-  Owner[Unlocked owner client] -. new scoped key and explicit opt-in .-> Wrapped[Owner and runtime wrapped key copies]
-  Owner -. verify nonce-bound attestation .-> VM[Proposed Confidential Space VM]
-  Wrapped -. narrow attested KMS decrypt .-> VM
-  Journal[Proposed encrypted journal and selected source envelopes] -. owner-scoped reads .-> VM
-  VM -. encrypted compare-and-swap write .-> Memory[Derived Live Memory projection]
+  Owner[Unlocked owner client] --> Review[One pending reviewed OAuth source]
+  Review --> Stage[Owner-only encrypted source envelope]
+  Journal[Committed connector metadata hints] -. authenticated replay .-> VM[Proposed Confidential Space VM]
+  Owner -. verified attestation and scoped key release .-> VM
+  Stage -. source-scoped ciphertext .-> VM
+  VM -. verified snapshot repair and encrypted checkpoint .-> Memory[Proposed hosted projection]
 ```
 
-Every dotted path is proposed. The backend has a metadata-only connector hint
-journal and an owner-only, 15-minute pending review-intent API. Neither grants
-worker access or holds a memory decryption key. There is no closed-app worker;
-the owner-operated device proposal is documented separately in the freshness
-ADR.
+Solid paths are separate callable primitives in this branch; the Profile UI
+does not wire them into an enrollment flow. Dotted paths are proposed and
+cannot run.
+The backend has a metadata-only connector hint journal, a 15-minute pending
+review intent for one provider, and owner-only ciphertext staging with exact
+readback. It holds no memory decryption key or worker credential. Review expiry
+blocks reads and writes but does not itself purge staged ciphertext; re-review,
+revocation, reset, or account erasure removes it. There is no closed-app
+worker; the owner-operated device proposal is documented separately in the
+freshness ADR.
 
 ## Context and decision boundary
 
 Today the owner client can refresh Live Memory only while open and unlocked.
 The backend stores the existing PKM ciphertext and does not receive the
 canonical vault key. The connector change journal emits committed metadata
-hints; a narrow owner API can record pending review for curated OAuth status.
-The route always returns `captureEnabled:false` and `workerPaired:false` and
-has no active state or key-release endpoint. A source envelope, replay worker
-and hosted runtime are absent. [The freshness ADR](./living-memory-freshness-adr.md)
+hints; a narrow owner API can record pending review for exactly one curated
+OAuth provider and stage its encrypted status envelope. The route always
+returns `captureEnabled:false` and `workerPaired:false` and has no active state
+or key-release endpoint. The staged envelope is a client-encrypted owner
+readback, not proof of a real source change or a running hosted worker. The
+replay worker and hosted runtime are absent. [The freshness ADR](./living-memory-freshness-adr.md)
 describes the implemented boundary and the earlier owner-operated device
 proposal.
 
@@ -53,16 +61,17 @@ not a certification of this application. [Security overview](https://docs.cloud.
 
 ## Proposed custody protocol
 
-1. **New, scoped content key.** From an unlocked owner client, generate a new
-   per-owner memory data-encryption key for specifically selected source
-   envelopes. Keep an owner-wrapped recovery copy. For the pilot, the client
-   can encrypt that small DEK locally with a pinned Cloud KMS asymmetric
-   public key, then release the wrapped copy only after attestation succeeds.
-   Only the attested workload identity receives the narrowly scoped
-   `asymmetricDecrypt` permission; Cloud KMS returns plaintext to that VM
-   process, so this is explicitly hosted key custody. The legacy canonical
-   vault key is never imported or sent to the
-   hosted runtime. Existing ciphertext cannot be decrypted merely by deriving
+1. **New, scoped content key.** The client-side pilot codec generates one
+   random AES-256 key for the reviewed owner, grant generation and provider.
+   It produces an owner-wrapped recovery copy using the unlocked vault key and
+   encrypts one allowlisted status with owner, source and revision in AES-GCM
+   additional authenticated data. No pilot key is uploaded or persisted by the
+   current backend. Future hosted release may wrap this scoped key to a
+   verified ephemeral workload key or to a pinned Cloud KMS asymmetric key
+   whose decrypt policy is restricted to an attested workload; the exact
+   ceremony needs a separate review. Either route gives the hosted workload
+   access to the scoped plaintext key. The canonical vault key stays on the
+   owner client. Existing PKM ciphertext cannot be decrypted merely by deriving
    an HKDF child key; selected domains need a versioned envelope migration,
    readback verification and rollback before any hosted read is possible.
    [Cloud KMS asymmetric envelope guidance](https://docs.cloud.google.com/kms/docs/asymmetric-encryption).
@@ -71,9 +80,17 @@ not a certification of this application. [Security overview](https://docs.cloud.
    revocation limits before an explicit opt-in. The unlocked client verifies a
    fresh, nonce-bound attestation for the expected production Confidential
    Space image, immutable workload digest and approved launch settings, and
-   binds the evidence to the encrypted client-to-workload channel before
-   releasing the runtime-wrapped key. Google documents custom audience/nonces
-   and TLS channel binding for external relying parties.
+   binds the evidence to the key-release channel before releasing any scoped
+   key. Google documents custom audience/nonces, TLS channel binding and nonce
+   binding to other data for external relying parties. The isolated Python
+   synthetic verifier in this branch requires a direct TLS exporter. An
+   ordinary browser `fetch` cannot provide that exporter through the standard
+   [Web Crypto API](https://www.w3.org/TR/webcrypto/); a browser enrollment
+   needs its own owner-side Google signature and claim verifier, with a fresh
+   challenge and ephemeral workload public-key fingerprint bound into the
+   signed nonce. The workload must prove possession of the corresponding
+   private key before receiving the scoped key. This browser protocol is not
+   implemented or approved here.
    [External resource attestation](https://docs.cloud.google.com/confidential-computing/confidential-space/docs/connect-external-resources),
    [attestation assertions](https://docs.cloud.google.com/confidential-computing/confidential-space/docs/reference/attestation-assertions).
 3. **Narrow hosted release.** Run a single-purpose immutable workload image on
@@ -87,10 +104,14 @@ not a certification of this application. [Security overview](https://docs.cloud.
    policy and enrollment transition, not a silent moving-tag update.
    [Resource access guidance](https://docs.cloud.google.com/confidential-computing/confidential-space/docs/create-grant-access-confidential-resources),
    [attestation assertions](https://docs.cloud.google.com/confidential-computing/confidential-space/docs/reference/attestation-assertions).
-4. **Constrained processing.** The workload consumes only consented encrypted
-   journal events and authoritative owner snapshots, verifies owner identity,
-   source revisions and freshness, then writes derived ciphertext through the
-   existing compare-and-swap contract. Checkpoints advance only after commit
+4. **Constrained processing.** The proposed workload consumes committed
+   journal hints and authoritative owner snapshots, verifies owner identity,
+   source revisions and freshness, then writes derived ciphertext. There is
+   no worker lease, checkpoint or authorization path in this branch. The
+   eventual worker must repair from a verified full snapshot when the bounded
+   connector journal has pruned older events; a cursor supplied beside opaque
+   ciphertext cannot prove that the snapshot covers those events. Checkpoints
+   may advance only after authenticated source verification, encrypted commit
    and readback. The pilot makes no model calls and does not answer paid
    requests. Plaintext keys, values, prompts and document bodies stay out of
    disk, serial console, crash dumps, app logs and traces. Emit only source
@@ -112,11 +133,14 @@ belong in this protocol and its tests. [Resource access guidance](https://docs.c
 
 ## Pilot gates and evidence
 
-The first pilot uses synthetic keys and synthetic owner records. It must prove
-positive and negative attestation decisions (wrong digest, debug image,
-expired/replayed nonce, changed TLS channel), KMS deny outside the attested
-identity, source/owner isolation, failed-read preservation, crash/replay and
-compare-and-swap conflict recovery, scoped rotation, and prompt shutdown on
+The first pilot uses synthetic keys and synthetic owner records. The isolated
+direct-TLS attestation verifier has signed synthetic positive and negative
+tests; it is default disabled and is not browser enrollment. A future browser
+verifier needs the same wrong digest, debug image, expired/replayed nonce and
+changed ephemeral-key negative tests. The complete pilot must also prove KMS
+deny outside the attested identity, source/owner isolation, failed-read
+preservation, crash/replay and compare-and-swap conflict recovery, full-snapshot
+repair after the journal retention window, scoped rotation, and prompt shutdown on
 revocation. Audit **Data Access** logging for Cloud KMS must be explicitly
 enabled and verified; it is not enough to assume Admin Activity logs show key
 reads. [Google audit configuration](https://docs.cloud.google.com/logging/docs/audit/configure-data-access).

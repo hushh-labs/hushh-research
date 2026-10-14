@@ -112,6 +112,9 @@ class AccountService:
             ),
             # Reset preserves vault_keys, so its FK cascade cannot clear this
             # pending hosted-memory review. No reviewed intent survives reset.
+            "live_memory_hosted_source_envelopes": text(
+                "DELETE FROM live_memory_hosted_source_envelopes WHERE user_id = :user_id"
+            ),
             "live_memory_hosted_pilot_grants": text(
                 "DELETE FROM live_memory_hosted_pilot_grants WHERE user_id = :user_id"
             ),
@@ -1497,6 +1500,7 @@ class AccountService:
                 "one_adk_sessions",
                 "one_action_directive_ledger",
                 "one_mcp_pending_calls",
+                "live_memory_hosted_source_envelopes",
                 "live_memory_hosted_pilot_grants",
                 "agent_chat_messages",
                 "agent_chat_conversations",
@@ -2038,6 +2042,7 @@ class AccountService:
                         "one_adk_sessions",
                         "one_action_directive_ledger",
                         "one_mcp_pending_calls",
+                        "live_memory_hosted_source_envelopes",
                         "live_memory_hosted_pilot_grants",
                         "agent_chat_messages",
                         "agent_chat_conversations",

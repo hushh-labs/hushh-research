@@ -307,6 +307,9 @@ tests/services/test_account_service_cleanup_tables.py
 # The PostgreSQL proof exercises migration replay, row isolation, and vault erasure.
 tests/test_hosted_memory_pilot_routes.py
 tests/test_hosted_memory_pilot_postgres.py
+tests/services/test_hosted_memory_envelope_contract.py
+tests/test_hosted_memory_envelope_postgres.py
+tests/services/test_hosted_memory_attestation.py
 # Owner-scoped document request payment snapshots feed the encrypted client
 # projection without exposing Stripe, bank, or document payloads.
 tests/test_requester_document_payment_source_unit.py

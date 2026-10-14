@@ -54,6 +54,14 @@ P0-4 and P0-4R have source declarations and focused adapter tests under review; 
 
 ## Closed-app mode requires a separate opt-in and release gate
 
+The reviewed pilot branch can record a pending owner-selected curated OAuth
+provider and stage one encrypted status envelope with exact owner readback.
+These primitives do not start capture, persist a worker key, or update memory
+after the app closes. The direct-TLS synthetic attestation verifier is not a
+browser enrollment path. A browser owner must be able to verify an attested
+workload key and release only the scoped source key under a separate reviewed
+protocol before any hosted worker is authorized.
+
 The user must be shown the runtime location, exact selected sources and fields, key custody change, ability to pause and revoke, last successful source verification, backlog, error state, and the distinction between stopping future capture and deleting retained information. Enrollment defaults **off** and is separate from OAuth grants, chat memory, location sharing, answer composition and payment consent. A connection to an app or a paid subscription is not consent to continuously ingest its data. Each newly admitted sensitive source requires a fresh owner review; the runtime cannot silently expand its permissions after an update.
 
 Before any “updates while the app is closed” claim, a controlled owner must close and lock every client, then commit real profile, consent and test-mode wallet changes. The enrolled runtime must receive a post-commit event or repair from an authoritative snapshot, persist an encrypted owner-scoped revision and checkpoint, and show a truthful delay/failure state. Restart, duplicate, out-of-order, missed-event, offline and source-overflow cases must replay or repair without fabricating facts, losing a committed deletion or crossing accounts. The team must publish and measure a freshness target and recovery target in the pilot; neither target is implied by a 60-second browser timer. Powered-off owner hardware, an unavailable hosted runtime or a disconnected source makes the memory stale rather than “live.”
