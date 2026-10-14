@@ -177,7 +177,13 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
         'candidate.status === "failed"',
     )
     content = (ROOT / path).read_text(encoding="utf-8")
-    assert 'page.on("response",' not in content
+    # Static asset 5xx diagnosis may observe responses, but GA delivery must
+    # continue to require requestfinished and a successful final response.
+    asset_response_handler = content.split('page.on("response", (response) => {', 1)[1].split(
+        'page.on("request", (request) => {', 1
+    )[0]
+    assert "isCandidateStaticAsset5xx" in asset_response_handler
+    assert "analyticsCollectEvents.push" not in asset_response_handler
     require(
         path,
         '"page_view"',
@@ -196,6 +202,21 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
     assert 'payload.journey === "investor" && payload.step === "entered"' not in content
     package_json = (ROOT / "hushh-webapp/package.json").read_text(encoding="utf-8")
     assert "npm run smoke:analytics:uat -- --full" in package_json
+
+
+def test_uat_analytics_transient_asset_retry_is_bounded_and_fail_closed() -> None:
+    path = ".github/workflows/deploy-uat.yml"
+    content = (ROOT / path).read_text(encoding="utf-8")
+    step = content.split("      - name: Verify governed analytics transport on zero-traffic UAT candidate", 1)[1].split(
+        "      - name: Remove zero-traffic frontend analytics candidate tag", 1
+    )[0]
+    assert step.count("npm run smoke:analytics:uat") == 2
+    assert 'smoke_attempt_1_statuses=("${PIPESTATUS[@]}")' in step
+    assert '"classification": "candidate_asset_unavailable"' in step
+    assert 'exit "${smoke_attempt_1_statuses[0]}"' in step
+    assert "sleep 15" in step
+    assert "npm run smoke:analytics:uat 2>&1 | tee -a /tmp/uat-analytics-smoke.log" in step
+    assert "--to-revisions=" not in step
 
 
 def test_web_targeted_voice_check_uses_locked_protocol_runtime() -> None:
@@ -231,6 +252,7 @@ def main() -> int:
         test_uat_publishes_lane_reasons_in_summary_and_release_artifacts,
         test_uat_frontend_release_blocks_on_real_analytics_smoke,
         test_uat_analytics_smoke_requires_successful_collect_responses,
+        test_uat_analytics_transient_asset_retry_is_bounded_and_fail_closed,
         test_web_targeted_voice_check_uses_locked_protocol_runtime,
         test_web_targeted_layout_check_tracks_people_fixture_inputs,
     )

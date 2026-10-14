@@ -111,6 +111,25 @@ that class to 249 lines. Its affected 140 tests pass. Budgets, scanner, exclusio
 and mandatory core/CI gates are unchanged. These qualifications record retained
 size debt; they do not establish deployment or financial acceptance.
 
+The subsequent core at `6a325eb5e342` passes web-core and 19,246 backend
+cases, then reports three answer-fixture placement failures and two stale
+product-agent registry checks. The added narrower-answer fixture now declares
+its Shared hosting state; production private-placement refusals remain unchanged.
+The canonical registry generator restores the authored paid-answer subagent
+instruction in both package copies. All 63 affected answer and registry cases
+pass, including hosting-change refusal and both model-parameterized freshness
+checks.
+
+The next normal integration includes main `f39f14ab006d`, retaining its verified
+encrypted receipt promotion, preferred-name Settings handoff, drawer material
+and pending-retention recovery changes. Existing owner/vault, warm-cache,
+late-page cancellation, motion and geometry cases survive the reviewed unions.
+Seven frontend files pass 190 focused cases. The new seven-case retention suite
+and three-case analytics-retry suite pass and are added to their existing CI
+entrypoints. Independent review qualifies only 15 exact incoming or union size
+occurrences, with all 15 future-growth negative controls retained. These are
+source checks; final exact-candidate core, CI and Dev release remain required.
+
 Main's separate WorkOS offboarding still resolves directory events by email and
 organization without a verified stable directory-to-SSO-person binding. The IAM
 owner must qualify delayed-event/email-reuse behavior before enabling that lane.

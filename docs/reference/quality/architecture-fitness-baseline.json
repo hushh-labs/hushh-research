@@ -3793,7 +3793,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "MaintenanceAuthorityTest",
-      "value": 2194
+      "value": 2202
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -20110,7 +20110,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
       "symbol": null,
-      "value": 2593
+      "value": 2597
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20308,7 +20308,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/gmail-recent-receipts.test.tsx",
       "symbol": null,
-      "value": 745
+      "value": 767
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20659,7 +20659,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/profile/gmail-receipt-presentation.test.ts",
       "symbol": null,
-      "value": 609
+      "value": 634
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21127,7 +21127,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-history-sidebar.tsx",
       "symbol": null,
-      "value": 805
+      "value": 808
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21505,7 +21505,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/gmail/gmail-recent-receipts.tsx",
       "symbol": null,
-      "value": 931
+      "value": 934
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22369,7 +22369,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1727
+      "value": 1828
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23044,7 +23044,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/pkm-domain-resource.ts",
       "symbol": null,
-      "value": 663
+      "value": 664
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23647,7 +23647,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs",
       "symbol": null,
-      "value": 679
+      "value": 712
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23719,7 +23719,7 @@
       "limit": 500,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": null,
-      "value": 2544
+      "value": 2552
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23891,7 +23891,7 @@
       "limit": 500,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": null,
-      "value": 1358
+      "value": 1581
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24863,7 +24863,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-domain-resource.test.ts",
       "symbol": null,
-      "value": 526
+      "value": 539
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25561,7 +25561,7 @@
       "limit": 80,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "test_trusted_inherited_uat_drain_receipt_schedules_another_wait",
-      "value": 89
+      "value": 90
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25607,6 +25607,24 @@
       "path": "hushh-webapp/components/consent/answer-request-card.tsx",
       "symbol": null,
       "value": 517
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|scripts/ci/test_pending_uat_retention_state.py|PendingUatStateTests|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "scripts/ci/test_pending_uat_retention_state.py",
+      "symbol": "PendingUatStateTests",
+      "value": 271
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/uat-retention-maintenance.py|restore_state|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/uat-retention-maintenance.py",
+      "symbol": "restore_state",
+      "value": 104
     }
   ],
   "inspected_files": 6625,
@@ -43885,6 +43903,148 @@
         "source_sha256": "887d090e75eb9b2b8d304c881aa1e63cca08d41cd11fcb1e3196ac79245d4e9b"
       }
     ]
+  },
+  "scope_commerce_mainf39_integration_review_20261014": {
+    "boundary": "Exact reviewed occurrence ceilings only; historical duplicates, scanner, exclusions and 500/250/80 budgets preserved. Retained modularity debt; runtime/provider acceptance remains separate.",
+    "entries": [
+      {
+        "after": 2202,
+        "before": 2194,
+        "classification": "exact_incoming_main",
+        "key": "class_size|scripts/ci/test_cloudrun_retention.py|MaintenanceAuthorityTest|class exceeds the advisory operon budget",
+        "review": "Incoming retention trust/artifact digest/clock continuity and bounded analytics retry independently reviewed; recovery tests now wired into existing canonical gates.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "d352f886142bb39169626a0160d7e314ef1b8f124c53960a4a0039006bd0537e"
+      },
+      {
+        "after": 271,
+        "before": null,
+        "classification": "exact_incoming_main",
+        "key": "class_size|scripts/ci/test_pending_uat_retention_state.py|PendingUatStateTests|class exceeds the advisory operon budget",
+        "review": "Incoming retention trust/artifact digest/clock continuity and bounded analytics retry independently reviewed; recovery tests now wired into existing canonical gates.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "fa6878b310bdd58c88cfa7392014510665dab16de40c08c457eec79e0b4cfc46"
+      },
+      {
+        "after": 104,
+        "before": null,
+        "classification": "exact_incoming_main",
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|restore_state|function exceeds the advisory gene budget",
+        "review": "Incoming retention trust/artifact digest/clock continuity and bounded analytics retry independently reviewed; recovery tests now wired into existing canonical gates.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "f9083677b97b0ed56a6715daf2e3184f88f679e7a336dbaf8f991d12bab242b4"
+      },
+      {
+        "after": 90,
+        "before": 89,
+        "classification": "exact_incoming_main",
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_trusted_inherited_uat_drain_receipt_schedules_another_wait|function exceeds the advisory gene budget",
+        "review": "Incoming retention trust/artifact digest/clock continuity and bounded analytics retry independently reviewed; recovery tests now wired into existing canonical gates.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "d352f886142bb39169626a0160d7e314ef1b8f124c53960a4a0039006bd0537e"
+      },
+      {
+        "after": 2597,
+        "before": 2593,
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/__tests__/app/profile/receipts/page.test.tsx||module exceeds the advisory operon budget",
+        "review": "Reviewed union preserves encrypted staged promotion, owner/vault fences, late scan cancellation, compact title/time and actual drawer material/gesture checks. Distinct refresh tests retained; shared geometry helper reused.",
+        "reviewer": "frontend_merge_review",
+        "source_sha256": "360e59599641a2313e5dd45ec1329b6ead47b8d72b8cf13f87a3e3b5469e9625"
+      },
+      {
+        "after": 2552,
+        "before": 2544,
+        "classification": "exact_incoming_main",
+        "key": "module_size|scripts/ci/test_cloudrun_retention.py||module exceeds the advisory operon budget",
+        "review": "Incoming retention trust/artifact digest/clock continuity and bounded analytics retry independently reviewed; recovery tests now wired into existing canonical gates.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "d352f886142bb39169626a0160d7e314ef1b8f124c53960a4a0039006bd0537e"
+      },
+      {
+        "after": 1828,
+        "before": 1727,
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Reviewed union preserves encrypted staged promotion, owner/vault fences, late scan cancellation, compact title/time and actual drawer material/gesture checks. Distinct refresh tests retained; shared geometry helper reused.",
+        "reviewer": "frontend_merge_review",
+        "source_sha256": "806706fe8267c623463235079140c59e5cea4d065bfd952a2f6137de18d9b49d"
+      },
+      {
+        "after": 1581,
+        "before": 1358,
+        "classification": "exact_incoming_main",
+        "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+        "review": "Incoming retention trust/artifact digest/clock continuity and bounded analytics retry independently reviewed; recovery tests now wired into existing canonical gates.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "f9083677b97b0ed56a6715daf2e3184f88f679e7a336dbaf8f991d12bab242b4"
+      },
+      {
+        "after": 934,
+        "before": 931,
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/components/gmail/gmail-recent-receipts.tsx||module exceeds the advisory operon budget",
+        "review": "Reviewed union preserves encrypted staged promotion, owner/vault fences, late scan cancellation, compact title/time and actual drawer material/gesture checks. Distinct refresh tests retained; shared geometry helper reused.",
+        "reviewer": "frontend_merge_review",
+        "source_sha256": "daab622f3d04c358821b53c1e1cde12f54f5c266a7f04d40bb5fa12e60eea905"
+      },
+      {
+        "after": 808,
+        "before": 805,
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/components/agent/agent-history-sidebar.tsx||module exceeds the advisory operon budget",
+        "review": "Reviewed union preserves encrypted staged promotion, owner/vault fences, late scan cancellation, compact title/time and actual drawer material/gesture checks. Distinct refresh tests retained; shared geometry helper reused.",
+        "reviewer": "frontend_merge_review",
+        "source_sha256": "c3f00c6d461410734c04f970e7b98c64c2580754fbc1c836bac2af42004c1c1a"
+      },
+      {
+        "after": 767,
+        "before": 745,
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/__tests__/components/gmail-recent-receipts.test.tsx||module exceeds the advisory operon budget",
+        "review": "Reviewed union preserves encrypted staged promotion, owner/vault fences, late scan cancellation, compact title/time and actual drawer material/gesture checks. Distinct refresh tests retained; shared geometry helper reused.",
+        "reviewer": "frontend_merge_review",
+        "source_sha256": "d11c88229250059726e058e0f4f83b4b3b5e2ebabaa33bce7b9b6064ead8a6f8"
+      },
+      {
+        "after": 712,
+        "before": 679,
+        "classification": "exact_incoming_main",
+        "key": "module_size|hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs||module exceeds the advisory operon budget",
+        "review": "Incoming retention trust/artifact digest/clock continuity and bounded analytics retry independently reviewed; recovery tests now wired into existing canonical gates.",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "97dcba529c08c76d4678f49384f239d1270d5e1ccee2787842959bc011346c1f"
+      },
+      {
+        "after": 664,
+        "before": 663,
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/lib/pkm/pkm-domain-resource.ts||module exceeds the advisory operon budget",
+        "review": "Reviewed union preserves encrypted staged promotion, owner/vault fences, late scan cancellation, compact title/time and actual drawer material/gesture checks. Distinct refresh tests retained; shared geometry helper reused.",
+        "reviewer": "frontend_merge_review",
+        "source_sha256": "81ef055349f2419a057da874d46f12bcc6e0876fce3129cd1d96edc2ac9b3401"
+      },
+      {
+        "after": 634,
+        "before": 609,
+        "classification": "exact_incoming_main",
+        "key": "module_size|hushh-webapp/__tests__/lib/profile/gmail-receipt-presentation.test.ts||module exceeds the advisory operon budget",
+        "review": "Reviewed union preserves encrypted staged promotion, owner/vault fences, late scan cancellation, compact title/time and actual drawer material/gesture checks. Distinct refresh tests retained; shared geometry helper reused.",
+        "reviewer": "frontend_merge_review",
+        "source_sha256": "5feb1d623aa7e864a60163cc0b9cc5e3a73a3b05bebbcaa0cec429d537ecff33"
+      },
+      {
+        "after": 539,
+        "before": 526,
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/__tests__/services/pkm-domain-resource.test.ts||module exceeds the advisory operon budget",
+        "review": "Reviewed union preserves encrypted staged promotion, owner/vault fences, late scan cancellation, compact title/time and actual drawer material/gesture checks. Distinct refresh tests retained; shared geometry helper reused.",
+        "reviewer": "frontend_merge_review",
+        "source_sha256": "61769b6b2c4db80df26d1da1edad0f98e71181499cc450307f6ef19838d508b0"
+      }
+    ],
+    "incoming_revision": "f39f14ab006d70ec49a058157195a3106d0d138f",
+    "retained_parent_revision": "6a325eb5e3420f900252711a1e6f2c29d5f34f3c"
   },
   "scope_commerce_native_prebuilt_correction_20261014": {
     "qualification_sha256": "684ff797df30ce6ddeda97ae44f19c116c57b9a9caa8d562eec987f364ef2826",

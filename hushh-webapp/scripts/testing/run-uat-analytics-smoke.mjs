@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { classifyCollectSettlement } from "./analytics-collect-delivery.mjs";
 import {
+  isCandidateAssetUnavailable,
+  isCandidateStaticAsset5xx,
+} from "./analytics-smoke-failure.mjs";
+import {
   defaultReviewerIdentityEnvFiles,
   resolveReviewerTestIdentity,
   sanitizeConfiguredValue,
@@ -347,6 +351,20 @@ const page = await context.newPage();
 page.setDefaultNavigationTimeout(defaultTimeoutMs);
 page.setDefaultTimeout(defaultTimeoutMs);
 await installAnalyticsCapture(page);
+const candidateAsset5xx = [];
+let smokePhase = "initial_navigation";
+
+page.on("response", (response) => {
+  if (
+    isCandidateStaticAsset5xx({
+      candidateOrigin: appOrigin,
+      responseUrl: response.url(),
+      status: response.status(),
+    })
+  ) {
+    candidateAsset5xx.push(response.status());
+  }
+});
 
 page.on("request", (request) => {
   const url = request.url();
@@ -503,7 +521,9 @@ try {
   await page.goto(`${appOrigin}/login?redirect=${encodeURIComponent("/kai")}`, {
     waitUntil: "domcontentloaded",
   });
+  smokePhase = "measurement_id";
   await waitForMeasurementId(page);
+  smokePhase = "later_checks";
 
   const reviewerButton = page.getByRole("button", {
     name: /continue as reviewer/i,
@@ -641,6 +661,24 @@ try {
     measurementIds: [],
   }));
   const reason = error instanceof Error ? error.message : String(error);
+  const observedEventNames = [
+    ...new Set((state.events || []).map((entry) => entry.event)),
+  ];
+  const observedMeasurementIds = [
+    ...new Set([
+      ...(state.measurementIds || []),
+      ...(state.scriptMeasurementIds || []),
+      ...analyticsRequestMeasurementIds,
+    ]),
+  ];
+  const candidateAssetUnavailable = isCandidateAssetUnavailable({
+    phase: smokePhase,
+    reason,
+    failedAssetStatuses: candidateAsset5xx,
+    observedEventNames,
+    observedMeasurementIds,
+    observedGaCollectEvents: analyticsCollectEvents,
+  });
   console.error(
     JSON.stringify(
       {
@@ -648,18 +686,13 @@ try {
         origin: appOrigin,
         expectedMeasurementId,
         reason,
-        classification: classifySmokeFailure(reason),
+        classification: candidateAssetUnavailable
+          ? "candidate_asset_unavailable"
+          : classifySmokeFailure(reason),
         fixturePolicy,
-        observedEventNames: [
-          ...new Set((state.events || []).map((entry) => entry.event)),
-        ],
-        observedMeasurementIds: [
-          ...new Set([
-            ...(state.measurementIds || []),
-            ...(state.scriptMeasurementIds || []),
-            ...analyticsRequestMeasurementIds,
-          ]),
-        ],
+        observedEventNames,
+        observedMeasurementIds,
+        candidateAsset5xxStatuses: candidateAsset5xx,
         observedGaCollectEvents: [
           ...new Set(
             analyticsCollectEvents

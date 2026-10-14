@@ -295,6 +295,7 @@ export function AgentConnectionsDrawer({
             role="dialog"
             data-agent-history-drawer
             data-native-panel-group="history"
+            data-state={historyDisplayed ? "open" : "closed"}
             aria-modal={externalModalOpen ? undefined : true}
             aria-label="Agent chat history"
             aria-hidden={!historyDisplayed || externalModalOpen}
@@ -303,7 +304,7 @@ export function AgentConnectionsDrawer({
             className={cn(
               // Match Profile's bounded inset card at the leading edge. The
               // shared CSS owns geometry; this owner retains focus and motion.
-              "pointer-events-none fixed z-(--z-sheet) touch-pan-y transform-gpu transition-[transform,translate,visibility] motion-reduce:transition-none",
+              "pointer-events-none fixed z-(--z-sheet) touch-pan-y transform transition-[transform,translate,visibility] motion-reduce:transition-none",
               historyDisplayed
                 ? "visible translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
                 : "invisible translate-x-[calc(-100%_-_var(--agent-history-shadow-clearance)_-_var(--app-side-pane-left-inset))] duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",

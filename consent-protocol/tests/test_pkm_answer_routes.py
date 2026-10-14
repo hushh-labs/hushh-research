@@ -322,7 +322,7 @@ async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(
     ],
 )
 async def test_narrower_approved_answer_requires_disclosure_and_no_unexpected_gaps(
-    monkeypatch, answer, gaps, payable
+    monkeypatch, shared_hub_owner, answer, gaps, payable
 ):
     from hushh_mcp.services.answer_composer import AnswerComposer
     from hushh_mcp.services.answer_composition_receipt import verify_composition_receipt

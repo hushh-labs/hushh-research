@@ -19,6 +19,7 @@ import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
 import GmailInformationRequestsSection from "@/components/gmail/gmail-information-requests-section";
 import { GmailRecentReceipts } from "@/components/gmail/gmail-recent-receipts";
 import { GmailReceiptMemorySave } from "@/components/gmail/gmail-receipt-memory-save";
+import { DurableResourceError, durableResourceError } from "@/lib/services/durable-resource-error";
 import { captureReceiptSnapshot, receiptSnapshotRows, type ReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
 import { resolveSavedReceiptMerchantBrand } from "@/lib/mail/receipt-merchant-registry";
 import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
@@ -422,8 +423,18 @@ export default function GmailReceiptsPage({
       receiptPersistenceFailedRef.current = false;
       try {
         // Capture before provider work. Reset cannot be followed by a stale write.
-        let durableVersion = vaultKey && loadAccountKey
-          ? await receiptStoreVersion(loadOwnerId, loadAccountKey).catch(() => null) : null;
+        let durableVersion: Awaited<ReturnType<typeof receiptStoreVersion>> | null = null;
+        const persistenceFailure = (error: unknown, stage: "version" | "schema") => {
+          const typed = durableResourceError(error, stage);
+          console.error("[ProfileReceiptsPage] Receipt persistence failed", { code: typed.code, stage: typed.stage });
+          if (!isCurrentLoad()) return;
+          receiptPersistenceFailedRef.current = true;
+          setReceiptSyncFeedback({ tone: "error", message: "Receipts are visible for this session, but couldn't be saved on this device. Sync again before reloading." });
+        };
+        try {
+          if (!vaultKey || !loadAccountKey) throw new DurableResourceError("key_unavailable", "authority", "Unlock your vault to save receipts.");
+          durableVersion = await receiptStoreVersion(loadOwnerId, loadAccountKey);
+        } catch (error) { persistenceFailure(error, "version"); }
         const scanOwnerGeneration = durableVersion?.generation ?? -1;
         const idToken = await user.getIdToken();
         if (!isCurrentLoad()) return null;
@@ -506,17 +517,29 @@ export default function GmailReceiptsPage({
             : passItems;
           const nextTotal = nextItems.length;
 
-          receiptsRef.current = nextItems;
-          setReceipts(nextItems);
-          setPage(nextLoadedPage);
-          setHasMore(nextHasMore);
-          setTotal(nextTotal);
-          setReceiptScanReachedLimit(response.coverage?.reached_limit === true);
+          // Only Reset may discard good rows when a provider returns an empty pass.
+          if (!shouldContinueScan && !nextItems.length &&
+            (receiptsRef.current.length > 0 || savedReceiptSnapshotRef.current?.value.rows.length)) {
+            persistenceFailure(new DurableResourceError("schema_invalid", "schema", "An empty scan cannot replace saved receipts."), "schema");
+            return false;
+          }
+
+          // Keep a restored projection and its counts coherent until replacement is verified.
+          // An empty scan must also keep currently visible live rows on failure.
+          const deferReplacement = Boolean(savedReceiptSnapshotRef.current) || (!nextItems.length && receiptsRef.current.length > 0);
+          if (!deferReplacement) {
+            receiptsRef.current = nextItems;
+            setReceipts(nextItems);
+            setPage(nextLoadedPage);
+            setHasMore(nextHasMore);
+            setTotal(nextTotal);
+            setReceiptScanReachedLimit(response.coverage?.reached_limit === true);
+          }
           setReceiptListError(null);
           setReceiptListRetryPage(1);
           receiptConnectionLostRef.current = false;
           setReceiptConnectionLost(false);
-          primeCachedGmailReceipts({
+          if (!deferReplacement) primeCachedGmailReceipts({
             userId: loadOwnerId,
             accountKey: loadAccountKey,
             response: {
@@ -530,7 +553,8 @@ export default function GmailReceiptsPage({
             previousItems,
           });
 
-          if (durableVersion && vaultKey && loadAccountKey && (!savedReceiptSnapshotRef.current || !shouldContinueScan)) {
+          // A failed/incomplete provider pass never replaces the prior verified snapshot.
+          if (durableVersion && vaultKey && loadAccountKey && !shouldContinueScan) {
             try {
               const snapshot = await captureReceiptSnapshot(nextItems, loadAccountKey, {
                 partial: shouldContinueScan || response.coverage.reached_limit,
@@ -543,29 +567,35 @@ export default function GmailReceiptsPage({
                 const live = liveRows.find(item => item.id === row.display_id);
                 row.events.forEach((event, index) => { const key = live?.eventTimeline[index]?.sourceReceiptKey; if (key) aliases[event.ref] = key; });
               }
-              if (isCurrentLoad()) setReceiptSourceAliases(aliases);
               durableVersion = await writeReceiptSnapshot({ userId: loadOwnerId, vaultKey,
                 vaultOwnerToken: loadOwnerToken, isCurrent: isCurrentLoad }, snapshot, durableVersion);
-            } catch {
+              if (isCurrentLoad()) setReceiptSourceAliases(aliases);
+            } catch (error) {
               durableVersion = null;
-              receiptPersistenceFailedRef.current = true;
-              if (isCurrentLoad()) setReceiptSyncFeedback({ tone: "error", message: "Receipts are visible for this session, but couldn't be saved on this device. Sync again before reloading." });
+              persistenceFailure(error, "schema");
             }
           }
 
           if (!shouldContinueScan) {
-            if (!durableVersion && (nextItems.length || savedReceiptSnapshotRef.current)) {
-              receiptPersistenceFailedRef.current = true;
-              setReceiptSyncFeedback({ tone: "error", message: "Receipts are visible for this session, but couldn't be saved on this device. Sync again before reloading." });
+            if (!isCurrentLoad()) return null;
+            if (!durableVersion) return false;
+            const committedRevision = durableVersion.revision;
+            if (deferReplacement) {
+              receiptsRef.current = nextItems;
+              setReceipts(nextItems);
+              setPage(nextLoadedPage);
+              setHasMore(nextHasMore);
+              setTotal(nextTotal);
+              setReceiptScanReachedLimit(response.coverage?.reached_limit === true);
+              primeCachedGmailReceipts({ userId: loadOwnerId, accountKey: loadAccountKey, response: { ...response, items: passItems, total: passItems.length }, scanStartedAt });
             }
-            if (isCurrentLoad()) setSavedReceiptSnapshot(null);
-            setReceiptCompletion(previous => ({ scope: `${loadOwnerId}\u0000${String(loadAccountKey || "")}`, count: (previous?.count ?? 0) + 1, generation: scanOwnerGeneration, revision: durableVersion?.revision ?? -1 }));
+            setSavedReceiptSnapshot(null);
+            setReceiptCompletion(previous => ({ scope: `${loadOwnerId}\u0000${String(loadAccountKey || "")}`, count: (previous?.count ?? 0) + 1, generation: scanOwnerGeneration, revision: committedRevision }));
             return true;
           }
           requestedPage = nextLoadedPage + 1;
         }
-        setReceiptCompletion(previous => ({ scope: `${loadOwnerId}\u0000${String(loadAccountKey || "")}`, count: (previous?.count ?? 0) + 1, generation: scanOwnerGeneration, revision: durableVersion?.revision ?? -1 }));
-        return true;
+        return false;
       } catch (error) {
         if (controller.signal.aborted || isReceiptScanAbort(error)) return null;
         if (!isCurrentLoad()) return null;
@@ -1528,6 +1558,7 @@ export default function GmailReceiptsPage({
         return;
       }
       if (!loaded) {
+        if (receiptPersistenceFailedRef.current) return;
         // The scan already retained its sanitized error and retry cursor.
         // An unsuccessful result is not a second, synthetic exception.
         setReceiptSyncFeedback({
