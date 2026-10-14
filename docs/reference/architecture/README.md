@@ -49,6 +49,7 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 - [crd-scraping-api.md](./crd-scraping-api.md): CRD scraping and financial-verification provider contract behind the `/api/ria` facade.
 - [one-location-agent.md](./one-location-agent.md): One Location agent v1 implementation contract.
 - [pkm-storage-adr.md](./pkm-storage-adr.md): decision record for PKM storage shape.
+- [enterprise-sso-workos-adr.md](./enterprise-sso-workos-adr.md): decision record for WorkOS enterprise SSO (Firebase stays the single verifier; identity mapping, org model, deprovision semantics).
 - [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json): machine-readable table-family ownership, retention, deletion, and trust-boundary contract used by the data-model audit.
 - [data-provenance-ledger.md](./data-provenance-ledger.md): provenance and audit data model.
 - [pkm-cutover-runbook.md](./pkm-cutover-runbook.md): PKM cutover and compatibility rules.
