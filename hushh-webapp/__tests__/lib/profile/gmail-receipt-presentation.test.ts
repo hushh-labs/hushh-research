@@ -186,6 +186,31 @@ describe("Gmail receipt presentation", () => {
     });
   });
 
+  it.each([
+    ["Internshala Trainings", "internshala.com", "internshala-trainings", "trainings.internshala.com"],
+    ["Udemy", "udemy.com", "udemy", "udemy.com"],
+    ["Udemy", "email.udemy.com", "udemy", "udemy.com"],
+    ["Udemy", "e.udemymail.com", "udemy", "udemy.com"],
+  ])("resolves the reviewed training merchant %s from official domain %s", (merchant_name, senderDomain, brandKey, logoDomain) => {
+    const brand = resolveReceiptMerchant({ merchant_name, from_email: `receipt@${senderDomain}` });
+    expect(brand).toMatchObject({ displayName: merchant_name, brandKey, logoDomain, category: "Other" });
+    expect(getVerifiedReceiptMerchant(brandKey)).toMatchObject({ merchantId: brandKey, logoDomain, categoryFallback: "Software & Subscriptions" });
+  });
+  it.each([
+    ["Udemy", "udemy.com.evil.example"], ["Udemy", "eviludemy.com"],
+    ["Udemy", "other.udemy.com"], ["Udemy", "udemymail.com"],
+    ["Udemy", "other.udemymail.com"], ["Udemy", "e.udemymail.com.evil.example"],
+    ["Internshala Trainings", "internshala.com.evil.example"],
+    ["Internshala Trainings", "notinternshala.com"], ["Internshala Trainings", "other.internshala.com"],
+    ["Internshala Trainings", "trainings.internshala.com"],
+  ])("rejects the unreviewed sender domain %s / %s", (merchant_name, domain) => {
+    expect(resolveReceiptMerchant({ merchant_name, from_email: `receipt@${domain}` })).toMatchObject({ brandKey: null, logoDomain: null, category: "Other" });
+  });
+  it("accepts the exact reviewed Internshala site as merchant evidence without treating it as a sender", () => {
+    expect(resolveReceiptMerchant({ merchant_name: "Internshala Trainings", merchant_domain: "trainings.internshala.com" }))
+      .toMatchObject({ brandKey: "internshala-trainings", logoDomain: "trainings.internshala.com", category: "Other" });
+    expect(resolveVerifiedReceiptMerchant("trainings.internshala.com")).toBeNull();
+  });
   it("keeps an evidence-backed backend label even when no logo mapping exists", () => {
     expect(
       resolveReceiptMerchant({
