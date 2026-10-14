@@ -533,7 +533,8 @@ export function NativeChatChrome(props: Props) {
           historyReplacement && kind === "history" && props.kind === "history" &&
             previous.canReplaceHistoryWith({ kind: "history", expanded, label: "Chat history", enabled: true, ...theme, ...geometry }, epoch, context) ||
           profileBackReplacement && props.kind === "profile-back" &&
-            previous.canReplaceBackWith({ kind: "profile-back", label: props.label, enabled: true, ...theme, ...geometry }, epoch, context));
+            previous.canReplaceBackWith({ kind: "profile-back", label: props.label, enabled: true, ...theme, ...geometry,
+              ...(props.contentPane ? { contentPane: props.contentPane } : {}) }, epoch, context));
         if (!replacing && retainHost && retiring) await suspendOwnedNativeChrome(retiring);
         if (cancelled) return;
         const resuming = !replacing && retiring !== removedLease.current && peekNativeChromeCapabilities()?.retainedControls === true && theme && geometry &&

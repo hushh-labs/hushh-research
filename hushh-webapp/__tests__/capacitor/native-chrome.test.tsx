@@ -2204,12 +2204,12 @@ describe("native chrome presentation lease", () => {
   it("retains pane-bound Back on nested binding changes but retires on a changed pane", async () => {
     measureSlot();
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back"], independentControls: true,
-      coherentPresentation: true, retainedControls: true, inPlaceUpdates: true, profileBackReplacement: false });
+      coherentPresentation: true, retainedControls: true, inPlaceUpdates: true, profileBackReplacement: true });
     const oldAction = vi.fn(), nextAction = vi.fn();
     function Back({ context, generation = 1, action }: { context: string; generation?: number; action: () => void }) {
       const ref = useRef<HTMLButtonElement>(null);
       return <NativeChatChrome kind="profile-back" label="Back in Profile" owner="synthetic-owner" context={context}
-        eligible focusRef={ref} onActivate={action} contentPane={{ documentId: bridge.documentId, ownerEpoch: "pane-owner", generation }}>
+        eligible focusRef={ref} onActivate={action} contentPane={{ documentId: bridge.documentId, ownerEpoch: "pane-owner", generation: 1, privacyGeneration: generation }}>
         <button ref={ref}>Back in Profile</button>
       </NativeChatChrome>;
     }
@@ -2219,12 +2219,12 @@ describe("native chrome presentation lease", () => {
     const retired = bridge.retire.mock.calls.length;
     view.rerender(<Back context="voice" action={nextAction} />);
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
-    expect(bridge.suspend).toHaveBeenCalledOnce();
+    expect(bridge.suspend).not.toHaveBeenCalled();
     expect(bridge.retire).toHaveBeenCalledTimes(retired);
-    expect(bridge.prepareBackReplacement).not.toHaveBeenCalled();
+    expect(bridge.prepareBackReplacement).toHaveBeenCalledOnce();
     act(() => bridge.callbacks.get("choiceRequested")?.({ ...old, sequence: 1, updateSequence: 0, privacyGeneration: 0 }));
     expect(bridge.confirmChoice).not.toHaveBeenCalled();
-    const next = bridge.prepare.mock.calls[1][0];
+    const next = bridge.prepareBackReplacement.mock.calls[0][0];
     expect(next.contentPane).toEqual(old.contentPane);
     act(() => bridge.callbacks.get("choiceRequested")?.({ ...next, sequence: 2, updateSequence: 0, privacyGeneration: 0 }));
     await waitFor(() => expect(nextAction).toHaveBeenCalledOnce());
@@ -2232,6 +2232,11 @@ describe("native chrome presentation lease", () => {
     view.rerender(<Back context="voice" generation={2} action={nextAction} />);
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(3));
     expect(bridge.retire).toHaveBeenCalledTimes(retired + 1);
+    expect(bridge.prepareBackReplacement).toHaveBeenCalledOnce();
+    const rebound = bridge.prepare.mock.calls.at(-1)![0];
+    expect(rebound.contentPane).toEqual({ ...old.contentPane, privacyGeneration: 2 });
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...next, sequence: 3, updateSequence: 0, privacyGeneration: 0 }));
+    expect(nextAction).toHaveBeenCalledOnce();
   });
 
   it.each([

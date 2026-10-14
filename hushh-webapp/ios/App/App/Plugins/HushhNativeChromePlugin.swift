@@ -528,6 +528,23 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func currentHistoryHitEvidence(_ cached: String?) -> String {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         guard privacy.appIsActive, !privacy.shielded else { return "hActive=0" }
+        if compositor?.contentPane != nil {
+            // Observe the current plane, not withdrawn base History. This
+            // fixed-role packet cannot grant admission or contain body text.
+            func bit(_ value: Bool) -> String { value ? "1" : "0" }
+            let native = [("profile-back", "pb"), ("profile-close", "pc")].map { id, prefix in
+                guard let slot = slots[id], let evidence = compositor?.controlHitEvidence(id) else {
+                    return "\(prefix)Available=0"
+                }
+                return "\(prefix)Available=1;\(prefix)Layout=\(bit(slot.layoutConfirmed));\(prefix)Enabled=\(bit(slot.presentation?.enabled == true));\(prefix)Privacy=\(bit(slot.contentPane?.privacyGeneration == privacy.generation));\(prefix)Pane=\(bit(slot.contentPane == compositor?.contentPane));\(prefix)Admitted=\(bit(evidence.admitted));\(prefix)Allowed=\(bit(evidence.allowed));\(prefix)Isolated=\(bit(evidence.isolated));\(prefix)Hidden=\(bit(evidence.hidden));\(prefix)TouchBlocked=\(bit(evidence.touchBlocked));\(prefix)AXHidden=\(bit(evidence.axHidden));\(prefix)Hit=\(evidence.windowHits.first?.rawValue ?? "none")"
+            }.joined(separator: ";")
+            let publicFields = (cached ?? "").split(separator: ";").filter {
+                $0.hasPrefix("stage=") || $0.hasPrefix("outcome=") || $0.hasPrefix("code=") ||
+                $0.hasPrefix("paneReady=") || $0.hasPrefix("profileQueryOpen=") || $0.hasPrefix("profilePaneLevel=")
+            }.joined(separator: ";")
+            let packet = [publicFields, native].filter { !$0.isEmpty }.joined(separator: ";")
+            return packet.utf8.count <= 1024 ? packet : "pbAvailable=0;pcAvailable=0"
+        }
         if Thread.isMainThread {
             let diagnostic: String? = MainActor.assumeIsolated {
                 guard let profile = bridge?.viewController?.children.compactMap({ $0 as? NativeDrawerPresentationController })
@@ -1041,11 +1058,16 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func prepareReplacement(_ call: CAPPluginCall, kind: String, controlId: String) {
         DispatchQueue.main.async { [weak self] in
+            let pane = self?.readContentPane(call.getObject("contentPane"))
             guard let self, #available(iOS 26.0, *), self.admits(kind, controlId: controlId),
                   let identity = self.identity(call), identity.controlId == controlId,
                   call.getString("kind") == kind, call.getBool("enabled") == true,
                   let previousRevision = call.getInt("previousRevision"),
                   let slot = self.slots[identity.controlId], slot.kind == kind,
+                  slot.contentPane == pane,
+                  call.getObject("contentPane") == nil ||
+                    (pane?.document == identity.document && kind == "profile-back" &&
+                     pane.map { self.compositor?.contentPaneAdmits($0) == true } == true),
                   slot.pendingLayout == nil, slot.pendingFocus == nil, slot.presenter == nil,
                   let hosting = slot.hosting, !hosting.view.isHidden,
                   hosting.view.superview != nil, hosting.parent === self.bridge?.viewController,

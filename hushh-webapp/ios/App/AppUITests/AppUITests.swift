@@ -169,6 +169,18 @@ final class AppUITests: XCTestCase {
                 let pair = item.split(separator: "=", maxSplits: 1)
                 return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
             }, uniquingKeysWith: { _, newest in newest })
+            for (control, prefix) in [("back", "pb"), ("close", "pc")] {
+                if fields["\(prefix)Available"] == "0" {
+                    print("COHERENT_PANE_HIT control=\(control) available=false")
+                } else {
+                    let keys = ["Available", "Layout", "Enabled", "Privacy", "Pane", "Admitted", "Allowed", "Isolated", "Hidden", "TouchBlocked", "AXHidden"]
+                    if keys.allSatisfy({ ["0", "1"].contains(fields["\(prefix)\($0)"] ?? "") }),
+                       let hit = fields["\(prefix)Hit"], ["target", "web", "drawer", "privacy", "navigation", "other", "none"].contains(hit) {
+                        let bits = keys.map { "\($0)=\(fields["\(prefix)\($0)"]!)" }.joined(separator: " ")
+                        print("COHERENT_PANE_HIT control=\(control) \(bits) hit=\(hit)")
+                    }
+                }
+            }
             if let stage = fields["drawerCloseStage"], ["none", "emitted", "confirmed", "rejected"].contains(stage),
                ["drawerOpen", "drawerInteractive", "drawerAwaiting", "profileQueryOpen"].allSatisfy({ ["true", "false"].contains(fields[$0] ?? "") }),
                let depth = Int(fields["profileHistoryDepth"] ?? ""), (0...10000).contains(depth) {
@@ -1042,7 +1054,8 @@ final class AppUITests: XCTestCase {
             return true
         }
         guard verifyTouchAndReturn() else { XCTFail("NATIVE_RESUME_BASELINE_TOUCH_FAILED"); return }
-        for cycle in 0..<2 {
+        let controlCenterOnly = ProcessInfo.processInfo.environment["HUSHH_CONTROL_CENTER_ONLY"] == "true"
+        for cycle in 0..<(controlCenterOnly ? 0 : 2) {
             opener.tap()
             guard waitForAdmittedControl(profileClose) else { XCTFail("NATIVE_RESUME_DRAWER_NOT_OPEN"); return }
             XCUIDevice.shared.press(.home)
@@ -1059,10 +1072,24 @@ final class AppUITests: XCTestCase {
             print("NATIVE_RESUME_TOUCH background_cycle=\(cycle + 1) passed=true")
         }
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.01))
-        top.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.6)))
-        let controlCenter = springboard.otherElements["Control Center"].firstMatch
-        guard controlCenter.waitForExistence(timeout: 5) else {
+        let top = springboard.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: app.frame.width - 16, dy: 1))
+        top.press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.6)),
+            withVelocity: .slow, thenHoldForDuration: 0.2)
+        // System panels need not expose their title as an Other element. Keep
+        // this read-only: identify stock controls, never dump system/private AX.
+        let controlCenter = springboard.descendants(matching: .any).matching(NSPredicate(
+            format: "label IN %@ OR identifier IN %@", ["Control Center"], ["Control Center", "ControlCenter"])).firstMatch
+        let brightness = springboard.sliders.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Brightness")).firstMatch
+        let volume = springboard.sliders.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Volume")).firstMatch
+        let airplane = springboard.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Airplane Mode")).firstMatch
+        let bluetooth = springboard.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Bluetooth")).firstMatch
+        let observed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            controlCenter.exists || brightness.exists && volume.exists || airplane.exists && bluetooth.exists
+        }, object: springboard)
+        let panelObserved = XCTWaiter.wait(for: [observed], timeout: 5) == .completed
+        print("NATIVE_SYSTEM_INTERRUPT target=control_center observed=\(panelObserved) title=\(controlCenter.exists) brightness=\(brightness.exists) volume=\(volume.exists) airplane=\(airplane.exists) bluetooth=\(bluetooth.exists)")
+        guard panelObserved else {
             app.activate()
             XCTFail("NATIVE_RESUME_CONTROL_CENTER_NOT_OBSERVED"); return
         }
@@ -3144,11 +3171,17 @@ final class AppUITests: XCTestCase {
             accent.exists && accent.isHittable &&
                 ["Light", "Dark", "System"].allSatisfy { themeOption($0).exists && themeOption($0).isHittable }
         }
-        func openPreferences() {
+        func openPreferences() -> Bool {
+            print("NATIVE_PREFERENCES_STAGE stage=enter")
             if !themeOption("System").exists || !accent.exists {
                 let close = app.buttons["Close Profile"].firstMatch
-                if !close.exists { app.buttons["Open Profile"].firstMatch.tap() }
-                XCTAssertTrue(close.waitForExistence(timeout: 10))
+                if !close.exists {
+                    let opener = app.buttons["Open Profile"].firstMatch
+                    guard waitForAdmittedControl(opener) else { XCTFail("NATIVE_PREFERENCES_OPENER_NOT_ADMITTED"); return false }
+                    opener.tap()
+                }
+                guard waitForAdmittedControl(close) else { XCTFail("NATIVE_PREFERENCES_PROFILE_NOT_ADMITTED"); return false }
+                print("NATIVE_PREFERENCES_STAGE stage=profile")
                 let nativeRow = app.buttons["native-profile-row-preferences"].firstMatch
                 let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
                 let row = nativeRow.exists || menu.exists ? nativeRow :
@@ -3157,22 +3190,25 @@ final class AppUITests: XCTestCase {
                 // through authored Back controls, never a cold route/reset.
                 for _ in 0..<4 {
                     if row.exists && row.isHittable { break }
-                    let back = app.buttons["Back in Profile"].firstMatch
+                    let back = app.buttons["profile-back"].firstMatch
                     if !back.waitForExistence(timeout: 1) || !back.isHittable { break }
                     back.tap()
                 }
-                XCTAssertTrue(row.waitForExistence(timeout: 10))
+                guard row.waitForExistence(timeout: 10) else { XCTFail("NATIVE_PREFERENCES_ROW_UNAVAILABLE"); return false }
                 for _ in 0..<5 {
                     if row.isHittable { break }
                     if menu.exists { menu.swipeDown() } else { web.swipeUp() }
                 }
-                XCTAssertTrue(row.isHittable)
+                guard row.isHittable else { XCTFail("NATIVE_PREFERENCES_ROW_NOT_ADMITTED"); return false }
+                print("NATIVE_PREFERENCES_STAGE stage=row")
                 row.tap()
             }
             let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controlsReady() }, object: app)
-            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, "NATIVE_PREFERENCES_UNAVAILABLE")
+            guard XCTWaiter.wait(for: [ready], timeout: 10) == .completed else { XCTFail("NATIVE_PREFERENCES_UNAVAILABLE"); return false }
+            print("NATIVE_PREFERENCES_STAGE stage=ready")
             XCTAssertFalse(app.segmentedControls["profile-appearance"].exists, "Profile exposed a native Appearance duplicate")
             XCTAssertFalse(app.buttons["profile-accent"].exists, "Profile exposed a native Accent duplicate")
+            return true
         }
         func selectedTheme(_ name: String) -> Bool {
             let option = themeOption(name)
@@ -3217,7 +3253,7 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(completed, "NATIVE_ACCENT_CANCEL_NOT_RETIRED")
             return completed
         }
-        openPreferences()
+        guard openPreferences() else { return }
         guard let originalTheme = ["Light", "Dark", "System"].first(where: selectedTheme),
               let originalAccent = accentValue() else {
             XCTFail("NATIVE_PREFERENCE_ORIGINAL_UNKNOWN"); return
@@ -3229,7 +3265,7 @@ final class AppUITests: XCTestCase {
             guard self.testRun?.failureCount == initialFailureCount else {
                 print("NATIVE_PREFERENCES_TEARDOWN skipped_after_failure_no_navigation_replay"); return
             }
-            if !controlsReady() { openPreferences() }
+            if !controlsReady() && !openPreferences() { return }
             selectTheme(originalTheme); selectAccent(originalAccent)
             app.buttons["Close Profile"].firstMatch.tap()
             self.perfTapNav(app, label: "Chat")
@@ -3274,7 +3310,7 @@ final class AppUITests: XCTestCase {
             guard XCTWaiter.wait(for: [reopened], timeout: 10) == .completed else {
                 XCTFail("NATIVE_PROFILE_REOPEN_NOT_CONFIRMED"); return
             }
-            openPreferences()
+            guard openPreferences() else { return }
             XCTAssertEqual(accentValue(), value, "Profile reopen lost the applied Accent")
             XCTAssertEqual(hosts.count, 1)
             XCTAssertEqual(app.webViews.count, 1 + web.webViews.count)

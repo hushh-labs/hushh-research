@@ -356,9 +356,13 @@ export class NativeChromeLease {
     return (kind === "back" || kind === "profile-back") && this.canReplaceWith(kind, projection, ownerEpoch, context);
   }
   private canReplaceWith(kind: "back" | "profile-back" | "history", projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+    const pane = projection.contentPane, previousPane = this.projection.contentPane;
+    const samePane = pane === previousPane || !!pane && !!previousPane &&
+      pane.documentId === previousPane.documentId && pane.ownerEpoch === previousPane.ownerEpoch &&
+      pane.generation === previousPane.generation && pane.privacyGeneration === previousPane.privacyGeneration;
     return projection.kind === kind && this.projection.kind === kind &&
       nativeDocumentId() === this.projection.documentId && ownerEpoch === this.projection.ownerEpoch &&
-      projection.label === this.projection.label && context !== this.context && this.sameGeometry(projection);
+      projection.label === this.projection.label && context !== this.context && samePane && this.sameGeometry(projection);
   }
   /** Exact equality, not the one-pixel acknowledgement tolerance. A real move,
    * changed viewport, or unconfirmed/invalidated lease must be re-admitted. */
