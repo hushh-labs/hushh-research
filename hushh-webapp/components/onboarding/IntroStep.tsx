@@ -12,7 +12,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
     if (!previewReady)
       return {
         status: "blocked" as const,
-        summary: "Explore the four introduction screens before signing in.",
+        summary: "Explore One’s introduction before signing in.",
       };
     if (!onLogin)
       return {
@@ -32,12 +32,12 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
     screenId: "one_intro",
     title: "Explore One",
     purpose:
-      "Explore Circles and private agents without signing in. Sign in only to get started.",
+      "See how One helps with everyday plans, saved details, and private sharing.",
     actions: [
       {
         id: "onboarding_claim_one",
         actionId: "onboarding.claim_one",
-        label: "Create your One",
+        label: "Start with One",
         purpose: "Continue to sign in.",
         voiceAliases: [
           "claim your one",
@@ -51,7 +51,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
       {
         id: "onboarding_claim_one",
         actionId: "onboarding.claim_one",
-        label: "Create your One",
+        label: "Start with One",
         type: "button",
         purpose: "Continue to sign in.",
         voiceAliases: [
@@ -68,7 +68,9 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
       publicLinks
       onReadyChange={setPreviewReady}
       onStart={() => {
-        void claimOne();
+        // The visible final-card CTA is an explicit sign-in choice. The voice
+        // action above still waits until that card is the active screen.
+        onLogin?.();
       }}
     />
   );
