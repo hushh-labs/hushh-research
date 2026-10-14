@@ -561,7 +561,7 @@ test("scrolling keeps selector chrome clipped and the visible Add action keyboar
 
 for (const width of [320, 393, 1440]) {
   test(`single-screen Add form fits at ${width}px`, async ({ page }) => {
-    await open(page, width, "light", {}, { shell: true });
+    const errors = await open(page, width, "light", {}, { shell: true });
     await mount(page);
     await page.getByRole("tab", { name: "Add", exact: true }).click();
     const form = page.getByTestId("secure-card-add-form");
@@ -603,6 +603,7 @@ for (const width of [320, 393, 1440]) {
     await form.getByTestId("secure-card-save").scrollIntoViewIfNeeded();
     await expect(form.getByTestId("secure-card-save")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
   });
 }
 
