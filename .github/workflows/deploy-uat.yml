@@ -1056,6 +1056,12 @@ jobs:
           if grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_WORKOS_SSO_ENABLED=${{ vars.WORKOS_SSO_UAT_ENABLED || 'false' }}##_WORKOS_REDIRECT_URI=${{ env.APP_FRONTEND_ORIGIN }}/login"
           fi
+          # Every hostname UAT is served on (single source: the passkey alias list), so SSO can
+          # return to the one the person started on.
+          if grep -q '^[[:space:]]*_WORKOS_REDIRECT_ORIGINS:' deploy/backend.cloudbuild.yaml; then
+            WORKOS_ORIGINS="$(python3 -c "import json;print(','.join('https://'+h for h in json.load(open('hushh-webapp/lib/vault/passkey-domain-aliases.json'))['uat']))")"
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_WORKOS_REDIRECT_ORIGINS=${WORKOS_ORIGINS}"
+          fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
           # Curated connector OAuth client secrets are derived from the checked-in
           # manifests by the "Resolve curated connector secrets" step; empty (the

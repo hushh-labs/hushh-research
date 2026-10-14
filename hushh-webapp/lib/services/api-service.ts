@@ -1796,8 +1796,14 @@ export class ApiService {
     state: string;
     organization: { name: string };
   }> {
+    // The callback must return to the origin the person started on (the app is served on several
+    // hostnames); the backend only honours origins on its allowlist.
+    const origin =
+      typeof window !== "undefined" && window.location.origin.startsWith("http")
+        ? `&origin=${encodeURIComponent(window.location.origin)}`
+        : "";
     const response = await apiFetch(
-      `/api/auth/sso/start?email=${encodeURIComponent(email.trim())}`,
+      `/api/auth/sso/start?email=${encodeURIComponent(email.trim())}${origin}`,
       { method: "GET", cache: "no-store" },
     );
     return readEnterpriseSsoResponse(response);

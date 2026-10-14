@@ -117,7 +117,9 @@ class EnterpriseSsoService:
 
     # ── GET /start ──
 
-    async def start(self, *, email: str | None, organization_id: str | None) -> dict[str, Any]:
+    async def start(
+        self, *, email: str | None, organization_id: str | None, origin: str | None = None
+    ) -> dict[str, Any]:
         self._require_sign_in_ready()
         normalized = _normalize_email(email)
         domain = _email_domain(normalized)
@@ -138,6 +140,7 @@ class EnterpriseSsoService:
             organization_id=org.id,
             state=state,
             login_hint=normalized or None,
+            redirect_uri=self._config.redirect_uri_for(origin),
         )
         return {"authorization_url": url, "state": state, "organization": {"name": org.name}}
 
