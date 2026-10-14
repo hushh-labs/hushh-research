@@ -165,4 +165,4 @@ See the PR and its exact-commit CI for final verification. Contract/unit tests c
 
 ## Profile presentation
 
-Personal World Model opens inside the Profile pane, using the same compact grouped settings and Back navigation as Payouts. Edit or remove details opens Memory within Profile. Existing `/one/profile/world-model?claim=...` invitation links retain their contact-bound claim flow in the shared Profile workspace. Research, review, saving, and invitation permissions are unchanged.
+Personal World Model opens inside the Profile pane, using the same compact grouped settings and Back navigation as Payouts. Edit or remove details opens Memory within Profile. Ordinary model links open the Profile pane. Existing `/one/profile/world-model?claim=...` invitation links retain their contact-bound claim flow in the shared Profile workspace. Research, review, saving, and invitation permissions are unchanged.
