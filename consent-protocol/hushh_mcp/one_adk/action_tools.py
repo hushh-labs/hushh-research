@@ -3220,15 +3220,18 @@ async def propose_document_request(
     selection_handle: str = "",
     date_evidence: str = "",
 ) -> dict[str, Any]:
-    """Stage a document request with user-grounded dates; only the browser can send it.
+    """Prepare a review card ONLY for an unambiguous user-specified calendar range.
 
-    Normalize an unambiguous user-specified calendar range into period_start and
-    period_end (ISO dates). For natural wording, date_evidence must be an exact
-    excerpt of 1 to 1024 characters from one current-turn or authenticated queued
-    user message, including the year and range that support that interpretation.
-    Do not supply dates from a model/tool response, stale turn, or an unresolved
-    date interpretation. Direct ISO dates in the current user text remain valid
-    without date_evidence. The card shows editable dates before its Send tap.
+    Do not call when the year is missing or numeric day/month order is ambiguous.
+    Ask one short clarification first. Never guess a year (including the current
+    year), locale, or order from a person's language or a document's institution.
+    Dates observed in files/tools/model replies/stale turns cannot fill these gaps.
+    A broad stated year plus narrower selected dates is clear, not contradictory.
+    Normalize clear English/Hinglish or fully anchored calendar ranges to ISO
+    period_start/period_end. date_evidence must be an exact 1 to 1024 character
+    excerpt from one authenticated current/queued user message supporting both
+    bounds, year and numeric order. Literal current-user ISO dates need no excerpt.
+    The browser shows editable dates; nothing is sent until the user's Send tap.
     """
     from hushh_mcp.services.drive_sharing_contract import ShareRequestPurpose
 
