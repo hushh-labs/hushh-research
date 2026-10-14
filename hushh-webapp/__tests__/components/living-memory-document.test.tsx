@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({
   uid: "owner-a",
@@ -7,7 +7,9 @@ const m = vi.hoisted(() => ({
   epoch: 0,
   markdown: "SYNTHETIC_A",
   listeners: new Set<() => void>(),
+  push: vi.fn(),
 }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: m.push }) }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: m.uid } }),
 }));
@@ -48,6 +50,7 @@ beforeEach(() => {
   m.epoch = 0;
   m.markdown = "SYNTHETIC_A";
   m.listeners.clear();
+  m.push.mockReset();
 });
 afterEach(cleanup);
 it("does not carry one owner document into another account", () => {
@@ -67,12 +70,22 @@ it("clears the visible document while locked and accepts fresh unlocked readback
   m.epoch++;
   view.rerender(<LivingMemoryDocument />);
   expect(screen.queryByText("SYNTHETIC_A")).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: /Saved and Add/ }),
+  ).not.toBeInTheDocument();
   m.unlocked = true;
   m.token = "fixture-token-1";
   m.markdown = "SYNTHETIC_REBUILT";
   view.rerender(<LivingMemoryDocument />);
   expect(screen.queryByText("SYNTHETIC_A")).not.toBeInTheDocument();
   expect(screen.getByText("SYNTHETIC_REBUILT")).toBeInTheDocument();
+});
+it("opens the existing Memory workspace without retaining the Profile pane", () => {
+  render(<LivingMemoryDocument />);
+  fireEvent.click(screen.getByRole("button", { name: /Saved and Add/ }));
+  expect(m.push).toHaveBeenCalledOnce();
+  expect(m.push).toHaveBeenCalledWith("/one/pkm");
+  expect(screen.getByText("SYNTHETIC_A")).toBeInTheDocument();
 });
 it("accepts fresh readback after token renewal without requiring another lock", () => {
   const view = render(<LivingMemoryDocument />);

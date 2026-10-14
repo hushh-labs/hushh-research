@@ -29,6 +29,13 @@ or payout.
 
 ### Current Dev evidence — 2026-10-14 UTC
 
+Reviewer roles below refer to the canonical environment-wired subjects. A
+Firebase identity read on 2026-10-14 corrected reversed email labels in the
+operator's earlier browser helpers; funding and account records were not
+changed. Resolve each session's subject before interpreting a ready-account
+screenshot or submitting an action. The ready-account screenshot is consistent
+with the eligible counterpart; it does not establish primary eligibility.
+
 Candidate `5c2d1483aa0691134c72615b244da7c3bc0e1747` passed the canonical core
 in 615 seconds and [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38560243913),
 including iOS, Android and every frontend shard. Its
@@ -81,6 +88,31 @@ Candidate `038f0426aa967b67404dc9c34c79b7edffd997c8` includes this correction
 and passes the canonical core in 649 seconds: 19,251 protocol cases, the serial
 database contracts, web-core, MCP package and integration gates. It is pushed
 on the existing branch. Exact-source CI and Dev release remain required.
+
+The subsequent candidate `9275686586fc73c84bada77c7af832c387beef21` passes
+the canonical core in 636 seconds, preserving the reviewed main composition.
+Its [exact-source full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38585978734)
+was dispatched; a queued or running workflow is not a release receipt.
+
+Normal Profile **Memory** navigation was found to open the existing inspection
+pane rather than the Saved/Add workspace. The source correction adds one
+**Saved and Add** row above the living-memory inspection, navigating through
+the existing `/one/pkm` owner. Its Saved view owns sharing and prices; Add owns
+information preparation. No second controller, store or route is introduced.
+The focused 72 cases, typecheck, all 460 Back cases and generated UI parity
+pass. This correction still requires exact-candidate core, CI and Dev release.
+
+At `2026-10-14T14:52:35Z`, both private Azure runtimes were independently
+observed without `APP_FRONTEND_ORIGIN`; the counterpart also lacked the public
+Sandbox pin. Shared Dev deployment does not install owner-pod software or repair
+its environment. The current qualification-only reuse pin still publishes the
+earlier `e04b76c61433` image. Follow the canonical
+[pod update runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md)
+to qualify the exact predecessor, remove the reuse pin for the next application
+image build, publish the immutable image and complete ordinary owner approval,
+Microsoft authorization and durable handoff. Do not patch Azure environment
+values outside that authority. Callback absence is verified; the earlier generic
+Stripe sign-in failure was not localized to a request stage and remains unproved.
 
 ### Main composition in verification — 2026-10-14 UTC
 
