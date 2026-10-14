@@ -78,6 +78,7 @@ export function WalletCardScanner({ active, disabled, featured = false, onRead, 
         <ProfilePaneScanIcon className={styles.fieldIcon} />Scan card
       </Button>
     </div>}
+
     {busy ? <div className={styles.scanProgress} role="status">
       <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
       Reading on your device…
