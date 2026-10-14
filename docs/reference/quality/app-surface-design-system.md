@@ -897,8 +897,8 @@ Rules:
    Password fields and the shell's vault unlock control use `AccentedKeyIcon`:
    the original canonical key artwork with Profile ink and an accent pinpoint.
    Field keys remain 18px and the shell key remains 20px.
-   Chat's To-do shortcut uses foreground ink; Get the app and Connectors retain
-   muted utility ink. All three use a finite 850ms registry-owned part animation on whole-row hover or
+   Chat's To-do, Get the app and Connectors shortcuts use foreground ink.
+   All three use a finite 850ms registry-owned part animation on whole-row hover or
    keyboard focus. Paper folds and redraws its text, the download arrow enters
    a masked tray, and diagonal plug halves join briefly before separating.
    Labels and whole glyphs stay anchored. Playback finishes on pointer leave,

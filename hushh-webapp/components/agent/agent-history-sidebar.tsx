@@ -749,7 +749,7 @@ export function AgentHistorySidebar({
                 title={railMode ? "Get the app" : undefined}
                 {...shortcutInteraction}
               >
-                <DownloadAppIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <DownloadAppIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Get the app</span>}
               </ShellActionSurface>
             ) : null}
@@ -765,7 +765,7 @@ export function AgentHistorySidebar({
                 title={railMode ? "Connectors" : undefined}
                 {...shortcutInteraction}
               >
-                <ConnectorsShortcutIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <ConnectorsShortcutIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Connectors</span>}
               </ShellActionSurface>
             ) : null}

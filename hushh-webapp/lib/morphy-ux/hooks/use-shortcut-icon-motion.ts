@@ -45,7 +45,9 @@ export function useShortcutIconMotion() {
 
   return {
     onPointerEnter: useCallback((event: PointerEvent<HTMLButtonElement>) => {
-      if (event.pointerType !== "touch" && window.matchMedia("(any-hover: hover)").matches) start(event.currentTarget);
+      // A real mouse/pen entry is sufficient. Embedded browsers can report no
+      // hover capability even when they deliver pointer hover events.
+      if (event.pointerType !== "touch") start(event.currentTarget);
     }, [start]),
     onFocus: useCallback((event: FocusEvent<HTMLButtonElement>) => {
       if (event.currentTarget.matches(":focus-visible")) start(event.currentTarget);

@@ -144,6 +144,45 @@ for (const label of shortcuts) {
   });
 }
 
+test("a missing globals duration token still plays the complete hover cycle", async ({ page }) => {
+  await openFixture(page);
+  await page.addStyleTag({ content: ":root { --motion-shortcut-icon-cycle-duration: initial; }" });
+  for (const label of shortcuts) {
+    const row = page.getByRole("button", { name: label, exact: true });
+    await inspectCycle(row);
+    await row.hover();
+    await expect(row).toHaveAttribute("data-shortcut-icon-playing", "true");
+    const durations = await row.locator("svg").evaluate(element => element.getAnimations({ subtree: true }).map(animation => animation.effect!.getTiming().duration));
+    expect(durations.length).toBeGreaterThan(0);
+    expect(durations.every(duration => duration === 850)).toBe(true);
+    await resumeCycle(row);
+    await expect.poll(() => row.getAttribute("data-shortcut-icon-playing")).toBeNull();
+  }
+});
+
+test("mouse entry works when an embedded browser reports no hover capability", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.matchMedia.bind(window);
+    window.matchMedia = query => {
+      const media = original(query);
+      if (query.includes("hover:")) Object.defineProperty(media, "matches", { value: false });
+      return media;
+    };
+  });
+  await openFixture(page);
+  expect(await page.evaluate(() => matchMedia("(any-hover: hover)").matches)).toBe(false);
+  const foreground = await page.locator("body").evaluate(element => getComputedStyle(element).color);
+  for (const label of shortcuts) {
+    const row = page.getByRole("button", { name: label, exact: true });
+    await inspectCycle(row);
+    await row.hover();
+    await expect(row).toHaveAttribute("data-shortcut-icon-playing", "true");
+    expect(await row.locator("svg").evaluate(element => getComputedStyle(element).color)).toBe(foreground);
+    await resumeCycle(row);
+    await expect.poll(() => row.getAttribute("data-shortcut-icon-playing")).toBeNull();
+  }
+});
+
 test("reduced motion stays static, including preference changes mid-cycle", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openFixture(page);

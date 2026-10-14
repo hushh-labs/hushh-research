@@ -33,7 +33,7 @@
     .frontPaper, .backPage, .underPage, .paperCurl, .firstLine, .secondLine,
     .downloadArrow, .downloadTray, .arrowReveal, .plugLeft, .plugRight, .prongOccluder
   ) {
-    animation-duration: var(--motion-shortcut-icon-cycle-duration);
+    animation-duration: var(--motion-shortcut-icon-cycle-duration, 850ms);
     animation-timing-function: var(--motion-ease-standard);
     animation-iteration-count: 1;
   }
