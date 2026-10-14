@@ -501,14 +501,13 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 8. publish release artifacts with revisions, reports, and final status
 
 UAT and production revision retirement use the existing `Capacity Maintenance` workflow. It records
-drain deadlines and returns; scheduled passes revalidate the healthy source
-release and live traffic before deleting eligible revisions. The deployment
+drain deadlines and returns; a UAT follow-up waits outside the deploy lock until the verified deadline, then revalidates the healthy source and live traffic before deleting eligible revisions. Scheduled passes retry a failed or missed UAT follow-up and handle production; a failed workflow's artifact is not trusted, so its drain clock may restart. The deployment
 workflow finishes without awaiting retirement. Maintenance creates no environment
 deployment record and holds the shared mutation lock only during a short pass,
 never during the request drain. Both environments skip cloud authentication for settled
 or not-yet-due drain receipts; requested deployments explicitly wake inspection.
-UAT capacity admission is bounded to five minutes and longer shortages require a
-governed operator retry; no runner sleeps through request drainage. Both lanes reuse the existing timer. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
+UAT capacity admission is bounded to 90 minutes; shortages that outlast that bound require a governed operator retry. The UAT follow-up uses a waiting runner outside the deploy lock. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
+Frontend-only UAT releases use a separate zero-increment SQL admission check that verifies the live web runtime and candidate revision; backend and paired releases retain the full connection budget gate.
 
 Before increasing database pools or tiers after a failed load stage, inspect the
 existing request query counts and acquisition timing. Drive's consent projection

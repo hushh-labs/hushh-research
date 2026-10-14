@@ -75,6 +75,19 @@ export interface AnswerPaymentView {
   answerDeadlineHours: number;
 }
 
+export interface AnswerRequestCoverage {
+  included: { scope: string; label: string | null }[];
+  notIncluded: { scope: string; label: string | null }[];
+}
+
+export interface AnswerRequestState {
+  role: string;
+  requestStatus: string;
+  question: string;
+  /** Present only after the owner fixes the priced scope set. No values or absence claim. */
+  coverage?: AnswerRequestCoverage;
+}
+
 const CHECKOUT_HOSTS = new Set(["checkout.stripe.com", "checkout.stripe.dev"]);
 
 export function isValidAnswerPriceCents(value: unknown): boolean {
@@ -228,13 +241,26 @@ export class AnswerRequestService {
   static async state(
     token: string,
     requestId: string,
-  ): Promise<{ role: string; requestStatus: string; question: string }> {
+  ): Promise<AnswerRequestState> {
     const response = await ApiService.apiFetch(
       `${requestPath(requestId)}/state`,
       { cache: "no-store", headers: { Authorization: `Bearer ${token}` } },
     );
     if (!response.ok) throw new Error("Request unavailable");
-    return await response.json();
+    const value = await readJson(response);
+    if (typeof value.role !== "string" || typeof value.requestStatus !== "string" || typeof value.question !== "string")
+      throw new Error("Invalid request response");
+    if (value.coverage !== undefined) {
+      const coverage = value.coverage as Partial<AnswerRequestCoverage> | null;
+      const validRows = (rows: unknown): rows is AnswerRequestCoverage["included"] =>
+        Array.isArray(rows) && rows.length <= 12 && rows.every(row =>
+          row && typeof row === "object" && typeof row.scope === "string" &&
+          /^attr\.[a-z0-9_]+(?:\.[a-z0-9_*]+)+$/.test(row.scope) &&
+          (row.label === null || typeof row.label === "string" && row.label.length <= 160));
+      if (!coverage || !validRows(coverage.included) || !validRows(coverage.notIncluded))
+        throw new Error("Invalid request coverage");
+    }
+    return value as unknown as AnswerRequestState;
   }
 
   static async retryResolution(token: string, requestId: string): Promise<void> {

@@ -1257,3 +1257,6 @@ tests/test_one_wallet_card_service.py
 tests/test_one_wallet_card_routes.py
 tests/services/test_one_referral_service_summary.py
 tests/test_one_referral_dashboard_routes.py
+
+# WorkOS enterprise SSO: signatures, state, exchange refusals and deprovisioning.
+tests/test_workos_enterprise_sso_flow.py

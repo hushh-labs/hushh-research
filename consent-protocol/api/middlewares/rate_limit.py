@@ -50,9 +50,11 @@ _TYPED_RATE_LIMIT_PATHS = (
     "/api/one/connections/directory",
     "/api/one/business/suggestion",
     "/api/one/profile-research",
+    "/api/auth/sso/",
 )
 
 _TYPED_RATE_LIMIT_MESSAGES = {
+    "/api/auth/sso/": "Too many sign-in attempts. Give it a minute and try again.",
     "/api/marketplace/contacts/match": (
         "You have checked your contacts a few times just now. Give it a minute and try again."
     ),

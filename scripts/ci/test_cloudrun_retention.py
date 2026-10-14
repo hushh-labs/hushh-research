@@ -110,8 +110,12 @@ class RetentionSafetyTest(unittest.TestCase):
                 [args[:2] for args in first], [["services", "update-traffic"]]
             )
             saved = json.loads((directory / "state.json").read_text())
+            self.assertEqual(saved["observed_at"], 10000)
             self.assertEqual(saved["not_before"], 13660)
             self.assertEqual(self.run_deferred(state, revisions, directory, 13659), [])
+            inherited = json.loads((directory / "state.json").read_text())
+            self.assertEqual(inherited["observed_at"], 10000)
+            self.assertEqual(inherited["not_before"], 13660)
             last = self.run_deferred(state, revisions, directory, 13660)
             self.assertEqual(
                 last, [["revisions", "delete", revision(1)["metadata"]["name"]]]
@@ -1972,7 +1976,8 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 self.assertEqual(MAINTENANCE.main(), 0)
             self.assertEqual(
                 output.read_text(),
-                "verified_source_run_id=123\ndrain_not_before=13660\n",
+                "verified_source_run_id=123\ndrain_not_before=13660\n"
+                "cleanup_outcome=applied\n",
             )
 
 
@@ -2016,9 +2021,15 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 self.subTest(release=release),
                 tempfile.TemporaryDirectory() as temporary,
             ):
-                state_dir = pathlib.Path(temporary)
+                directory = pathlib.Path(temporary)
+                state_dir = directory / "state"
+                state_dir.mkdir()
+                output = directory / "output"
                 with (
-                    mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": "org/repo"}),
+                    mock.patch.dict("os.environ", {
+                        "GITHUB_REPOSITORY": "org/repo",
+                        "GITHUB_OUTPUT": str(output),
+                    }),
                     mock.patch.object(
                         sys,
                         "argv",
@@ -2041,6 +2052,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         restore.assert_called_once()
                     run.assert_not_called()
                     self.assertEqual(list(state_dir.iterdir()), [])
+                    self.assertEqual(output.read_text(), "cleanup_outcome=no_live_source\n")
 
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):
@@ -2323,7 +2335,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     side_effect=AssertionError("not-due must not read cloud"),
                 ),
             ):
-                self.assertFalse(
+                self.assertTrue(
                     MAINTENANCE.maintenance_due(
                         "org/repo", directory, environment="uat", release_run_id=9
                     )
@@ -2347,6 +2359,129 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 with self.assertRaises(MAINTENANCE.retention.UnsafeState):
                     MAINTENANCE.maintenance_due(
                         "org/repo", directory, environment="uat"
+                    )
+
+    def test_trusted_inherited_uat_drain_receipt_schedules_another_wait(self):
+        receipt = {
+            "schema_version": 1,
+            "environment": "uat",
+            "project": "hushh-pda-uat",
+            "observed_run_id": 123,
+            "release_run_id": 123,
+        }
+        deadlines = {
+            "consent-protocol": 13660,
+            "consent-protocol-drive-worker": 12400,
+        }
+        trusted = self.trusted_source(456, "capacity-maintenance.yml")
+
+        def api(_repository, endpoint):
+            if endpoint.startswith("artifacts?"):
+                return {
+                    "artifacts": [{
+                        "name": MAINTENANCE.STATE_ARTIFACT,
+                        "expired": False,
+                        "workflow_run": {"id": trusted["id"]},
+                    }]
+                }
+            self.assertEqual(endpoint, f"runs/{trusted['id']}")
+            return trusted
+
+        def download(_repository, _run_id, _name, directory):
+            (directory / "completed.json").write_text(json.dumps(receipt))
+            for name, deadline in deadlines.items():
+                (directory / f"{name}.json").write_text(json.dumps({
+                    "schema_version": 1,
+                    "service": name,
+                    "project": "hushh-pda-uat",
+                    "region": "us-central1",
+                    "release_run_id": "123",
+                    "not_before": deadline,
+                    "revisions": [f"{name}-00001-abc"],
+                }))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            for apply in (False, True):
+                with self.subTest(apply=apply):
+                    state_dir = root / ("apply" if apply else "source")
+                    output = root / ("apply-output" if apply else "source-output")
+                    with (
+                        mock.patch.dict("os.environ", {
+                            "GITHUB_REPOSITORY": "org/repo",
+                            "GITHUB_OUTPUT": str(output),
+                            "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                        }),
+                        mock.patch.object(sys, "argv", [
+                            "maintenance", "--state-dir", str(state_dir),
+                            "--apply" if apply else "--verify-source-only",
+                        ]),
+                        mock.patch.object(MAINTENANCE, "api", side_effect=api),
+                        mock.patch.object(MAINTENANCE, "download", side_effect=download),
+                        mock.patch.object(
+                            MAINTENANCE, "latest_deploy_observation", return_value=123
+                        ),
+                        mock.patch.object(
+                            MAINTENANCE, "find_release", return_value=(123, {"status": "healthy"})
+                        ) as find_release,
+                        mock.patch.object(
+                            MAINTENANCE, "live_release_matches", return_value=True
+                        ),
+                        mock.patch.object(
+                            MAINTENANCE, "release_protection_flags", return_value=[]
+                        ),
+                        mock.patch.object(MAINTENANCE.subprocess, "run") as run,
+                        mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
+                    ):
+                        self.assertEqual(MAINTENANCE.main(), 0)
+                        find_release.assert_called_once()
+                        self.assertEqual(run.call_count, 3 if apply else 0)
+                    if apply:
+                        self.assertEqual(
+                            output.read_text(),
+                            "verified_source_run_id=123\ndrain_not_before=13660\n"
+                            "cleanup_outcome=applied\n",
+                        )
+                    else:
+                        self.assertEqual(output.read_text(), "cleanup_ready=true\n")
+                    self.assertEqual(
+                        json.loads((state_dir / "consent-protocol.json").read_text())[
+                            "not_before"
+                        ],
+                        13660,
+                    )
+
+    def test_uat_pending_receipt_checks_all_services_before_waking(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            (directory / "completed.json").write_text(json.dumps({
+                "schema_version": 1,
+                "environment": "uat",
+                "project": "hushh-pda-uat",
+                "observed_run_id": 123,
+                "release_run_id": 123,
+            }))
+            for name, project in (
+                ("consent-protocol", "hushh-pda-uat"),
+                ("consent-protocol-drive-worker", "different-project"),
+            ):
+                (directory / f"{name}.json").write_text(json.dumps({
+                    "service": name,
+                    "project": project,
+                    "region": "us-central1",
+                    "release_run_id": "123",
+                    "not_before": 13660,
+                }))
+            with (
+                mock.patch.object(MAINTENANCE, "restore_state"),
+                mock.patch.object(
+                    MAINTENANCE, "latest_deploy_observation", return_value=123
+                ),
+                mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
+            ):
+                with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                    MAINTENANCE.maintenance_due(
+                        "org/repo", directory, environment="uat", release_run_id=123
                     )
 
     def test_production_pass_defers_only_its_services_and_commits_completion_last(self):

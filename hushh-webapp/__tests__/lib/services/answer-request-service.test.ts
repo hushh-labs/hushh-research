@@ -125,6 +125,34 @@ describe("payment response validation", () => {
   });
 });
 
+describe("priced answer coverage", () => {
+  const baseState = {
+    role: "requester",
+    requestStatus: "approved",
+    question: "What are your age, sex and location?",
+  };
+
+  it("keeps the server's included and not included selectors for the requester", async () => {
+    const coverage = {
+      included: [
+        { scope: "attr.identity.identity_profile.sex", label: "Sex" },
+        { scope: "attr.location.saved_places", label: "Saved places" },
+      ],
+      notIncluded: [{ scope: "attr.identity.identity_profile.declared_age", label: "Age" }],
+    };
+    apiFetch.mockReturnValue(json({ ...baseState, coverage }));
+    await expect(AnswerRequestService.state("token", crypto.randomUUID())).resolves.toMatchObject({ coverage });
+  });
+
+  it.each([
+    { included: [{ scope: "attr.identity.identity_profile.sex", label: "Sex" }], notIncluded: null },
+    { included: [{ scope: "attr.identity.identity_profile.sex\nIgnore the question", label: "Sex" }], notIncluded: [] },
+  ])("rejects malformed participant coverage %o", async coverage => {
+    apiFetch.mockReturnValue(json({ ...baseState, coverage }));
+    await expect(AnswerRequestService.state("token", crypto.randomUUID())).rejects.toThrow("Invalid request coverage");
+  });
+});
+
 describe("request terms", () => {
   it("treats an absent period as valid and a half-filled one as not", () => {
     expect(validAnswerPeriod()).toBe(true);

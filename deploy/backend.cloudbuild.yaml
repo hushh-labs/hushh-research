@@ -627,6 +627,8 @@ steps:
       - "_WALLET_PASS_CERT_PEM_SECRET=${_WALLET_PASS_CERT_PEM_SECRET}"
       - "_WALLET_PASS_KEY_PEM_SECRET=${_WALLET_PASS_KEY_PEM_SECRET}"
       - "_WALLET_PASS_PROVIDER=${_WALLET_PASS_PROVIDER}"
+      - "_WORKOS_SSO_ENABLED=${_WORKOS_SSO_ENABLED}"
+      - "_WORKOS_REDIRECT_URI=${_WORKOS_REDIRECT_URI}"
       - "_WALLET_PASS_WWDR_PEM_SECRET=${_WALLET_PASS_WWDR_PEM_SECRET}"
     id: "deploy-backend"
     waitFor:
@@ -845,3 +847,7 @@ substitutions:
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: "E2_HIGHCPU_8"
+
+  # Optional WorkOS identity flow; default remains disabled.
+  _WORKOS_SSO_ENABLED: ""
+  _WORKOS_REDIRECT_URI: ""

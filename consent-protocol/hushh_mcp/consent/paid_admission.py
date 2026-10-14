@@ -162,6 +162,13 @@ async def end_paid_purchase(
     return await end(actor_user_id, purchase_id, as_owner=as_owner, connection=connection)
 
 
+async def end_owner_paid_purchases(owner_user_id: str, *, connection: Any = None) -> int:
+    """End owned terms, including authorizations that are not usable yet."""
+    from hushh_mcp.consent.paid_requests import end_owner_paid_purchases as end
+
+    return await end(owner_user_id, connection=connection)
+
+
 async def exact_paid_scope_admission(
     db: Any, user_id: str, scope: str, agent_id: str | None, token: str
 ) -> bool | None:

@@ -79,6 +79,38 @@ meaning with additive search aliases. Focused frontend checks pass 69 cases,
 and generated UI contracts pass all 460 Back behavior cases and parity checks.
 This correction is local and requires its own core, exact-source CI and release.
 
+### Main composition in verification — 2026-10-14 UTC
+
+The infrastructure branch integrates main `20d6afafc8f4` normally, preserving
+existing shared history and ten independently hashed unrelated workspace files.
+The composition retains main's source-freshness, prepared-answer and wallet
+improvements together with private placement, current-owner response admission,
+and the canonical script-based backend deployment. WorkOS bindings use that
+existing deployment script and remain disabled by default. No incoming numbered
+migration changes the release head 348 or the registered SQL/rollback bodies.
+
+Bulk consent revocation now ends every outstanding owner-sold paid term through
+the existing transactional termination and refund authority, including unpaid,
+reserved, preparing and future-activation purchases. Active-token enumeration
+alone cannot cover those terms. Selection holds the commerce gate and preserves
+the canonical request-before-purchase lock order; it neither erases financial
+history nor refunds purchases where the authenticated owner is only the buyer.
+Single paid-grant revocation uses the same authority. Recovery remains available
+when new paid admission is disabled. Focused PostgreSQL, lifecycle, handshake,
+SDK and deployment checks pass 186 cases; exact-candidate core, CI and deployment
+are still required for this composition.
+
+Main's separate WorkOS offboarding still resolves directory events by email and
+organization without a verified stable directory-to-SSO-person binding. The IAM
+owner must qualify delayed-event/email-reuse behavior before enabling that lane.
+This default-off feature is not payment acceptance evidence.
+
+At `2026-10-14T13:23:16Z`, a fresh provider observation retains the same funded
+balances, capital and balanced financial checks. The counterpart remains eligible;
+the primary's individual, bank and terms requirements remain incomplete. The
+reviewer's ready-account screenshot therefore does not establish primary
+eligibility, matured earnings, or any accepted scope purchase.
+
 ### Earlier qualification and failure evidence — 2026-10-14 UTC
 
 Candidate `7dffd92928fd53f1ce167a9e8491cc48304e36f9` passed canonical core

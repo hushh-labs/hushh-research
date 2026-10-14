@@ -886,7 +886,7 @@ def maintenance_due(
     release_run_id: int | None = None,
     restore: bool = True,
 ) -> bool:
-    """Avoid cron cloud work after a settled pass; failed first passes retry."""
+    """Avoid settled cron work; wake UAT drains even before their deadline."""
     if restore:
         restore_state(repository, directory, environment=environment)
     receipt = directory / "completed.json"
@@ -909,6 +909,7 @@ def maintenance_due(
         release_run_id is not None and completed["release_run_id"] != release_run_id
     ) or completed["observed_run_id"] != observed:
         return True
+    pending_uat_drain = False
     for service in LANES[environment]["services"]:
         path = directory / f"{service}.json"
         if not path.exists():
@@ -925,7 +926,16 @@ def maintenance_due(
             raise retention.UnsafeState(f"invalid {environment} drain receipt")
         if state["not_before"] <= time.time():
             return True
-    return False
+        if environment == "uat":
+            # The first pass may have completed without its delayed recheck
+            # running. Reinspect a trusted pending receipt so this new run
+            # emits a deadline and schedules its own wait outside the lock.
+            # The retention helper still requires live identity and the full
+            # drain interval before it can delete anything. Multiple cron
+            # wakes may wait for the same deadline; their rechecks serialize
+            # under the deploy lock and independently revalidate live state.
+            pending_uat_drain = True
+    return pending_uat_drain
 
 
 def production_maintenance_due(repository: str, directory: Path) -> bool:
@@ -1137,6 +1147,16 @@ def main() -> int:
         _LOOKUP_DEADLINE.reset(deadline)
 
 
+def record_uat_cleanup_outcome(args: argparse.Namespace, outcome: str) -> None:
+    """Expose a recheck result without treating a stale source as an error."""
+    if not args.apply or args.environment != "uat":
+        return
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with Path(output).open("a") as stream:
+            stream.write(f"cleanup_outcome={outcome}\n")
+
+
 def maintenance_pass() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-run-id", default="")
@@ -1185,6 +1205,7 @@ def maintenance_pass() -> int:
         return 0
     if found is None:
         print("No eligible release artifact (or NO_OP source); no cleanup authorized.")
+        record_uat_cleanup_outcome(args, "no_live_source")
         return 0
     run_id, release = found
     if args.apply:
@@ -1197,11 +1218,13 @@ def maintenance_pass() -> int:
             restore=False,
         ):
             print("Maintenance settled or not yet due; no cloud mutation authorized.")
+            record_uat_cleanup_outcome(args, "settled_or_not_due")
             return 0
     if not live_release_matches(release, environment=args.environment):
         print(
             f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
         )
+        record_uat_cleanup_outcome(args, "no_live_source")
         return 0
     # An empty marker makes a completed pass supersede stale earlier artifacts.
     (args.state_dir / "README.txt").write_text(
@@ -1289,13 +1312,19 @@ def maintenance_pass() -> int:
             )
             + "\n"
         )
+        record_uat_cleanup_outcome(args, "applied")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
+        retry_path = (
+            "Pending deletions get a timed follow-up, with scheduled passes as backup. "
+            if args.environment == "uat"
+            else "Pending deletions are retried by short scheduled maintenance passes. "
+        )
         with Path(summary).open("a") as output:
             output.write(
                 f"## {args.environment} revision maintenance\n\nVerified source release: {run_id}. "
                 "This pass completes without waiting for requests to drain. "
-                "Pending deletions are retried by short scheduled maintenance passes. "
+                f"{retry_path}"
                 "Release health is separate.\n"
             )
             if args.apply:

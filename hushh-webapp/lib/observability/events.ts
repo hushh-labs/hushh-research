@@ -221,7 +221,13 @@ export type ConsentPendingCountBucket =
   | "11_plus";
 /** Whether a pending-consent load was a real screen view or a background warm. */
 export type ConsentPendingLoadSurface = "screen" | "warm";
-export type AuthMethod = "google" | "apple" | "reviewer" | "redirect" | "existing_session";
+export type AuthMethod =
+  | "google"
+  | "apple"
+  | "enterprise_sso"
+  | "reviewer"
+  | "redirect"
+  | "existing_session";
 export type ConsentAction = "approve" | "deny" | "revoke";
 
 export interface EventContext {

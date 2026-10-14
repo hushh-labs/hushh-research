@@ -479,6 +479,8 @@ append_optional_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_EN
 append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
 append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
 append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
+# Source from the same reviewed application archive; errors remain blocking.
+source deploy/sso/bind_workos.sh
 
 # Slim pod image reference, dev only. The pod build step resolves the pushed tag
 # to a digest and writes it to the shared workspace. The deploy step consumes that

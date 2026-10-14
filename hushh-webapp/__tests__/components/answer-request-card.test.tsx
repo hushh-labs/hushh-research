@@ -112,6 +112,17 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { AnswerRequestCard } from "@/components/consent/answer-request-card";
 const REQUEST = "11111111-2222-3333-4444-555555555555";
 const OTHER_REQUEST = "22222222-3333-4444-8555-666666666666";
+const FULL_COVERAGE = {
+  included: [{ scope: "attr.travel.trips", label: "Trips" }],
+  notIncluded: [],
+};
+const PARTIAL_COVERAGE = {
+  included: [
+    { scope: "attr.identity.identity_profile.sex", label: "Sex" },
+    { scope: "attr.location.saved_places", label: "Saved places" },
+  ],
+  notIncluded: [{ scope: "attr.identity.identity_profile.declared_age", label: "Age" }],
+};
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -223,6 +234,7 @@ it("shows the price but no Pay control while payments are paused", async () => {
     role: "requester",
     requestStatus: "approved",
     question: "Fixture question",
+    coverage: FULL_COVERAGE,
   });
   m.payment.mockResolvedValue({
     requestStatus: "approved",
@@ -251,6 +263,7 @@ it("still offers Pay when payments are on", async () => {
     role: "requester",
     requestStatus: "approved",
     question: "Fixture question",
+    coverage: FULL_COVERAGE,
   });
   m.payment.mockResolvedValue({
     requestStatus: "approved",
@@ -264,6 +277,37 @@ it("still offers Pay when payments are on", async () => {
   expect(await screen.findByRole("button", { name: /^Pay /})).toBeVisible();
   expect(screen.queryByText(/not switched on here yet/)).toBeNull();
 });
+
+it("shows included and omitted labels before Pay for a narrowed answer", async () => {
+  m.state.mockResolvedValue({
+    role: "requester", requestStatus: "approved",
+    question: "What are your age, sex and location?",
+    coverage: PARTIAL_COVERAGE,
+  });
+  m.payment.mockResolvedValue({
+    requestStatus: "approved", orderStatus: "awaiting_payment",
+    preparationStatus: "ready", reconciliationRequired: false, amountCents: 1000,
+  });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  expect(await screen.findByRole("button", { name: "Pay $10" })).toBeVisible();
+  expect(screen.getByText("Included in this answer: Sex, Saved places.")).toBeVisible();
+  expect(screen.getByText("Not included in this answer: Age.")).toBeVisible();
+  expect(screen.queryByText(/Age not recorded/)).toBeNull();
+});
+
+it.each([undefined, { included: [], notIncluded: PARTIAL_COVERAGE.notIncluded }])(
+  "withholds Pay when participant coverage is absent or malformed (%s)",
+  async coverage => {
+    m.state.mockResolvedValue({ role: "requester", requestStatus: "approved",
+      question: "What are your age, sex and location?", coverage });
+    m.payment.mockResolvedValue({ requestStatus: "approved", orderStatus: "awaiting_payment",
+      preparationStatus: "ready", reconciliationRequired: false, amountCents: 1000 });
+    render(<AnswerRequestCard requestId={REQUEST} />);
+    expect(await screen.findByText(/Answer coverage could not be verified/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Pay / })).toBeNull();
+    expect(m.checkout).not.toHaveBeenCalled();
+  },
+);
 
 
 it.each(["preparing", "empty", undefined])(
@@ -419,7 +463,7 @@ it("loads the canonical avatar only after verified release and clears it on acco
   }
   vi.stubGlobal("Image", ImageProbe);
   const photoUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZe0AAAAASUVORK5CYII=";
-  m.state.mockResolvedValue({ role: "requester", requestStatus: "approved", question: "Name and photo" });
+  m.state.mockResolvedValue({ role: "requester", requestStatus: "approved", question: "Name and photo", coverage: FULL_COVERAGE });
   m.payment.mockResolvedValue({ requestStatus: "approved", orderStatus: "checkout_open", preparationStatus: "ready", amountCents: 1000 });
   m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent", answer: "Gemini composed profile answer.", approvedScopes: ["attr.identity.identity_profile.full_name", "attr.identity.identity_profile.profile_photo_url"], ownerIdentity: { displayName: "Synthetic Ava", photoUrl } });
   const view = render(<AnswerRequestCard requestId={REQUEST} />);
