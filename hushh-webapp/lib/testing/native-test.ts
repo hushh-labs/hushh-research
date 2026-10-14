@@ -61,6 +61,15 @@ declare global {
       bootstrapDetail?: string;
       bootstrapError?: string;
       bootstrapErrorClass?: string;
+      /** Observations only: generations fence borrowed reviewer sessions without exposing keys. */
+      reviewerSessionSnapshot?: () => {
+        ownerMatches: boolean;
+        authReady: boolean;
+        unlocked: boolean;
+        authGeneration: number | null;
+        vaultEpoch: number;
+      };
+      reviewerAttachmentId?: string;
       vaultCryptoStage?: string;
       vaultCryptoErrorName?: string;
       vaultCryptoSubtleAvailable?: boolean;

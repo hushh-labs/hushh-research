@@ -79,7 +79,7 @@ export async function requestPkmMemoryPreparation(
     }),
   };
   const response = privateOwner
-    ? await ApiService.ownerPodRequest("memory/proposals", init)
+    ? await ApiService.ownerPodRequest("memory/proposals", init, false, undefined, undefined, params.isEffectCurrent)
     : await ApiService.apiFetch("/api/pkm/memory/proposals", {
         ...init,
         isEffectCurrent: params.isEffectCurrent,

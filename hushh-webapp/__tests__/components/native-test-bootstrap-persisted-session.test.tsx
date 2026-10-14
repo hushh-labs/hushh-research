@@ -6,6 +6,8 @@
  */
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const auth = vi.hoisted(() => ({
   native: true,
@@ -145,29 +147,45 @@ describe("NativeTestBootstrap with a session persisted on the device", () => {
   it("observes ordinary human vault unlock and fails closed when that identity is lost", async () => {
     reviewerConfig.mode = "human_authenticated";
     auth.state.user = { uid: "reviewer-minted" };
+    publishValidatedAuthSessionOwner("reviewer-minted");
     vault.isVaultUnlocked = true;
     const { rerender } = render(<NativeTestBootstrap />);
     await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("vault_unlocked"));
+    const observe = window.__HUSHH_NATIVE_TEST__!.reviewerSessionSnapshot!;
+    const initial = observe();
+    expect(initial).toMatchObject({ ownerMatches: true, authReady: true, unlocked: true });
+    publishValidatedAuthSessionOwner("other-owner");
+    expect(observe().ownerMatches).toBe(false);
+    publishValidatedAuthSessionOwner("reviewer-minted");
+    expect(observe().authGeneration).not.toBe(initial.authGeneration);
+    advanceVaultSessionEpoch();
+    expect(observe().vaultEpoch).not.toBe(initial.vaultEpoch);
     auth.state.user = null;
     await act(async () => rerender(<NativeTestBootstrap />));
     await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("auth_error"));
     expect(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId).toBe("");
+    expect(window.__HUSHH_NATIVE_TEST__!.reviewerSessionSnapshot!().ownerMatches).toBe(false);
     expect(services.createAppReviewModeSession).not.toHaveBeenCalled();
     expect(vault.unlockVault).not.toHaveBeenCalled();
+    publishValidatedAuthSessionOwner(null);
   });
 
 
   it("invalidates human vault admission while authentication is being reverified", async () => {
     reviewerConfig.mode = "human_authenticated";
     auth.state.user = { uid: "reviewer-minted" };
+    publishValidatedAuthSessionOwner("reviewer-minted");
     vault.isVaultUnlocked = true;
     const { rerender } = render(<NativeTestBootstrap />);
     await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("vault_unlocked"));
+    expect(window.__HUSHH_NATIVE_TEST__!.reviewerSessionSnapshot!().authReady).toBe(true);
     auth.state.loading = true;
     await act(async () => rerender(<NativeTestBootstrap />));
     await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("waiting_auth"));
     expect(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId).toBe("");
+    expect(window.__HUSHH_NATIVE_TEST__!.reviewerSessionSnapshot!().authReady).toBe(false);
     expect(vault.unlockVault).not.toHaveBeenCalled();
+    publishValidatedAuthSessionOwner(null);
   });
 
   it("withdraws human vault admission when the same owner relocks", async () => {

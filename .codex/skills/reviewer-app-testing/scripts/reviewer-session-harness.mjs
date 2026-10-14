@@ -1,6 +1,7 @@
 import { resolveReviewerAuthMode, isHumanReviewerAuthenticationRequest } from "../../../../hushh-webapp/lib/testing/reviewer-authentication-policy.mjs";
 import { createReviewerBootstrap } from "./reviewer-session-bootstrap.mjs";
 import { createReviewerArrival } from "./reviewer-session-arrival.mjs";
+import { createExistingReviewerAttachment } from "./reviewer-session-attachment.mjs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -271,6 +272,7 @@ export async function createReviewerSessionHarness({
 
 
   function attachMemoryOnlyCapture(page) {
+    let disposed = false;
     let vaultState = null;
     let ownerToken = "";
     let identityToken = "";
@@ -279,10 +281,11 @@ export async function createReviewerSessionHarness({
     let chatKey = "";
     const criticalApiFailures = [];
     const responsePromises = new Set();
-    page.on("request", async (request) => {
-      if (new URL(request.url()).origin !== normalizedOrigin) return;
+    const observeRequest = async (request) => {
+      if (disposed || new URL(request.url()).origin !== normalizedOrigin) return;
       const pathname = endpointPath(request.url());
       const headers = await request.allHeaders().catch(() => ({}));
+      if (disposed) return;
       const sentChatKey = headers["x-hussh-chat-key"] || "";
       if (sentChatKey) chatKey = sentChatKey;
       const authorization = headers.authorization || "";
@@ -304,9 +307,9 @@ export async function createReviewerSessionHarness({
       ) {
         identityToken = authorization.slice(7);
       }
-    });
-    page.on("response", (response) => {
-      if (new URL(response.url()).origin !== normalizedOrigin) return;
+    };
+    const observeResponse = (response) => {
+      if (disposed || new URL(response.url()).origin !== normalizedOrigin) return;
       const pathname = endpointPath(response.url());
       if (
         response.status() >= 500 &&
@@ -321,13 +324,22 @@ export async function createReviewerSessionHarness({
       const pending = response
         .json()
         .then((payload) => {
-          vaultState = payload;
+          if (!disposed) vaultState = payload;
         })
         .catch(() => undefined)
         .finally(() => responsePromises.delete(pending));
       responsePromises.add(pending);
-    });
+    };
+    page.on("request", observeRequest);
+    page.on("response", observeResponse);
     return {
+      dispose() {
+        disposed = true;
+        page.off("request", observeRequest);
+        page.off("response", observeResponse);
+        vaultState = null;
+        ownerToken = identityToken = chatKey = "";
+      },
       async ownerToken() {
         return waitForValue(() => ownerToken, "vault-owner token", timeoutMs);
       },
@@ -540,6 +552,11 @@ export async function createReviewerSessionHarness({
   }
 
   return {
+    attachExistingSession: createExistingReviewerAttachment({
+      humanAuthenticated, appOrigin: normalizedOrigin, reviewerUid, timeoutMs,
+      admitMutation, admitProviderOAuth, installReadOnlyMutationGuard,
+      attachMemoryOnlyCapture, assertVaultContinuity, navigateInApp,
+    }),
     assertVaultContinuity,
     assertAuthenticatedContinuity,
     assertVisibleVaultChallenge,

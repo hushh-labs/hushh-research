@@ -16,6 +16,8 @@ import { isHumanReviewerSession, humanReviewerAdmissionStage } from "@/lib/testi
 import { updateBootstrapStatus } from "@/lib/testing/reviewer-bootstrap-status";
 import { withNativeTestVaultRetry, withVaultBootstrapTimeout } from "@/lib/testing/native-test-vault-retry";
 import { useVault } from "@/lib/vault/vault-context";
+import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 /** Six characters of a uid: enough to tell two identities apart in a log line, never a secret. */
 function uidPrefix(uid: string | null | undefined): string {
@@ -60,6 +62,23 @@ export function NativeTestBootstrap() {
   const replacedPersistedUidRef = useRef<string | null>(null);
   const unlockInFlightForUidRef = useRef<string | null>(null);
   const nativeSessionRecoveryInFlightRef = useRef(false);
+
+  useEffect(() => {
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    if (!humanReviewer || !bridge) return;
+    const observe = () => {
+      const owner = snapshotValidatedAuthSessionOwner();
+      return {
+        ownerMatches: Boolean(config.expectedUserId && owner?.userId === config.expectedUserId && user?.uid === config.expectedUserId),
+        authReady: !authLoading && Boolean(owner),
+        unlocked: isVaultUnlocked,
+        authGeneration: owner?.generation ?? null,
+        vaultEpoch: snapshotVaultSessionEpoch(),
+      };
+    };
+    bridge.reviewerSessionSnapshot = observe;
+    return () => { if (bridge.reviewerSessionSnapshot === observe) delete bridge.reviewerSessionSnapshot; };
+  }, [humanReviewer, config, user?.uid, authLoading, isVaultUnlocked]);
 
   useEffect(() => {
     if (!config.enabled || !config.autoReviewerLogin) {

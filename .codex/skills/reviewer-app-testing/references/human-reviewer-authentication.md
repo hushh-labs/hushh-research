@@ -16,6 +16,24 @@ Normal reviewer mode keeps its existing credential-pair preflight and mint contr
 The mutation guard admits only the narrow human provider exchanges; financial
 writes still require the existing exact human-confirmed action admission.
 
+### Borrowing an existing owner-selected page
+
+`createReviewerSessionHarness().attachExistingSession(page, {evidence: "warm_only"})`
+observes an explicitly selected ordinary owner session without new authentication,
+navigation, key export or app enrollment. Select `human_authenticated` and the
+canonical UID before preflight. The adapter guards only the selected page and
+preserves other agents' routes, listeners, tabs and browser resources. Its
+token-free observation uses the app's validated authentication generation and
+vault epoch. Owner changes, uncertainty, relocking, document replacement or origin
+departure permanently retire the attachment; returning to the same UID does not
+restore it. Disposal removes only owned handlers and observation configuration.
+
+`warm_only` proves current warm continuity, never an earlier unlock or cold recovery.
+`visible_unlock` additionally requires the real owner-bound locked form before
+ordinary manual unlock. Hosted popups need their own guarded admission. This
+adapter neither permits foreign private-cloud mutations nor bypasses the normal
+registered-installation binding, challenge and proof contracts.
+
 
 ## Headless operator admission for an isolated preview
 

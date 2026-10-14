@@ -384,3 +384,107 @@ test("human authentication admits exact provider exchanges but never custom-toke
   }
   assert.throws(() => guard.assertNoBlockedMutation(), /blocked state-changing request/);
 });
+
+function borrowedPage() {
+  const priorWindow = globalThis.window;
+  const state = { ownerMatches: true, authReady: true, unlocked: true, authGeneration: 1, vaultEpoch: 2 };
+  const events = new Map(), routes = new Set(["another-agent-handler"]);
+  const frame = { parentFrame: () => null };
+  const absent = { isVisible: async () => false, first() { return this; } };
+  globalThis.window = { location: new URL(APP_ORIGIN + "/one"), dispatchEvent(event) {
+    if (event.type === "hushh:native-test-config-updated" && window.__HUSHH_NATIVE_TEST__) {
+      const bridge = window.__HUSHH_NATIVE_TEST__;
+      bridge.reviewerSessionSnapshot = () => ({ ...state });
+      bridge.bootstrapUserId = "synthetic-owner"; bridge.bootstrapState = "vault_unlocked";
+    }
+    if (event.type === "app-internal-navigation-requested") {
+      window.location = new URL(event.detail.href, APP_ORIGIN);
+      for (const handler of events.get("framenavigated") || []) handler(frame);
+    }
+  } };
+  const page = {
+    isClosed: () => false, url: () => window.location.href, mainFrame: () => frame,
+    route: async (_pattern, handler) => routes.add(handler), unroute: async (_pattern, handler) => routes.delete(handler),
+    on(name, handler) { if (!events.has(name)) events.set(name, new Set()); events.get(name).add(handler); },
+    off(name, handler) { events.get(name)?.delete(handler); },
+    evaluate: async (fn, args) => fn(args),
+    evaluateHandle: async (fn, args) => { const cleanup = fn(args); return { evaluate: async fn => fn(cleanup), dispose: async () => {} }; },
+    waitForFunction: async (fn, args) => { assert.ok(fn(args)); },
+    locator: () => absent, getByRole: () => absent,
+    goto() { throw new Error("Borrowed page must never load a document"); },
+    close() { throw new Error("Borrowed page must never close"); },
+  };
+  return { page, state, routes, events, restore() { globalThis.window = priorWindow; } };
+}
+
+test("borrowed reviewer sessions preserve other clients and permanently retire on owner or vault generation changes", async () => {
+  const previousMode = process.env.REVIEWER_AUTH_MODE;
+  process.env.REVIEWER_AUTH_MODE = "human_authenticated";
+  const fixture = borrowedPage();
+  const harness = await createReviewerSessionHarness({ repoRoot: path.resolve(import.meta.dirname, "../../../.."),
+    appOrigin: APP_ORIGIN, reviewerIdentity: { reviewerUid: "synthetic-owner", reviewerVaultPassphrase: "" } });
+  try {
+    const session = await harness.attachExistingSession(fixture.page);
+    assert.equal(session.evidence, "warm_only");
+    await session.navigateInApp("/one/pkm");
+    assert.equal(fixture.routes.size, 2);
+    await assert.rejects(harness.attachExistingSession(fixture.page), /already owned/);
+    fixture.state.authGeneration += 2; // A → B → A is still a different session.
+    await assert.rejects(session.assertCurrent(), /retired/);
+    fixture.state.authGeneration = 1;
+    await assert.rejects(session.assertCurrent(), /retired/);
+    await session.dispose();
+    assert.deepEqual([...fixture.routes], ["another-agent-handler"]);
+    assert.ok([...fixture.events.values()].every(handlers => handlers.size === 0));
+    await assert.rejects(harness.attachExistingSession(fixture.page, { evidence: "visible_unlock" }), /Visible vault challenge/);
+    const next = await harness.attachExistingSession(fixture.page);
+    fixture.state.vaultEpoch += 1;
+    await assert.rejects(next.assertCurrent(), /retired/);
+    await next.dispose();
+    fixture.state.ownerMatches = false;
+    await assert.rejects(harness.attachExistingSession(fixture.page), /retired/);
+    window.location = new URL("https://other.example/one");
+    await assert.rejects(harness.attachExistingSession(fixture.page), /refused/);
+    assert.deepEqual([...fixture.routes], ["another-agent-handler"]);
+  } finally {
+    fixture.restore();
+    if (previousMode === undefined) delete process.env.REVIEWER_AUTH_MODE;
+    else process.env.REVIEWER_AUTH_MODE = previousMode;
+  }
+});
+
+test("a retired borrowed session cannot publish deferred evidence or forward deferred mutation approval", async () => {
+  const previousMode = process.env.REVIEWER_AUTH_MODE, previousWrites = process.env.REVIEWER_ALLOW_SHARED_MUTATIONS;
+  process.env.REVIEWER_AUTH_MODE = "human_authenticated"; process.env.REVIEWER_ALLOW_SHARED_MUTATIONS = "true";
+  const fixture = borrowedPage();
+  let release, entered;
+  const pending = new Promise(resolve => { release = resolve; }), started = new Promise(resolve => { entered = resolve; });
+  const harness = await createReviewerSessionHarness({ repoRoot: path.resolve(import.meta.dirname, "../../../.."),
+    appOrigin: APP_ORIGIN, reviewerIdentity: { reviewerUid: "synthetic-owner", reviewerVaultPassphrase: "" },
+    admitMutation: async request => { assert.equal(new URL(request.url()).pathname, "/api/scope-commerce/purchases"); entered(); await pending; return true; } });
+  const closeObservation = () => { for (const handler of fixture.events.get("close")) handler(); };
+  try {
+    const session = await harness.attachExistingSession(fixture.page);
+    const handler = [...fixture.routes].find(value => typeof value === "function");
+    const request = requestFor(handler, "POST", APP_ORIGIN + "/api/scope-commerce/purchases");
+    await started; closeObservation(); release();
+    assert.equal((await request).forwarded, false);
+    await assert.rejects(session.assertCurrent(), /retired/);
+    await session.dispose();
+    const next = await harness.attachExistingSession(fixture.page);
+    let readStarted, finishRead;
+    const reading = new Promise(resolve => { readStarted = resolve; }), gate = new Promise(resolve => { finishRead = resolve; });
+    const original = fixture.page.evaluate;
+    fixture.page.evaluate = async (fn, args) => { const value = await original(fn, args); readStarted(); await gate; return value; };
+    const assertion = assert.rejects(next.assertCurrent(), /retired/);
+    await reading; closeObservation(); finishRead(); await assertion;
+    fixture.page.evaluate = original;
+    await next.dispose();
+    assert.deepEqual([...fixture.routes], ["another-agent-handler"]);
+  } finally {
+    fixture.restore();
+    for (const [name, previous] of [["REVIEWER_AUTH_MODE", previousMode], ["REVIEWER_ALLOW_SHARED_MUTATIONS", previousWrites]]) {
+      if (previous === undefined) delete process.env[name]; else process.env[name] = previous;
+    }
+  }
+});
