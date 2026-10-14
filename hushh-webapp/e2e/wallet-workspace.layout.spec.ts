@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +14,17 @@ import {
 
 const ISO_RATIO = 85.6 / 53.98;
 const BOTTOM_SHELL_HEIGHT_PX = 132;
+
+async function expectCompactPrimary(action: Locator) {
+  const geometry = await action.evaluate(el => {
+    const box = el.getBoundingClientRect();
+    const parent = el.parentElement!.getBoundingClientRect();
+    return { width: box.width, height: box.height, center: box.x + box.width / 2, parentCenter: parent.x + parent.width / 2 };
+  });
+  expect(geometry.width).toBeCloseTo(244, 0);
+  expect(geometry.height).toBeCloseTo(50, 0);
+  expect(geometry.center).toBeCloseTo(geometry.parentCenter, 0);
+}
 
 const BOUNDARY_MODULES = [
   "next/navigation",
@@ -333,6 +344,7 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
     ))).toBeLessThan(1);
     await expect.poll(() => collection.evaluate((el) => el.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running" && !((animation.effect as KeyframeEffect)?.target as Element | null)?.closest("[data-wallet-swipe-hint]")).length)).toBe(0);
     const add = page.getByTestId("wallet-card-browser").getByRole("button", { name: count ? "Add another card" : "Add a payment card", exact: true });
+    await expectCompactPrimary(add);
     {
       const stack = page.getByTestId("wallet-add-stack");
       const layers = stack.locator("li:not([inert])");
@@ -602,6 +614,10 @@ for (const width of [320, 393, 1440]) {
     }
     await form.getByTestId("secure-card-save").scrollIntoViewIfNeeded();
     await expect(form.getByTestId("secure-card-save")).toBeVisible();
+    await expectCompactPrimary(form.getByTestId("secure-card-save"));
+    const cancel = form.getByRole("button", { name: "Cancel", exact: true });
+    await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await page.screenshot({ path: test.info().outputPath("wallet-add-compact-actions.png") });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
   });
@@ -914,6 +930,7 @@ for (const width of [390, 1440]) {
     await dialog.getByRole("checkbox", { name: "Share with Test Recipient", exact: true }).check();
     await dialog.getByRole("checkbox", { name: "Share with Trusted Recipient", exact: true }).check();
     await expect(dialog.getByRole("button", { name: "Share with 2", exact: true })).toBeEnabled();
+    await expectCompactPrimary(dialog.getByRole("button", { name: "Share with 2", exact: true }));
     await expect(dialog).toContainText("Trusted Circle");
     await expect(dialog.getByRole("button", { name: "15 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
     await dialog.getByRole("button", { name: "1 hour", exact: true }).click();
