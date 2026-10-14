@@ -16,7 +16,7 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const providerSource = fs.readFileSync(path.join(root, "app/providers.tsx"), "utf8");
-  const offsets = providerSource.match(/"--app-sticky-bottom-offset": shouldLockFullscreenRoot && !hideGlobalChrome\s+\? "([^"]+)"\s+: "([^"]+)"/)!;
+  const offsets = providerSource.match(/"--app-sticky-bottom-offset":\s+shouldLockFullscreenRoot && !hideGlobalChrome\s+\? "([^"]+)"\s+: "([^"]+)"/)!;
   stickyOffsets = [offsets[1], offsets[2]];
   const reviewSource = fs.readFileSync(path.join(root, "components/kai/views/portfolio-review-view.tsx"), "utf8");
   saveActionClass = reviewSource.match(/data-portfolio-review-save\s+className="([^"]+)"/)![1];
