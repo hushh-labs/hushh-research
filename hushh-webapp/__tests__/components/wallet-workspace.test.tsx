@@ -273,7 +273,7 @@ describe("WalletWorkspace at scale", () => {
     render(<WalletWorkspace />);
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     await screen.findByTestId("wallet-add-collection");
-    fireEvent.click(screen.getByRole("button", { name: "View details for Card 0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0" }));
     await screen.findByTestId("wallet-selected-card");
     fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
     const browser = screen.getByTestId("wallet-card-browser");

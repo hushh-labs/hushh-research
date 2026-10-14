@@ -67,3 +67,11 @@
 @layer base {
   .scanActions .scanAction { font-size: 13px !important; }
 }
+
+.additional { border-top: 1px solid var(--app-card-border-standard); }
+.additional > summary { min-height: 44px; padding-block: 14px; cursor: pointer; font-size: 13px; font-weight: 500; line-height: 1.2; }
+.additional > summary:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; border-radius: 4px; }
+.additional > .fields { padding-top: 8px; }
+.scanArtwork { position: relative; }
+.scanAffordance { position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--app-card-surface-default-solid); color: var(--foreground); box-shadow: var(--shadow-xs); }
+.scanAffordance svg { width: 18px; height: 18px; }

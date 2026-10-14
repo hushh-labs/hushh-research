@@ -149,7 +149,7 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
           { label: "Member since", value: demoProfile?.memberSince && !Number.isNaN(Date.parse(demoProfile.memberSince)) ? String(new Date(demoProfile.memberSince).getFullYear()) : "—" },
           { label: "Wallet ID", value: demoProfile?.walletId?.slice(-8).toUpperCase() || "—" },
         ],
-      } : { title: card.nickname || cardNetworkLabel(card.brand) }} scrollReveal showActions={false} showDetailsLink />
+      } : { title: card.nickname || cardNetworkLabel(card.brand) }} scrollReveal showActions={false} />
       <div className={styles.quickActions}>
         <Button variant="ghost" size="compact" className={styles.addAction} onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" className="size-4" />{cards.length ? "Add another card" : "Add a payment card"}</Button>
       </div>

@@ -16,6 +16,7 @@
  * This page emits no analytics.
  */
 
+import { AppPageShell, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { AlertTriangle, RefreshCw } from "@/components/icons";
@@ -197,7 +198,8 @@ export default function PublicWalletCardPageClient() {
 
   return (
     <main className="min-h-[100dvh] bg-background text-foreground">
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col justify-center px-4 py-8 sm:max-w-lg sm:px-6 sm:py-12">
+      <AppPageShell as="div" width="agent" fitContent className="pt-[max(env(safe-area-inset-top),var(--page-inline-gutter-standard))]">
+        <AppPageContentRegion>
         {status === "loading" ? <PublicWalletCardSkeleton /> : null}
 
         {status === "ready" && card ? <PublicWalletCardView card={card} profileUrl={typeof window === "undefined" ? null : `${window.location.origin}/c/${shareToken}`} /> : null}
@@ -224,7 +226,8 @@ export default function PublicWalletCardPageClient() {
             onRetry={retry}
           />
         ) : null}
-      </div>
+        </AppPageContentRegion>
+      </AppPageShell>
     </main>
   );
 }
