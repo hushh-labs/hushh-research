@@ -19,6 +19,7 @@ import {
   Fingerprint,
   FolderOpen,
   FolderSimple,
+  Gift,
   ImageSquare,
   ListChecks,
   MapPin,
@@ -109,6 +110,10 @@ export function FolderOpenIcon({ weight = "duotone", size = "1em", ...props }: I
 
 export function FolderSimpleIcon({ weight = "duotone", size = "1em", ...props }: IconProps) {
   return <FolderSimple weight={weight} size={size} {...props} />;
+}
+
+export function GiftIcon({ weight = "duotone", size = "1em", ...props }: IconProps) {
+  return <Gift weight={weight} size={size} {...props} />;
 }
 
 export function ImageSquareIcon({ weight = "duotone", size = "1em", ...props }: IconProps) {
