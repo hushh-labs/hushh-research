@@ -13,6 +13,27 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Profile readiness during appearance changes — 2026-10-14
+
+The shared `NativeChatChrome` adapter now reports presentation readiness after a
+matching in-place update or readmission, not only initial activation. Previously,
+an appearance change during activation could suppress the initial receipt without
+ever completing Profile's destination handoff. Readiness is emitted once for the
+current installed lease, document, owner, context and committed appearance. It is
+staging evidence, not permission to interact with a covered destination.
+
+The regression fails on the prior source and passes with the repair. All 159
+bridge cases pass, including changed-owner and dismissed-pane negative controls;
+449 Back cases, generated UI-contract checks, native static parity, typecheck,
+focused lint and design-system checks pass. The current physical attempt stopped before the
+test body with an automation-authorization timeout and runner connection failure.
+It does not establish this race as the cause of the installed iPhone failure.
+The previous installed and prepared executable identities below remain unchanged.
+
+Ordinary native Profile forms, support composition and finite local tabs are not
+implemented by this repair. Their adoption remains gated on physical Back/Close
+acceptance; existing protected-form, rich-content and platform fallbacks remain.
+
 ### Profile continuity and system-resume repair — 2026-10-14
 
 Source `c99498179e` corrects three demonstrated contract gaps: drawer admission

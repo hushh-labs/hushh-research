@@ -118,6 +118,19 @@ export function NativeChatChrome(props: Props) {
       peekNativeChromeCapabilities() === undefined) &&
     badgeAdmitted && props.eligible && !!props.owner && !overlay && !suppressed));
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
+  const notifiedReady = useRef<NativeChromeLease | null>(null);
+  const notifyPresentationReady = useCallback((active: NativeChromeLease) => {
+    const latest = current.current;
+    // Staging readiness permits the originating menu to finish dismissal; it
+    // does not grant touch authority over that still-covered destination.
+    if (!mounted.current || lease.current !== active || !latest.allowed ||
+        !active.admissionReady || !active.ownsInstallation || active.projection.documentId !== nativeDocumentId() ||
+        active.projection.ownerEpoch !== latest.epoch || active.context !== latest.context ||
+        !isCurrentNativeControlAppearance(active.projection, foreground) || notifiedReady.current === active ||
+        !latest.props.onPresentationReady) return;
+    notifiedReady.current = active;
+    latest.props.onPresentationReady();
+  }, [foreground]);
   const [measurement, remeasure] = useState(0);
   const rehearsalDiagnostics = useRef(false);
   const rehearsalChoice = useRef<ChromeChoiceOutcome | "none">("none");
@@ -329,7 +342,9 @@ export function NativeChatChrome(props: Props) {
     const readmit = () => {
       const active = lease.current, snapshot = current.current;
       if (cancelled || subscriptionsFailed || !active?.ownsInstallation || active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch || !snapshot.theme) return;
-      void active.update({ ...snapshot.theme, enabled: canAct(), value: snapshot.value, expanded: snapshot.expanded }, true).catch(() => {
+      void active.update({ ...snapshot.theme, enabled: canAct(), value: snapshot.value, expanded: snapshot.expanded }, true).then(applied => {
+        if (applied) notifyPresentationReady(active);
+      }).catch(() => {
         const latest = current.current;
         if (!cancelled && !subscriptionsFailed && lease.current === active && active.projection.documentId === nativeDocumentId() &&
             active.projection.ownerEpoch === latest.epoch && active.context === latest.context) invalidate();
@@ -416,7 +431,7 @@ export function NativeChatChrome(props: Props) {
       window.removeEventListener(NATIVE_PANEL_LAYOUT_EVENT, reconcileGeometry);
       setSupported(false);
     };
-  }, [kind, controlId, foreground, canAct, canPrepare, reportChoice]);
+  }, [kind, controlId, foreground, canAct, canPrepare, reportChoice, notifyPresentationReady]);
 
   // Content preferences are public, but their coordinates are not stationary
   // while a retained Profile stack or scroll root moves. Fence choices at the
@@ -654,8 +669,7 @@ export function NativeChatChrome(props: Props) {
       if (!prepared.admissionReady) return;
       if (lease.current === prepared) {
         reportRehearsal("activate", "acknowledged");
-        if (prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context &&
-            isCurrentNativeControlAppearance(prepared.projection, foreground)) current.current.props.onPresentationReady?.();
+        notifyPresentationReady(prepared);
         if (!inPlaceUpdates) void restoreNativeFocus(prepared);
       }
     }).catch(async (error) => {
@@ -676,14 +690,14 @@ export function NativeChatChrome(props: Props) {
         // Quarantine until confirmed retirement.
       }
     });
-  }, [prepared, hidden, controlId, reportRehearsal, inPlaceUpdates, restoreNativeFocus, restorePendingDomFocus, foreground]);
+  }, [prepared, hidden, controlId, reportRehearsal, inPlaceUpdates, restoreNativeFocus, restorePendingDomFocus, notifyPresentationReady]);
 
   useLayoutEffect(() => {
     if (!prepared || !hidden || !inPlaceUpdates || !theme) return;
     reportRehearsal("update", "pending");
     void prepared.update({ ...theme, enabled: canAct(), ...(value === undefined ? {} : { value }), ...(expanded === undefined ? {} : { expanded }) }).then((applied) => {
       if (applied && lease.current === prepared) {
-        reportRehearsal("update", "acknowledged"); void restoreNativeFocus(prepared);
+        reportRehearsal("update", "acknowledged"); notifyPresentationReady(prepared); void restoreNativeFocus(prepared);
       }
     }).catch(async (error) => {
       const isCurrent = () => mounted.current && lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
@@ -703,7 +717,7 @@ export function NativeChatChrome(props: Props) {
         // Uncertain updates cannot restore a duplicate DOM control.
       }
     });
-  }, [prepared, hidden, controlId, inPlaceUpdates, theme, value, expanded, overlay, suppressed, surface, canAct, reportRehearsal, restoreNativeFocus, restorePendingDomFocus]);
+  }, [prepared, hidden, controlId, inPlaceUpdates, theme, value, expanded, overlay, suppressed, surface, canAct, reportRehearsal, restoreNativeFocus, restorePendingDomFocus, notifyPresentationReady]);
 
   return <div ref={slot} className={className} style={props.style} data-native-chrome-slot={controlId}>
     <div inert={hidden} aria-hidden={hidden || undefined} style={{ visibility: hidden ? "hidden" : undefined }}>{children}</div>

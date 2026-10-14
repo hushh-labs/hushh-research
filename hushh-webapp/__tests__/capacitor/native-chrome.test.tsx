@@ -2784,6 +2784,60 @@ describe("native chrome presentation lease", () => {
     view.unmount();
     await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
   });
+  it.each(["current", "owner", "closed"] as const)("settles Profile readiness after an appearance change during activation only for the %s pane", async outcome => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
+    const activation = deferred<ChromeAcknowledgement>(), update = deferred<ChromeUpdateAcknowledgement>();
+    let held: ChromeProjection | undefined, heldUpdate = false;
+    bridge.activate.mockImplementation(async value => {
+      if (value.controlId === "profile-back" && !held) { held = value; return activation.promise; }
+      return { ...value, phase: "active" };
+    });
+    bridge.update.mockImplementation(async value => {
+      if (value.revision === held?.revision && value.controlId === "profile-back" && value.appearance === "dark" && !heldUpdate) {
+        heldUpdate = true; return update.promise;
+      }
+      return value;
+    });
+    const ready = vi.fn(), replacementReady = vi.fn(), back = vi.fn(), close = vi.fn();
+    function Destination({ owner = "owner-a", open = true }: { owner?: string; open?: boolean }) {
+      useNativeNavigationBlocked(true); // Menu remains authoritative during preparation.
+      return <NativeFeaturePage pane open={open} title="Preferences" owner={owner} context="pane"
+        onBack={back} onClose={close} onReady={owner === "owner-a" ? ready : replacementReady}><p>Public preferences</p></NativeFeaturePage>;
+    }
+    const view = render(<Destination />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    const retirements = bridge.retire.mock.calls.length;
+    expect(ready).not.toHaveBeenCalled();
+    act(() => document.documentElement.classList.add("dark"));
+    await act(async () => activation.resolve({ ...held!, phase: "active" }));
+    await waitFor(() => expect(heldUpdate).toBe(true));
+    const currentUpdate = bridge.update.mock.calls.find(([p]) => p.controlId === "profile-back" && p.revision === held!.revision && p.appearance === "dark")![0];
+    expect(ready).not.toHaveBeenCalled();
+    if (outcome === "owner") view.rerender(<Destination owner="owner-b" />);
+    if (outcome === "closed") view.rerender(<Destination open={false} />);
+    await act(async () => update.resolve(currentUpdate));
+    if (outcome === "current") {
+      await waitFor(() => expect(ready).toHaveBeenCalledOnce());
+      expect(view.getByRole("dialog", { name: "Preferences" })).toBeVisible();
+      expect(bridge.prepare).toHaveBeenCalledTimes(2);
+      expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+      expect(currentUpdate.enabled).toBe(false); // Ready is staging, not touch authority.
+      act(() => bridge.callbacks.get("readmissionRequested")?.(undefined));
+      await waitFor(() => expect(bridge.update.mock.calls.filter(([p]) => p.controlId === "profile-back").length).toBeGreaterThan(1));
+      expect(ready).toHaveBeenCalledOnce();
+    } else {
+      expect(ready).not.toHaveBeenCalled();
+      if (outcome === "closed") expect(view.queryByRole("dialog", { name: "Preferences" })).toBeNull();
+    }
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...currentUpdate, sequence: 1, privacyGeneration: 0 }));
+    expect(back).not.toHaveBeenCalled(); expect(close).not.toHaveBeenCalled();
+    view.unmount();
+    await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
+  });
   it.each(["profile-back", "profile-close"] as const)("revokes pending %s on dismissal while retaining the exiting pane's isolation", async controlId => {
     measureSlot();
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
