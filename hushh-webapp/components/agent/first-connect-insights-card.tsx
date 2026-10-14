@@ -28,6 +28,8 @@ export type FirstConnectInsightsCardProps = {
   vaultOwnerToken: string | null;
   /** The chat is unlocked and ready; the card never asks before this. */
   enabled: boolean;
+  onPromptSelect?: (prompt: string) => void;
+  promptDisabled?: boolean;
 };
 
 export function FirstConnectInsightsCard({
@@ -35,12 +37,15 @@ export function FirstConnectInsightsCard({
   vaultKey,
   vaultOwnerToken,
   enabled,
+  onPromptSelect,
+  promptDisabled = false,
 }: FirstConnectInsightsCardProps) {
   const descriptionId = useId();
   const [offer, setOffer] = useState<FirstConnectInsightsOffer | null>(null);
   const [states, setStates] = useState<Record<string, ItemState>>({});
   const [forgotten, setForgotten] = useState<ReadonlySet<string>>(new Set());
   const [recipients, setRecipients] = useState<Record<string, number>>({});
+  const [followUpSent, setFollowUpSent] = useState(false);
   const askedForOwnerRef = useRef<string | null>(null);
   const [offerOwner, setOfferOwner] = useState<{ ownerId: string; vaultKey: string; vaultOwnerToken: string } | null>(null);
   const credentialsRef = useRef({ ownerId, vaultKey, vaultOwnerToken, enabled });
@@ -69,6 +74,7 @@ export function FirstConnectInsightsCard({
         setOffer(next);
         setStates({});
         setForgotten(new Set());
+        setFollowUpSent(false);
       },
     );
     return () => controller.abort();
@@ -143,16 +149,38 @@ export function FirstConnectInsightsCard({
   };
 
   if (open.length === 0) {
-    if (kept === 0) return null;
+    const showFollowUp = offer.source === "calendar" && onPromptSelect && !followUpSent;
+    if (kept === 0 && !showFollowUp) return null;
     return (
-      <p
-        className="px-1 text-xs text-foreground/60"
-        data-testid="first-connect-insights-receipt"
-        role="status"
-      >
-        {kept} {kept === 1 ? "detail" : "details"} from {offer.sourceLabel} {kept === 1 ? "is" : "are"} in your private
-        memory. Nothing else was saved.
-      </p>
+      <div className="space-y-3 px-1">
+        {kept > 0 ? (
+          <p
+            className="text-xs text-foreground/60"
+            data-testid="first-connect-insights-receipt"
+            role="status"
+          >
+            {kept} {kept === 1 ? "detail" : "details"} from {offer.sourceLabel} {kept === 1 ? "is" : "are"} in your private
+            memory. Nothing else was saved.
+          </p>
+        ) : null}
+        {showFollowUp ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-foreground">Want a quick look at your week?</p>
+            <Button
+              size="sm"
+              className="min-h-11"
+              disabled={promptDisabled}
+              onClick={() => {
+                if (promptDisabled || followUpSent) return;
+                setFollowUpSent(true);
+                onPromptSelect("What's on my calendar this week?");
+              }}
+            >
+              Show my week
+            </Button>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -171,7 +199,9 @@ export function FirstConnectInsightsCard({
             Here&apos;s what I picked up from {offer.sourceLabel}
           </p>
           <p className="mt-1 text-sm text-foreground/70">
-            Tap ✓ to keep a detail or × to dismiss it.
+            {offer.source === "calendar"
+              ? "Choose what One should remember."
+              : "Tap ✓ to keep a detail or × to dismiss it."}
           </p>
         </div>
       </div>
