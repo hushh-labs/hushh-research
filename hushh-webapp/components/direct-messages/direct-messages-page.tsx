@@ -382,6 +382,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [loadingInbox, setLoadingInbox] = useState(false);
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
+  const [settledSelection, setSettledSelection] = useState<string | null>(null);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -556,9 +557,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   }, [editingMessageId]);
 
   const hasRouteSelection = Boolean(resolvingSelection || requestedPersonRef || requestedConversationId);
-  useChatAlertVisibility(lane === "people" && hasRouteSelection && activeConversationId && !loadingThread && !blockingLayer && !messageSearchOpen
+  const selectionKey = requestedPersonRef ? `person:${requestedPersonRef}` : requestedConversationId ? `conversation:${requestedConversationId}` : null;
+  const pendingSelection = resolvingSelection || loadingThread || (selectionKey !== null && settledSelection !== selectionKey);
+  useChatAlertVisibility(lane === "people" && hasRouteSelection && activeConversationId && !pendingSelection && !blockingLayer && !messageSearchOpen
     ? `direct-chat:${activeConversationId}` : null, messageListRef);
-  const canCompose = hasRouteSelection && !resolvingSelection && thread.canSend;
+  const canCompose = hasRouteSelection && !pendingSelection && thread.canSend;
 
   const loadInbox = useCallback(
     async (options?: { preserveItems?: boolean }) => {
@@ -714,7 +717,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
             : "Messages could not be loaded. Check your connection and try again.",
         );
       } finally {
-        if (generation === loadGeneration.current) setLoadingThread(false);
+        if (generation === loadGeneration.current) {
+          setSettledSelection(requestKey);
+          setLoadingThread(false);
+        }
       }
     },
     [requestedConversationId, requestedPersonRef, user],
@@ -939,7 +945,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
   const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
-  const visibleMessages = normalizedMessageSearch
+  const visibleMessages = pendingSelection ? [] : normalizedMessageSearch
     ? messages.filter((message) =>
         [walletMessagePreview(message.content), message.replyTo ? walletMessagePreview(message.replyTo.content) : null]
           .filter(Boolean)
@@ -1489,7 +1495,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     />
                     <div className={styles.threadTitle}>
                       <h2 title={selectedLabel}>{selectedLabel}</h2>
-                      <p className={styles.threadStatus}>{loadingThread ? "Connecting…" : thread.canSend ? "Connected" : "Messaging unavailable"}</p>
+                      <p className={styles.threadStatus}>{pendingSelection ? "Connecting…" : thread.canSend ? "Connected" : "Messaging unavailable"}</p>
                     </div>
                   </div>
                   <div className={styles.threadHeaderActions}>
@@ -1557,7 +1563,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 }}
                 aria-label={`${selectedLabel} message feed`}
               >
-                {loadingThread && messages.length === 0 ? (
+                {pendingSelection ? (
                   <p className={styles.loading}>Loading messages…</p>
                 ) : null}
                 {threadError && messages.length === 0 && !thread.disconnectedNotice ? (
@@ -1591,13 +1597,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <p>No messages match “{messageSearchQuery.trim()}”.</p>
                   </div>
                 ) : null}
-                {!resolvingSelection && !loadingThread && messages.length === 0 && thread.disconnectedNotice ? (
+                {!pendingSelection && messages.length === 0 && thread.disconnectedNotice ? (
                   <div className={styles.emptyThread} role="status">
                     <MessageCircle className="h-7 w-7" aria-hidden="true" />
                     <p>{thread.disconnectedNotice}</p>
                   </div>
                 ) : null}
-                {!loadingThread && messages.length === 0 && !threadError && !thread.disconnectedNotice ? (
+                {!pendingSelection && messages.length === 0 && !threadError && !thread.disconnectedNotice ? (
                   <div className={styles.emptyThread}>
                     <MessageCircle className="h-7 w-7" aria-hidden="true" />
                     <p>Start the conversation with {selectedLabel}.</p>
