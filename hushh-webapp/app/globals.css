@@ -2866,7 +2866,6 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  [data-app-side-pane],
   .profile-pane-sheet[data-slot="sheet-content"],
   [data-agent-history-drawer],
   [data-app-pane-material="profile"] {
@@ -9483,12 +9482,12 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   overflow-wrap: anywhere;
 }
 
-[data-app-side-pane] [data-connections-panel] > header {
+[data-chat-detail-pane] [data-connections-panel] > header {
   min-height: 79px;
   padding: 16px;
   border-bottom: 1px solid var(--profile-pane-hair);
 }
-[data-app-side-pane] [data-connections-panel] > header h2 {
+[data-chat-detail-pane] [data-connections-panel] > header h2 {
   color: var(--ios-account-label);
   font-family: var(--font-app-display);
   font-size: 20px;
@@ -9496,9 +9495,9 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   text-align: center;
   text-wrap: balance;
 }
-[data-app-side-pane] [data-connections-panel] > header > h2:first-child {
+[data-chat-detail-pane] [data-connections-panel] > header > h2:first-child {
   padding-left: 52px;
 }
-[data-app-side-pane] [data-connections-panel] > header + div {
+[data-chat-detail-pane] [data-connections-panel] > header + div {
   padding: 22px 28px 28px;
 }

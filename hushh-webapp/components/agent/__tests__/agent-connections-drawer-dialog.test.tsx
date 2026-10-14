@@ -12,7 +12,7 @@ function Detail() {
   return <>
     <button type="button" onClick={() => setOpen(true)}>View Drive update</button>
     <Sheet modal open={open} onOpenChange={setOpen}>
-      <SheetContent side="right" data-app-side-pane><SheetTitle>Drive sharing</SheetTitle></SheetContent>
+      <SheetContent side="right" data-chat-detail-pane className="profile-pane-sheet"><SheetTitle>Drive sharing</SheetTitle></SheetContent>
     </Sheet>
   </>;
 }

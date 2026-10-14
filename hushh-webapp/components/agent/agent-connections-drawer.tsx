@@ -204,7 +204,7 @@ export function AgentConnectionsDrawer({
       {connectorHost && createPortal(connections, connectorHost)}
       {presentationReady && (
         <Sheet open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
-          <SheetContent {...connectorContentProps} side="right" data-app-side-pane contentDragDismiss={false} className="gap-0 overflow-hidden p-0">
+          <SheetContent {...connectorContentProps} side="right" data-chat-detail-pane contentDragDismiss={false} className="profile-pane-sheet gap-0 overflow-hidden p-0">
             <SheetTitle className="sr-only">Connectors</SheetTitle>
             <div ref={attachConnectorHost} data-connector-host className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
           </SheetContent>

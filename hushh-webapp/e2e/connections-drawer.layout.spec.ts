@@ -762,7 +762,7 @@ for (const width of [320, 390, 768, 1440])
     const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
     await expect(drawer).toHaveAttribute("data-slot", "sheet-content");
-    await expect(drawer).toHaveAttribute("data-app-side-pane", "true");
+    await expect(drawer).toHaveAttribute("data-chat-detail-pane", "true");
     const reference = await profileFrame(page);
     await expect.poll(async () => {
       const box = (await drawer.boundingBox())!;
