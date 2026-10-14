@@ -1700,14 +1700,19 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
-    expect(
-      screen.getByRole("heading", { name: /checking your gmail status/i }),
-    ).toBeTruthy();
-    expect(
-      within(screen.getByRole("tabpanel", { name: "Receipts" })).getByText(
-        /your mail connection details will appear here when ready/i,
-      ),
-    ).toBeTruthy();
+    for (const name of ["Receipts", "KYC", "Overview"]) {
+      const tab = screen.getByRole("tab", { name, exact: true });
+      expect(tab).toBeEnabled();
+      fireEvent.click(tab);
+      expect(tab).toHaveAttribute("aria-selected", "true");
+      const panel = within(screen.getByRole("tabpanel", { name, exact: true }));
+      expect(panel.getByLabelText("Checking your Gmail status")).toHaveAttribute(
+        "aria-busy", "true",
+      );
+      expect(panel.getByRole("heading", { name: /checking your gmail status/i })).toBeVisible();
+      expect(panel.getByText(/your mail connection details will appear here when ready/i)).toBeVisible();
+      expect(panel.queryByRole("button", { name: /^connect mail$/i })).toBeNull();
+    }
   });
 
   it("does not scan or retain live account rows after Gmail disconnects", async () => {
