@@ -302,7 +302,8 @@
     "334_drive_reusable_packets.sql",
     "335_pwm_provider_budget.sql",
     "336_pwm_claim_invitations.sql",
-    "337_initial_contacts_onboarding.sql"
+    "337_initial_contacts_onboarding.sql",
+    "338_one_referral_usd_catalogue.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -641,6 +642,7 @@
     "334_drive_reusable_packets.sql": "rollback/334_drive_reusable_packets.rollback.sql",
     "335_pwm_provider_budget.sql": "rollback/335_pwm_provider_budget.rollback.sql",
     "336_pwm_claim_invitations.sql": "rollback/336_pwm_claim_invitations.rollback.sql",
-    "337_initial_contacts_onboarding.sql": "rollback/337_initial_contacts_onboarding.rollback.sql"
+    "337_initial_contacts_onboarding.sql": "rollback/337_initial_contacts_onboarding.rollback.sql",
+    "338_one_referral_usd_catalogue.sql": "rollback/338_one_referral_usd_catalogue.rollback.sql"
   }
 }

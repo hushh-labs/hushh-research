@@ -179,6 +179,7 @@
 
 :global(html:not(.dark)) .appleIcon { left: calc(50% - 118px); width: 41px; }
 :global(html:not(.dark)) .googleIcon { left: calc(50% - 120px); width: 46px; }
+:global(html:not(.dark)) .ssoIcon { left: calc(50% - 108px); width: 23px; display: flex; align-items: center; justify-content: center; }
 
 :global(html:not(.dark)) .footer {
   position: static;
