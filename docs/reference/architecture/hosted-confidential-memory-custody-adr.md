@@ -3,6 +3,21 @@
 Status: **Proposed for explicit owner review; not implemented or enabled.**
 Updated: 2026-10-14.
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  Owner[Unlocked owner client] -. new scoped key and explicit opt-in .-> Wrapped[Owner and runtime wrapped key copies]
+  Owner -. verify nonce-bound attestation .-> VM[Proposed Confidential Space VM]
+  Wrapped -. narrow attested KMS decrypt .-> VM
+  Journal[Proposed encrypted journal and selected source envelopes] -. owner-scoped reads .-> VM
+  VM -. encrypted compare-and-swap write .-> Memory[Derived Live Memory projection]
+```
+
+Every dotted path is proposed. The current backend has no memory decryption key
+or closed-app worker; the owner-operated device proposal is documented
+separately in the freshness ADR.
+
 ## Context and decision boundary
 
 Today the owner client can refresh Live Memory only while open and unlocked.
