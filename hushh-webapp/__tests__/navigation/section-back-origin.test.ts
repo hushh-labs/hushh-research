@@ -113,6 +113,19 @@ describe("back leaves a destination by its origin", () => {
     );
   });
 
+  it("restores the initiating Profile pane from Referrals, retaining its query", () => {
+    const profile = "/?profile_pane=1";
+    recordDestinationEntry(profile);
+    recordDestinationEntry("/one/referrals");
+    expect(resolveTopShellBackAction({ pathname: "/one/referrals" })).toEqual({
+      href: profile, mode: "push", transitionMode: "full",
+    });
+    clearDestinationOrigins();
+    expect(resolveTopShellBackAction({ pathname: "/one/referrals" })).toEqual({
+      href: ONE_HOME, mode: "push", transitionMode: "full",
+    });
+  });
+
   it("climbs inside a destination, ignoring the origin", () => {
     recordDestinationEntry(LOCATION);
     recordDestinationEntry(KAI);

@@ -3725,9 +3725,9 @@ final class AppUITests: XCTestCase {
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             destination.tap()
             if id == "invite" {
-                // Invite now opens the authored Referrals route, not a nested
-                // Profile detail. Its route parent is One; use those real
-                // controls before restoring the originating Chat menu.
+                // Referrals is a standalone destination. The shared origin
+                // owner restores the initiating Profile query; One is only
+                // the direct-entry fallback, not this warm journey's parent.
                 let routeBack = app.buttons["Go back"].firstMatch
                 // Observe the actual destination without changing the session.
                 guard web.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 15),
@@ -3737,29 +3737,13 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                 XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
                 routeBack.tap()
-                let status = app.buttons["native-test-status"].firstMatch
-                var observedRoute = "unknown"
                 let parent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    guard status.exists, let raw = status.value as? String, raw.utf8.count <= 1024 else { return false }
-                    let fields = Dictionary(raw.split(separator: ";").compactMap { field -> (String, String)? in
-                        let pair = field.split(separator: "=", maxSplits: 1)
-                        return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
-                    }, uniquingKeysWith: { _, latest in latest })
-                    observedRoute = fields["route"] == "/one" ? "one" : fields["route"] == "/one/referrals" ? "referrals" : "other"
-                    return observedRoute == "one" && fields["ready"] == "1" && fields["marker"] == "native-route-one-home" && web.exists && web.isHittable
+                    close.exists && close.isHittable && destination.exists && destination.isHittable
                 }, object: app)
                 guard XCTWaiter.wait(for: [parent], timeout: 15) == .completed else {
-                    print("PROFILE_REFERRALS_RETURN route=\(observedRoute) status=\(status.exists) web=\(web.exists) hittable=\(web.exists && web.isHittable)")
                     printCoherentPresentationAdmission(app)
                     XCTFail("PROFILE_BATCH_REFERRALS_PARENT_NOT_RESTORED"); return
                 }
-                perfTapNav(app, label: "Chat")
-                guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else {
-                    XCTFail("PROFILE_BATCH_CHAT_NOT_RESTORED"); return
-                }
-                XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
-                opener.tap()
-                XCTAssertTrue(waitForAdmittedControl(root("account")), "PROFILE_BATCH_MENU_NOT_RESTORED")
                 XCTAssertFalse(web.buttons["Unlock"].exists)
                 print("PROFILE_NATIVE_DESTINATION family=invite warm=true single_host=true")
                 continue
@@ -3828,7 +3812,13 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
         print("PROFILE_STACK_CONTINUITY screens=\(admittedDestinations.count) warm=true single_host=true")
         let oneProfile = web.buttons["Open One profile"].firstMatch
-        guard waitForAdmittedControl(oneProfile) else { XCTFail("ONE_PROFILE_OPENER_UNAVAILABLE"); return }
+        guard waitForAdmittedControl(oneProfile) else {
+            let selector = app.segmentedControls["chat-agent-surface"].firstMatch
+            let one = selector.buttons["One, your cloud agent"].firstMatch
+            print("PROFILE_ONE_OPENER exists=\(oneProfile.exists) hittable=\(oneProfile.exists && oneProfile.isHittable) one_selected=\(one.exists && one.isSelected) web=\(web.exists) web_hittable=\(web.exists && web.isHittable)")
+            printCoherentPresentationAdmission(app)
+            XCTFail("ONE_PROFILE_OPENER_UNAVAILABLE"); return
+        }
         oneProfile.tap()
         let oneClose = app.buttons["native-agent-profile-drawer-close"].firstMatch
         guard waitForAdmittedControl(oneClose) else { XCTFail("ONE_NATIVE_PROFILE_UNAVAILABLE"); return }
