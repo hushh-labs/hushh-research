@@ -534,7 +534,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     .first(where: { $0.model.projection.family == "profile" && $0.model.projection.open &&
                         $0.model.projection.documentId == document && $0.model.projection.privacyGeneration == privacy.generation }) else { return nil }
                 let publicFields = (cached ?? "").split(separator: ";").filter {
-                    $0.hasPrefix("profileQueryOpen=") || $0.hasPrefix("profileHistoryDepth=")
+                    $0.hasPrefix("profileQueryOpen=") || $0.hasPrefix("profileHistoryDepth=") || $0.hasPrefix("profilePaneLevel=")
                 }.joined(separator: ";")
                 return [profile.closeDiagnostic, publicFields].filter { !$0.isEmpty }.joined(separator: ";")
             }
@@ -596,6 +596,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             profileCloseChoice: close.choice, profileCloseAllowed: close.allowed === true,
             profileClosePresent: !!closeSlot, profileCloseInert: !!closeSlot?.closest('[inert]'),
             profileQueryOpen: new URLSearchParams(location.search).get('profile_pane') === '1',
+            profilePaneLevel: new URLSearchParams(location.search).has('profile_detail') ? 2 : new URLSearchParams(location.search).has('profile_panel') ? 1 : 0,
             profileHistoryDepth: Number.isSafeInteger(window.history.state?.__hushhProfilePane?.depth) ? window.history.state.__hushhProfilePane.depth : 0,
             historyStage: history.stage, historyOutcome: history.outcome, historyCode: history.code, historyChoice: history.choice,
             historyAllowed: history.allowed === true, historyPresent: !!historySlot, historyInert: !!historySlot?.closest('[inert]')});
@@ -633,13 +634,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             let outcomes = ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
                 "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"]
             let profileChoices = "profileBackChoice=\(choice("profileBackChoice", outcomes));profileBackAllowed=\(packet["profileBackAllowed"] as? Bool == true);profileCloseChoice=\(choice("profileCloseChoice", outcomes));profileCloseAllowed=\(packet["profileCloseAllowed"] as? Bool == true);profileClosePresent=\(packet["profileClosePresent"] as? Bool == true);profileCloseInert=\(packet["profileCloseInert"] as? Bool == true)"
-            let profileHistory = "profileQueryOpen=\(packet["profileQueryOpen"] as? Bool == true);profileHistoryDepth=\(dimension("profileHistoryDepth"))"
+            let profileHistory = "profileQueryOpen=\(packet["profileQueryOpen"] as? Bool == true);profileHistoryDepth=\(dimension("profileHistoryDepth"));profilePaneLevel=\(dimension("profilePaneLevel"))"
             let paneGeometry = "paneSample=\(self.profileSampleSequence);paneReady=\(packet["paneReady"] as? Bool == true);paneX=\(dimension("paneX"));paneY=\(dimension("paneY"));paneWidth=\(dimension("paneWidth"));paneHeight=\(dimension("paneHeight"))"
             if packet["paneReady"] as? Bool == true {
                 // Active details need their own fresh DOM paint bounds. WebKit
                 // projects title hulls, not the dialog's CSS rectangle. Keep
                 // this public packet bounded and exclude withdrawn History.
-                self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));\(profileChoices);\(paneGeometry)")
+                self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));\(profileChoices);\(paneGeometry);\(profileHistory)")
                 return
             }
             if packet["profileQueryOpen"] as? Bool == true {

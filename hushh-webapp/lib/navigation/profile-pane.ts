@@ -297,7 +297,17 @@ export function pushProfilePaneLocation(
   options: { returnsToOrigin?: boolean } = {},
 ): void {
   if (typeof window === "undefined") return;
-  const depth = getProfilePaneHistoryDepth() + 1;
+  const currentDepth = getProfilePaneHistoryDepth();
+  // A direct query entry (including a destination's return to Profile) has
+  // no owned closed predecessor. Keep its existing in-place Back/Close
+  // boundary instead of inventing depth 1 over an already-open pane. Doing
+  // so would make Close traverse to another open Profile entry and strand
+  // the native drawer's underlying touch isolation.
+  if (currentDepth === 0 && resolveProfilePaneUrlState(window.location.search).open && !options.returnsToOrigin) {
+    replaceProfilePaneLocation(pathname, searchParams, location);
+    return;
+  }
+  const depth = currentDepth + 1;
   const state =
     window.history.state && typeof window.history.state === "object"
       ? { ...(window.history.state as Record<string, unknown>) }

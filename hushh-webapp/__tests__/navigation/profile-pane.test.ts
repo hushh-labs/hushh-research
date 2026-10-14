@@ -281,6 +281,35 @@ describe("Profile pane navigation state", () => {
     expect(currentUrl().searchParams.has(PROFILE_PANE_PANEL_QUERY)).toBe(false);
   });
 
+  it("keeps a returned untracked Profile root in-place through nested Back and Close", () => {
+    // Referrals' authored Back restores its initiating Profile URL through
+    // Next navigation, not the original pane's browser-history metadata.
+    window.history.replaceState(null, "", "/?view=recent&profile_pane=1");
+    const initialLength = window.history.length;
+    const go = vi.spyOn(window.history, "go");
+    try {
+      pushProfilePaneLocation("/", window.location.search, ACCOUNT);
+      pushProfilePaneLocation("/", window.location.search, PHONE);
+      expect(window.history.length).toBe(initialLength);
+      expect(getProfilePaneHistoryDepth()).toBe(0);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(PHONE);
+      popProfilePaneLocation("/", window.location.search);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(ACCOUNT);
+      popProfilePaneLocation("/", window.location.search);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual({ panel: null, detail: null });
+      closeProfilePane("/", window.location.search);
+      expect(currentUrl().searchParams.get("view")).toBe("recent");
+      expect(resolveProfilePaneUrlState(window.location.search).open).toBe(false);
+      expect(go).not.toHaveBeenCalled();
+      window.history.replaceState(null, "", "/?view=recent&profile_pane=1");
+      pushProfilePaneLocation("/", window.location.search, PHONE);
+      closeProfilePane("/", window.location.search);
+      expect(resolveProfilePaneUrlState(window.location.search).open).toBe(false);
+      expect(currentUrl().searchParams.get("view")).toBe("recent");
+      expect(go).not.toHaveBeenCalled();
+    } finally { go.mockRestore(); }
+  });
+
   it("clears pane query and its internal history marker on authentication loss", () => {
     window.history.replaceState(
       { __hushhProfilePane: { depth: 2 } },

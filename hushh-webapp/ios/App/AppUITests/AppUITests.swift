@@ -3659,6 +3659,13 @@ final class AppUITests: XCTestCase {
         let startIndex = requestedStart.flatMap { destinations.firstIndex(of: $0) } ?? 0
         let admittedDestinations = Array(destinations.dropFirst(startIndex))
         func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
+        func publicPaneLevel() -> Int? {
+            let probe = app.buttons["native-profile-back-admission"].firstMatch
+            guard probe.exists, let raw = probe.value as? String, raw.utf8.count <= 1024 else { return nil }
+            let field = raw.split(separator: ";").first(where: { $0.hasPrefix("profilePaneLevel=") })
+            guard let field, let level = Int(field.dropFirst("profilePaneLevel=".count)), (0...2).contains(level) else { return nil }
+            return level
+        }
         func publicPaneGeometry() -> (sample: Int, frame: CGRect)? {
             let probe = app.buttons["native-profile-back-admission"].firstMatch
             guard probe.exists, let raw = probe.value as? String, raw.utf8.count <= 1024 else { return nil }
@@ -3757,7 +3764,7 @@ final class AppUITests: XCTestCase {
                 print("PROFILE_NATIVE_DESTINATION family=invite warm=true single_host=true")
                 continue
             }
-            guard admittedBack() else { XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
+                guard admittedBack() else { printCoherentPresentationAdmission(app); XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
             let detailClose = app.buttons["profile-close"].firstMatch
             XCTAssertTrue(waitForAdmittedControl(detailClose), "PROFILE_DETAIL_CLOSE_UNAVAILABLE")
             XCTAssertEqual(detailClose.frame.width, 44, accuracy: 1)
@@ -3807,7 +3814,24 @@ final class AppUITests: XCTestCase {
                     XCTAssertTrue(waitForAdmittedControl(row(title)), "PROFILE_BATCH_QUERY_PARENT_NOT_RESTORED")
                 }
             }
-            back.tap()
+            // A returned/direct query entry climbs its authored parents in
+            // place (Terms -> Legal -> Profile, Devices -> Security -> Profile).
+            // Do not mistake a still-visible staging menu for committed root.
+            for _ in 0..<3 {
+                guard let previousLevel = publicPaneLevel(), previousLevel > 0,
+                      waitForAdmittedControl(back) else { XCTFail("PROFILE_BATCH_PARENT_BOUNDARY_UNAVAILABLE"); return }
+                back.tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    guard let level = publicPaneLevel(), level < previousLevel else { return false }
+                    return level == 0 ? destination.exists && destination.isHittable && destination.isEnabled :
+                        back.exists && back.isHittable && back.isEnabled
+                }, object: app)
+                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    printCoherentPresentationAdmission(app); XCTFail("PROFILE_BATCH_QUERY_PARENT_NOT_RESTORED"); return
+                }
+                if publicPaneLevel() == 0 { break }
+            }
+            XCTAssertEqual(publicPaneLevel(), 0, "PROFILE_BATCH_ROOT_NOT_COMMITTED")
             // Back must restore the originating row and menu scroll position,
             // not force Your account into view after a lower Legal destination.
             XCTAssertTrue(waitForAdmittedControl(destination), "PROFILE_BATCH_MENU_NOT_RESTORED")
