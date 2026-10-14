@@ -1,5 +1,6 @@
 import { useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { useWebHistoryBack } from "../../lib/navigation/web-history-back";
 import { pushProfilePaneLocation, resolveProfilePaneUrlState } from "../../lib/navigation/profile-pane";
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "../../components/ui/sheet";
@@ -12,12 +13,24 @@ import accountStyles from "../../components/profile/profile-your-account.module.
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 
+const routerListeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
+  routerListeners.add(listener);
   window.addEventListener("popstate", listener);
-  return () => window.removeEventListener("popstate", listener);
+  return () => {
+    routerListeners.delete(listener);
+    window.removeEventListener("popstate", listener);
+  };
 };
 const snapshot = () => window.location.search;
 const laggedShell = new URLSearchParams(window.location.search).has("lagged-shell");
+// Next can commit its revealed query before the shell's Back callback runs.
+// Register that ordering before the hook, rather than only delaying props.
+if (new URLSearchParams(window.location.search).has("router-first")) {
+  window.addEventListener("popstate", event => {
+    if (event.isTrusted) flushSync(() => routerListeners.forEach(listener => listener()));
+  }, true);
+}
 
 function Fixture() {
   const search = useSyncExternalStore(subscribe, snapshot);
@@ -27,13 +40,20 @@ function Fixture() {
   const [confirmation, setConfirmation] = useState<"Reset" | "Delete" | "Refusing" | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [mutations, setMutations] = useState(0);
+  const [sheetDismissals, setSheetDismissals] = useState(0);
   const title = pane.location.detail ? "Details" : pane.location.panel ? "Account" : "Profile";
   return (
     <>
       <h1>One</h1>
       <button onClick={() => pushProfilePaneLocation("/one", search, { panel: null, detail: null })}>Open Profile</button>
       <output data-testid="mutation-count">{mutations}</output>
-      <Sheet open={pane.open} modal onOpenChange={() => window.history.back()}>
+      <output data-testid="sheet-dismissal-count">{sheetDismissals}</output>
+      <Sheet open={pane.open} modal onOpenChange={open => {
+        if (!open) {
+          setSheetDismissals(count => count + 1);
+          window.history.back();
+        }
+      }}>
         <SheetContent showCloseButton={false} contentDragDismiss={false}>
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>History contract fixture</SheetDescription>

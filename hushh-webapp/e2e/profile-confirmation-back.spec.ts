@@ -3,6 +3,8 @@ import path from "node:path";
 
 let script: string;
 let css: string;
+// Confirmation Back can cancel traversal entirely: invoke the browser's Back
+// action without waiting for the navigation that must not happen.
 test.beforeAll(async () => {
   const { build } = await import("vite");
   const root = process.cwd();
@@ -51,14 +53,24 @@ for (const action of ["Reset", "Delete"] as const) {
   test(`${action}: browser Back dismisses confirmation before moving Profile`, async ({ page }) => {
     const accountUrl = page.url();
     const before = await page.evaluate(() => ({ state: history.state, length: history.length }));
+    const supportsEarlyBack = await page.evaluate(() => {
+      const win = window as Window & { navigation?: unknown; profileBackReveals?: string[] };
+      win.profileBackReveals = [];
+      window.addEventListener("popstate", () => win.profileBackReveals!.push(location.search), true);
+      return Boolean(win.navigation) && /(?:Chrome|Chromium)\//.test(navigator.userAgent);
+    });
     await page.getByRole("button", { name: `${action} confirmation`, exact: true }).click();
-    await page.goBack();
+    await page.evaluate(() => history.back());
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await expect(page).toHaveURL(accountUrl);
     await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
     expect(await page.evaluate(() => ({ state: history.state, length: history.length }))).toEqual(before);
+    if (supportsEarlyBack) {
+      expect(await page.evaluate(() => (window as Window & { profileBackReveals?: string[] }).profileBackReveals)).toEqual([]);
+    }
     await expect(page.getByTestId("mutation-count")).toHaveText("0");
-    await page.goBack();
+    await expect(page.getByTestId("sheet-dismissal-count")).toHaveText("0");
+    await page.evaluate(() => history.back());
     await expect(page.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();
     await page.goForward();
     await expect(page).toHaveURL(accountUrl);
@@ -69,14 +81,14 @@ for (const action of ["Reset", "Delete"] as const) {
 test("dismissal preserves existing Forward history and Cancel/Escape add no entries", async ({ page }) => {
   await page.getByRole("button", { name: "Open Details", exact: true }).click();
   const detailsUrl = page.url();
-  await page.goBack();
+  await page.evaluate(() => history.back());
   await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
   const length = await page.evaluate(() => history.length);
   for (const dismissal of ["Cancel", "Escape", "Back"] as const) {
     await page.getByRole("button", { name: "Reset confirmation", exact: true }).click();
     if (dismissal === "Cancel") await page.getByRole("button", { name: "Cancel", exact: true }).click();
     else if (dismissal === "Escape") await page.keyboard.press("Escape");
-    else await page.goBack();
+    else await page.evaluate(() => history.back());
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
     expect(await page.evaluate(() => history.length)).toBe(length);
@@ -90,9 +102,57 @@ test("dismissal preserves existing Forward history and Cancel/Escape add no entr
 test("a confirmation can refuse Back without moving the pane below it", async ({ page }) => {
   const accountUrl = page.url();
   await page.getByRole("button", { name: "Refusing confirmation", exact: true }).click();
-  await page.goBack();
+  await page.evaluate(() => history.back());
   await expect(page).toHaveURL(accountUrl);
   await expect(page.getByRole("alertdialog")).toBeVisible();
+  await expect(page.getByTestId("mutation-count")).toHaveText("0");
+});
+
+test("Forward with a confirmation open updates the entry consumed by the next Back", async ({ page }) => {
+  await page.getByRole("button", { name: "Open Details", exact: true }).click();
+  const detailsUrl = page.url();
+  await page.evaluate(() => history.back());
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Reset confirmation", exact: true }).click();
+  await page.goForward();
+  await expect(page).toHaveURL(detailsUrl);
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await page.evaluate(() => history.back());
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page).toHaveURL(detailsUrl);
+  await expect(page.getByRole("heading", { name: "Details", exact: true })).toBeVisible();
+  await page.evaluate(() => history.back());
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+  await expect(page.getByTestId("mutation-count")).toHaveText("0");
+});
+
+test("synthetic navigation cannot dismiss a confirmation", async ({ page }) => {
+  await page.getByRole("button", { name: "Reset confirmation", exact: true }).click();
+  const accountUrl = page.url();
+  await page.evaluate(() => {
+    const navigation = (window as Window & { navigation?: EventTarget }).navigation;
+    const event = new Event("navigate", { cancelable: true });
+    Object.assign(event, { navigationType: "traverse", destination: { index: 0, sameDocument: true } });
+    navigation?.dispatchEvent(event);
+  });
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await expect(page).toHaveURL(accountUrl);
+  await expect(page.getByTestId("mutation-count")).toHaveText("0");
+});
+
+test("older engines restore the confirmation's entry after the router commits first", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window, "navigation", { value: undefined, configurable: true }));
+  await page.goto("https://profile-back.test/one?router-first=1");
+  await page.getByRole("button", { name: "Open Profile", exact: true }).click();
+  await page.getByRole("button", { name: "Open Account", exact: true }).click();
+  const accountUrl = page.url();
+  const before = await page.evaluate(() => ({ state: history.state, length: history.length }));
+  await page.getByRole("button", { name: "Reset confirmation", exact: true }).click();
+  await page.evaluate(() => history.back());
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page).toHaveURL(accountUrl);
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => ({ state: history.state, length: history.length }))).toEqual(before);
   await expect(page.getByTestId("mutation-count")).toHaveText("0");
 });
 
@@ -105,12 +165,31 @@ for (const action of ["Reset", "Delete"] as const) {
     const accountUrl = page.url();
     const before = await page.evaluate(() => ({ state: history.state, length: history.length }));
     await page.getByRole("button", { name: `${action} confirmation`, exact: true }).click();
-    await page.goBack();
+    await page.evaluate(() => history.back());
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await expect(page).toHaveURL(accountUrl);
     await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
     expect(await page.evaluate(() => ({ state: history.state, length: history.length }))).toEqual(before);
-    await page.goBack();
+    await page.evaluate(() => history.back());
+    await expect(page.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();
+    await expect(page.getByTestId("mutation-count")).toHaveText("0");
+  });
+}
+
+for (const action of ["Reset", "Delete"] as const) {
+  test(`${action}: router commits the revealed Profile query before the Back listener`, async ({ page }) => {
+    await page.goto("https://profile-back.test/one?router-first=1");
+    await page.getByRole("button", { name: "Open Profile", exact: true }).click();
+    await page.getByRole("button", { name: "Open Account", exact: true }).click();
+    const accountUrl = page.url();
+    const before = await page.evaluate(() => ({ state: history.state, length: history.length }));
+    await page.getByRole("button", { name: `${action} confirmation`, exact: true }).click();
+    await page.evaluate(() => history.back());
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(page).toHaveURL(accountUrl);
+    await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => ({ state: history.state, length: history.length }))).toEqual(before);
+    await page.evaluate(() => history.back());
     await expect(page.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();
     await expect(page.getByTestId("mutation-count")).toHaveText("0");
   });
