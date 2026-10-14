@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -18,6 +19,7 @@ UNIVERSAL_LINK_PATHS = (
     "/one/kai/plaid/oauth/return",
     "/one/profile/google/oauth/return",
     "/one/profile/gmail/oauth/return",
+    "/one/profile/connectors/oauth/return",
     "/kai/plaid/oauth/return",
     "/profile/google/oauth/return",
     "/profile/gmail/oauth/return",
@@ -84,7 +86,7 @@ def _origin(value: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
 
 
-def _fetch(url: str, timeout_seconds: int) -> _HttpResponse:
+def _fetch_once(url: str, timeout_seconds: int) -> _HttpResponse:
     opener = urllib.request.build_opener(_NoRedirect)
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     try:
@@ -100,9 +102,20 @@ def _fetch(url: str, timeout_seconds: int) -> _HttpResponse:
             content_type=error.headers.get_content_type(),
             body=error.read(),
         )
-    except urllib.error.URLError as error:
-        reason = str(error.reason).strip() or "network error"
-        raise RuntimeError(f"Could not fetch {url}: {reason}") from error
+
+
+def _fetch(url: str, timeout_seconds: int) -> _HttpResponse:
+    # A transient network/read timeout must not fail an otherwise healthy
+    # release. HTTP errors and invalid association payloads remain hard failures.
+    for attempt in range(3):
+        try:
+            return _fetch_once(url, timeout_seconds)
+        except (TimeoutError, ConnectionError, urllib.error.URLError) as error:
+            if attempt == 2:
+                reason = str(getattr(error, "reason", error)).strip() or "network error"
+                raise RuntimeError(f"Could not fetch {url} after 3 attempts: {reason}") from error
+            time.sleep(2 ** attempt)
+    raise AssertionError("unreachable")
 
 
 def _json(response: _HttpResponse, label: str) -> Any:

@@ -129,12 +129,9 @@ export function IntroV2Carousel({
               className={`${styles["story-card"]} ${styles[story.className]} ${active ? styles["is-active"] : ""}`}
               data-intro-v2-card="true"
               data-story-index={number}
+              hidden={!active}
               aria-label={`${number} of ${STORIES.length}: ${story.title}`}
               aria-roledescription="slide"
-              onClick={(event) => {
-                if ((event.target as HTMLElement).closest("button, a")) return;
-                if (!active) onStepChange(number);
-              }}
             >
               <div className={styles["art-panel"]} aria-hidden="true">
                 <span className={styles.halo} />

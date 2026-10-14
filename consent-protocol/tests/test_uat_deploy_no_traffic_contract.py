@@ -63,6 +63,7 @@ def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
 def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
     workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
     selection = workflow["jobs"]["select-target"]
+    wait = workflow["jobs"]["wait-capacity"]
     deploy = workflow["jobs"]["deploy"]
 
     # A read-only no-op must not create a successful environment deployment
@@ -74,7 +75,10 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
         "deployments": "read",
         "actions": "read",
     }
-    assert deploy["needs"] == "select-target"
+    assert wait["needs"] == "select-target"
+    assert wait["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"
+    assert wait["environment"] == {"name": "uat", "deployment": False}
+    assert deploy["needs"] == ["select-target", "wait-capacity"]
     assert deploy["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"
     assert deploy["environment"] == "uat"
 

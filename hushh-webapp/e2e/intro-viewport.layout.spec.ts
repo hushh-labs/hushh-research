@@ -33,6 +33,11 @@ for (const dark of [false, true]) {
       ];
       for (let step = 1; step <= 5; step++) {
         await expect(preview).toHaveAttribute("data-preview-step", String(step));
+        if (step === 1) {
+          const heading = preview.getByRole("heading", { name: "Your private AI agent for everyday life." });
+          await expect(heading).toBeVisible();
+          await expect(heading).toHaveCSS("font-family", /InterVariable/);
+        }
         const story = preview.locator(`[data-intro-v2-card][data-story-index="${step - 1}"]`);
         const cta = step === 1
           ? preview.getByRole("button", { name: "Create your One", exact: true })
@@ -40,6 +45,7 @@ for (const dark of [false, true]) {
         if (step > 1) {
           await expect(story.locator("[data-intro-v2-title]")).toHaveText(storyTitles[step - 2]);
           await expect(story).toBeVisible();
+          await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(1);
         }
         const result = await preview.evaluate((element) => {
           const root = document.querySelector<HTMLElement>("[data-app-scroll-root]")!;

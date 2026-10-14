@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { IntroStep } from "@/components/onboarding/IntroStep";
-import { HUSHH_MARK_PATH } from "@/lib/brand/hushh-mark";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
@@ -55,14 +54,11 @@ describe("IntroStep voice contract", () => {
   it("returns from the first story to welcome without starting authentication", () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
-    expect(screen.getByRole("heading", { name: "One", exact: true })).toBeInTheDocument();
-    const welcomeMark = document.querySelector("[data-hushh-mark] img");
-    const markUrl = new URL(welcomeMark?.getAttribute("src") ?? "", "http://localhost");
-    expect(markUrl.searchParams.get("url") ?? markUrl.pathname).toBe(HUSHH_MARK_PATH);
+    expect(screen.getByRole("button", { name: "Create your One", exact: true })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     const first = screen.getByRole("region", { name: /^1 of 4:/ });
     fireEvent.click(within(first).getByRole("button", { name: "Previous screen", exact: true }));
-    expect(screen.getByRole("heading", { name: "One", exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create your One", exact: true })).toBeVisible();
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     expect(onLogin).not.toHaveBeenCalled();
   });

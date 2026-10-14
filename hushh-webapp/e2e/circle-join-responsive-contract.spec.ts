@@ -43,10 +43,12 @@ function storyCard(preview: Locator, index: number) {
 async function advanceToFinalStory(preview: Locator) {
   await preview.getByRole("button", { name: "Create your One", exact: true }).click();
   for (let index = 1; index < STORY_TITLES.length; index++) {
+    await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(1);
     await expect(storyCard(preview, index).locator("[data-intro-v2-title]")).toHaveText(STORY_TITLES[index - 1]);
     await storyCard(preview, index).getByRole("button", { name: "Next screen" }).click();
   }
   await expect(preview).toHaveAttribute("data-preview-step", "5");
+  await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(1);
   await expect(storyCard(preview, 4).locator("[data-intro-v2-title]")).toHaveText(STORY_TITLES[3]);
 }
 
@@ -68,13 +70,11 @@ test("only the explicit One invite opens the introduction at the root", async ({
   await expect(preview).toBeVisible();
 });
 
-test("the visible final card can open an invitation directly on desktop", async ({ page }) => {
+test("the desktop carousel reaches the invitation through one card at a time", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(ROUTE);
   const preview = page.getByTestId("guest-preview");
-  await preview.getByRole("button", { name: "Create your One", exact: true }).click();
-  await expect(preview).toHaveAttribute("data-preview-step", "2");
-  await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(4);
+  await advanceToFinalStory(preview);
   const finalAction = storyCard(preview, 4).getByRole("button", { name: "Join this Circle", exact: true });
   await expect(finalAction).toBeEnabled();
   await finalAction.click();
