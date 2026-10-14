@@ -616,6 +616,14 @@ for (const width of [320, 393, 1440]) {
       const box = await form.boundingBox();
       return Boolean(box && box.x >= 0 && box.x + box.width <= width);
     }).toBe(true);
+    const network = form.getByTestId("secure-card-network-select");
+    await expect(network).toBeVisible();
+    expect(await network.evaluate(el => el.closest("details"))).toBeNull();
+    const networkBounds = (await network.boundingBox())!;
+    for (const label of ["Expiry (MM/YY)", "CVV"]) {
+      const box = (await form.getByLabel(label, { exact: true }).boundingBox())!;
+      expect(networkBounds.y).toBeGreaterThanOrEqual(box.y + box.height);
+    }
     await page.getByText("Additional details", { exact: true }).click();
     for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "CVV", "PIN (optional)", "Issuing region (optional)"]) {
       await expect(form.getByLabel(label, { exact: true })).toBeAttached();
@@ -743,17 +751,25 @@ for (const width of [320, 390, 1440]) {
     await expect(sharing.getByRole("button", { name: /^(Sent|Received) cards$/ })).toHaveCount(0);
     await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toBeVisible();
     await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    const profileFont = await history.getByText("Sample recipient", { exact: true }).evaluate(el => getComputedStyle(el).fontFamily);
     await expect(history.getByText(/15 minutes/)).toBeHidden();
     await expect(history.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await received.getByRole("button", { name: "View Everyday •••• 4242 from Example Sender", exact: true }).click();
     const receivedDetail = page.getByRole("dialog", { name: "Example Sender", exact: true });
     await expect(receivedDetail.getByText(/15 minutes/)).toBeVisible();
+    await expect(receivedDetail.getByRole("heading", { name: "Example Sender", exact: true })).toHaveCSS("font-size", "13px");
     await expect(receivedDetail.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await receivedDetail.getByRole("button", { name: "Back to sharing history" }).click();
     await expect(receivedDetail).toBeHidden();
     await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).click();
     const detail = page.getByRole("dialog", { name: "Sample recipient", exact: true });
     await expect(detail.getByText(/15 minutes/)).toBeVisible();
+    const name = detail.getByRole("heading", { name: "Sample recipient", exact: true });
+    await expect(name).toHaveCSS("font-size", "13px");
+    await expect(name).toHaveCSS("font-weight", "500");
+    await expect(name).toHaveCSS("font-family", profileFont);
+    await expect(detail.getByText("Shared card", { exact: true })).toHaveCSS("font-size", "12px");
+    await expect(detail.locator('[data-slot$="-header"] .ui-text-row-description')).toHaveCSS("font-size", "12px");
     if (width < 768) {
       // WebKit rounds dvh to fractional CSS pixels.
       await expect.poll(async () => Math.abs((await detail.boundingBox())!.height - 844)).toBeLessThan(1);
@@ -761,7 +777,6 @@ for (const width of [320, 390, 1440]) {
     }
     await page.screenshot({ path: test.info().outputPath("wallet-sharing-detail.png") });
     const revoke = detail.getByRole("button", { name: "Revoke Everyday •••• 4242 shared with Sample recipient", exact: true });
-    const revocations = () => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("sharing-revoke:")));
     await expect(revoke).toBeEnabled();
     await revoke.scrollIntoViewIfNeeded();
     const revokeBounds = (await revoke.boundingBox())!;
@@ -771,6 +786,33 @@ for (const width of [320, 390, 1440]) {
     expect(backBounds.height).toBeGreaterThanOrEqual(44);
     expect(revokeBounds.x).toBeGreaterThanOrEqual(0);
     expect(revokeBounds.x + revokeBounds.width).toBeLessThanOrEqual(width);
+    await detail.getByRole("button", { name: "Back to sharing history" }).click();
+    await expect(detail).toBeHidden();
+    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    // Terminal settle must remove fractional interpolation so the Sharing
+    // pane remains fully inside the viewport; live drag keeps its own transform.
+    await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
+    const recipientBounds = (await sharing.getByText("Sample recipient", { exact: true }).boundingBox())!;
+    expect(recipientBounds.x).toBeGreaterThanOrEqual(0);
+    expect(recipientBounds.x + recipientBounds.width).toBeLessThanOrEqual(width);
+    await page.locator('[data-app-scroll-root="true"]').evaluate((el) => { el.scrollTop = 0; });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath("wallet-sharing.png") });
+    expect(errors).toEqual([]);
+  });
+
+  // Keep the confirmation flow separate from typography and geometry so each
+  // contract fits the default timeout on the shared WebKit runner.
+  test(`Wallet Sharing revocation requires confirmation at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
+    await mount(page);
+    await page.getByRole("tab", { name: "Sharing", exact: true }).click();
+    const sharing = page.getByTestId("wallet-sharing-content");
+    const history = sharing.getByRole("region", { name: "Card sharing history", exact: true });
+    await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).click();
+    const detail = page.getByRole("dialog", { name: "Sample recipient", exact: true });
+    const revoke = detail.getByRole("button", { name: "Revoke Everyday •••• 4242 shared with Sample recipient", exact: true });
+    const revocations = () => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("sharing-revoke:")));
     await revoke.click();
     const confirmation = page.getByRole("alertdialog", { name: "Revoke this card share?", exact: true });
     await expect(confirmation).toBeVisible();
@@ -795,15 +837,11 @@ for (const width of [320, 390, 1440]) {
     await detail.getByRole("button", { name: "Back to sharing history" }).click();
     await expect(detail).toBeHidden();
     await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
-    // Terminal settle must remove fractional interpolation so the Sharing
-    // pane remains fully inside the viewport; live drag keeps its own transform.
     await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
     const recipientBounds = (await sharing.getByText("Sample recipient", { exact: true }).boundingBox())!;
     expect(recipientBounds.x).toBeGreaterThanOrEqual(0);
     expect(recipientBounds.x + recipientBounds.width).toBeLessThanOrEqual(width);
-    await page.locator('[data-app-scroll-root="true"]').evaluate((el) => { el.scrollTop = 0; });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: test.info().outputPath("wallet-sharing.png") });
     expect(errors).toEqual([]);
   });
 }
@@ -1135,7 +1173,8 @@ for (const width of [320, 1440]) {
         const qr = el.querySelector('svg[role="img"]')!.getBoundingClientRect();
         const actions = [...el.querySelectorAll("button")].map(button => {
           const box = button.getBoundingClientRect();
-          return { x: box.x, right: box.right, y: box.y, bottom: box.bottom, height: box.height, font: getComputedStyle(button).fontSize };
+          const style = getComputedStyle(button);
+          return { x: box.x, right: box.right, y: box.y, bottom: box.bottom, height: box.height, cssHeight: Number.parseFloat(style.height), font: style.fontSize };
         });
         return { qrRight: qr.right, right: el.getBoundingClientRect().right, actions };
       });
@@ -1144,7 +1183,10 @@ for (const width of [320, 1440]) {
         expect(action.x).toBeGreaterThan(geometry.qrRight);
         expect(action.right).toBeLessThanOrEqual(geometry.right);
         expect(action.right - action.x).toBeGreaterThanOrEqual(124);
-        expect(action.height).toBeGreaterThanOrEqual(44);
+        // Rect subtraction can yield 43.99994px for a 44px control.
+        // Keep the authored height strict and allow only numerical noise.
+        expect(action.cssHeight).toBeGreaterThanOrEqual(44);
+        expect(action.height).toBeGreaterThanOrEqual(44 - 0.001);
         expect(action.font).toBe("13px");
         if (i) expect(action.y).toBeGreaterThanOrEqual(geometry.actions[i - 1].bottom);
       });
