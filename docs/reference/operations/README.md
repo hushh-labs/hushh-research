@@ -109,6 +109,7 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md): canonical queue, Admin PR landing, exact-SHA promotion, environment dispatch, proof, and closeout state machine.
 - [ci.md](./ci.md): local/remote CI parity and required lanes.
 - [cli.md](./cli.md): canonical root command surface for repo-level workflows.
+- [workos-sso-local-run.md](./workos-sso-local-run.md): local sandbox run for WorkOS enterprise SSO (dashboard setup, env, org seed, checks).
 - [branch-governance.md](./branch-governance.md): branch rules, review gates, and bypass policy.
 - [documentation-architecture-map.md](./documentation-architecture-map.md): canonical docs-home map across root, cross-cutting docs, and package docs.
 - [documentation-recursive-knowledge-model.md](./documentation-recursive-knowledge-model.md): recursive folder contract, rewrite sequence, and long-doc split policy.

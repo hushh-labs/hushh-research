@@ -1047,6 +1047,16 @@ class AccountDeletionLifecycleService:
         )
         return quarantine_result
 
+    async def quarantine_firebase_identity(self, user_id: str) -> FirebaseCleanupAttempt:
+        """Disable the Firebase user and revoke its refresh tokens; never delete it.
+
+        The public entry to the quarantine the deletion cleanup already uses, for
+        callers that must end an identity's access without erasing the account
+        (enterprise deprovisioning). ``outcome`` is ``quarantined`` or ``not_found``
+        when finished, anything else means retry.
+        """
+        return await self._quarantine_firebase_identity(user_id, last_error=None)
+
     async def _quarantine_firebase_identity(
         self,
         user_id: str,
