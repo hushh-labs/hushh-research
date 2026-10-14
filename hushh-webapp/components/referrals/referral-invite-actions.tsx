@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { ShellActionSurface, SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface";
-import { Copy, Upload, X } from "@/components/icons";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ArrowRightIcon, GiftIcon, MoreHorizontal } from "@/components/icons";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -11,133 +12,123 @@ import { ROUTES } from "@/lib/navigation/routes";
 type ReferralInviteActionsProps = {
   active: boolean;
   link: string;
-  onCopy: () => void;
   onShare: () => void;
 };
 
-export function ReferralInviteActions({ active, link, onCopy, onShare }: ReferralInviteActionsProps) {
+export function ReferralInviteActions({ active, link, onShare }: ReferralInviteActionsProps) {
   const [expanded, setExpanded] = useState(false);
   const open = active && expanded;
-  const optionsId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const barRef = useRef<HTMLDivElement>(null);
-  const trackRef = useRef<HTMLSpanElement>(null);
-  const previousWidth = useRef(0);
+  const actionsRef = useRef<HTMLDivElement>(null);
 
   const close = useCallback(() => {
-    previousWidth.current = barRef.current?.getBoundingClientRect().width ?? 0;
     setExpanded(false);
-    triggerRef.current?.focus({ preventScroll: true });
+    if (active) triggerRef.current?.focus({ preventScroll: true });
     return true;
-  }, []);
+  }, [active]);
   useBackLayer(ROUTES.ONE_REFERRALS, open ? 1 : 0, close);
 
-  // SwipeViews keeps inactive panes mounted; their disclosure must not own Back.
+  // SwipeViews keeps inactive panes mounted; their menu must not own Back or focus.
   useEffect(() => {
     if (!active) setExpanded(false);
   }, [active]);
 
-  useLayoutEffect(() => {
-    const bar = barRef.current;
-    const track = trackRef.current;
-    if (!bar || !track) return;
-    const width = bar.getBoundingClientRect().width;
-    const from = previousWidth.current;
-    previousWidth.current = 0;
-    if (!active || !from || !width || from === width || typeof track.animate !== "function"
-      || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    // Layout settles once; only the decorative track scales during the spread.
-    const styles = getComputedStyle(bar);
-    const animation = track.animate(
-      [{ transform: `scaleX(${from / width})` }, { transform: "scaleX(1)" }],
-      {
-        duration: parseFloat(styles.getPropertyValue("--motion-duration-xl")),
-        easing: styles.getPropertyValue("--motion-ease-emphasized").trim(),
-      },
-    );
-    return () => animation.cancel();
-  }, [active, open]);
+  // This is an inline disclosure: it belongs to the hero's scroll and clipping
+  // context, rather than a viewport-positioned popover that can flip on scroll.
+  useEffect(() => {
+    if (!open) return;
+    const dismissOutside = (event: Event) => {
+      if (event.target instanceof Node && !actionsRef.current?.contains(event.target)) {
+        setExpanded(false);
+      }
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("focusin", dismissOutside);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("focusin", dismissOutside);
+    };
+  }, [open]);
 
   return (
     <div
-      ref={barRef}
+      ref={actionsRef}
       className="referral-invite-actions"
       role="group"
       aria-label="Share your invite link"
-      data-expanded={open}
       onKeyDown={(event) => {
-        if (!open || event.defaultPrevented || event.key !== "Escape") return;
-        event.preventDefault();
-        event.stopPropagation();
-        close();
+        if (open && event.key === "Escape") { event.preventDefault(); close(); }
       }}
     >
-      <span ref={trackRef} className="referral-share-track" aria-hidden="true" />
-      <ShellActionSurface
-        ref={triggerRef}
-        variant={open ? "icon" : "pill"}
-        className={`referral-share-toggle !h-11 ${open ? "referral-share-button !w-11" : "referral-copy-button !text-xs"}`}
-        onClick={() => {
-          if (open) { close(); return; }
-          previousWidth.current = barRef.current?.getBoundingClientRect().width ?? 0;
-          setExpanded(true);
-        }}
-        aria-label={open ? "Close share options" : "Share"}
-        aria-expanded={open}
-        aria-controls={optionsId}
-        rippleEffect="fill"
-        style={open ? undefined : { background: "var(--app-accent)", color: "#fff" }}
-      >
-        {open ? <X className="size-4" aria-hidden="true" /> : <><Upload className="size-4" aria-hidden="true" /><span>Share</span></>}
-      </ShellActionSurface>
-      <div id={optionsId} className="referral-share-options motion-step-enter" hidden={!open} inert={!open}>
-        <ShellActionSurface
-          variant="pill"
-          className="referral-copy-button !h-11 !text-xs"
-          onClick={onCopy}
-          aria-label="Copy invite link"
-          title="Copy invite link"
-          rippleEffect="fill"
-          style={{ background: "var(--app-accent)", color: "#fff" }}
+      <Collapsible open={open} onOpenChange={setExpanded}>
+        <CollapsibleTrigger asChild>
+          <ShellActionSurface
+            ref={triggerRef}
+            variant="pill"
+            className="referral-share-toggle !h-11"
+            contentClassName="referral-share-content"
+            aria-label={open ? "Close share options" : "Invite & earn $"}
+            aria-expanded={open}
+            rippleEffect="fill"
+          >
+            <span className="referral-share-gift" aria-hidden="true">
+              <GiftIcon size={18} weight="duotone" />
+            </span>
+            <span className="referral-share-label">Invite &amp; earn $</span>
+            <span className="referral-share-arrow-surface" aria-hidden="true">
+              <ArrowRightIcon className="referral-share-arrow size-4" weight="bold" />
+            </span>
+          </ShellActionSurface>
+        </CollapsibleTrigger>
+        <CollapsibleContent
+          className="referral-invite-bubbles"
+          role="group"
+          aria-label="Choose how to invite a friend"
+          aria-hidden={!open || undefined}
+          inert={!open || undefined}
         >
-          <Copy className="size-4" aria-hidden="true" />
-          <span className="referral-copy-label">Copy link</span>
-        </ShellActionSurface>
-        <a
-          className={`${SHELL_ICON_BUTTON_CLASSNAME} referral-share-button referral-share-app-button !h-11 !w-11 hover:!bg-transparent`}
-          aria-label="Share on WhatsApp"
-          title="WhatsApp"
-          href={`https://wa.me/?text=${encodeURIComponent(`Join me on Hushh One for the weekly referral challenge: ${link}`)}`}
-          target="_blank"
-          rel="noopener"
-        >
-          <span className="referral-share-app-art">
-            <Image src="/referrals/whatsapp-ios.jpg" alt="" width={32} height={32} className="referral-share-app-icon" unoptimized />
-            <MaterialRipple variant="blue" effect="fill" />
-          </span>
-        </a>
-        <a
-          className={`${SHELL_ICON_BUTTON_CLASSNAME} referral-share-button referral-share-app-button !h-11 !w-11 hover:!bg-transparent`}
-          aria-label="Share by SMS"
-          title="SMS"
-          href={`sms:?&body=${encodeURIComponent(`Join me on Hushh One: ${link}`)}`}
-        >
-          <span className="referral-share-app-art">
-            <Image src="/referrals/messages-ios.jpg" alt="" width={32} height={32} className="referral-share-app-icon" unoptimized />
-            <MaterialRipple variant="blue" effect="fill" />
-          </span>
-        </a>
-        <ShellActionSurface
-          onClick={onShare}
-          className="referral-share-button referral-share-more !h-11 !w-11"
-          rippleEffect="fill"
-          aria-label="More share options"
-          title="More share options"
-        >
-          <Upload className="size-5" aria-hidden="true" />
-        </ShellActionSurface>
-      </div>
+          <div className="referral-invite-bubble">
+            <a
+              className={`${SHELL_ICON_BUTTON_CLASSNAME} referral-bubble-action !h-11 !w-11`}
+              aria-label="Share on WhatsApp"
+              title="WhatsApp"
+              href={`https://wa.me/?text=${encodeURIComponent(`Join me on Hushh One for the weekly referral challenge: ${link}`)}`}
+              target="_blank"
+              rel="noopener"
+              onClick={close}
+            >
+              <Image src="/referrals/whatsapp-ios.jpg" alt="" width={30} height={30} className="referral-bubble-logo" unoptimized />
+              <MaterialRipple variant="blue" effect="fill" />
+            </a>
+            <span className="referral-bubble-label">WhatsApp</span>
+          </div>
+          <div className="referral-invite-bubble">
+            <a
+              className={`${SHELL_ICON_BUTTON_CLASSNAME} referral-bubble-action !h-11 !w-11`}
+              aria-label="Share by SMS"
+              title="SMS"
+              href={`sms:?&body=${encodeURIComponent(`Join me on Hushh One: ${link}`)}`}
+              onClick={close}
+            >
+              <Image src="/referrals/messages-ios.jpg" alt="" width={30} height={30} className="referral-bubble-logo" unoptimized />
+              <MaterialRipple variant="blue" effect="fill" />
+            </a>
+            <span className="referral-bubble-label">SMS</span>
+          </div>
+          <div className="referral-invite-bubble">
+            <ShellActionSurface
+              className="referral-bubble-action !h-11 !w-11"
+              onClick={() => { onShare(); close(); }}
+              aria-label="More share options"
+              title="More"
+              rippleEffect="fill"
+            >
+              <MoreHorizontal className="size-6" weight="bold" aria-hidden="true" />
+            </ShellActionSurface>
+            <span className="referral-bubble-label">More</span>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

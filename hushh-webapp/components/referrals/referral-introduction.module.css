@@ -102,13 +102,13 @@
 .eyebrow { display: flex; align-items: center; justify-content: center; gap: 7px; color: #6b6274; }
 .eyebrow > span { width: 5px; height: 5px; border-radius: 50%; background: #8970d2; }
 .root .title {
-  --foundation-title1-size: clamp(48px, 6.3vw, 78px);
+  --foundation-title1-size: clamp(22px, 4vw, 44px);
   --foundation-title1-line: 1.03;
   --foundation-title1-weight: 650;
   --foundation-title1-tracking: -.064em;
   margin: 19px 0 18px;
   font-family: var(--font-app-display);
-  font-size: clamp(48px, 6.3vw, 78px) !important;
+  font-size: clamp(22px, 4vw, 44px) !important;
   line-height: 1.03 !important;
   font-weight: 650 !important;
   letter-spacing: -.064em !important;
@@ -216,7 +216,7 @@
   .copy { padding: 0 23px; }
   .eyebrow { gap: 5px; font-size: 8px; letter-spacing: .11em; }
   .eyebrow > span { width: 4px; height: 4px; }
-  .root .title { --foundation-title1-size: clamp(43px, 12.3vw, 64px); margin-top: 18px; margin-bottom: 17px; font-size: clamp(43px, 12.3vw, 64px) !important; }
+  .root .title { --foundation-title1-size: clamp(18px, 5vw, 30px); margin-top: 18px; margin-bottom: 17px; font-size: clamp(18px, 5vw, 30px) !important; }
   .description { max-width: 285px; margin: 0 auto; font-size: 13px; line-height: 1.75; }
   .desktopBreak { display: none; }
   .root .continue { --type-button-label-size: 13px; min-height: 48px; margin-top: 21px; padding: 0 20px; border-radius: 14px; font-size: 13px; gap: 10px; }
