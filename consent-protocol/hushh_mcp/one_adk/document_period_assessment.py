@@ -39,7 +39,7 @@ class PeriodSourceSpan(BaseModel):
     source: Literal["current", "pending"] = "current"
     message_index: int = Field(ge=0, le=16)
     start: int = Field(ge=0)
-    end: int = Field(gt=0)
+    end: int = Field(ge=1)
     quote: str = Field(min_length=1, max_length=4096)
 
 

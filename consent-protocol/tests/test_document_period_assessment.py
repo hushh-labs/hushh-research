@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from google.genai import _transformers
 from pydantic import ValidationError
 
 from hushh_mcp.one_adk import document_period_assessment as periods
@@ -49,6 +50,15 @@ def test_spelled_year_can_be_supported_without_clock_or_numeric_year_heuristic()
     assert validate(assessment()).period_start == "2026-01-01"
 
 
+def test_period_output_schema_converts_through_vertex_sdk_before_transport():
+    # Exercise the pinned SDK conversion that rejected exclusiveMinimum in UAT.
+    schema = _transformers.t_schema(
+        SimpleNamespace(vertexai=True), periods.DocumentPeriodAssessment
+    )
+    assert schema is not None
+    assert schema.properties["source_spans"].items.properties["end"].minimum == 1
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -70,6 +80,7 @@ def test_invalid_or_incoherent_assessment_rejected(changes):
 @pytest.mark.parametrize(
     "span",
     [
+        {"message_index": 0, "start": 0, "end": 0, "quote": TEXT},
         {"message_index": 1, "start": 0, "end": len(TEXT), "quote": TEXT},
         {"message_index": 0, "start": 1, "end": len(TEXT), "quote": TEXT},
         {"message_index": 0, "start": 0, "end": len(TEXT) + 1, "quote": TEXT},
