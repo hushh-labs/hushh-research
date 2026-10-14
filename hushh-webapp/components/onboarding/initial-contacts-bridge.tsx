@@ -6,7 +6,6 @@ import { Capacitor } from "@capacitor/core";
 import { preloadGoogleContactsAuth } from "@/lib/contacts/google-contacts-token";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 
@@ -25,12 +24,12 @@ export function InitialContactsBridge() {
     if (sessionVerificationRequired) InitialContacts.reset();
   }, [user?.uid, loading, sessionVerificationRequired, state.ownerId]);
   useEffect(() => {
-    if (initialContactOnboardingEnabled() && state.source === "google" && !Capacitor.isNativePlatform()) {
+    if (state.source === "google" && !Capacitor.isNativePlatform()) {
       void preloadGoogleContactsAuth().catch(() => undefined);
     }
   }, [state.source]);
   useEffect(() => {
-    if (!initialContactOnboardingEnabled() || loading || sessionVerificationRequired) return;
+    if (loading || sessionVerificationRequired) return;
     if (!user) return;
     let active = true;
     void PreVaultUserStateService.bootstrapState(user.uid).then((bootstrap) => {
@@ -40,7 +39,7 @@ export function InitialContactsBridge() {
   }, [user, loading, sessionVerificationRequired, pathname, state.ownerId]);
 
   useEffect(() => {
-    if (!initialContactOnboardingEnabled() || !user || sessionVerificationRequired || state.ownerId !== user.uid) return;
+    if (!user || sessionVerificationRequired || state.ownerId !== user.uid) return;
     if (["reading", "waiting_for_phone"].includes(state.status)) {
       void InitialContacts.matchWhenVerified().catch(() => undefined);
     }
