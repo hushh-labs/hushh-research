@@ -87,8 +87,12 @@ async def checkpoint_committed(conn, user_id, state):
     result = state.get("result", {})
     outcome = None
     if state["status"] == "offered":
+        report = result.get("report", {})
+        has_findings = any(section.get("facts") for section in report.get("sections", []))
         outcome = (
-            "ready" if result.get("report", {}).get("match_status") == "matched" else "partial"
+            ("ready" if report.get("match_status") == "matched" else "partial")
+            if has_findings
+            else "attention"
         )
     elif state["status"] in {"unavailable", "insufficient_identity"}:
         outcome = "attention"

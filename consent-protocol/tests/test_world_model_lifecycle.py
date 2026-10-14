@@ -186,3 +186,37 @@ def test_preview_token_and_invitation_are_bound():
     for bad_token, bad_id in [(secrets.token_urlsafe(32), invitation_id), (token, uuid4())]:
         with pytest.raises(InvalidTag):
             invitations.open_preview(bad_token, bad_id, sealed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "match,sections,outcome",
+    [
+        ("no_match", [], "attention"),
+        ("matched", [{"facts": []}], "attention"),
+        ("uncertain", [{"facts": [{"statement": "Supported draft"}]}], "partial"),
+        ("matched", [{"facts": [{"statement": "Supported draft"}]}], "ready"),
+    ],
+)
+async def test_completion_only_announces_actual_findings(match, sections, outcome):
+    import uuid
+
+    from hushh_mcp.services.world_model_preferences import checkpoint_committed
+
+    generation = uuid.uuid4()
+    conn = SimpleNamespace(
+        fetchrow=AsyncMock(return_value={"enabled": True, "generation": generation}),
+        execute=AsyncMock(),
+    )
+    await checkpoint_committed(
+        conn,
+        "owner",
+        {
+            "job_id": str(uuid.uuid4()),
+            "consent_generation": str(generation),
+            "status": "offered",
+            "result": {"report": {"match_status": match, "sections": sections}},
+        },
+    )
+    delivery = conn.execute.call_args.args
+    assert delivery[4:] == (outcome, "suppressed" if outcome == "attention" else "pending")

@@ -195,7 +195,15 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         await pool.execute(
             "UPDATE feed_events SET read_at=NOW(),dismissed_at=NOW(),dismissal_token='synthetic-dismissal' WHERE source_domain='pwm'"
         )
-        state.update(status="offered", result={"report": {"match_status": "matched"}})
+        state.update(
+            status="offered",
+            result={
+                "report": {
+                    "match_status": "matched",
+                    "sections": [{"facts": [{"statement": "Synthetic reviewed finding"}]}],
+                }
+            },
+        )
         async with pool.acquire() as conn, conn.transaction():
             await checkpoint_committed(conn, "recipient", state)
             await checkpoint_committed(conn, "recipient", state)
