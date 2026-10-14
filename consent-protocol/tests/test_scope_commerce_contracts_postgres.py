@@ -28,6 +28,29 @@ paid_contract_dsn = fixtures.paid_contract_dsn
 paid_contract = fixtures.paid_contract
 
 
+async def test_payout_management_accepts_no_caller_account_override(
+    paid_contract: PaidContract, monkeypatch
+):
+    from api.routes import scope_commerce
+
+    calls = []
+
+    class Provider:
+        async def management_link(self, *, user_id):
+            calls.append(user_id)
+            return {"url": "https://connect.stripe.com/express/synthetic"}
+
+    monkeypatch.setattr(scope_commerce, "_provider", Provider)
+    result = await paid_contract.post("/payouts/manage", {}, "owner")
+    assert result.status_code == 200
+    assert result.headers["cache-control"] == "private, no-store"
+    assert result.json() == {"url": "https://connect.stripe.com/express/synthetic"}
+    assert (
+        await paid_contract.post("/payouts/manage", {"account_id": "acct_other"}, "owner")
+    ).status_code == 422
+    assert calls == ["owner"]
+
+
 def test_paid_scope_schema_readiness_projections_match_registered_migration(monkeypatch):
     monkeypatch.syspath_prepend(str(fixtures.MIGRATIONS.parents[1] / "scripts"))
     generator = importlib.import_module("generate_scope_commerce_schema_contracts")

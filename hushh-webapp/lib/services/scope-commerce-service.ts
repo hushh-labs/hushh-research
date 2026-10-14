@@ -2,6 +2,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
 import { verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
 import { parseCommerceHostedSession } from "@/lib/services/scope-commerce-return";
+import { validateCommerceHostedUrl } from "@/lib/services/scope-commerce-browser";
 import { parseCommerceReadiness, commerceActionError, type CommerceReadiness } from "@/lib/services/scope-commerce-readiness";
 export { parseCommerceReadiness, commerceReadinessCopy, CommerceActionError } from "@/lib/services/scope-commerce-readiness";
 export type { CommerceReadiness } from "@/lib/services/scope-commerce-readiness";
@@ -193,6 +194,11 @@ export const ScopeCommerceService = {
   },
   async readiness(token: string) { return parseCommerceReadiness(await request(token, "readiness")); },
   async account(token: string) { return parseCommerceAccount(await request(token, "account")); },
+  async managePayoutAccount(token: string): Promise<string> {
+    const result = await request(token, "payouts/manage", {});
+    if (typeof result.url !== "string") throw new Error("Payout settings could not be verified.");
+    return validateCommerceHostedUrl(result.url, "management");
+  },
   async tariff(token: string, handle: string, machineScope: string): Promise<ScopeTariff | null> {
     const query = new URLSearchParams({ scope_handle: handle, machine_scope: machineScope });
     const result = await request(token, `tariffs?${query.toString()}`);

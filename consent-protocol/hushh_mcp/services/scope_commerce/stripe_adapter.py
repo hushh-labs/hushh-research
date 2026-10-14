@@ -41,6 +41,8 @@ class FundingReceipt:
 class ScopeCommerceProvider(Protocol):
     async def platform_identity(self) -> dict[str, Any]: ...
 
+    async def management_link(self, account_id: str) -> dict[str, Any]: ...
+
     async def create(
         self, kind: str, request: dict[str, Any], *, idempotency_key: str
     ) -> dict[str, Any]: ...
@@ -85,6 +87,9 @@ class StripeScopeCommerceAdapter:
 
     async def platform_identity(self) -> dict[str, Any]:
         return await self._call(self.stripe_api.Account.retrieve)
+
+    async def management_link(self, account_id: str) -> dict[str, Any]:
+        return await self._call(self.stripe_api.Account.create_login_link, account_id)
 
     async def create(
         self, kind: str, request: dict[str, Any], *, idempotency_key: str

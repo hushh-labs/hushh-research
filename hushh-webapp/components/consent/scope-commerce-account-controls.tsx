@@ -29,15 +29,16 @@ export function CommerceFundingControls({ enabled, busy, amount, changeAmount, c
   </div>;
 }
 
-export function CommercePayoutControls({ account, busy, country, changeCountry, expiredLink, onboarding, withdrawal }: {
+export function CommercePayoutControls({ account, busy, country, changeCountry, expiredLink, onboarding, management, withdrawal }: {
   account: CommerceAccount; busy: boolean; country: string; changeCountry: (value: string) => void;
-  expiredLink: boolean; onboarding: () => void; withdrawal: () => void;
+  expiredLink: boolean; onboarding: () => void; management: () => void; withdrawal: () => void;
 }) {
   const ready = account.seller.onboarded && account.seller.eligible;
   const canOnboard = account.readiness?.capabilities.start_onboarding === true;
   const savedCountry = account.seller.country || country;
   return <div className="space-y-[var(--app-form-related-gap)]">
     <p className="text-sm">{ready ? "Your payout account is ready." : "Complete payout setup before charging for information."}</p>
+    {ready ? <Button variant="outline" disabled={busy} onClick={management}>Manage payout account</Button> : null}
     {!ready ? <>
       <p className="text-xs text-muted-foreground">Stripe verifies your individual identity, payout method and earning activity. No company is required. Stripe tool access is separate.</p>
       <p className="text-xs text-muted-foreground">{expiredLink ? "Your payout setup link expired. Get a new authenticated link to continue." : "Continue here if your setup link expires."}</p>

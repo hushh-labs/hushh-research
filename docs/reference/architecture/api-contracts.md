@@ -129,6 +129,14 @@ to free while paid admission is unavailable. Positive tariffs fail closed and
 never become free because setup is missing. Accepted quotes retain their terms.
 Existing financial obligations and access enforcement survive an admission pause.
 
+Authenticated `POST /api/scope-commerce/payouts/manage` accepts an empty object
+and returns a short-lived Stripe Express login URL for the caller's existing
+information-access payout account. The server checks the pinned platform, test/live
+mode and current source binding before and after provider I/O. Caller-supplied
+account identifiers are rejected. No login URL is persisted in the financial
+journal, and creating it neither transfers funds nor proves settlement. The
+existing fenced management window keeps the initiating vault session in memory.
+
 The package-local [consumer scope commerce reference](../../../consent-protocol/docs/reference/consumer-scope-commerce.md)
 owns the wire families, exact scope binding, hosted return, configuration,
 financial lifecycle and verification limits. The Next proxy preserves the same
