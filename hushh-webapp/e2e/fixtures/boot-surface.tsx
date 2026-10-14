@@ -89,7 +89,7 @@ function UnlockGate() {
         onSubmit={(event) => event.preventDefault()}
       >
         <h1 className="text-xl font-semibold text-foreground">Unlock One</h1>
-        <input aria-label="Passphrase" className="h-11 rounded-full border px-4" />
+        <input aria-label="Password" className="h-11 rounded-full border px-4" />
       </form>
     </div>
   );

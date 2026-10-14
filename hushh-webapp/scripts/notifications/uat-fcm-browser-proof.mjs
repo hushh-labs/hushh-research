@@ -156,7 +156,7 @@ async function main() {
     await unlockInput.waitFor({ state: "visible", timeout: 60000 }).catch(() => {});
     if (await unlockInput.isVisible().catch(() => false)) {
       await unlockInput.fill(passphrase);
-      await page.getByRole("button", { name: /unlock with passphrase/i }).click();
+      await page.getByRole("button", { name: /unlock with password/i }).click();
       await unlockInput.waitFor({ state: "hidden", timeout: 60000 });
     }
 

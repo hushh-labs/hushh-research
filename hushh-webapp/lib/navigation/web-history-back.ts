@@ -21,7 +21,7 @@
 // and only that: it is a no-op everywhere the browser's real history already
 // agrees with the contract.
 
-import { useEffect, useLayoutEffect } from "react";
+import { useLayoutEffect } from "react";
 import { Capacitor } from "@capacitor/core";
 import {
   navigateTopShellBack,
@@ -29,7 +29,8 @@ import {
 } from "@/lib/navigation/top-shell-back";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { ROUTES } from "@/lib/navigation/routes";
-import { PROFILE_PANE_QUERY } from "@/lib/navigation/profile-pane";
+import { PROFILE_PANE_QUERY, profilePaneHistoryDepth } from "@/lib/navigation/profile-pane";
+import { dismissTopmostOverlay } from "@/lib/navigation/back-layers";
 
 export type RouteLocation = { pathname: string; search: string };
 
@@ -130,6 +131,29 @@ export function decideWebHistoryBackCorrection(
 }
 
 let lastSettled: RouteLocation | null = null;
+let lastSettledHistoryState: unknown = null;
+
+/** A confirmation above Profile consumes Back before the pane stack does. */
+export function dismissProfileConfirmationOnBack(params: {
+  previous: RouteLocation | null;
+  previousHistoryState: unknown;
+  revealedHistoryState: unknown;
+  doc?: Document;
+}): boolean {
+  if (!params.previous || !isProfilePaneGoverned(params.previous)) return false;
+  if (
+    profilePaneHistoryDepth(params.previousHistoryState) <=
+    profilePaneHistoryDepth(params.revealedHistoryState)
+  ) return false;
+  const doc = params.doc ?? document;
+  const overlays = doc.querySelectorAll<HTMLElement>(
+    '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+  );
+  // Profile is itself a dialog. Only a confirmation layered above it consumes
+  // this entry; ordinary pane Back and Forward retain their authored history.
+  if (overlays[overlays.length - 1]?.getAttribute("role") !== "alertdialog") return false;
+  return dismissTopmostOverlay(doc);
+}
 
 /**
  * Mounted once in AppShellFrame (app/providers.tsx), next to the existing
@@ -151,9 +175,12 @@ export function useWebHistoryBack(pathname: string, search: string): void {
     // always includes it, and the two are compared directly.
     const normalizedSearch = search ? (search.startsWith("?") ? search : `?${search}`) : "";
     lastSettled = { pathname, search: normalizedSearch };
+    lastSettledHistoryState = window.history.state;
   }, [pathname, search]);
 
-  useEffect(() => {
+  // Register before passive router/store subscriptions: popstate targets
+  // Window itself, so capture alone cannot outrank an earlier target listener.
+  useLayoutEffect(() => {
     if (Capacitor.isNativePlatform()) return;
     if (typeof window === "undefined") return;
 
@@ -167,6 +194,21 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         pathname: window.location.pathname,
         search: window.location.search,
       };
+      if (dismissProfileConfirmationOnBack({
+        previous,
+        previousHistoryState: lastSettledHistoryState,
+        revealedHistoryState: event.state,
+      })) {
+        // Run before Next observes the popped parent. Return to the original
+        // entry so its pane metadata and any existing Forward history survive.
+        // The returning pop has equal depth and follows normal pane handling.
+        event.stopImmediatePropagation();
+        window.history.go(
+          profilePaneHistoryDepth(lastSettledHistoryState) -
+          profilePaneHistoryDepth(event.state),
+        );
+        return;
+      }
       const correction = decideWebHistoryBackCorrection(previous, revealed);
       if (!correction) return;
       // Always push, never replace: the browser already consumed a real
@@ -183,7 +225,7 @@ export function useWebHistoryBack(pathname: string, search: string): void {
       });
     };
 
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    window.addEventListener("popstate", onPopState, true);
+    return () => window.removeEventListener("popstate", onPopState, true);
   }, []);
 }

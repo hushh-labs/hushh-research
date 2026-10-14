@@ -48,4 +48,4 @@ export const CALENDAR_SETUP_SHELL_CLASSNAME =
   "motion-step-enter flex min-h-[calc(100dvh-var(--app-top-content-offset,6rem)-var(--app-bottom-content-clearance,7rem))] w-full flex-col items-center justify-center gap-4";
 
 /** Header and content share one measure so the card never outgrows the title. */
-export const CALENDAR_SETUP_REGION_CLASSNAME = "w-full max-w-md mx-auto";
+export const CALENDAR_SETUP_REGION_CLASSNAME = "w-full max-w-md md:max-w-[480px] mx-auto";
