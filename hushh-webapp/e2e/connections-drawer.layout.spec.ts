@@ -312,8 +312,9 @@ for (const width of [320, 390, 1440]) for (const dark of [false, true])
     const actions = row.getByRole("button", { name: "Open actions for Weekly planning" });
     await expect(actions).toBeVisible();
     const hit = (await actions.boundingBox())!;
-    expect(hit.width).toBeGreaterThanOrEqual(44);
-    expect(hit.height).toBeGreaterThanOrEqual(44);
+    // WebKit's translated matrices can round a 44px box down by 0.00002px.
+    expect(hit.width + 0.0001).toBeGreaterThanOrEqual(44);
+    expect(hit.height + 0.0001).toBeGreaterThanOrEqual(44);
     await actions.click();
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
