@@ -91,6 +91,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
     for (let element = stack.parentElement; element; element = element.parentElement) ancestors.push(element);
     const documentRoot = document.scrollingElement ?? document.documentElement;
     let frame = 0;
+    let fitFrame = 0;
     let foldedGap = (showDetailsLink ? 52 : 0) + 36;
     let edgeStep = 28;
     const chrome = document.querySelector<HTMLElement>("[data-app-bottom-shell], [data-bottom-chrome]");
@@ -150,14 +151,22 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
       });
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
-    const observer = new ResizeObserver(measureFit);
+    // Width changes also resize the observed stack and its ancestors. Apply
+    // them outside observer delivery to avoid a WebKit resize feedback loop.
+    const scheduleFit = () => {
+      if (!fitFrame) fitFrame = requestAnimationFrame(() => {
+        fitFrame = 0;
+        measureFit();
+      });
+    };
+    const observer = new ResizeObserver(scheduleFit);
     observer.observe(stack);
     if (chrome) observer.observe(chrome);
     ancestors.forEach(element => { observer.observe(element); element.addEventListener("scroll", schedule, { passive: true }); });
     reducedMotion.addEventListener("change", schedule);
     window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", measureFit);
-    window.visualViewport?.addEventListener("resize", measureFit);
+    window.addEventListener("resize", scheduleFit);
+    window.visualViewport?.addEventListener("resize", scheduleFit);
     // These only schedule a read of the ensuing native scroll position. They
     // never consume input or manufacture progress when the page did not move.
     stack.addEventListener("wheel", schedule, { passive: true });
@@ -165,12 +174,13 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
     measureFit();
     return () => {
       cancelAnimationFrame(frame);
+      cancelAnimationFrame(fitFrame);
       observer.disconnect();
       reducedMotion.removeEventListener("change", schedule);
       ancestors.forEach(element => element.removeEventListener("scroll", schedule));
       window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", measureFit);
-      window.visualViewport?.removeEventListener("resize", measureFit);
+      window.removeEventListener("resize", scheduleFit);
+      window.visualViewport?.removeEventListener("resize", scheduleFit);
       stack.removeEventListener("wheel", schedule);
       stack.removeEventListener("touchmove", schedule);
       stack.querySelectorAll<HTMLElement>("[data-stack-details]").forEach(details => { details.style.visibility = ""; });
