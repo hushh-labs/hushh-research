@@ -94,6 +94,10 @@ const LIVE_RECEIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
     "The bounded Gmail receipt response was too large.",
   GMAIL_RECEIPT_INVALID_RESPONSE:
     "Gmail returned an invalid receipt response.",
+  GMAIL_RECEIPT_CURSOR_EXPIRED:
+    "Receipt continuation expired. Start a new scan.",
+  GMAIL_RECEIPT_CONTRACT_MISMATCH:
+    "Receipt sync could not validate its response. Please try again later.",
   GMAIL_RECEIPT_EXTRACTION_INVALID:
     "Receipt extraction returned an invalid result.",
   GMAIL_RECEIPT_EXTRACTION_UNVERIFIED:
@@ -128,7 +132,15 @@ function sanitizeLiveReceiptErrorPayload(
       const code = (detail as { code?: unknown }).code;
       if (typeof code === "string" && LIVE_RECEIPT_ERROR_MESSAGES[code]) {
         return {
-          detail: { code, message: LIVE_RECEIPT_ERROR_MESSAGES[code] },
+          detail: {
+            code,
+            message: LIVE_RECEIPT_ERROR_MESSAGES[code],
+            retryable: (detail as { retryable?: unknown }).retryable !== false &&
+              ["GMAIL_CONNECTION_CHANGED", "GMAIL_RECEIPT_SCAN_IN_PROGRESS",
+                "GMAIL_PROVIDER_UNAVAILABLE", "GMAIL_RECEIPT_SCAN_TIMEOUT",
+                "GMAIL_RECEIPT_DETAIL_TIMEOUT", "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
+                "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE"].includes(code),
+          },
         };
       }
     }
@@ -244,9 +256,14 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
 
   if (path === "gmail/receipts/scan") {
     return {
-      error: "Receipt scan unavailable",
-      message:
-        "We couldn't scan Mail for receipts right now. Please try again in a moment.",
+      detail: {
+        code: isUpstreamTimeoutError(error)
+          ? "GMAIL_RECEIPT_SCAN_TIMEOUT" : "GMAIL_RECEIPT_UNAVAILABLE",
+        message: isUpstreamTimeoutError(error)
+          ? LIVE_RECEIPT_ERROR_MESSAGES.GMAIL_RECEIPT_SCAN_TIMEOUT
+          : LIVE_RECEIPT_ERROR_MESSAGES.GMAIL_RECEIPT_UNAVAILABLE,
+        retryable: isUpstreamTimeoutError(error),
+      },
     };
   }
 
