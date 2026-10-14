@@ -28,6 +28,9 @@ Superseded loads and transitions cannot change the current request.
 
 Rive loads only for visible, active surfaces without reduced motion. Animation
 pauses offscreen, when the document is hidden or the native app is inactive.
+These small image-backed loops use Rive's `AlwaysDraw` mode: asynchronous image
+decoding must repaint even when the artboard reports no dirt. The runtime owns
+the render loop; visibility and lifecycle pauses still stop it entirely.
 HD portraits remain the loading/error and reduced-motion fallback; answering
 currently shares the thinking HD portrait for that static fallback only.
 WASM is self-hosted as `rive.wasm`, matching `@rive-app/canvas` 2.44.2 (MIT).

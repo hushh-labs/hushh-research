@@ -6,6 +6,7 @@ const runtime = vi.hoisted(() => ({ instances: [] as Array<{ options: { enableRi
 vi.mock("@rive-app/canvas", () => ({
   RuntimeLoader: { setWasmUrl: vi.fn(), setWasmFallbackUrl: vi.fn() },
   Fit: { Contain: "contain" }, Alignment: { Center: "center" },
+  DrawOptimizationOptions: { AlwaysDraw: "alwaysDraw" },
   Layout: class {},
   Rive: class {
     play = vi.fn(); pause = vi.fn(); cleanup = vi.fn(); stopRendering = vi.fn();

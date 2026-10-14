@@ -204,6 +204,9 @@ function OnePresencePlayback({ request, presentation, onReady }: {
             canvas,
             src: `/one-presence/${state}.riv`,
             enableRiveAssetCDN: false,
+            // Image-frame decoding can leave the artboard's dirt flag quiet.
+            // Redraw these small visible loops so decoded frames still paint.
+            drawingOptions: runtime.DrawOptimizationOptions.AlwaysDraw,
             stateMachine,
             shouldDisableRiveListeners: true,
             autoplay: false,
