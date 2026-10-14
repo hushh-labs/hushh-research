@@ -7863,6 +7863,14 @@ html.native-android .chrome-glass-surface {
   background-color: var(--background);
 }
 
+/* Profile and Chats retain readable material when Android disables blur. */
+html.native-android .profile-pane-sheet[data-slot="sheet-content"],
+html.native-android [data-agent-history-drawer],
+html.native-android [data-app-pane-material="profile"] {
+  --profile-pane-surface: var(--app-card-surface-default-solid);
+  --profile-pane-card-surface: var(--app-card-surface-default-solid);
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-slot$="-content"][data-state],
   [data-slot$="-overlay"][data-state],

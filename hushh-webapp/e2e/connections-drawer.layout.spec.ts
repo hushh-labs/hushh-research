@@ -338,6 +338,30 @@ for (const width of [320, 390, 1440]) for (const dark of [false, true])
     expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual(["history-two"]);
   });
 
+for (const dark of [false, true])
+  test(`Chats and Profile keep a solid material in Android blur-free mode (${dark ? "dark" : "light"})`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 850 });
+    await page.evaluate(enabled => {
+      document.documentElement.classList.add("native-android");
+      document.documentElement.classList.toggle("dark", enabled);
+      (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory();
+    }, dark);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const reference = await profileFrame(page);
+    // With the platform's intentional blur-off policy, alpha must not expose
+    // sharp transcript text through either pane or its portaled action menu.
+    expect(reference.material.background).toMatch(/^rgb\([^)]+\)$/);
+    expect(await chats.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.material.background);
+    expect(await chats.evaluate(element => getComputedStyle(element).backdropFilter)).toBe("none");
+    await chats.getByRole("button", { name: "Open actions for Weekly planning" }).click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    expect(reference.card.background).toMatch(/^rgb\([^)]+\)$/);
+    expect(await menu.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.card.background);
+    expect(await menu.evaluate(element => getComputedStyle(element).backdropFilter)).toBe("none");
+  });
+
 for (const width of [390, 768])
   test(`chat sidebar keeps Connectors in a visible footer at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 640 });
