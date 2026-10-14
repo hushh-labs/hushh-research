@@ -87,11 +87,14 @@ export class InitialContactsOnboardingService {
     if (!owner || owner.userId !== result.user.uid) { delete result.contactsGrant; return; }
     const state = await PreVaultUserStateService.bootstrapState(result.user.uid, { idToken: result.idToken });
     if (sequence !== this.beginSequence || !isValidatedAuthSessionOwnerCurrent(owner)) { delete result.contactsGrant; return; }
-    if (state.setupCompleted || state.initialContactsWelcomeAcknowledged === true) {
+    if (state.setupCompleted !== false || state.initialContactsWelcomeAcknowledged === true) {
       delete result.contactsGrant;
       return;
     }
-    if (result.isNewUser === false && state.initialContactsWelcomeAcknowledged !== false) {
+    // First enrollment needs positive new-account evidence. Older native
+    // shells can omit this field; missing evidence must not enroll a legacy
+    // incomplete account. A previously enrolled signup may still resume.
+    if (result.isNewUser !== true && state.initialContactsWelcomeAcknowledged !== false) {
       delete result.contactsGrant;
       return;
     }

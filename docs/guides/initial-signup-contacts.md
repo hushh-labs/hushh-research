@@ -26,6 +26,8 @@ initials fallback as Connect. No invented people or inferred trust appears.
 | Apple, web | Saved Google Contacts | Optional explicit Google Contacts action after phone verification |
 | Established returning account | Existing behavior | No new enrollment or automatic Circle fill |
 
+First enrollment requires positive Firebase new-user metadata and explicitly incomplete One setup. Unknown metadata and nullable legacy setup remain on the existing flow. Only an already enrolled, unfinished signup may resume. The explicit returning Sign in action requests authentication scopes only; signup consent is requested before Google returns the selected account's new-user status, and established accounts never start a contact read, Circle fill or welcome enrollment from that result.
+
 On Android, Google identity authentication and the platform's resource
 authorization are separate SDK operations in the same signup journey. First-time
 Contacts permission can therefore require Google's additional consent UI. This

@@ -83,10 +83,25 @@ describe("initial signup contacts", () => {
     expect(service.snapshotForOwner("owner").ownerId).toBeNull();
   });
 
-  it("never acquires or enrolls an established account without a pending welcome", async () => {
-    await begin("google", { isNewUser: false });
+  it.each([false, undefined])("never acquires or enrolls an unenrolled account with newness %s", async (isNewUser) => {
+    await begin("google", { isNewUser });
     expect(ports.people).not.toHaveBeenCalled(); expect(ports.update).not.toHaveBeenCalled();
     expect(service.getSnapshot().ownerId).toBeNull();
+  });
+
+  it.each([true, null])("keeps existing setup state %s outside the initial flow even with new Firebase metadata", async (setupCompleted) => {
+    ports.bootstrap.mockResolvedValue({ setupCompleted, initialContactsWelcomeAcknowledged: null });
+    await begin();
+    expect(ports.people).not.toHaveBeenCalled(); expect(ports.update).not.toHaveBeenCalled();
+    expect(service.getSnapshot().ownerId).toBeNull();
+  });
+
+  it.each([false, undefined])("resumes an enrolled incomplete signup with newness %s", async (isNewUser) => {
+    ports.bootstrap.mockResolvedValue({ setupCompleted: false, initialContactsWelcomeAcknowledged: false });
+    await begin("google", { isNewUser });
+    expect(ports.people).toHaveBeenCalledTimes(1);
+    expect(ports.update).not.toHaveBeenCalled();
+    expect(service.getSnapshot().ownerId).toBe("owner");
   });
 
   it("native Apple always uses phonebook, even with a stale Google source", async () => {
