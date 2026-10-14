@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -621,3 +622,33 @@ def test_uat_and_production_verify_the_candidate_runs_the_pinned_digest() -> Non
         run = str(_lane_step(lane, verify)["run"])
         assert "spec.containers[0].image" in run
         assert '"${deployed_image}" != "${EXPECTED_IMAGE_REFERENCE}"' in run
+
+
+def test_hydrated_contacts_profiles_preserve_strict_env_shape(tmp_path: Path) -> None:
+    """A declared hydration flag is valid; unknown runtime keys still fail closed."""
+    verifier = tmp_path / "scripts/ops/verify-runtime-profile-env-shape.py"
+    verifier.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / "scripts/ops" / verifier.name, verifier)
+    backend = tmp_path / "consent-protocol"
+    backend.mkdir()
+    for name in (".env.example", ".env"):
+        shutil.copyfile(ROOT / "consent-protocol/.env.example", backend / name)
+    frontend = tmp_path / "hushh-webapp"
+    frontend.mkdir()
+    flag = "NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED"
+    for profile in ("local", "uat", "dev", "prod"):
+        name = f".env.{profile}.local"
+        template = ROOT / "hushh-webapp" / (name + ".example")
+        shutil.copyfile(template, frontend / template.name)
+        lines = [
+            line for line in template.read_text().splitlines() if line.partition("=")[0] != flag
+        ]
+        (frontend / name).write_text("\n".join([*lines, f"{flag}=false"]) + "\n")
+    command = "exec " + shlex.join([sys.executable, str(verifier), "--include-runtime"])
+    result = _run(command, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    runtime = frontend / ".env.uat.local"
+    runtime.write_text(runtime.read_text() + "UNDECLARED_RUNTIME_FLAG=true\n")
+    refused = _run(command, cwd=tmp_path)
+    assert refused.returncode == 1
+    assert "unexpected extra keys UNDECLARED_RUNTIME_FLAG" in refused.stderr
