@@ -3222,15 +3222,18 @@ async def propose_document_request(
 ) -> dict[str, Any]:
     """Prepare a review card ONLY for an unambiguous user-specified calendar range.
 
-    Do not call when the year is missing or numeric day/month order is ambiguous.
-    Ask one short clarification first. Never guess a year (including the current
-    year), locale, or order from a person's language or a document's institution.
-    Dates observed in files/tools/model replies/stale turns cannot fill these gaps.
+    Absolute dates need a year and unambiguous numeric day/month order; ask one
+    short clarification before calling if either is missing. For an explicitly
+    relative period, use this turn's get_current_time in the owner's timezone.
+    Clarify an unavailable anchor or materially ambiguous window. Never use
+    today to invent a missing absolute year, or infer order from language or
+    institution. File, model, stale and unrelated tool dates cannot fill gaps.
     A broad stated year plus narrower selected dates is clear, not contradictory.
     Normalize clear English/Hinglish or fully anchored calendar ranges to ISO
     period_start/period_end. date_evidence must be an exact 1 to 1024 character
-    excerpt from one authenticated current/queued user message supporting both
-    bounds, year and numeric order. Literal current-user ISO dates need no excerpt.
+    excerpt from one authenticated current/queued user message: the absolute
+    range and numeric order, or the explicit relative phrase anchored by that
+    clock result. Literal current-user ISO dates need no excerpt.
     The browser shows editable dates; nothing is sent until the user's Send tap.
     """
     from hushh_mcp.services.drive_sharing_contract import ShareRequestPurpose
