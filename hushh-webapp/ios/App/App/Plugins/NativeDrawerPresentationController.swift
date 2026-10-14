@@ -539,6 +539,9 @@ struct NativeDrawerContent: View {
                         Divider()
                         ForEach(section.rows) { historyRow($0) }
                     }.padding(.horizontal, 16).padding(.vertical, 8)
+                        // Keep this group's ID on its container, not inherited
+                        // by the authored Connectors/Drive/To-do buttons.
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("native-history-footer")
                 }
             }
