@@ -86,7 +86,7 @@ export function OnePresenceAvatar({ state, className, presentation = "compact" }
         <span key={layer.state} data-one-presence-artwork={layer.state}
           data-one-presence-layer={layer === displayed ? "current" : "incoming"}
           className="absolute inset-0 size-full motion-safe:transition-opacity motion-safe:duration-[var(--motion-duration-xl)] motion-safe:ease-[var(--motion-ease-decelerate)]"
-          style={{ mixBlendMode: "plus-lighter", opacity: layer === displayed ? (fadingTo ? 0 : 1) : (layer === fadingTo ? 1 : 0) }}>
+          style={{ mixBlendMode: fadingTo ? "plus-lighter" : "normal", opacity: layer === displayed ? (fadingTo ? 0 : 1) : (layer === fadingTo ? 1 : 0) }}>
           <OnePresencePlayback request={layer} presentation={presentation} onReady={layer === incoming ? handleReady : undefined} />
         </span>
       ))}

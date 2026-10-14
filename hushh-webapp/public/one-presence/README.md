@@ -23,7 +23,8 @@ All four native Rive Solo timelines preserve the authored 24 FPS, 72-frame
 loops. The header and open Feed/Profile panel share one activity state. The
 outgoing animation remains mounted while its replacement loads and paints,
 then both crossfade using the shared opacity motion token. Additive blending
-inside an isolated avatar prevents transparent artwork from dimming mid-fade.
+inside an isolated avatar prevents transparent artwork from dimming mid-fade;
+settled artwork uses normal compositing because no visible layers overlap.
 Superseded loads and transitions cannot change the current request.
 
 Rive loads only for visible, active surfaces without reduced motion. Animation
