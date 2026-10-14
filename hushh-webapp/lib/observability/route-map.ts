@@ -15,6 +15,7 @@ export const ROUTE_ID_VALUES = [
   "privacy_policy",
   "terms_of_use",
   "one_setup",
+  "one_welcome",
   "developers",
   "founder_profile",
   "research",
@@ -154,6 +155,7 @@ function normalizeRoutePathname(pathname: string): string {
 
 export function resolveRouteId(rawPathname: string): RouteId {
   const pathname = normalizeRoutePathname(rawPathname);
+  if (pathname === ROUTES.ONE_WELCOME) return "one_welcome";
   if (pathname === ROUTES.HOME) return "chat";
   if (pathname === ROUTES.ONE_HOME || pathname === ROUTES.WELCOME) {
     return "one_dashboard";
