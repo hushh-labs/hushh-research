@@ -177,20 +177,22 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit }:
   useEffect(() => {
     if (!isCurrent() || attachment?.kind !== "photo" || !photoVisible) return;
     let current = true;
+    const effectIsCurrent = () => current && isCurrent();
     let url: string | null = null;
     setOpening(true);
     void (async () => {
+      if (!effectIsCurrent()) return;
       const idToken = await originalAccess.current.getIdToken();
-      if (!current || !isCurrent()) return;
+      if (!effectIsCurrent()) return;
       const blob = await DirectMessagesService.getAttachment({ idToken,
         conversationId: message.conversationId, messageId: message.id,
-        isEffectCurrent: () => current && isCurrent() });
-      if (!current || !isCurrent()) return;
+        isEffectCurrent: effectIsCurrent });
+      if (!effectIsCurrent()) return;
       url = URL.createObjectURL(blob);
       setMediaUrl(url);
     })().catch(() => {
       // Keep the Open control available for an explicit retry.
-    }).finally(() => { if (current && isCurrent()) setOpening(false); });
+    }).finally(() => { if (effectIsCurrent()) setOpening(false); });
     return () => { current = false; if (url) URL.revokeObjectURL(url); };
   }, [attachment?.kind, message.conversationId, message.id, photoVisible]);
   if (!attachment) return null;
@@ -202,7 +204,9 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit }:
     if (!isCurrent()) throw new DOMException("Attachment request expired.", "AbortError");
     const idToken = await originalAccess.current.getIdToken();
     if (!isCurrent()) throw new DOMException("Attachment request expired.", "AbortError");
-    return DirectMessagesService.getAttachment({ idToken, conversationId: message.conversationId, messageId: message.id, isEffectCurrent: isCurrent });
+    const blob = await DirectMessagesService.getAttachment({ idToken, conversationId: message.conversationId, messageId: message.id, isEffectCurrent: isCurrent });
+    if (!isCurrent()) throw new DOMException("Attachment request expired.", "AbortError");
+    return blob;
   };
   if (attachment.kind === "audio") return <DirectMessageVoicePlayer durationMs={attachment.durationMs ?? 0} loadAudio={loadAttachment} />;
   const open = async () => {
@@ -1016,7 +1020,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       } catch { /* A later history refresh retries; never invent a delivered state. */ }
     })();
     return () => { cancelled = true; };
-  }, [activeConversationId, loadingThread, messages, inboxItems, user, deliveryRevision]);
+  }, [activeConversationId, loadingThread, messages, inboxItems, user, deliveryRevision, selectionGeneration]);
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";

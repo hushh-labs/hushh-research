@@ -11,7 +11,7 @@ struct NativeDrawerIdentity: Codable, Equatable {
         Self.identifier(documentId) && Self.identifier(ownerEpoch) && ownerGeneration > 0 &&
             ownerGeneration <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
             revision > 0 && revision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
-            ["history", "profile"].contains(family)
+            ["history", "profile", "agent-profile"].contains(family)
     }
     static func identifier(_ value: String) -> Bool { !value.isEmpty && value.utf16.count <= 128 }
 }
@@ -56,12 +56,14 @@ struct NativeDrawerProjection: Codable {
     let backEnabled: Bool
     var searchable: Bool? = nil
     var loading: Bool? = nil
+    /// Profile menu visibility is distinct from its enclosing drawer lifetime.
+    var surfaceOpen: Bool? = nil
     var identity: NativeDrawerIdentity {
         NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family)
     }
     static func hasClosedShape(_ options: [String: Any]) -> Bool {
         let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "updateSequence", "privacyGeneration",
-            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading"]
+            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading", "surfaceOpen"]
         guard Set(options.keys).isSubset(of: keys), let sections = options["sections"] as? [[String: Any]] else { return false }
         for section in sections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows"]), let rows = section["rows"] as? [[String: Any]] else { return false }
@@ -76,7 +78,8 @@ struct NativeDrawerProjection: Codable {
               updateSequence <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
               privacyGeneration >= 0, privacyGeneration <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
               HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil,
-              Self.text(title, 256), sections.count <= 32 else { return false }
+              Self.text(title, 256), sections.count <= 32,
+              surfaceOpen == nil || family == "profile" && (!open || surfaceOpen == true) else { return false }
         var ids = Set<String>()
         var count = 0
         for section in sections {

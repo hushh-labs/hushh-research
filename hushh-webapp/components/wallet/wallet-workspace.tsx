@@ -471,8 +471,8 @@ export function WalletWorkspace() {
     }
   }, [user, profileVisit]);
   const revokeReferral = useCallback(async (slug: string) => {
-    const context = vaultContext();
     const visit = profileVisit;
+    const context = vaultContext();
     const revision = cardActionScopeRef.current.revision;
     const isCurrent = () => profileVisitRef.current === visit &&
       cardActionScopeRef.current.revision === revision && document.visibilityState !== "hidden" &&

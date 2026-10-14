@@ -53,7 +53,8 @@ export class NativeDrawerPresentation {
     try {
       const capability = await acknowledged(this.plugin.getCapabilities());
       if (this.disposed) return false;
-      if (capability.contractVersion !== 1 || !capability.supported || !capability.wholePresentation) {
+      if (capability.contractVersion !== 1 || !capability.supported || !capability.wholePresentation ||
+          this.identity.family === "agent-profile" && capability.agentProfileMenu !== true) {
         await this.retire();
         return false; // No native body has been prepared; established web fallback is safe.
       }

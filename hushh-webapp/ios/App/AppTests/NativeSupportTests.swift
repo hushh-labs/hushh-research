@@ -43,6 +43,78 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(audit.vaultPassphrase, "synthetic-passphrase")
         XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
 
+    }
+
+    #if DEBUG
+    func testControlHitEvidenceDetectsWindowInterceptionWithoutGrantingAdmission() throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1194, height: 834))
+        let web = WKWebView(frame: window.bounds)
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        window.addSubview(container)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        let control = UIButton(frame: CGRect(x: 24, y: 72, width: 44, height: 44))
+        container.install(control, id: "chat-history-toggle", group: nil)
+        container.setAdmission("chat-history-toggle", admitted: true)
+        let initial = try XCTUnwrap(container.controlHitEvidence("chat-history-toggle"))
+        XCTAssertEqual(initial.containerHits, Array(repeating: .target, count: 5))
+        XCTAssertEqual(initial.windowHits, initial.containerHits)
+        // Negative control: unchanged geometry/admission, but a sibling above
+        // the container intercepts the actual window-level touch target.
+        let interceptor = UIView(frame: control.frame)
+        window.addSubview(interceptor)
+        let covered = try XCTUnwrap(container.controlHitEvidence("chat-history-toggle"))
+        XCTAssertEqual(covered.frame, initial.frame)
+        XCTAssertEqual(covered.containerHits, initial.containerHits)
+        XCTAssertEqual(covered.windowHits, Array(repeating: .other, count: 5))
+        interceptor.removeFromSuperview()
+        container.setAdmission("chat-history-toggle", admitted: false)
+        let withdrawn = try XCTUnwrap(container.controlHitEvidence("chat-history-toggle"))
+        XCTAssertFalse(withdrawn.admitted)
+        XCTAssertTrue(withdrawn.touchBlocked)
+        XCTAssertTrue(withdrawn.axHidden)
+        XCTAssertFalse(withdrawn.windowHits.contains(.target))
+        XCTAssertFalse(control.isUserInteractionEnabled, "Observing a withdrawn lease must not restore its actions")
+    }
+    #endif
+
+    func testNativeProfileUsesTheBundledWebArtworkAndRejectsUnknownIds() throws {
+        XCTAssertEqual(NativeProfileArtwork.ids.count, 15)
+        for id in NativeProfileArtwork.ids {
+            let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
+            XCTAssertEqual(artwork.base.size, CGSize(width: 22, height: 22))
+            XCTAssertEqual(artwork.base.renderingMode, .alwaysTemplate)
+            XCTAssertEqual(artwork.accent != nil, ["payouts", "request-pricing"].contains(id))
+        }
+        XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
+        XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")
+        XCTAssertNil(NativeProfileArtwork.resolve("../../private"))
+        XCTAssertNil(NativeProfileArtwork.resolve("unknown"))
+    }
+    func testCoherentDeviceAdmissionAndProfileGeometryPreservePlatformFallbacks() {
+        XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: false))
+        XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.phone, enabled: false, coherentShell: false))
+        XCTAssertTrue(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: true))
+        XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.tv, enabled: true, coherentShell: true))
+        for bounds in [CGRect(x: 0, y: 0, width: 390, height: 844), CGRect(x: 0, y: 0, width: 844, height: 390)] {
+            XCTAssertEqual(NativeDrawerLayout.frame(family: "profile", in: bounds, phone: true), bounds)
+            XCTAssertEqual(NativeDrawerLayout.frame(family: "history", in: bounds, phone: true), bounds)
+        }
+        let compact = CGRect(x: 0, y: 0, width: 639, height: 834)
+        XCTAssertEqual(NativeDrawerLayout.frame(family: "profile", in: compact, phone: false), compact)
+        let tablet = CGRect(x: 0, y: 0, width: 1194, height: 834)
+        let frame = NativeDrawerLayout.frame(family: "profile", in: tablet, phone: false)
+        XCTAssertEqual(frame.width, 430)
+        XCTAssertEqual(frame.minY, tablet.minY)
+        XCTAssertEqual(frame.maxY, tablet.maxY)
+        XCTAssertEqual(tablet.maxX - frame.maxX, 18)
+        XCTAssertTrue(tablet.contains(frame))
+        let travel = NativeDrawerLayout.travel(family: "profile", frame: frame, in: tablet)
+        XCTAssertEqual(travel, 448)
+        XCTAssertGreaterThanOrEqual(frame.offsetBy(dx: travel, dy: 0).minX, tablet.maxX)
+        XCTAssertLessThan(frame.offsetBy(dx: frame.width, dy: 0).minX, tablet.maxX,
+            "Negative control: width-only travel leaves the inset tablet panel exposed")
+    }
     @MainActor
     func testDrawerBootstrapUsesTheFinalCapacitorContentController() {
         let controller = MyViewController()
@@ -117,9 +189,9 @@ final class NativeSupportTests: XCTestCase {
             "Rendered age must extend the title's own text flow, not disappear or occupy another track")
         XCTAssertEqual(inlineAge.title.height, titleOnly.title.height, accuracy: 1,
             "Short title and age share one rendered line")
-        let wrapped = try await measure("A public conversation title that wraps naturally without changing the More track", age: "2h")
-        XCTAssertGreaterThan(wrapped.title.height, inlineAge.title.height + 5,
-            "A long title must wrap rather than truncate at the More track")
+        let long = try await measure("A public conversation title that remains available without changing the More track", age: "2h")
+        XCTAssertEqual(long.row.height, inlineAge.row.height, accuracy: 1,
+            "Long titles and timestamps must not create uneven default row heights")
         let enlarged = try await measure("Weekend", age: "2h", size: .accessibility3)
         XCTAssertGreaterThan(enlarged.title.height, inlineAge.title.height + 5,
             "Dynamic Type must enlarge the rendered title while preserving centering and menu geometry")
@@ -270,12 +342,22 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(retired)
         XCTAssertTrue(controller.children.isEmpty)
         XCTAssertFalse(acted, "Retirement cancels a pending action before its popup completes")
-        let model = NativeDrawerModel(privateDrawerState(family: "history"))
+        let editable = NativeDrawerRow(id: "row-handle", label: "Public title", detail: nil, symbol: nil,
+            enabled: true, destructive: nil, selected: nil, pending: nil, renameActionId: "rename", deleteActionId: "delete")
+        let model = NativeDrawerModel(privateDrawerState(family: "history", sampleRow: editable))
         model.interactionEnabled = true
         let oldState = model.projection
-        model.update(privateDrawerState(family: "history", update: 2))
+        model.update(privateDrawerState(family: "history", update: 2, sampleRow: editable))
         model.showDetails(oldState.sections[0].rows[0], mode: "rename", from: oldState)
         XCTAssertNil(model.detailRow, "An old menu cannot open a replacement owner's editor")
+        var confirmations = 0
+        model.requestDelete = { _, _ in confirmations += 1 }
+        model.showDetails(editable, mode: "delete", from: oldState)
+        XCTAssertEqual(confirmations, 0, "An old menu cannot present a destructive confirmation")
+        model.showDetails(editable, mode: "delete", from: model.projection)
+        XCTAssertEqual(confirmations, 1)
+        XCTAssertNil(model.detailRow, "Delete confirmation retains History rather than replacing it")
+        XCTAssertFalse(model.choicePending, "Opening confirmation is not permission to delete")
 
         // List filtering/removal uses the real representable teardown, not
         // whole-drawer retirement. A vanished trigger still owns its popup.
@@ -360,6 +442,52 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(NativeChromeViewport.resolve(authored: web, host: host, web: web, coherent: true, keyboard: false))
         XCTAssertNil(NativeChromeViewport.resolve(authored: CGSize(width: 390, height: 500), host: host, web: web, coherent: true, keyboard: true))
         XCTAssertNil(NativeChromeViewport.resolve(authored: web, host: CGSize(width: 844, height: 390), web: web, coherent: true, keyboard: true))
+    }
+
+    @MainActor
+    func testOwnedProfileContentPlaneRetainsBaseButRejectsCoveredAndStaleActions() throws {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        container.frame = web.frame
+        let base = UIButton(frame: CGRect(x: 16, y: 60, width: 44, height: 44))
+        container.install(base, id: "base", group: nil)
+        container.setAdmission("base", admitted: true)
+        let retainedHost = try XCTUnwrap(base.superview)
+        let identity = NativeContentPaneIdentity(document: "synthetic", ownerEpoch: "owner", generation: 1,
+            privacyGeneration: HushhSessionPrivacyShield.shared.snapshot().generation)
+        XCTAssertFalse(container.acquireContentPane(identity, viewport: CGSize(width: 400, height: 844)))
+        XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
+        XCTAssertTrue(base.superview === retainedHost)
+        XCTAssertFalse(base.isHidden)
+        XCTAssertLessThan(retainedHost.layer.zPosition, web.layer.zPosition)
+        container.setAdmission("base", admitted: true)
+        XCTAssertFalse(base.isUserInteractionEnabled, "A fresh base update must not bypass the owned content plane")
+        XCTAssertTrue(web.isUserInteractionEnabled)
+        let back = UIButton(frame: base.frame)
+        container.install(back, id: "profile-back", group: nil, pane: identity)
+        container.setAdmission("profile-back", admitted: true)
+        XCTAssertTrue(back.isUserInteractionEnabled)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 30, y: 75), with: nil) === back)
+        XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
+        XCTAssertTrue(back.isUserInteractionEnabled, "An idempotent acquisition must not strand an already admitted header")
+        XCTAssertFalse(container.releaseContentPane(identity), "Header removal must be confirmed before uncovering base chrome")
+        container.remove("profile-back")
+        XCTAssertTrue(container.releaseContentPane(identity))
+        XCTAssertFalse(base.isUserInteractionEnabled, "Release never restores stale permissions")
+        XCTAssertFalse(container.acquireContentPane(identity, viewport: container.bounds.size), "A delayed acquisition cannot follow retirement")
+        let next = NativeContentPaneIdentity(document: "synthetic", ownerEpoch: "new-owner", generation: 2,
+            privacyGeneration: identity.privacyGeneration)
+        XCTAssertTrue(container.acquireContentPane(next, viewport: container.bounds.size))
+        XCTAssertFalse(container.releaseContentPane(identity), "An old completion cannot release a reopened pane")
+        XCTAssertEqual(container.contentPane, next)
+        XCTAssertTrue(container.acquireContentPane(next, viewport: container.bounds.size), "Compatible viewport admission retains ownership")
+        XCTAssertTrue(container.beginContentPaneRetirement(next))
+        XCTAssertFalse(container.acquireContentPane(next, viewport: container.bounds.size), "Retirement fences late preparation before dismissal completion")
+        XCTAssertFalse(container.contentPaneAdmits(next))
+        container.conceal()
+        container.setAdmission("base", admitted: true)
+        XCTAssertFalse(base.isUserInteractionEnabled)
+        XCTAssertTrue(container.releaseContentPane(next))
     }
 
     @MainActor
@@ -450,7 +578,53 @@ final class NativeSupportTests: XCTestCase {
         controller.activateInitialPresentation()
         XCTAssertFalse(isolated)
         XCTAssertNil(controller.view.hitTest(CGPoint(x: 100, y: 100), with: nil))
+        XCTAssertGreaterThanOrEqual(controller.host.view.frame.minX, controller.view.bounds.maxX,
+            "A closed inset Profile must travel past its outer gutter, not leave a visible sliver")
         controller.retire()
+    }
+
+    @MainActor
+    func testProfileContentHandoffDoesNotReplayTheOuterDrawerSlide() {
+        var detail = privateDrawerState(open: false)
+        detail.surfaceOpen = true
+        let controller = NativeDrawerPresentationController(detail)
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.activateInitialPresentation()
+        let host = controller.host
+        var menu = privateDrawerState(update: 2)
+        menu.surfaceOpen = true
+        controller.update(menu)
+        XCTAssertTrue(controller.motion.committedOpen, "Returning to menu content must not start another outer opening animation")
+        XCTAssertEqual(controller.motion.progress, 1)
+        XCTAssertTrue(controller.host === host)
+        detail = privateDrawerState(open: false, update: 3)
+        detail.surfaceOpen = true
+        controller.update(detail)
+        XCTAssertFalse(controller.motion.committedOpen)
+        XCTAssertEqual(controller.motion.progress, 0)
+        XCTAssertFalse(controller.allowsInteraction("row", row: "row-handle"))
+        controller.retire()
+
+        // Negative control: an actual closed-to-open drawer still settles
+        // asynchronously; the content handoff must not disable its animation.
+        var closed = privateDrawerState(open: false)
+        closed.surfaceOpen = false
+        let opening = NativeDrawerPresentationController(closed)
+        opening.view.frame = controller.view.frame
+        opening.activateInitialPresentation()
+        opening.update(menu)
+        XCTAssertFalse(opening.motion.committedOpen)
+        opening.retire()
+
+        // A changed privacy generation cannot take the content-only path.
+        let changedPrivacy = NativeDrawerPresentationController(detail)
+        changedPrivacy.view.frame = controller.view.frame
+        changedPrivacy.activateInitialPresentation()
+        var next = privateDrawerState(update: 4, privacy: 1)
+        next.surfaceOpen = true
+        changedPrivacy.update(next)
+        XCTAssertFalse(changedPrivacy.motion.committedOpen)
+        changedPrivacy.retire()
     }
 
     #if DEBUG

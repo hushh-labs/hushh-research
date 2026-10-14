@@ -364,7 +364,7 @@ export function AgentHistorySidebar({
               type="button"
               className={cn(
                 "block min-w-0 flex-1 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
-                // Keep the touch target while allowing complete labels to wrap.
+                // Keep a compact baseline; hover and AX retain the full title.
                 isMobileMode ? "min-h-11 py-2" : "min-h-9 py-2",
                 active ? "font-medium text-foreground" : "font-normal text-foreground/85 group-hover:text-foreground"
               )}
@@ -373,8 +373,9 @@ export function AgentHistorySidebar({
               aria-current={active ? "page" : undefined}
               title={title}
             >
+              <span className="flex min-w-0 items-baseline gap-2">
               <span data-agent-history-row-title
-                className={cn("whitespace-normal break-words leading-tight", isMobileMode ? "text-[13px]" : "text-[14px]")}>
+                className={cn("min-w-0 truncate leading-tight", isMobileMode ? "text-[13px]" : "text-[14px]")}>
                 {title}
               </span>
 
@@ -383,7 +384,7 @@ export function AgentHistorySidebar({
                   data-agent-history-row-description
                   dateTime={new Date(conversationTimestamp(conversation)).toISOString()}
                   className={cn(
-                    "ml-2 inline-block whitespace-nowrap align-baseline text-[11px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
+                    "shrink-0 whitespace-nowrap align-baseline text-[11px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
                     // Opacity preserves inline geometry on hover and focus.
                     !isMobileMode &&
                       "opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 group-has-[[data-state=open]]:opacity-100",
@@ -392,11 +393,12 @@ export function AgentHistorySidebar({
                   {timeLabel}
                 </time>
               ) : null}
+              </span>
             </button>
 
             <div
               className={cn(
-                "w-8 shrink-0",
+                isMobileMode ? "w-11 shrink-0" : "w-8 shrink-0",
                 // Touch keeps it visible; desktop reveals it with the time,
                 // on hover or keyboard focus (focusing the row shows it before
                 // Tab reaches it), and holds it while the menu is open.
@@ -414,7 +416,7 @@ export function AgentHistorySidebar({
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    className="h-8 w-8 rounded-full text-foreground/70 hover:bg-[color:var(--one-chat-row-active)] hover:text-foreground focus-visible:opacity-100 data-[state=open]:bg-[color:var(--one-chat-row-active)] data-[state=open]:text-foreground"
+                    className={cn("rounded-full text-foreground/70 hover:bg-[color:var(--one-chat-row-active)] hover:text-foreground focus-visible:opacity-100 data-[state=open]:bg-[color:var(--one-chat-row-active)] data-[state=open]:text-foreground", isMobileMode ? "h-11 w-11" : "h-8 w-8")}
                     disabled={disabled || pending}
                     onClick={(event) => event.stopPropagation()}
                     aria-label={`Open actions for ${title}`}

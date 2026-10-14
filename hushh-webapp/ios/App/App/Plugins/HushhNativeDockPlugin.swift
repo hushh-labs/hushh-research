@@ -445,7 +445,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     private var admitted: Bool {
         guard HushhNativePresentationPolicy.customControlsEnabled else { return false }
         #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
-        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone {
+        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.deviceEligible {
             return NativeDrawerQualificationPolicy.coherentShell
         }
         #endif
@@ -459,7 +459,8 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics"), let parent = self.bridge?.viewController?.view {
+            if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") || NativeDrawerQualificationPolicy.coherentShell,
+               let parent = self.bridge?.viewController?.view {
                 let probe = NativeTestStatusLabel(frame: .zero, showOverlay: false)
                 probe.accessibilityIdentifier = "native-dock-admission"
                 probe.translatesAutoresizingMaskIntoConstraints = false

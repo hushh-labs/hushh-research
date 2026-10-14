@@ -167,6 +167,8 @@ describe("AgentHistorySidebar", () => {
     expect(screen.getByText("5m")).not.toHaveClass("opacity-0");
     const actions = screen.getByRole("button", { name: "Open actions for What needs a reply today?" });
     expect(actions.parentElement).not.toHaveClass("opacity-0");
+    expect(actions.parentElement!.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(actions).toHaveClass("h-11", "w-11");
   });
 
   it("keeps the row menu on the shared transient tier, above the phone drawer", async () => {

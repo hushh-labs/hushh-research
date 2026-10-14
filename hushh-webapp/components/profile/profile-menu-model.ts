@@ -2,8 +2,7 @@ import {
   AccountProfileIcon, PreferencesProfileIcon, SecurityProfileIcon,
   DevicesProfileIcon, ConnectedSystemsAgentIcon, InviteFriendsProfileIcon,
   SupportProfileIcon, DeveloperToolsProfileIcon, SignOutProfileIcon,
-  PROFILE_ICON_COLORS,
-  MemoryAgentIcon,
+  MemoryAgentIcon, PROFILE_ICON_COLORS,
 } from "@/components/icons/agents";
 import { ProfileAccountBankIcon, ProfileAccountPriceIcon } from "./profile-your-account-icons";
 import { ShieldCheck, ScrollText, RefreshCw } from "@/components/icons";

@@ -14,9 +14,6 @@ import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { useNativeNavigationBlockedUntilSettled } from "@/lib/capacitor/native-navigation";
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { AppChatHistoryEdgeGesture } from "@/components/app-ui/app-chat-history-edge-gesture";
 import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 
@@ -39,7 +36,7 @@ export function transitionConnectionsDrawer(
   return { open: action.open, mode: action.open ? state.mode : "chats" };
 }
 
-/** History stays mounted on the left; connectors use the shared modal/sheet.
+/** History and its connector child stay in the same leading pane.
  * Neither surface replaces the transcript or its unsent draft. */
 export function AgentConnectionsDrawer({
   open,
@@ -75,7 +72,6 @@ export function AgentConnectionsDrawer({
 }) {
   const drawer = useRef<HTMLDivElement>(null);
   const scrim = useRef<HTMLDivElement>(null);
-  const isMobile = useIsMobile();
   const [presentationReady, setPresentationReady] = useState(false);
   const [connectorHost, setConnectorHost] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -91,16 +87,11 @@ export function AgentConnectionsDrawer({
   const attachConnectorHost = useCallback((node: HTMLDivElement | null) => {
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
-  const historyOpen = open && mode === "chats" && historyRenderer === "web";
+  const historyOpen = open && historyRenderer === "web";
   const historyReady = useNativeFullWindowOverlayReady(historyOpen);
   const historyDisplayed = historyOpen && historyReady;
   const attachNativePanel = useNativePanelPresentation("history", presentationKey ?? null, drawer, historyOpen);
-  const historyActive = useRef(historyOpen);
-  useLayoutEffect(() => { historyActive.current = historyOpen; }, [historyOpen]);
   useNativeNavigationBlockedUntilSettled(historyOpen, "chat-history", drawer);
-  const connectorsOpen = open && mode === "connections";
-  const connectorActive = useRef(connectorsOpen);
-  useLayoutEffect(() => { connectorActive.current = connectorsOpen; }, [connectorsOpen]);
   const returnFocus = useRef<HTMLElement | null>(null);
   const modalActive = useRef(externalModalOpen);
   const restoreFocus = useCallback(() => {
@@ -214,25 +205,6 @@ export function AgentConnectionsDrawer({
       first.focus();
     }
   };
-  const connectorContentProps = {
-    showCloseButton: false,
-    onOpenAutoFocus: (event: Event) => {
-      if (modalActive.current) event.preventDefault();
-    },
-    onCloseAutoFocus: (event: Event) => {
-      event.preventDefault();
-      // Radix may finish closing after History has already reopened. The old
-      // presentation must not steal focus from that newer interaction layer.
-      if (connectorActive.current || historyActive.current || modalActive.current) return;
-      restoreFocus();
-    },
-    onInteractOutside: (event: Event) => {
-      if (externalModalOpen) event.preventDefault();
-    },
-    onEscapeKeyDown: (event: Event) => {
-      if (externalModalOpen) event.preventDefault();
-    },
-  };
   return (
     <>
       {gestureSurfaceRef ? <AppChatHistoryEdgeGesture
@@ -243,21 +215,6 @@ export function AgentConnectionsDrawer({
         onOpen={onGestureOpen ?? (() => onOpenChange(true))}
         onClose={() => onOpenChange(false)} /> : null}
       {connectorHost && createPortal(connections, connectorHost)}
-      {presentationReady && (isMobile ? (
-        <Sheet open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
-          <SheetContent {...connectorContentProps} side="bottom" contentDragDismiss={false} className="h-[85dvh] gap-0 overflow-hidden p-0">
-            <SheetTitle className="sr-only">Connectors</SheetTitle>
-            <div ref={attachConnectorHost} data-connector-host className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <Dialog open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
-          <DialogContent {...connectorContentProps} className="agent-connections-dialog h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md" srDescription="Manage your connected apps.">
-            <DialogTitle className="sr-only">Connectors</DialogTitle>
-            <div ref={attachConnectorHost} data-connector-host className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
-          </DialogContent>
-        </Dialog>
-      ))}
       {presentationReady && createPortal(
         <>
           <div
@@ -294,7 +251,7 @@ export function AgentConnectionsDrawer({
             data-agent-history-drawer
             data-native-panel-group="history"
             aria-modal={externalModalOpen ? undefined : true}
-            aria-label="Agent chat history"
+            aria-label={mode === "connections" ? "Chat connectors" : "Agent chat history"}
             aria-hidden={!historyDisplayed || externalModalOpen}
             inert={!historyDisplayed || externalModalOpen}
             onKeyDown={keyDown}
@@ -314,6 +271,9 @@ export function AgentConnectionsDrawer({
             >
               {historyRenderer === "web" ? chats : null}
             </div>
+            <div ref={attachConnectorHost} data-connector-host hidden={mode !== "connections" || historyRenderer !== "web"}
+              inert={mode !== "connections" || externalModalOpen || historyRenderer !== "web"}
+              className="pointer-events-auto h-full min-h-0 overflow-hidden" />
           </div>
         </>,
         document.body,

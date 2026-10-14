@@ -265,7 +265,7 @@ function Fixture() {
           <ShellActionSurface variant="icon" data-testid="one-presence-header" data-agent-chat-one-profile-trigger
             aria-label="Open One profile" ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__}
             onClick={() => setOneProfileOpen(true)}>
-            <OnePresenceAvatar state={onePresenceState} />
+            <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
           </ShellActionSurface>
         </div></div>
       </div> : null}

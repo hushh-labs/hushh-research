@@ -93,7 +93,7 @@ const workspace = read(WORKSPACE_PATH);
  * lines of composer and transcript underneath and match the wrong control.
  */
 const headerStart = workspace.indexOf('"agent-chat-header ');
-const headerEnd = workspace.indexOf("Both transcripts are HIDDEN");
+const headerEnd = workspace.indexOf("<OneAgentProfileSheet", headerStart);
 if (headerStart < 0 || headerEnd < headerStart) {
   fail("the header region", WORKSPACE_PATH);
 }
@@ -106,6 +106,10 @@ const headerContainerClass = one(
   "header container class",
   WORKSPACE_PATH,
 )[1];
+const chromeSource = read("components/app-ui/native-chat-chrome.tsx");
+const historySource = chromeSource.slice(chromeSource.indexOf("export function NativeHistoryOpener"), chromeSource.indexOf("export function NativeHistoryClose"));
+const historyClass = one(historySource, /className="(relative z-\[540\] flex h-11 w-11[^\"]+)"/,
+  "authored History hit region", "components/app-ui/native-chat-chrome.tsx")[1];
 
 /**
  * The header is three flex regions and only the middle one may give way:
@@ -414,12 +418,14 @@ const segmentedSegmentClasses = one(
   "the segmented-control segment base classes",
   SEGMENTED_PATH,
 );
-// The Agent surface uses the compact, non-sliding variant. Both literals remain
-// extracted from the shipped control; changing either geometry is measured.
-const segmentedSegmentBase = `${segmentedSegmentClasses[1]} ${segmentedSegmentClasses[3]}`;
+const segmentedSegmentBase = segmentedSegmentClasses[1];
+const segmentedSlidingGap = one(segmented, /isSliding \? "(gap-[^"]+)" :/, "the sliding segment gap", SEGMENTED_PATH)[1];
+const segmentedSlidingSize = one(segmented, /isSliding \? "([^"]+)" : config\.segment/, "the sliding segment sizing", SEGMENTED_PATH)[1];
+const segmentedMinimum = one(segmented, /minWidth: options\.length \* (\d+) \+ (\d+)/, "the sliding minimum hit measure", SEGMENTED_PATH);
 
 export const AGENT_SURFACE_SOURCE = {
   header: {
+    historyClass,
     containerClass: headerContainerClass,
     centeredMarkerExpression: flatten(
       one(
@@ -435,15 +441,14 @@ export const AGENT_SURFACE_SOURCE = {
     centered: {
       artwork: header.includes("<OnePresenceAvatar")
         ? {
-            // The centered header's idle avatar is the HD portrait. Extract
-            // its actual default sizing rather than the active Rive overlay.
+            // Caller sizing owns the compact shell, not the Profile hero default.
             kind: "image",
             containerClass: "",
             className: one(
-              read("components/agent/one-presence-avatar.tsx"),
-              /if \(state === "connected"\)[\s\S]*?className=\{className \?\? "([^"]+)"\}/,
-              "One presence idle image",
-              "components/agent/one-presence-avatar.tsx",
+              header,
+              /<OnePresenceAvatar[^>]*className="([^"]+)"/,
+              "One presence shell image",
+              WORKSPACE_PATH,
             )[1],
           }
         : {
@@ -461,17 +466,7 @@ export const AGENT_SURFACE_SOURCE = {
               WORKSPACE_PATH,
             )[1],
           },
-      historyClass: one(
-        one(
-          read("components/app-ui/native-chat-chrome.tsx"),
-          /export function NativeHistoryOpener\b([\s\S]*?)<ShellActionSurface/,
-          "authored history opener",
-          "components/app-ui/native-chat-chrome.tsx",
-        )[1],
-        /<NativeChatChrome kind="history"[\s\S]*?className="([^"]+)"/,
-        "native history slot",
-        "components/app-ui/native-chat-chrome.tsx",
-      )[1],
+      historyClass,
       surfaceClass: one(
         header,
         /<NativeChatChrome kind="agent-surface"[\s\S]*?className="([^"]+)"/,
@@ -504,6 +499,7 @@ export const AGENT_SURFACE_SOURCE = {
     ariaLabel: toggleAriaLabel,
     options: toggleOptions,
     frameClass: toggleFrameClass,
+    minimumWidth: toggleOptions.length * Number(segmentedMinimum[1]) + Number(segmentedMinimum[2]),
     containerClass: [segmentedGroupBase, segmentedSlidingGroup, toggleClass].join(" "),
     segmentClass: `${segmentedSegmentBase} ${segmentedSlidingGap} ${segmentedSlidingSize} flex-1`,
     iconClass: `${segmentedSm.icon} ${toggleIconClass}`,

@@ -2,8 +2,23 @@ import Capacitor
 import UIKit
 
 enum NativeDrawerQualificationPolicy {
+    static func admits(_ idiom: UIUserInterfaceIdiom, enabled: Bool, coherentShell: Bool) -> Bool {
+        switch idiom {
+        case .phone: return enabled
+        case .pad: return coherentShell
+        default: return false
+        }
+    }
+    static var deviceEligible: Bool {
+        guard #available(iOS 26.0, *) else { return false }
+        return admits(UIDevice.current.userInterfaceIdiom, enabled: enabled, coherentShell: coherentShell)
+    }
     static var coherentShell: Bool {
-        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        #if HUSHH_NATIVE_SHELL_QUALIFICATION
+        // Explicit qualification binaries keep the selected renderer across
+        // manual launches. This does not enable ordinary Debug/Release builds.
+        return true
+        #elseif DEBUG
         return ProcessInfo.processInfo.arguments.contains("--hushh-native-shell-qualification")
         #else
         return false
@@ -40,7 +55,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var container: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
     private var supported: Bool {
         if #available(iOS 26.0, *) {
-            return NativeDrawerQualificationPolicy.enabled && UIDevice.current.userInterfaceIdiom == .phone && container?.wholeNativeDrawers == true
+            return NativeDrawerQualificationPolicy.deviceEligible && container?.wholeNativeDrawers == true
         }
         return false
     }
@@ -71,6 +86,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
                 "historyActions": self?.supported == true,
                 "profileMenuRows": self?.supported == true,
+                "profileContentHandoff": self?.supported == true,
+                "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
                 "coherentShell": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell,
                 "generation": self?.container?.isolationGeneration ?? 0, "isolated": self?.container?.interactionIsolated == true])

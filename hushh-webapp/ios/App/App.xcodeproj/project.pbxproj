@@ -22,6 +22,7 @@
 		5E5510A1000000000000000C /* NativePresentationContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A1000000000000000B /* NativePresentationContainer.swift */; };
 		5E5510B10000000000000002 /* NativeHistoryQualification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510B10000000000000001 /* NativeHistoryQualification.swift */; };
 		5E5510C10000000000000002 /* NativeDrawerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000001 /* NativeDrawerState.swift */; };
+		5E5510C10000000000000008 /* NativeProfileArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000007 /* NativeProfileArtwork.swift */; };
 		5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */; };
 		5E5510C10000000000000006 /* HushhNativeDrawersPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */; };
 		5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A20000000000000001 /* HushhStreamPlugin.swift */; };
@@ -125,6 +126,7 @@
 		5E5510A1000000000000000B /* NativePresentationContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativePresentationContainer.swift; path = Plugins/NativePresentationContainer.swift; sourceTree = "<group>"; };
 		5E5510B10000000000000001 /* NativeHistoryQualification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHistoryQualification.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000001 /* NativeDrawerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerState.swift; path = Plugins/NativeDrawerState.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000007 /* NativeProfileArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileArtwork.swift; path = Plugins/NativeProfileArtwork.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerPresentationController.swift; path = Plugins/NativeDrawerPresentationController.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HushhNativeDrawersPlugin.swift; path = Plugins/HushhNativeDrawersPlugin.swift; sourceTree = "<group>"; };
 		5E5510A20000000000000001 /* HushhStreamPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhStreamPlugin.swift; path = Plugins/HushhStreamPlugin.swift; sourceTree = "<group>"; };
@@ -312,6 +314,7 @@
 				5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */,
 				5E5510A10000000000000009 /* HushhNativeDockPlugin.swift */,
 				5E5510C10000000000000001 /* NativeDrawerState.swift */,
+				5E5510C10000000000000007 /* NativeProfileArtwork.swift */,
 				5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */,
 				5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */,
 				5E5510A1000000000000000B /* NativePresentationContainer.swift */,
@@ -559,6 +562,7 @@
 				5E5510A1000000000000000C /* NativePresentationContainer.swift in Sources */,
 				5E5510B10000000000000002 /* NativeHistoryQualification.swift in Sources */,
 				5E5510C10000000000000002 /* NativeDrawerState.swift in Sources */,
+				5E5510C10000000000000008 /* NativeProfileArtwork.swift in Sources */,
 				5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */,
 				5E5510C10000000000000006 /* HushhNativeDrawersPlugin.swift in Sources */,
 				5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */,

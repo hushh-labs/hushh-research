@@ -140,7 +140,6 @@ vi.mock("@/lib/services/direct-messages-service", async (importOriginal) => ({
     markConversationRead: (...args: unknown[]) =>
       mocks.markConversationRead(...args),
     acknowledgeDelivery: (...args: unknown[]) => mocks.acknowledgeDelivery(...args),
-    getAttachment: (...args: unknown[]) => mocks.getAttachment(...args),
     openEvents: (...args: unknown[]) => mocks.openEvents(...args),
     sendMessage: (...args: unknown[]) => mocks.sendMessage(...args),
     editMessage: (...args: unknown[]) => mocks.editMessage(...args),
@@ -249,7 +248,7 @@ describe("DirectMessagesPage", () => {
     });
     mocks.markConversationRead.mockResolvedValue({ readCount: 0, readAt: null });
     mocks.acknowledgeDelivery.mockReset().mockResolvedValue(undefined);
-    mocks.getAttachment.mockReset();
+    mocks.getAttachment.mockReset().mockResolvedValue(new Blob(["synthetic document"]));
     mocks.captureStart.mockReset().mockResolvedValue(undefined);
     mocks.captureCancel.mockReset().mockResolvedValue(undefined);
     mocks.captureFinish.mockReset(); mocks.captureInstances.length = 0;
@@ -625,7 +624,7 @@ describe("DirectMessagesPage", () => {
       mocks.getConversationMessages.mockResolvedValue({
         conversation: mocks.conversation,
         items: [{ ...visibleMessage, attachment: {
-          kind: "document", name: "synthetic.txt", mimeType: "text/plain", sizeBytes: 18,
+          kind: "document", name: "synthetic.txt", mimeType: "text/plain", size: 18,
         } }],
         canSend: true, disconnectedNotice: null, nextBefore: null,
       });
@@ -693,6 +692,23 @@ describe("DirectMessagesPage", () => {
 
     expect(screen.getByRole("button", { name: "Start voice call" })).toBeDisabled();
     expect(mocks.router.push).not.toHaveBeenCalled();
+  });
+
+  it("keeps encrypted card envelopes out of message previews, search, replies, and editing", async () => {
+    const content = 'hushh-wallet-card:v1:{"ciphertext":"synthetic-encrypted-payload"}';
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [{ id: "encrypted-card", conversationId: "conversation-1", senderIsViewer: true, content, createdAt: "2026-10-10T10:00:00Z", readAt: null, reactions: [] }], canSend: true, disconnectedNotice: null, nextBefore: null });
+    renderConnectionThread();
+    await screen.findByRole("region", { name: "Shared payment card" });
+    expect(document.body).not.toHaveTextContent(content);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    await screen.findByRole("menuitem", { name: "Reply" });
+    expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
+    expect(document.body).not.toHaveTextContent("synthetic-encrypted-payload");
+    fireEvent.click(screen.getByRole("button", { name: "Contact info" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), { target: { value: "synthetic-encrypted-payload" } });
+    expect(screen.queryByRole("region", { name: "Shared payment card" })).toBeNull();
   });
 
   it.each(["authentication", "response"] as const)(

@@ -13,6 +13,7 @@ import {
   getNativeSessionPrivacyState,
   subscribeNativeSessionPrivacy,
   nativePrivacyObservation,
+  subscribeNativePrivacyObservation,
 } from "@/lib/capacitor/session-privacy";
 import { appHaptic, usesNativeHapticPreference } from "@/lib/capacitor/app-haptics";
 
@@ -101,12 +102,16 @@ describe("native privacy bridge state validation", () => {
     let resolveRead!: (value: typeof active) => void;
     mocks.getState.mockReturnValueOnce(new Promise(resolve => { resolveRead = resolve; }));
     const earlierRead = getNativeSessionPrivacyState();
+    const observation = vi.fn();
+    const unsubscribe = subscribeNativePrivacyObservation(observation);
     const released = { ...active, shielded: false, released: true };
     mocks.completeSessionValidation.mockResolvedValue(released);
     await completeNativeSessionPrivacyValidation(active.generation);
     resolveRead(active);
     await earlierRead;
     expect(nativePrivacyObservation().state).toEqual(released);
+    expect(observation).toHaveBeenCalledOnce();
+    unsubscribe();
 
     mocks.getState.mockResolvedValue(released);
     mocks.interactionFeedback.mockResolvedValue({ accepted: true });
