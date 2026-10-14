@@ -178,7 +178,8 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     await waitFor(() => expect(view.container.querySelectorAll("canvas")).toHaveLength(1));
     expect(view.container.querySelector('[data-one-presence-artwork]')?.getAttribute("data-one-presence-artwork")).toBe("thinking");
     expect(old.cleanup).not.toHaveBeenCalled();
-    expect(answering.cleanup).toHaveBeenCalledOnce();
+    // Passive disposal follows the DOM commit; wait for both lifecycle facts.
+    await waitFor(() => expect(answering.cleanup).toHaveBeenCalledOnce());
     expect(runtime.instances).toHaveLength(2);
   });
 

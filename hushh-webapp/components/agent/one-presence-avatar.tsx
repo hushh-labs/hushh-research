@@ -77,7 +77,7 @@ export function OnePresenceAvatar({ state, className, presentation = "compact" }
   }, [fadingTo]);
 
   return (
-    <span ref={surfaceRef} aria-hidden="true" data-one-presence-state={state} className={`block relative isolate ${className ?? "size-16 shrink-0"}`}>
+    <span ref={surfaceRef} aria-hidden="true" data-one-presence-state={state} className={`block relative isolate ${className ?? "size-11 shrink-0 md:size-18"}`}>
       {[displayed, ...(fadingTo ? [fadingTo] : []), ...(incoming ? [incoming] : [])].map(layer => (
         <span key={layer.state} data-one-presence-artwork={layer.state}
           data-one-presence-layer={layer === displayed ? "current" : "incoming"}

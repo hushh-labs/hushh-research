@@ -1807,7 +1807,20 @@ test.describe("One profile artwork and animated presence", () => {
       await page.bringToFront();
       await expect.poll(() => page.evaluate(() => document.hidden)).toBe(false);
       await awaitProductFont(page);
-      await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+      const trigger = page.getByRole("button", { name: "Open One profile", exact: true });
+      const headerAvatar = trigger.locator("[data-one-presence-state]");
+      const headerSize = viewport.width < 768 ? 44 : 72;
+      for (const artwork of [headerAvatar, headerAvatar.locator("img"), headerAvatar.locator("canvas")]) {
+        // The loading canvas and animated poster can be visibility:hidden;
+        // their geometry must still match the owning avatar.
+        const bounds = await artwork.evaluate(element => {
+          const { width, height } = element.getBoundingClientRect();
+          return { width, height };
+        });
+        expect(bounds.width).toBe(headerSize);
+        expect(bounds.height).toBe(headerSize);
+      }
+      await trigger.click();
       const panel = page.getByRole("dialog", { name: "One", exact: true });
       await expect(panel).toBeVisible();
       await expect(panel.getByTestId("feed-row").first()).toBeVisible();

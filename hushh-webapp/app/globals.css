@@ -9377,8 +9377,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   }
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] > span:first-child > :first-child,
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] img {
-    width: 36px !important;
-    height: 36px !important;
+    width: 44px !important;
+    height: 44px !important;
   }
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
     position: absolute;

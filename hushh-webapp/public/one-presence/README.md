@@ -44,6 +44,9 @@ native frame pacing remains unverified.
 Animated frames have a 128px source and are displayed at 192 CSS px in the panel,
 so animated work artwork is softer than the HD fallback portraits.
 The artwork, canvas and owning avatar surfaces have no opaque background disk.
+The compact header artwork fills its existing 44px phone and 72px desktop
+trigger; the panel uses a 192px surface. Canvas and fallback portraits share
+the same bounds, including when playback pauses or reduced motion is enabled.
 
 ## HD variant provenance
 
