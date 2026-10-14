@@ -250,7 +250,7 @@ jobs:
 
       - name: Enforce production database connection budget before deployment
         shell: bash
-        run: python3 scripts/ci/runtime-capacity-budget.py --environment production
+        run: timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production
 
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
@@ -2241,7 +2241,7 @@ jobs:
           bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
             "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
             --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
-          python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release
 
       - name: Fail workflow when production release did not end healthy
         if: always()

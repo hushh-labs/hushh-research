@@ -384,11 +384,11 @@ jobs:
             exit 1
           fi
           if [ "$DEPLOY_BACKEND" = true ]; then
-            python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
               --candidate-service consent-protocol \
               --candidate-service consent-protocol-drive-worker
           elif [ "$DEPLOY_FRONTEND" = true ]; then
-            python3 scripts/ci/runtime-capacity-budget.py --environment uat --frontend-only
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat --frontend-only
           else
             echo "No resolved UAT deploy scope; refusing capacity admission." >&2
             exit 1
@@ -1381,7 +1381,7 @@ jobs:
             echo "UAT frontend candidate revision is unavailable for SQL-free verification." >&2
             exit 1
           fi
-          python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
             --frontend-only --frontend-revision "$FRONTEND_REVISION"
 
       - name: Verify frontend candidate runs the pinned image digest
@@ -1614,7 +1614,7 @@ jobs:
             if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
               # Recheck the immutable candidate and current frontend template
               # immediately before sending it serving traffic.
-              python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+              timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
                 --frontend-only \
                 --frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"
             fi

@@ -2076,6 +2076,25 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 check_policy(broken)
 
+    def test_direct_deployment_capacity_checks_have_bounded_process_groups(self):
+        workflow_dir = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
+        prefix = "timeout --signal=TERM --kill-after=2s 295s "
+
+        def check_deadlines(text):
+            calls = [line for line in text.splitlines()
+                     if "python3 scripts/ci/runtime-capacity-budget.py" in line]
+            self.assertTrue(calls)
+            for line in calls:
+                self.assertIn(prefix + "python3 scripts/ci/runtime-capacity-budget.py", line)
+                self.assertNotIn("--foreground", line)
+
+        for name in ("deploy-uat.yml", "deploy-uat-one-chat.yml", "deploy-production.yml"):
+            with self.subTest(workflow=name):
+                source = (workflow_dir / name).read_text()
+                check_deadlines(source)
+                with self.assertRaises(AssertionError):
+                    check_deadlines(source.replace(prefix, "", 1))
+
     def test_release_artifact_is_required_and_must_prove_health_and_revisions(self):
         healthy = {
             "status": "healthy",
