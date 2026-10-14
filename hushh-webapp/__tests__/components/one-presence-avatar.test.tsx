@@ -10,7 +10,7 @@ vi.mock("@rive-app/canvas", () => ({
   Layout: class {},
   Rive: class {
     play = vi.fn(); pause = vi.fn(); cleanup = vi.fn(); stopRendering = vi.fn();
-    startRendering = vi.fn(); resizeDrawingSurfaceToCanvas = vi.fn();
+    startRendering = vi.fn(); resizeDrawingSurfaceToCanvas = vi.fn(); resizeToCanvas = vi.fn();
     constructor(public options: typeof runtime.instances[number]["options"]) { runtime.instances.push(this); }
   },
 }));

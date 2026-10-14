@@ -31,6 +31,11 @@ pauses offscreen, when the document is hidden or the native app is inactive.
 These small image-backed loops use Rive's `AlwaysDraw` mode: asynchronous image
 decoding must repaint even when the artboard reports no dirt. The runtime owns
 the render loop; visibility and lifecycle pauses still stop it entirely.
+Backing buffers are capped at the embedded images' 128px resolution while CSS
+geometry remains 44/72px in the header and 192px in the panel. This avoids
+20.25 times the pixel work of a 576px Retina profile buffer without adding
+detail. Actual buffer dimensions are rechecked on resize and resume, including
+Rive's internal hidden-to-visible resize. HD fallback density is unchanged.
 HD portraits remain the loading/error and reduced-motion fallback; answering
 currently shares the thinking HD portrait for that static fallback only.
 WASM is self-hosted as `rive.wasm`, matching `@rive-app/canvas` 2.44.2 (MIT).

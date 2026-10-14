@@ -26,6 +26,10 @@ const portrait = {
   answering: "/one-presence/thinking-hd.png",
 } satisfies Record<OnePresenceState, string>;
 
+// Every embedded animation image is 128px; larger backing buffers add work,
+// not image detail. The HD loading/reduced-motion portraits remain separate.
+const nativeFrameSize = 128;
+
 /** Native Rive Solo timelines preserve the authored 72-frame, 24 FPS loops. */
 export function OnePresenceAvatar({ state, className, presentation = "compact" }: {
   state: OnePresenceState;
@@ -141,6 +145,30 @@ function OnePresencePlayback({ request, presentation, onReady }: {
     };
     const onPosterLoad = () => { if (fallback) { showPoster(); notifyReady(); } };
     const canPlay = () => visible && !document.hidden && !motion.matches && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
+    const resizePlayback = () => {
+      if (!instance || !ready) return;
+      const { width, height } = canvas.getBoundingClientRect();
+      if (width <= 0 || height <= 0) return;
+      const ratio = Math.min(window.devicePixelRatio || 1, nativeFrameSize / Math.max(width, height));
+      const pixelWidth = Math.min(nativeFrameSize, Math.round(width * ratio));
+      const pixelHeight = Math.min(nativeFrameSize, Math.round(height * ratio));
+      // Rive can resize itself at device DPR after a hidden surface returns.
+      // Actual pixel bounds own this image-backed surface; changing CSS size
+      // with the same target buffer must not clear an already-painted frame.
+      if (canvas.width === pixelWidth && canvas.height === pixelHeight) return;
+      if (firstFrame !== null) window.cancelAnimationFrame(firstFrame);
+      firstFrame = null;
+      instance.resizeDrawingSurfaceToCanvas(ratio);
+      // WebKit's fractional bounds can make the runtime truncate 128 to 127.
+      // Keep the backing surface on the intended integer pixel grid.
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+        instance.resizeToCanvas();
+      }
+      presented = false;
+      showPoster();
+    };
     const sync = () => {
       if (disposed) return;
       const play = canPlay();
@@ -154,6 +182,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
         fallback = motion.matches || document.hidden || appInteractionCoordinator.getLifecycleSnapshot().state !== "active";
         if (fallback) notifyReady();
       } else if (instance && ready) {
+        resizePlayback();
         fallback = false;
         instance.play(stateMachine);
         instance.startRendering();
@@ -214,7 +243,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
             onLoad: () => {
               if (disposed || !instance) return;
               ready = true;
-              instance.resizeDrawingSurfaceToCanvas();
+              instance.resizeToCanvas();
               sync();
             },
             onLoadError: () => {
@@ -241,11 +270,15 @@ function OnePresencePlayback({ request, presentation, onReady }: {
       sync();
     });
     observer?.observe(canvas);
+    let resizeFrame: number | null = null;
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
-      if (!disposed && instance && ready) {
-        instance.resizeDrawingSurfaceToCanvas();
-        sync();
-      }
+      // Run after Rive's own size observer so its zero-size recovery cannot
+      // leave the source-sized buffer enlarged again.
+      if (resizeFrame !== null) return;
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        if (!disposed) { resizePlayback(); sync(); }
+      });
     });
     resize?.observe(canvas);
     document.addEventListener("visibilitychange", sync);
@@ -258,6 +291,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
       notifyRef.current = null;
       observer?.disconnect();
       resize?.disconnect();
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
       document.removeEventListener("visibilitychange", sync);
       poster.removeEventListener("load", onPosterLoad);
       motion.removeEventListener("change", sync);
