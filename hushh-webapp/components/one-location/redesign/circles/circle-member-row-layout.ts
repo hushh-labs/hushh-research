@@ -86,7 +86,7 @@ export const CIRCLE_MEMBER_SECONDARY_CLASSNAME =
 /** Circle detail titles share their row with Edit. The copy column must be
  * shrinkable and the title must wrap so neither can push the other off-screen. */
 export const CIRCLE_DETAIL_HEADER_CLASSNAME =
-  "flex items-start justify-between gap-4 px-1";
+  "circle-detail-header flex items-start justify-between gap-4 px-1";
 
 export const CIRCLE_DETAIL_HEADER_COPY_CLASSNAME =
   "min-w-0 flex-1 [&_h1]:whitespace-normal [&_h1]:[overflow-wrap:anywhere]";

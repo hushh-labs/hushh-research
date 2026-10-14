@@ -8,6 +8,7 @@ let css: string;
 let script: string;
 let saveActionClass: string;
 let stickyOffsets: string[];
+let fixtureOutDir: string | undefined;
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -16,16 +17,21 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const providerSource = fs.readFileSync(path.join(root, "app/providers.tsx"), "utf8");
-  const offsets = providerSource.match(/"--app-sticky-bottom-offset": shouldLockFullscreenRoot && !hideGlobalChrome\s+\? "([^"]+)"\s+: "([^"]+)"/)!;
+  const offsets = providerSource.match(/"--app-sticky-bottom-offset"\s*:\s*shouldLockFullscreenRoot\s*&&\s*!hideGlobalChrome\s*\?\s*"([^"]+)"\s*:\s*"([^"]+)"/);
+  if (!offsets) {
+    throw new Error("Could not extract --app-sticky-bottom-offset branch values from app/providers.tsx");
+  }
   stickyOffsets = [offsets[1], offsets[2]];
   const reviewSource = fs.readFileSync(path.join(root, "components/kai/views/portfolio-review-view.tsx"), "utf8");
   saveActionClass = reviewSource.match(/data-portfolio-review-save\s+className="([^"]+)"/)![1];
   for (const candidate of scanner.scanFiles([{ content: saveActionClass, extension: "html" }])) candidates.add(candidate);
 
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-markdown-"));
+  fixtureOutDir = outDir;
   await build({
     configFile: false,
     logLevel: "error",
+    publicDir: false,
     plugins: [
       {
         name: "fixture-css-candidates",
@@ -81,6 +87,10 @@ test.beforeAll(async () => {
     },
   );
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+});
+
+test.afterAll(() => {
+  if (fixtureOutDir) fs.rmSync(fixtureOutDir, { recursive: true, force: true });
 });
 
 

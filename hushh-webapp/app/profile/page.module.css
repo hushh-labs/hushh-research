@@ -26,7 +26,7 @@
   color: #6e6e73;
   font-family: var(--font-app-body);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 20px;
   padding-inline: 6px;
@@ -69,7 +69,7 @@
 .cinematicSettings [data-slot="settings-row-title"] {
   font-family: var(--font-app-display);
   font-size: 22px;
-  font-weight: 800;
+  font-weight: 400;
   line-height: 1.05;
   letter-spacing: -0.3px;
   color: #0a0a0a;

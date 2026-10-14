@@ -31,7 +31,7 @@ try {
     const url = new URL(route.request().url());
     if (url.protocol === "blob:" && url.origin === "http://wallet-image.test") {
       await route.continue();
-    } else if (url.origin === "http://wallet-image.test" && /^\/wallet\/artwork\/(profile|referral|nws)-v1\.svg$/.test(url.pathname)) {
+    } else if (url.origin === "http://wallet-image.test" && /^\/wallet\/artwork\/(profile|referral|nws)-v2\.svg$/.test(url.pathname)) {
       await route.fulfill({ contentType: "image/svg+xml", body: await readFile(path.join(root, "public", url.pathname)) });
     } else if (url.href === "http://wallet-image.test/") {
       await route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Wallet image export verification</title>" });
@@ -78,7 +78,7 @@ try {
         }
         // The exported face contains rendered art, rather than only text/QR on transparency.
         const artPixel = (Math.floor(canvas.height * .2) * canvas.width + Math.floor(canvas.width * .7)) * 4;
-        return { type: file.type, name: file.name, size: file.size, width: image.naturalWidth, height: image.naturalHeight, decodedCorrect: decoded === (kind === "profile" ? profile.shareUrl : kind === "referral" ? profile.referralUrl : null), artworkOpaque: pixels[artPixel + 3] === 255, identityPresent: svgDocument.querySelector("[data-wallet-identity]").textContent.includes(profile.cardPayload.username), sample: svgDocument.querySelector("text.score")?.textContent ?? null };
+        return { type: file.type, name: file.name, size: file.size, width: image.naturalWidth, height: image.naturalHeight, decodedCorrect: decoded === (kind === "profile" ? profile.shareUrl : kind === "referral" ? profile.referralUrl : null), artworkOpaque: pixels[artPixel + 3] === 255, identityPresent: svgDocument.querySelector("[data-wallet-identity]").textContent.includes(profile.displayName), sample: svgDocument.querySelector("text.score")?.textContent ?? null };
       } finally { URL.revokeObjectURL(pngUrl); }
     }, kind);
     assert.equal(result.type, "image/png");

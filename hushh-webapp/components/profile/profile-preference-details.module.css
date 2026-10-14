@@ -40,9 +40,14 @@
     color: var(--ios-account-label) !important;
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
-    font-weight: 500 !important;
+    font-weight: 400 !important;
     letter-spacing: 0 !important;
     line-height: 1.22 !important;
+  }
+
+  :global(.profile-pane-scroll-root .app-page-shell[data-app-density="compact"])
+    .voiceRoot :global([data-testid="one-voice-microphone-check"] .ui-text-row-label-emphasized) {
+    font-weight: 600 !important;
   }
 
   :global(.profile-pane-scroll-root .app-page-shell[data-app-density="compact"])
