@@ -180,6 +180,25 @@ describe("LocationPickerMap native lifecycle", () => {
     expect(owner?.map.destroy).not.toHaveBeenCalled();
   });
 
+  it("retains the native host when creation finishes after the fallback timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const view = render(<LocationPickerMap {...PICKER_PROPS} />);
+      await act(async () => { for (let tick = 0; tick < 8; tick += 1) await Promise.resolve(); });
+      const originalHost = view.container.querySelector("capacitor-google-map");
+      expect(harness.create).toHaveBeenCalledTimes(1);
+      expect(originalHost).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(view.container.querySelector("capacitor-google-map")).toBe(originalHost);
+      await pump();
+      expect(view.container.querySelector("capacitor-google-map")).toBe(originalHost);
+      expect(registry.has(PICKER_ID)).toBe(true);
+      expect(view.container.textContent).not.toContain("The interactive map isn't available");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not contend with Your Map's lane", async () => {
     // Separate ids get separate lanes: onboarding must never be able to stall
     // Your Map, or vice versa.
