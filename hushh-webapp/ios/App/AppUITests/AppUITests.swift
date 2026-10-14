@@ -3644,7 +3644,7 @@ final class AppUITests: XCTestCase {
         let back = app.buttons["Back in Profile"].firstMatch
         let destinations = ["account", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
         let requestedStart = ProcessInfo.processInfo.environment["HUSHH_PROFILE_BATCH_START"]
-        guard requestedStart == nil || destinations.contains(requestedStart!) else {
+        if let requestedStart, !destinations.contains(requestedStart) {
             XCTFail("PROFILE_BATCH_START_UNADMITTED"); return
         }
         let startIndex = requestedStart.flatMap { destinations.firstIndex(of: $0) } ?? 0
@@ -3729,9 +3729,7 @@ final class AppUITests: XCTestCase {
                 // Profile detail. Its route parent is One; use those real
                 // controls before restoring the originating Chat menu.
                 let routeBack = app.buttons["Go back"].firstMatch
-                // Attach-only qualification does not launch -UITestMode and
-                // has no cold-audit native-test-status overlay. Observe the
-                // actual destination and parent, without restarting the app.
+                // Observe the actual destination without changing the session.
                 guard web.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 15),
                       waitForAdmittedControl(routeBack) else {
                     XCTFail("PROFILE_BATCH_REFERRALS_ROUTE_UNAVAILABLE"); return
@@ -3739,11 +3737,20 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                 XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
                 routeBack.tap()
-                // The launcher is the parent contract; a lower roster item
-                // may be virtualized outside WebKit's visible AX tree.
-                // Observe its stationary authored view control instead.
-                guard web.buttons["Show agent grid view"].firstMatch.waitForExistence(timeout: 15),
-                      !web.staticTexts["Referrals"].firstMatch.exists else {
+                let status = app.buttons["native-test-status"].firstMatch
+                var observedRoute = "unknown"
+                let parent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    guard status.exists, let raw = status.value as? String, raw.utf8.count <= 1024 else { return false }
+                    let fields = Dictionary(raw.split(separator: ";").compactMap { field -> (String, String)? in
+                        let pair = field.split(separator: "=", maxSplits: 1)
+                        return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
+                    }, uniquingKeysWith: { _, latest in latest })
+                    observedRoute = fields["route"] == "/one" ? "one" : fields["route"] == "/one/referrals" ? "referrals" : "other"
+                    return observedRoute == "one" && fields["ready"] == "1" && fields["marker"] == "native-route-one-home" && web.exists && web.isHittable
+                }, object: app)
+                guard XCTWaiter.wait(for: [parent], timeout: 15) == .completed else {
+                    print("PROFILE_REFERRALS_RETURN route=\(observedRoute) status=\(status.exists) web=\(web.exists) hittable=\(web.exists && web.isHittable)")
+                    printCoherentPresentationAdmission(app)
                     XCTFail("PROFILE_BATCH_REFERRALS_PARENT_NOT_RESTORED"); return
                 }
                 perfTapNav(app, label: "Chat")
