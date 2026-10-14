@@ -122,6 +122,13 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - name: Require reconciled maintenance mutations under deployment lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment production \
+            --check-mutations --state-dir "$RUNNER_TEMP/production-maintenance-guard"
+
       - name: Assert production dispatch actor policy
         shell: bash
         run: |

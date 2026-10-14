@@ -7,9 +7,11 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,77 @@ TAG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
 class UnsafeState(RuntimeError):
     """Observed state does not authorize cleanup."""
+
+
+class BudgetExpired(RuntimeError):
+    """The bounded pass must checkpoint and yield, not wait on a runner."""
+
+
+class MutationUncertain(UnsafeState):
+    """A submitted mutation needs observation before any retry."""
+
+
+PASS_DEADLINE: ContextVar[float | None] = ContextVar("retention_deadline", default=None)
+
+
+def remaining_seconds(limit: float = 180) -> float:
+    deadline = PASS_DEADLINE.get()
+    remaining = limit if deadline is None else min(limit, deadline - time.monotonic())
+    if remaining <= 0:
+        raise BudgetExpired("Cleanup execution budget exhausted")
+    return remaining
+
+
+def run_command(args, *, timeout=180, check=True, text=True):
+    """Reap the entire owned command group on timeout; never print payloads."""
+    timeout = remaining_seconds(timeout)
+    process = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=text,
+        start_new_session=True,
+    )
+    try:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except (subprocess.TimeoutExpired, BudgetExpired) as exc:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.communicate(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate(timeout=0.5)
+            raise BudgetExpired(
+                "Cleanup command exceeded its execution budget"
+            ) from exc
+        result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+        if check:
+            result.check_returncode()
+        return result
+    finally:
+        # A command can exit while retaining descendants; they belong to this call.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def atomic_state(path: Path, state: dict) -> None:
+    if path.is_symlink():
+        raise UnsafeState("cleanup checkpoint is a symlink")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    if temporary.is_symlink():
+        raise UnsafeState("temporary cleanup checkpoint is a symlink")
+    temporary.write_text(json.dumps(state, indent=2) + "\n")
+    temporary.replace(path)
 
 
 @dataclass(frozen=True)
@@ -37,9 +110,7 @@ def gcloud(
     if project:
         command.append(f"--project={project}")
     command.append("--format=json" if json_output else "--quiet")
-    result = subprocess.run(
-        command, check=True, capture_output=True, text=True, timeout=180
-    )
+    result = run_command(command)
     return json.loads(result.stdout) if json_output else None
 
 
@@ -258,14 +329,108 @@ def deferred_drain_ready(
         "not_before": due_at,
         "revisions": list(plan.delete_revisions),
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2) + "\n")
+    atomic_state(path, state)
     if now < due_at:
         print(
             f"Deferred deletion until epoch {due_at}; {due_at - now}s remain. No runner wait."
         )
         return False
     return True
+
+
+def reconcile_mutation(path: Path, service: str, project: str, region: str) -> None:
+    if not path.exists():
+        return
+    if path.is_symlink():
+        raise UnsafeState("cleanup checkpoint is a symlink")
+    state = json.loads(path.read_text())
+    intent = state.get("pending_mutation")
+    if intent is None:
+        return
+    if not isinstance(intent, dict) or any(
+        state.get(k) != v
+        for k, v in (("service", service), ("project", project), ("region", region))
+    ):
+        raise UnsafeState("mutation checkpoint has incompatible authority")
+    live = service_state(service, project, region)
+    if (live.get("metadata") or {}).get("uid") != intent.get("service_uid"):
+        raise UnsafeState("mutation checkpoint belongs to a replaced service")
+    kind = intent.get("kind")
+    if kind == "delete" and not REVISION_RE.fullmatch(str(intent.get("revision", ""))):
+        raise UnsafeState("invalid pending revision identity")
+    if kind == "remove_tags" and (
+        not isinstance(intent.get("tags"), list)
+        or not intent["tags"]
+        or any(
+            not isinstance(tag, str) or not TAG_RE.fullmatch(tag)
+            for tag in intent["tags"]
+        )
+        or not isinstance(intent.get("serving"), list)
+        or not intent["serving"]
+    ):
+        raise UnsafeState("invalid pending traffic identity")
+    if kind == "delete":
+        revisions = revision_state(service, project, region)
+        settled = intent.get("revision") not in {
+            (item.get("metadata") or {}).get("name") for item in revisions
+        }
+    elif kind == "remove_tags":
+        metadata, status = live.get("metadata") or {}, live.get("status") or {}
+        observed = status.get("observedGeneration")
+        desired = (live.get("spec") or {}).get("traffic")
+        settled = (
+            observed is not None
+            and str(observed) == str(metadata.get("generation"))
+            and any(
+                c.get("type") == "Ready" and c.get("status") == "True"
+                for c in status.get("conditions", [])
+            )
+            and isinstance(desired, list)
+            and not any(t.get("tag") in intent.get("tags", []) for t in desired)
+            and not any(t[2] in intent.get("tags", []) for t in traffic_state(live))
+            and sorted(
+                [name, percent] for name, percent, _ in traffic_state(live) if percent
+            )
+            == intent.get("serving")
+        )
+    else:
+        raise UnsafeState("unknown pending cleanup mutation")
+    if not settled:
+        raise MutationUncertain(
+            "Prior provider outcome is unresolved; operator reconciliation required"
+        )
+    state.pop("pending_mutation")
+    atomic_state(path, state)
+
+
+def mutate(args, command: list[str], expected, intent: dict) -> None:
+    if args.defer_state:
+        state = (
+            json.loads(args.defer_state.read_text())
+            if args.defer_state.exists()
+            else {
+                "schema_version": 1,
+                "service": args.service,
+                "project": args.project,
+                "region": args.region,
+                "release_run_id": args.release_run_id,
+            }
+        )
+        state["pending_mutation"] = {**intent, "service_uid": expected[3]}
+        atomic_state(args.defer_state, state)
+    try:
+        gcloud(command, args.project, args.region, json_output=False)
+    except (
+        BudgetExpired,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        raise MutationUncertain(
+            "Provider mutation outcome requires reconciliation"
+        ) from exc
+    if args.defer_state:
+        state.pop("pending_mutation")
+        atomic_state(args.defer_state, state)
 
 
 def main() -> int:
@@ -328,6 +493,9 @@ def main() -> int:
     }
     if any(not REVISION_RE.fullmatch(name) for name in protected):
         parser.error("protected revision name is invalid")
+    remaining_seconds()
+    if args.defer_state:
+        reconcile_mutation(args.defer_state, args.service, args.project, args.region)
     before = service_state(args.service, args.project, args.region)
     expected = traffic_fingerprint(before)
     revisions = revision_state(args.service, args.project, args.region)
@@ -353,16 +521,22 @@ def main() -> int:
         return 0
     if plan.remove_tags:
         assert_traffic(args.service, args.project, args.region, expected)
-        gcloud(
+        mutate(
+            args,
             [
                 "services",
                 "update-traffic",
                 args.service,
                 f"--remove-tags={','.join(plan.remove_tags)}",
             ],
-            args.project,
-            args.region,
-            json_output=False,
+            expected,
+            {
+                "kind": "remove_tags",
+                "tags": list(plan.remove_tags),
+                "serving": sorted(
+                    [name, percent] for name, percent, _ in expected[0] if percent
+                ),
+            },
         )
         after_service = service_state(args.service, args.project, args.region)
         after = traffic_state(after_service)
@@ -417,11 +591,12 @@ def main() -> int:
         )
         if revision not in current_plan.delete_revisions:
             raise UnsafeState(f"revision became protected during cleanup: {revision}")
-        gcloud(
+        remaining_seconds()
+        mutate(
+            args,
             ["revisions", "delete", revision],
-            args.project,
-            args.region,
-            json_output=False,
+            expected,
+            {"kind": "delete", "revision": revision},
         )
         print(f"Deleted {revision}")
     if args.defer_state:

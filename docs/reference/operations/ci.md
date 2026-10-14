@@ -461,13 +461,26 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 7. roll back only the failing changed surface
 8. publish release artifacts with revisions, reports, and final status
 
-UAT and production revision retirement use the existing `Capacity Maintenance` workflow. It records
-drain deadlines and returns; a UAT follow-up waits outside the deploy lock until the verified deadline, then revalidates the healthy source and live traffic before deleting eligible revisions. Scheduled passes retry a failed or missed UAT follow-up and handle production; a failed workflow's artifact is not trusted, so its drain clock may restart. The deployment
-workflow finishes without awaiting retirement. Maintenance creates no environment
-deployment record and holds the shared mutation lock only during a short pass,
-never during the request drain. Both environments skip cloud authentication for settled
-or not-yet-due drain receipts; requested deployments explicitly wake inspection.
-UAT capacity admission is bounded to 90 minutes; shortages that outlast that bound require a governed operator retry. The UAT follow-up uses a waiting runner outside the deploy lock. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
+UAT and production revision retirement use the existing `Capacity Maintenance` workflow,
+scheduled hourly at minute 17 UTC. Releases never trigger it. An authorized operator
+can explicitly inspect or apply cleanup; manual requests are not coalesced with cron.
+Scheduled work keeps one active and one pending request without cancelling active
+mutations. Each environment still shares its deployment/rollback lock.
+
+Source-only checks before authentication and again under that lock skip settled and
+not-yet-due work. Each executing pass has a 300-second budget, including subprocesses,
+with teardown/checkpoint time reserved. No runner waits for request drainage: existing
+artifacts retain the deadline and partial progress for the next hourly pass. Drainage
+still covers the longest applicable request timeout plus 60 seconds. Unknown provider
+outcomes retain mutation intent and block conflicting deployments until reconciliation;
+a timeout does not prove that Google stopped the operation. No completion is claimed
+for partial or unresolved work. Cleanup outcome is separate from release health and
+capacity admission; diagnostic reporting does not add another unconditional cloud scan.
+
+Both UAT admission observers stop within five minutes and poll at most once a minute.
+`DEFERRED_CAPACITY` retains the original SHA/scope for an operator retry, without
+starting maintenance or automatically resuming a deployment. See
+[the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
 Frontend-only UAT releases use a separate zero-increment SQL admission check that verifies the live web runtime and candidate revision; backend and paired releases retain the full connection budget gate.
 
 Before increasing database pools or tiers after a failed load stage, inspect the

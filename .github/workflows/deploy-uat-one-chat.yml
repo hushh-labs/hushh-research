@@ -23,7 +23,7 @@ jobs:
   wait-capacity:
     name: Wait for UAT One chat capacity outside the mutation lock
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 7
     permissions:
       contents: read
       checks: read
@@ -81,6 +81,13 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
+
+      - name: Require reconciled maintenance mutations under deployment lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --check-mutations --state-dir "$RUNNER_TEMP/uat-maintenance-guard"
 
       - name: Preserve current capacity tooling
         shell: bash
