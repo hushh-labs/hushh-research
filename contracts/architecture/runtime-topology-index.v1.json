@@ -1982,7 +1982,7 @@
       "id": "vault_key_material",
       "lifecycle_status": "current",
       "owner": "security-audit",
-      "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, and owner-bound One review completion services"
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, owner-bound One review completion, and explicit initial-signup Contacts lifecycle services"
     },
     {
       "data_class": "personal_encrypted",
@@ -6054,6 +6054,29 @@
     },
     {
       "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-welcome",
+      "page_file": "app/one/welcome/page.tsx",
+      "pathname": "/one/welcome",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.welcome"
+      }
+    },
+    {
+      "alias": null,
       "api_dependencies": [
         {
           "backend_endpoint_family": "/api/{public/people/*,one/people/*,one/information-requests/*}",
@@ -6769,13 +6792,13 @@
     "a2a_scope_map": "901ffa785f2f917bce0a5eee0aceebeaded2180baf7a3bf7915c9d03e72fb526",
     "action_gateway": "691d2c937e8bfae8c21392928e987cdd04a593595e1d92440a36a6c778f9d9c3",
     "agent_registry": "a2f5e4286f0b1120cf3f3652a4898384e673be145aff17ad5abad9f61bea3292",
-    "cache_manifest": "2dd3baccfcc145b86f92282b9d55902da21fdb77a5df8004998ee3aef10cdc34",
-    "data_plane": "a64f4d28f1bd58f9452dbd53cee0fb0507e87b83319c2ad666c17e41ad018859",
+    "cache_manifest": "0b30fcec8818237efa00bec784bbf3f1467b4d65409c7461bae142707dd0ee66",
+    "data_plane": "86f610668dffee017669de74af5048868165c1cbd410a9711e857920d813888d",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "cb76edf8be0ad6bbef975a9a9db27c9564dd768e7edd3da999ec5d3a5877b283",
-    "route_index": "0a42921abc3124a7527b43d0cde3da3b0c780b71a13315fb63817a1ade4e9436",
-    "route_layout": "8f5b94d9c91784adb9101aae83882f53da4cc2cccbfee2df9805e1d0d799d33b",
-    "surface_map": "c7c45fa9cbf195b5a2648ffe97dabd8e75f9c7716090c4e7884b256fe186ce10",
+    "route_index": "045220cf170084a25cf735b2fc847449bb096cf440ec19dc1b8e507050b7b24b",
+    "route_layout": "f8a27ed2d6e186323d7b62f2fed30c5b07d1c2a7d13bea92ee0b0ce6c6b2a5f1",
+    "surface_map": "9450366278ba9d069a0b735430e86a486dfa7c49ea577a256a7ee9a439ab3c64",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -6787,7 +6810,7 @@
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 157,
+    "physical_routes": 158,
     "semantic_routes": 17,
     "table_families": 114
   }

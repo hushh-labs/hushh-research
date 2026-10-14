@@ -28,6 +28,18 @@
       "8eae328a26"
     ]
   },
+  "ai_shared_files_contacts_dismissal_review_20261014": {
+    "findings": [
+      {
+        "after": 1720,
+        "before": 1714,
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "One existing dismissal regression parameterized at390/768/1024 to exercise actual mobile Sheet close and centered Dialog overlay hit, settled motion, Escape and history re-entry. No duplicated fixture or test body; every other ceiling and500/250/80budget retained.",
+        "source_sha256": "d2c404208680f663cbf80dc864fffba684f4d35798735a3227a4b400a5da6315"
+      }
+    ],
+    "reviewer": "adk_frontend_conflicts"
+  },
   "ai_shared_files_core_fixture_review_20261013": {
     "entries": [
       {
@@ -2188,7 +2200,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2588,
+  "finding_count": 2590,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2476,7 +2488,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "ConnectionsService",
-      "value": 4019
+      "value": 4021
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3151,7 +3163,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_circle_service.py",
       "symbol": "OneLocationCircleService",
-      "value": 5402
+      "value": 5547
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3619,7 +3631,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/vault_keys_service.py",
       "symbol": "VaultKeysService",
-      "value": 1666
+      "value": 1770
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4429,7 +4441,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/db_proxy.py",
       "symbol": "vault_bootstrap_state",
-      "value": 89
+      "value": 92
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7201,7 +7213,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "sync_contact_matches",
-      "value": 436
+      "value": 438
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9541,7 +9553,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_location_circle_service.py",
       "symbol": "create_member_invites",
-      "value": 638
+      "value": 709
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11485,7 +11497,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/vault_keys_service.py",
       "symbol": "_update_pre_vault_state_sync",
-      "value": 184
+      "value": 259
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -15697,7 +15709,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/db_proxy.py",
       "symbol": null,
-      "value": 1015
+      "value": 1028
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15904,7 +15916,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/location.py",
       "symbol": null,
-      "value": 2501
+      "value": 2507
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16552,7 +16564,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": null,
-      "value": 4353
+      "value": 4355
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17164,7 +17176,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_location_circle_service.py",
       "symbol": null,
-      "value": 5826
+      "value": 5971
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17587,7 +17599,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/vault_keys_service.py",
       "symbol": null,
-      "value": 1710
+      "value": 1819
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18406,7 +18418,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
       "symbol": null,
-      "value": 1165
+      "value": 1192
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18667,7 +18679,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_one_location_circle_service.py",
       "symbol": null,
-      "value": 4373
+      "value": 4482
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19009,7 +19021,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_contact_sync_connection_contract.py",
       "symbol": null,
-      "value": 1294
+      "value": 1311
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20008,7 +20020,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 957
+      "value": 1008
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20035,7 +20047,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_vault_keys_metadata.py",
       "symbol": null,
-      "value": 1380
+      "value": 1462
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20332,7 +20344,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx",
       "symbol": null,
-      "value": 703
+      "value": 731
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20764,7 +20776,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/auth-service.test.ts",
       "symbol": null,
-      "value": 1445
+      "value": 1512
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21826,7 +21838,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/onboarding/AuthStep.tsx",
       "symbol": null,
-      "value": 1108
+      "value": 1132
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22357,7 +22369,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1714
+      "value": 1720
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22519,7 +22531,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/capacitor/index.ts",
       "symbol": null,
-      "value": 1085
+      "value": 1100
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22816,7 +22828,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/navigation/routes.ts",
       "symbol": null,
-      "value": 973
+      "value": 988
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22861,7 +22873,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/observability/route-map.ts",
       "symbol": null,
-      "value": 863
+      "value": 865
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22888,7 +22900,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-location/contact-signals.ts",
       "symbol": null,
-      "value": 628
+      "value": 632
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22942,7 +22954,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-location/service.ts",
       "symbol": null,
-      "value": 2371
+      "value": 2373
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23176,7 +23188,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/auth-service.ts",
       "symbol": null,
-      "value": 2122
+      "value": 2193
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23194,7 +23206,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/connections-service.ts",
       "symbol": null,
-      "value": 717
+      "value": 719
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23383,7 +23395,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/pre-vault-user-state-service.ts",
       "symbol": null,
-      "value": 719
+      "value": 730
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23644,7 +23656,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/navigation/back-navigation-graph.ts",
       "symbol": null,
-      "value": 1304
+      "value": 1309
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24419,7 +24431,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/connections.py",
       "symbol": "sync_contacts",
-      "value": 85
+      "value": 86
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25487,6 +25499,24 @@
       "path": "consent-protocol/tests/test_pod_ai_selection_doors.py",
       "symbol": null,
       "value": 507
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_initial_contacts_circle_postgres.py|db|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_initial_contacts_circle_postgres.py",
+      "symbol": "db",
+      "value": 101
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/api/routes/db_proxy.py|vault_pre_vault_state|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/api/routes/db_proxy.py",
+      "symbol": "vault_pre_vault_state",
+      "value": 84
     }
   ],
   "inspected_files": 6625,
@@ -41590,6 +41620,720 @@
     "key": "function_size|consent-protocol/tests/test_gmail_information_request_release_contract.py|_run_setup|function exceeds the advisory gene budget",
     "review": "Independent ci_registry_review verified this inherited function is byte-identical to main d9714dec2e. Update only the existing 81-to-91 slot; preserve every other finding, multiplicity, scanner, budget and future-growth gate. The task-owned chat allowlist retains its previous module bound.",
     "source_sha256": "133a7f57fe043c49c79b73f507ac8bfc1b9740f2e7d299724128988c4cc3f7f1"
+  },
+  "scope_commerce_initial_contacts_main_merge_20261014": {
+    "changes": [
+      {
+        "accepted_ceiling": 5547,
+        "classification": "exact_inherited_main_module",
+        "detail": "class exceeds the advisory operon budget",
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py|OneLocationCircleService|class exceeds the advisory operon budget",
+        "kind": "class_size",
+        "limit": 250,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/hushh_mcp/services/one_location_circle_service.py",
+        "previous_ceiling": 5402,
+        "rationale": "Insert-only signup memberships, existing owner/vault and deletion barriers, no membership resurrection.",
+        "source_git_blob": "40575e8dd6b38fd401b3212abe3d4ca38a743e40",
+        "source_sha256": "9f8f2505af3a63420d37fff7dbf6a471bf04514a783db4822617fa05e6b63d51",
+        "span": {
+          "end_line": 5971,
+          "sha256": "6393254bac6f7d873b4a46eb243b7940858949890be296721bc98d5177565a55",
+          "start_line": 425
+        },
+        "symbol": "OneLocationCircleService",
+        "value": 5547
+      },
+      {
+        "accepted_ceiling": 4021,
+        "classification": "exact_inherited_main_module",
+        "detail": "class exceeds the advisory operon budget",
+        "key": "class_size|consent-protocol/hushh_mcp/services/connections_service.py|ConnectionsService|class exceeds the advisory operon budget",
+        "kind": "class_size",
+        "limit": 250,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/hushh_mcp/services/connections_service.py",
+        "previous_ceiling": 4019,
+        "rationale": "Signup context retains auth, revoked-contact exclusion and existing store.",
+        "source_git_blob": "ee0b339866b30c16fde4a8aace3de585c77d1af1",
+        "source_sha256": "b2fcab6591ec570848dabd8deaa4f8877049b3857cc249e4707edf31ef868734",
+        "span": {
+          "end_line": 4355,
+          "sha256": "ad502f5857c4a9a895d9bc568dc5ace127b79ca570820a8b7b845a9ed6d6b0b5",
+          "start_line": 335
+        },
+        "symbol": "ConnectionsService",
+        "value": 4021
+      },
+      {
+        "accepted_ceiling": 1770,
+        "classification": "exact_inherited_main_module",
+        "detail": "class exceeds the advisory operon budget",
+        "key": "class_size|consent-protocol/hushh_mcp/services/vault_keys_service.py|VaultKeysService|class exceeds the advisory operon budget",
+        "kind": "class_size",
+        "limit": 250,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/hushh_mcp/services/vault_keys_service.py",
+        "previous_ceiling": 1666,
+        "rationale": "Conditional sparse enrollment and monotonic acknowledgement; preserved task timestamp normalization and owner hosting fields.",
+        "source_git_blob": "94792b4a4d5da49c6278685e45ff6e773aa865ae",
+        "source_sha256": "6e1da35f0479580437f89f0a59b7f9be22f7a065025dc33c625b8748a0a78aeb",
+        "span": {
+          "end_line": 1819,
+          "sha256": "3c1ce48eda0d8309098f38f3336baab62f0cb7b68b8d77a870f8dfadb696b805",
+          "start_line": 50
+        },
+        "symbol": "VaultKeysService",
+        "value": 1770
+      },
+      {
+        "accepted_ceiling": 709,
+        "classification": "exact_inherited_main_module",
+        "detail": "function exceeds the advisory gene budget",
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py|create_member_invites|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "limit": 80,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/hushh_mcp/services/one_location_circle_service.py",
+        "previous_ceiling": 638,
+        "rationale": "Insert-only signup memberships, existing owner/vault and deletion barriers, no membership resurrection.",
+        "source_git_blob": "40575e8dd6b38fd401b3212abe3d4ca38a743e40",
+        "source_sha256": "9f8f2505af3a63420d37fff7dbf6a471bf04514a783db4822617fa05e6b63d51",
+        "span": {
+          "end_line": 4166,
+          "sha256": "b826de09d8ca70c654a6af30e762d100e244320c482336dd0217ed3017bf5d2d",
+          "start_line": 3458
+        },
+        "symbol": "create_member_invites",
+        "value": 709
+      },
+      {
+        "accepted_ceiling": 438,
+        "classification": "exact_inherited_main_module",
+        "detail": "function exceeds the advisory gene budget",
+        "key": "function_size|consent-protocol/hushh_mcp/services/connections_service.py|sync_contact_matches|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "limit": 80,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/hushh_mcp/services/connections_service.py",
+        "previous_ceiling": 436,
+        "rationale": "Signup context retains auth, revoked-contact exclusion and existing store.",
+        "source_git_blob": "ee0b339866b30c16fde4a8aace3de585c77d1af1",
+        "source_sha256": "b2fcab6591ec570848dabd8deaa4f8877049b3857cc249e4707edf31ef868734",
+        "span": {
+          "end_line": 4187,
+          "sha256": "4c5f27b889bf9cfa35762ba7ac51feec382c16927129db0381c9da739fef18b0",
+          "start_line": 3750
+        },
+        "symbol": "sync_contact_matches",
+        "value": 438
+      },
+      {
+        "accepted_ceiling": 259,
+        "classification": "exact_inherited_main_module",
+        "detail": "function exceeds the advisory gene budget",
+        "key": "function_size|consent-protocol/hushh_mcp/services/vault_keys_service.py|_update_pre_vault_state_sync|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "limit": 80,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/hushh_mcp/services/vault_keys_service.py",
+        "previous_ceiling": 184,
+        "rationale": "Conditional sparse enrollment and monotonic acknowledgement; preserved task timestamp normalization and owner hosting fields.",
+        "source_git_blob": "94792b4a4d5da49c6278685e45ff6e773aa865ae",
+        "source_sha256": "6e1da35f0479580437f89f0a59b7f9be22f7a065025dc33c625b8748a0a78aeb",
+        "span": {
+          "end_line": 832,
+          "sha256": "2384e894e84f1a3aab1250c8d9c1ec7377624989e76b8d5aaf1fe1e52771468e",
+          "start_line": 574
+        },
+        "symbol": "_update_pre_vault_state_sync",
+        "value": 259
+      },
+      {
+        "accepted_ceiling": 101,
+        "classification": "exact_inherited_main_module",
+        "detail": "function exceeds the advisory gene budget",
+        "key": "function_size|consent-protocol/tests/services/test_initial_contacts_circle_postgres.py|db|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "limit": 80,
+        "occurrence_rank": 0,
+        "operation": "append_new_occurrence",
+        "path": "consent-protocol/tests/services/test_initial_contacts_circle_postgres.py",
+        "previous_ceiling": null,
+        "rationale": "Local command_test-only disposable database, real production FK/trigger migrations, deadlock negative control and finally cleanup.",
+        "source_git_blob": "ad90a5d2a9f62a40be9db1c2bef350f949ab64ba",
+        "source_sha256": "05256e21854715d16ffeb33950a2b258b4e8ed4fea63fe537b8fbe19561aef14",
+        "span": {
+          "end_line": 153,
+          "sha256": "bd8501810ead327144b7874a9fa7916ad62be3909f2302823a48f742ceda4d6c",
+          "start_line": 53
+        },
+        "symbol": "db",
+        "value": 101
+      },
+      {
+        "accepted_ceiling": 92,
+        "classification": "exact_inherited_main_module",
+        "detail": "function exceeds the advisory gene budget",
+        "key": "function_size|consent-protocol/api/routes/db_proxy.py|vault_bootstrap_state|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "limit": 80,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/api/routes/db_proxy.py",
+        "previous_ceiling": 89,
+        "rationale": "Nullable lifecycle metadata through existing authenticated vault contracts; no information or financial authority expansion.",
+        "source_git_blob": "fa52d9f907304e2beb72c6a63a58c3d92f68f9c6",
+        "source_sha256": "161f7bdcb8c3d64862376a34060870f670659b59eb6fafa1b01b851ebb9584ba",
+        "span": {
+          "end_line": 512,
+          "sha256": "264c74c19ee5ab63a9514c851282a5f50f7e72f16c9c1dda81b9bc2248373b31",
+          "start_line": 421
+        },
+        "symbol": "vault_bootstrap_state",
+        "value": 92
+      },
+      {
+        "accepted_ceiling": 86,
+        "classification": "exact_inherited_main_module",
+        "detail": "function exceeds the advisory gene budget",
+        "key": "function_size|consent-protocol/api/routes/one/connections.py|sync_contacts|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "limit": 80,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/api/routes/one/connections.py",
+        "previous_ceiling": 85,
+        "rationale": "Existing owner-authenticated sync with bounded signup context.",
+        "source_git_blob": "b0dbc23920e2fc217ca1efceb2a5a3cf592a9c6e",
+        "source_sha256": "d5e2e8018c56b82f931cbdb5fbe8ba818dc6b1a31af05022b4533719207ac83f",
+        "span": {
+          "end_line": 285,
+          "sha256": "1480a3ce6a6346a8c5b3e70870ac47e399bd883b4264bc3ca297adb89e3fd795",
+          "start_line": 200
+        },
+        "symbol": "sync_contacts",
+        "value": 86
+      },
+      {
+        "accepted_ceiling": 84,
+        "classification": "exact_inherited_main_module",
+        "detail": "function exceeds the advisory gene budget",
+        "key": "function_size|consent-protocol/api/routes/db_proxy.py|vault_pre_vault_state|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "limit": 80,
+        "occurrence_rank": 0,
+        "operation": "append_new_occurrence",
+        "path": "consent-protocol/api/routes/db_proxy.py",
+        "previous_ceiling": null,
+        "rationale": "Nullable lifecycle metadata through existing authenticated vault contracts; no information or financial authority expansion.",
+        "source_git_blob": "fa52d9f907304e2beb72c6a63a58c3d92f68f9c6",
+        "source_sha256": "161f7bdcb8c3d64862376a34060870f670659b59eb6fafa1b01b851ebb9584ba",
+        "span": {
+          "end_line": 599,
+          "sha256": "da386389f0564c6c81e97672c91e2df141f1c6376a73ce37959aac2ae4764430",
+          "start_line": 516
+        },
+        "symbol": "vault_pre_vault_state",
+        "value": 84
+      },
+      {
+        "accepted_ceiling": 5971,
+        "classification": "exact_inherited_main_module",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/hushh_mcp/services/one_location_circle_service.py",
+        "previous_ceiling": 5826,
+        "rationale": "Insert-only signup memberships, existing owner/vault and deletion barriers, no membership resurrection.",
+        "source_git_blob": "40575e8dd6b38fd401b3212abe3d4ca38a743e40",
+        "source_sha256": "9f8f2505af3a63420d37fff7dbf6a471bf04514a783db4822617fa05e6b63d51",
+        "span": {
+          "end_line": 5971,
+          "sha256": "9f8f2505af3a63420d37fff7dbf6a471bf04514a783db4822617fa05e6b63d51",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 5971
+      },
+      {
+        "accepted_ceiling": 4482,
+        "classification": "exact_inherited_main_module",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/tests/services/test_one_location_circle_service.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/tests/services/test_one_location_circle_service.py",
+        "previous_ceiling": 4373,
+        "rationale": "Owner/vault, membership deletion and replay negative controls through existing service tests.",
+        "source_git_blob": "aa857b476e830c557809d3a63d68b37c670389d4",
+        "source_sha256": "67114856798a96225c0ba9ea67c72eb890c0ed2e6069eb181375bcc344771a9f",
+        "span": {
+          "end_line": 4482,
+          "sha256": "67114856798a96225c0ba9ea67c72eb890c0ed2e6069eb181375bcc344771a9f",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 4482
+      },
+      {
+        "accepted_ceiling": 4355,
+        "classification": "exact_inherited_main_module",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/hushh_mcp/services/connections_service.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/hushh_mcp/services/connections_service.py",
+        "previous_ceiling": 4353,
+        "rationale": "Signup context retains auth, revoked-contact exclusion and existing store.",
+        "source_git_blob": "ee0b339866b30c16fde4a8aace3de585c77d1af1",
+        "source_sha256": "b2fcab6591ec570848dabd8deaa4f8877049b3857cc249e4707edf31ef868734",
+        "span": {
+          "end_line": 4355,
+          "sha256": "b2fcab6591ec570848dabd8deaa4f8877049b3857cc249e4707edf31ef868734",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 4355
+      },
+      {
+        "accepted_ceiling": 2507,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/api/routes/one/location.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/api/routes/one/location.py",
+        "previous_ceiling": 2501,
+        "rationale": "Signup lifecycle fields compose with retained scheduler OIDC guards; invalid OIDC cannot fall through to legacy auth.",
+        "source_git_blob": "52f92b82c1854a42a36492f16a43ddee054d0b49",
+        "source_sha256": "ce8985b03206ca5e162b218661bf6b8f0eccf92acea820fd525f85cc07b504b0",
+        "span": {
+          "end_line": 2507,
+          "sha256": "ce8985b03206ca5e162b218661bf6b8f0eccf92acea820fd525f85cc07b504b0",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 2507
+      },
+      {
+        "accepted_ceiling": 2373,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/lib/one-location/service.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/lib/one-location/service.ts",
+        "previous_ceiling": 2371,
+        "rationale": "Signup context joins retained private specialist transport.",
+        "source_git_blob": "291a7497ef09b06446f412aa0e1bd80c8c2a27de",
+        "source_sha256": "02f61f3e03f5fd3c7521f4e883589a79a4b17739f9b1d48829aef0eb030001d8",
+        "span": {
+          "end_line": 2373,
+          "sha256": "02f61f3e03f5fd3c7521f4e883589a79a4b17739f9b1d48829aef0eb030001d8",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 2373
+      },
+      {
+        "accepted_ceiling": 2193,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/lib/services/auth-service.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/lib/services/auth-service.ts",
+        "previous_ceiling": 2122,
+        "rationale": "Contacts grant remains separate from identity, with owner generation, token timeout and reviewer custody.",
+        "source_git_blob": "5905ca76aabf2c32bef5db57fcf3a13070a4d7f8",
+        "source_sha256": "5744c1496773d9adeed56193c44c2f0949bd8953a2f56a1d224c8549f5a96601",
+        "span": {
+          "end_line": 2193,
+          "sha256": "5744c1496773d9adeed56193c44c2f0949bd8953a2f56a1d224c8549f5a96601",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 2193
+      },
+      {
+        "accepted_ceiling": 1819,
+        "classification": "exact_inherited_main_module",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/hushh_mcp/services/vault_keys_service.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/hushh_mcp/services/vault_keys_service.py",
+        "previous_ceiling": 1710,
+        "rationale": "Conditional sparse enrollment and monotonic acknowledgement; preserved task timestamp normalization and owner hosting fields.",
+        "source_git_blob": "94792b4a4d5da49c6278685e45ff6e773aa865ae",
+        "source_sha256": "6e1da35f0479580437f89f0a59b7f9be22f7a065025dc33c625b8748a0a78aeb",
+        "span": {
+          "end_line": 1819,
+          "sha256": "6e1da35f0479580437f89f0a59b7f9be22f7a065025dc33c625b8748a0a78aeb",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1819
+      },
+      {
+        "accepted_ceiling": 1512,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/__tests__/services/auth-service.test.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/__tests__/services/auth-service.test.ts",
+        "previous_ceiling": 1445,
+        "rationale": "Contacts/owner negatives; removed native case covered by existing auth-custom-token native-facade test.",
+        "source_git_blob": "7fbf29b06bf4278b8229b0d2a8c07c73cb919832",
+        "source_sha256": "8999189d3f80e1b327a8650014e209dfc14b6485630770059e27ae53b9802cd7",
+        "span": {
+          "end_line": 1512,
+          "sha256": "8999189d3f80e1b327a8650014e209dfc14b6485630770059e27ae53b9802cd7",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1512
+      },
+      {
+        "accepted_ceiling": 1462,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/tests/test_vault_keys_metadata.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/tests/test_vault_keys_metadata.py",
+        "previous_ceiling": 1380,
+        "rationale": "Preserve both incoming enrollment race/monotonic controls and task timestamp-normalization regression.",
+        "source_git_blob": "70b0e3353e21ec46be128954a05fd29dbd66885b",
+        "source_sha256": "804c2fd2abfde23f3f22967d6bb9178864e1f549c06a691e6c4439eb1df050b4",
+        "span": {
+          "end_line": 1462,
+          "sha256": "804c2fd2abfde23f3f22967d6bb9178864e1f549c06a691e6c4439eb1df050b4",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1462
+      },
+      {
+        "accepted_ceiling": 1311,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/tests/test_contact_sync_connection_contract.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/tests/test_contact_sync_connection_contract.py",
+        "previous_ceiling": 1294,
+        "rationale": "Signup cannot reconnect revoked contacts; owner-bound context negative.",
+        "source_git_blob": "b2cff9dc405387c9ae49c59e5493ccf42690c0cf",
+        "source_sha256": "eae1ce086105e26fd338d9ad94ffa2a7828968641637e7f5788a2deb16a3d875",
+        "span": {
+          "end_line": 1311,
+          "sha256": "eae1ce086105e26fd338d9ad94ffa2a7828968641637e7f5788a2deb16a3d875",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1311
+      },
+      {
+        "accepted_ceiling": 1309,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/lib/navigation/back-navigation-graph.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/lib/navigation/back-navigation-graph.ts",
+        "previous_ceiling": 1304,
+        "rationale": "Separate Files and welcome entries; authored Back authority retained.",
+        "source_git_blob": "33569b1f167ff64027880842e92c89b8e9f48ad5",
+        "source_sha256": "1a32413c2e074ddc2caaa4bfdce2ab69ad1a35ef7daad5419b640f92bb3797a8",
+        "span": {
+          "end_line": 1309,
+          "sha256": "1a32413c2e074ddc2caaa4bfdce2ab69ad1a35ef7daad5419b640f92bb3797a8",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1309
+      },
+      {
+        "accepted_ceiling": 1192,
+        "classification": "exact_inherited_main_module",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/tests/services/test_drive_sharing_center.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
+        "previous_ceiling": 1165,
+        "rationale": "Batched schema projections retain static owner SQL and propagate SQL failures.",
+        "source_git_blob": "52110ef40ced938f2aa08692d07b7fdf39edaad7",
+        "source_sha256": "3fe14081c91e5e2f5980f66b621ba22edd73473beaf2bad8e0caa0603c735ff1",
+        "span": {
+          "end_line": 1192,
+          "sha256": "3fe14081c91e5e2f5980f66b621ba22edd73473beaf2bad8e0caa0603c735ff1",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1192
+      },
+      {
+        "accepted_ceiling": 1132,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/components/onboarding/AuthStep.tsx||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/components/onboarding/AuthStep.tsx",
+        "previous_ceiling": 1108,
+        "rationale": "Optional Contacts enrollment preserves interactive legal acceptance and noninteractive reviewer boundaries.",
+        "source_git_blob": "8ff650068f04f11308d44c3cd465969bbdd30235",
+        "source_sha256": "fa7cfa996e593c5af32d0933876cef916251b1a5d4800f5304987bbbc2355896",
+        "span": {
+          "end_line": 1132,
+          "sha256": "fa7cfa996e593c5af32d0933876cef916251b1a5d4800f5304987bbbc2355896",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1132
+      },
+      {
+        "accepted_ceiling": 1100,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/lib/capacitor/index.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/lib/capacitor/index.ts",
+        "previous_ceiling": 1085,
+        "rationale": "Typed Contacts grant/newness composes with existing native contracts.",
+        "source_git_blob": "f26114c594e2e14f3e455619996fae39ba015162",
+        "source_sha256": "768123452dea2f965339534661ce5d29c1e211d20acb126bdcf88055f495ff38",
+        "span": {
+          "end_line": 1100,
+          "sha256": "768123452dea2f965339534661ce5d29c1e211d20acb126bdcf88055f495ff38",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1100
+      },
+      {
+        "accepted_ceiling": 1028,
+        "classification": "exact_inherited_main_module",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/api/routes/db_proxy.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/api/routes/db_proxy.py",
+        "previous_ceiling": 1015,
+        "rationale": "Nullable lifecycle metadata through existing authenticated vault contracts; no information or financial authority expansion.",
+        "source_git_blob": "fa52d9f907304e2beb72c6a63a58c3d92f68f9c6",
+        "source_sha256": "161f7bdcb8c3d64862376a34060870f670659b59eb6fafa1b01b851ebb9584ba",
+        "span": {
+          "end_line": 1028,
+          "sha256": "161f7bdcb8c3d64862376a34060870f670659b59eb6fafa1b01b851ebb9584ba",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1028
+      },
+      {
+        "accepted_ceiling": 1008,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+        "previous_ceiling": 957,
+        "rationale": "Hermetic paired-backend rollout gate retains task traffic, payment-secret and shell/helper negative controls.",
+        "source_git_blob": "0b31e761fa8b6687950ffca609e051d07162c30d",
+        "source_sha256": "7771fd08e4aa2e012ce094298f267f943d30c93df20203610ebb33404e7fa3a5",
+        "span": {
+          "end_line": 1008,
+          "sha256": "7771fd08e4aa2e012ce094298f267f943d30c93df20203610ebb33404e7fa3a5",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 1008
+      },
+      {
+        "accepted_ceiling": 988,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/lib/navigation/routes.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/lib/navigation/routes.ts",
+        "previous_ceiling": 973,
+        "rationale": "Bounded welcome destination validation retains finance, Files and provisioning routes.",
+        "source_git_blob": "db87cacf9936b4639334f718c908769067f2742b",
+        "source_sha256": "f8bde7eacd6d4f63ef1e15750156af6e7bd4d9fd69473bb5a604769ce9c1e467",
+        "span": {
+          "end_line": 988,
+          "sha256": "f8bde7eacd6d4f63ef1e15750156af6e7bd4d9fd69473bb5a604769ce9c1e467",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 988
+      },
+      {
+        "accepted_ceiling": 865,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/lib/observability/route-map.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/lib/observability/route-map.ts",
+        "previous_ceiling": 863,
+        "rationale": "Welcome route ID retains all other classifications.",
+        "source_git_blob": "904f51ab8e700863b8997f90234491df915f8c4b",
+        "source_sha256": "409a1151b3a40961064580409d436b74e912cff5a7f13394667131c004017c57",
+        "span": {
+          "end_line": 865,
+          "sha256": "409a1151b3a40961064580409d436b74e912cff5a7f13394667131c004017c57",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 865
+      },
+      {
+        "accepted_ceiling": 731,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx",
+        "previous_ceiling": 703,
+        "rationale": "Welcome latch/aliases and bounded cold-read recovery, including late completion with rollout enabled and positive latch.",
+        "source_git_blob": "0a51b5b9600611e7c467f58766f70c392b11dc75",
+        "source_sha256": "62a8c1f4c29d81e0c07a70f95f08c31f17a0d040a050bc459436e38814afde2a",
+        "span": {
+          "end_line": 731,
+          "sha256": "62a8c1f4c29d81e0c07a70f95f08c31f17a0d040a050bc459436e38814afde2a",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 731
+      },
+      {
+        "accepted_ceiling": 730,
+        "classification": "reviewed_preserved_union",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/lib/services/pre-vault-user-state-service.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/lib/services/pre-vault-user-state-service.ts",
+        "previous_ceiling": 719,
+        "rationale": "Normalized nullable Contacts metadata retains server-authored hosting prerequisite.",
+        "source_git_blob": "8d9f70fc63496e7cb1cd152552740d9c31b87a79",
+        "source_sha256": "74158cf4f9c147e36b8cf04eb3bb4f9edbd109b3525670876bab4f7b7101d127",
+        "span": {
+          "end_line": 730,
+          "sha256": "74158cf4f9c147e36b8cf04eb3bb4f9edbd109b3525670876bab4f7b7101d127",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 730
+      },
+      {
+        "accepted_ceiling": 719,
+        "classification": "exact_inherited_main_module",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/lib/services/connections-service.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/lib/services/connections-service.ts",
+        "previous_ceiling": 717,
+        "rationale": "Existing owner auth, cancellation and batching with signup context.",
+        "source_git_blob": "80b99a3cfcc10e9a6cd4c05041506948d02c60f5",
+        "source_sha256": "294d3f1d582198edf7ced39bd693c7a6755ff271d93239b953025d8d6941753e",
+        "span": {
+          "end_line": 719,
+          "sha256": "294d3f1d582198edf7ced39bd693c7a6755ff271d93239b953025d8d6941753e",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 719
+      },
+      {
+        "accepted_ceiling": 632,
+        "classification": "exact_inherited_main_module",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|hushh-webapp/lib/one-location/contact-signals.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "occurrence_rank": 0,
+        "operation": "replace_existing_rank",
+        "path": "hushh-webapp/lib/one-location/contact-signals.ts",
+        "previous_ceiling": 628,
+        "rationale": "Signup context through existing matching/retry owner.",
+        "source_git_blob": "16258ec4bfcf6fc22afecf3616ff84c302466a4d",
+        "source_sha256": "7e9e8de950b982dcc1c266f6e14373532430ee7bb2a0ab79bd49c6d936f2ebab",
+        "span": {
+          "end_line": 632,
+          "sha256": "7e9e8de950b982dcc1c266f6e14373532430ee7bb2a0ab79bd49c6d936f2ebab",
+          "start_line": 1
+        },
+        "symbol": null,
+        "value": 632
+      }
+    ],
+    "composed_revision": "56107607463e97d8af980b8037b020e7d3705358",
+    "incoming_main_revision": "bde1f59750e6be4fe937559b20b0930bc4e4edc6",
+    "prior_baseline_sha256": "72450c344c23b003f041714a3d42b7e0b7cc791a335df8ebddb92c5bb07fbbb1",
+    "retained_task_revision": "851740c921859751c7fb82ac53970758f7b04a8c",
+    "review": "Independent backend and frontend source/hunk/hash reviews qualify exactly20 backend and12 frontend rank0 spans.30 existing value-only replacements and two justified incoming test/route function occurrences. Preserve all other ceilings, duplicate multiplicities, budgets500/250/80, scanner, exclusions and30 historical receipts. Existing legacy debt remains visible; no architectural-compliance or deployment claim.",
+    "verification": "64 onboarding,27 auth/terminal,157 backend and451 Back cases pass; all8 UI contract checks pass. Candidate core stopped on these exact size-only findings. Full exact-candidate core, CI and deployed payments still required."
   },
   "scope_commerce_latest_main_integration_20261012": {
     "budgets_unchanged": {

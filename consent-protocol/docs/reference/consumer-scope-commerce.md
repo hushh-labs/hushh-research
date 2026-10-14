@@ -86,6 +86,10 @@ dismissal. Eight real-modal browser cases pass across the configured engines and
 device profiles. The immutable preceding implementation fails the notice-first
 negative control. Deployed counterpart readback is still required.
 
+Main `bde1f59750e6` is integrated through normal merge `f2497f751021` on the original infrastructure branch. Its initial Contacts lifecycle joins the preserved private-cloud, phone, saved-AI and finance finalization contracts. Cold Contacts admission now uses the existing bounded bootstrap retry/recovery; a focused hang case includes rollout enabled and a positive root-setup latch. Combined onboarding checks pass 64 frontend cases, 27 authentication/terminal cases and 157 backend cases. All 451 Back cases pass. Migration 337 fits the existing gap; release head remains 348, and registered SQL bodies, rollback mappings and preservation receipts remain unchanged. Ten unrelated workspace file hashes are preserved. The predecessor `851740c92185` passed canonical core in 663 seconds. Core at `56107607463e` stopped on exactly 32 size-only findings from the integration. Independent backend and frontend review qualifies those frozen spans in the architecture baseline: 30 existing value-only replacements and two incoming function occurrences, with source hashes and both parent revisions. Every unrelated finding and historical receipt remains intact; budgets 500/250/80, scanner and exclusions remain unchanged, and a future-growth negative control still fails. This records retained debt, not architectural compliance or deployment acceptance.
+
+Canonical core passed at `91710cc09bb9` in 693 seconds. Its full CI run [38544416323](https://github.com/hushh-labs/hushh-research/actions/runs/38544416323) exposed two initial-interaction fixture races: Files clicked New folder before its serialized reads settled, and document review opened the price decision before its initial effects settled. The fixtures now await enabled controls; price opening also completes its asynchronous React update. All 123 nearest cases pass. Removing package revision/digest retirement makes the corrected price-replacement case fail, preserving that consent boundary. Product behavior, assertions, timeouts and architecture budgets are unchanged. Newer main `7bb54b45f772` was independently inspected and has no payment, backend, migration, deployment or private-processing dependency for this bounded bank release. The corrected candidate still requires core, full CI and exact serving readback; no new Dev release or paid-purchase acceptance is implied.
+
 Main `9f017ef6fcde` was merged normally into the existing infrastructure branch.
 The first combined core run passed web-core and 19,071 protocol cases, but failed
 the unchanged Cloud Build argument-size gate. Extracting the identical native
@@ -114,6 +118,37 @@ Focused backend checks pass 250 cases and the corrected frontend fixtures pass
 All 451 Back behavior cases pass; the eight mounted Chat connectors cases pass
 in Chromium and WebKit. A local WebKit motion sample exceeds the unchanged
 100ms onset requirement on the contended host; CI remains the timing authority.
+
+Candidate `b45f02a0282c` passed the canonical core in 600 seconds. Its
+[full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38532350365)
+passed the full web shards, protocol and third browser shard, while the first
+two browser shards exposed stale Connectors dismissal and mobile Profile
+fixtures; iOS was still running at the recorded observation. No deployment was
+admitted. The corrected fixtures independently hit-test the desktop scrim,
+exercise mobile Close and Escape/reopen, and use the production Profile frame's
+finite exit animation. All 18 affected Chromium/WebKit cases pass without
+changing production motion or timing requirements. WebKit viewport height is
+bounded to one 1/64 CSS-pixel layout unit. The reviewer harness also now awaits
+asynchronous pre-navigation admission; all 33 nearest cases pass, and the
+original unawaited implementation fails the new admission negative controls.
+The completed correction still requires its own core and exact-source full CI.
+
+The same hosted run subsequently finished with one failing native artwork test:
+its former 15-entry inventory and two accent expectations lag the current
+generated 17-entry Profile menu and World Model accent. The nearest test now
+asserts the exact authored IDs, retains bundled-image/template and unknown-ID
+negative controls, and includes the current accent. Swift parsing and native
+static/Siri parity pass; full XCTest remains required in the next exact-source CI.
+
+The fresh aggregate Monitoring observation at `2026-10-14T08:12:13Z` verifies
+all 17 metrics, a worker completion at `08:12:03Z`, timestamped provider backing,
+and no shortfall, unbalanced journals, receipt failures or unresolved work.
+The primary's fresh normal onboarding attempt retained the opener's unlocked
+vault, but Stripe's visible human-verification frame intercepted submission.
+No eligibility or purchase is inferred from that attempt. The document-bank
+Retry and this separate information-access onboarding requirement have different
+owners; neither authorizes bypassing the provider challenge or synthesizing an
+eligibility receipt.
 
 A read-only observation at `2026-10-14T04:31:05Z` established that both existing
 private Azure runtimes lack `APP_FRONTEND_ORIGIN`; the counterpart also lacks the

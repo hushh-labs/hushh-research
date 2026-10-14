@@ -2,12 +2,13 @@
 
 # ruff: noqa: F811 -- imported pytest fixtures
 
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
@@ -537,7 +538,10 @@ async def test_requester_metadata_carries_the_estimate_beside_the_owner_price(sh
     priced(None)
     assert (await requester())["estimateCents"] is None
     # Before migration 320 the key is left out, so clients keep their fallback.
-    with patch.object(projection, "_estimate_installed", return_value=False):
+    capabilities = projection._capabilities
+    with patch.object(
+        projection, "_capabilities", side_effect=lambda c: replace(capabilities(c), estimate=False)
+    ):
         assert "estimateCents" not in await requester()
 
 
@@ -1149,7 +1153,9 @@ async def test_missing_schema_is_distinct_from_an_empty_installed_schema(sharing
 @pytest.mark.asyncio
 async def test_sql_failures_are_not_reported_as_zero(sharing):
     projection = DriveSharingCenterContributor(db=sharing.db)
-    with patch.object(projection, "_installed", side_effect=RuntimeError("synthetic unavailable")):
+    with patch.object(
+        projection, "_capabilities", side_effect=RuntimeError("synthetic unavailable")
+    ):
         for operation in (
             projection.counts("owner"),
             projection.preview("owner"),
@@ -1157,6 +1163,27 @@ async def test_sql_failures_are_not_reported_as_zero(sharing):
         ):
             with pytest.raises(RuntimeError, match="synthetic unavailable"):
                 await operation
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["counts", "page", "preview"])
+async def test_projection_checks_schema_in_one_round_trip(sharing, operation):
+    # Real catalog queries protect the observed11/12-round-trip regression.
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    checks = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        if "to_regclass(" in statement or "pg_attribute" in statement:
+            checks.append(statement)
+
+    event.listen(sharing.db.engine, "before_cursor_execute", capture)
+    try:
+        arguments = {"bucket": "history", "limit": 10} if operation == "page" else {}
+        result = await getattr(projection, operation)("owner", **arguments)
+        assert result["schema_available"] is True
+        assert len(checks) == 1
+    finally:
+        event.remove(sharing.db.engine, "before_cursor_execute", capture)
 
 
 def test_display_sort_does_not_change_lifecycle_tie_reduction():

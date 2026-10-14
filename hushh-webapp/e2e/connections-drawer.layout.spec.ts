@@ -835,40 +835,49 @@ for (const width of [320, 390, 1440])
     expect(action!.x + action!.width).toBeLessThanOrEqual(width + 1);
   });
 
-test("dismissing Connectors returns the next hamburger open to chat history", async ({ page }) => {
-  await page.setViewportSize({ width: 768, height: 820 });
-  const hamburger = page.getByRole("button", { name: "Open drawer", exact: true });
-  const connectors = page.getByRole("dialog", { name: "Connectors", exact: true });
-  const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+for (const width of [390, 768, 1024]) {
+  test(`dismissing Connectors returns the next hamburger open to chat history at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 820 });
+    const hamburger = page.getByRole("button", { name: "Open drawer", exact: true });
+    const connectors = page.getByRole("dialog", { name: "Connectors", exact: true });
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
 
-  // Radix attaches its outside-pointer listener after the open transition
-  // starts; clicking the scrim mid-animation was a race (flaky on chromium).
-  const settled = () =>
-    expect
-      .poll(() =>
-        page.evaluate(
-          () => document.getAnimations().filter((a) => a.playState === "running").length,
-        ),
-      )
-      .toBe(0);
+    // Mobile uses the bottom Sheet; desktop uses the centered Dialog. Exercise
+    // their actual dismissal targets after motion, then retain Escape coverage.
+    const settled = () =>
+      expect
+        .poll(() =>
+          page.evaluate(
+            () => document.getAnimations().filter((a) => a.playState === "running").length,
+          ),
+        )
+        .toBe(0);
 
-  await hamburger.click();
-  await page.getByLabel("Open Connectors", { exact: true }).click();
-  await expect(connectors).toBeVisible();
-  await settled();
-  await page.mouse.click(24, 400);
-  await expect(connectors).not.toBeVisible();
-  await hamburger.click();
-  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+    await hamburger.click();
+    await page.getByLabel("Open Connectors", { exact: true }).click();
+    await expect(connectors).toBeVisible();
+    await settled();
+    if (width < 640) await connectors.getByRole("button", { name: "Close connectors", exact: true }).click();
+    else {
+      const bounds = (await connectors.boundingBox())!;
+      expect(bounds.x).toBeGreaterThan(0);
+      const x = bounds.x / 2;
+      expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-slot="dialog-overlay"]') != null, [x, 400])).toBe(true);
+      await page.mouse.click(x, 400);
+    }
+    await expect(connectors).not.toBeVisible();
+    await hamburger.click();
+    await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
 
-  await page.getByLabel("Open Connectors", { exact: true }).click();
-  await expect(connectors).toBeVisible();
-  await settled();
-  await page.keyboard.press("Escape");
-  await expect(connectors).not.toBeVisible();
-  await hamburger.click();
-  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
-});
+    await page.getByLabel("Open Connectors", { exact: true }).click();
+    await expect(connectors).toBeVisible();
+    await settled();
+    await page.keyboard.press("Escape");
+    await expect(connectors).not.toBeVisible();
+    await hamburger.click();
+    await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+  });
+}
 
 test("Picker focus, explicit admission, removal, and independent disconnect", async ({
   page,

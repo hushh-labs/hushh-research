@@ -105,7 +105,11 @@ describe("Files form submission", () => {
   });
   it("submits a new folder from Save using the shared button's real behavior", async () => {
     render(<FilesWorkspace />);
-    await waitFor(() => expect(files.list).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "New folder", exact: true }),
+      ).toBeEnabled(),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "New folder", exact: true }),
     );

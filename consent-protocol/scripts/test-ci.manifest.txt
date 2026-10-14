@@ -186,6 +186,8 @@ tests/test_pkm_upgrade_run_id_path_bounds.py
 tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
+tests/test_initial_contacts_migration.py
+tests/services/test_initial_contacts_circle_postgres.py
 tests/test_onboarding_contract.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py

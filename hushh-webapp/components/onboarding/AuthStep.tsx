@@ -8,6 +8,9 @@ import Image from "next/image";
 import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
 import { AuthService } from "@/lib/services/auth-service";
+import { InitialContactsOnboardingService } from "@/lib/services/initial-contacts-onboarding-service";
+import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ApiService } from "@/lib/services/api-service";
 import { LegalAcceptanceService } from "@/lib/services/legal-acceptance-service";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -125,6 +128,9 @@ export function AuthStep({
   compact?: boolean;
 }) {
   const [hydrated, setHydrated] = useState(false);
+  const [returningSignIn, setReturningSignIn] = useState(false);
+  const [findInitialContacts, setFindInitialContacts] = useState(true);
+  const initialContactsEnabled = initialContactOnboardingEnabled() && !returningSignIn;
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
   const {
@@ -594,7 +600,8 @@ export function AuthStep({
 
       const providerPromise =
         provider === "google"
-          ? AuthService.signInWithGoogle()
+          ? AuthService.signInWithGoogle(initialContactsEnabled && findInitialContacts
+              ? { purpose: "initial_contacts" } : undefined)
           : AuthService.signInWithApple();
       updateProviderAttemptPhase(attempt.id, "provider_open");
 
@@ -647,6 +654,11 @@ export function AuthStep({
             void ApiService.notifyFirstWelcome({ idToken });
             // The sign-in screen states "By continuing you agree"; record it.
             void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser, true);
+            if (initialContactsEnabled) {
+              // Optional acquisition must not hold up phone verification.
+              void InitialContactsOnboardingService.begin(authResult, provider, attempt.id, findInitialContacts)
+                .catch(() => undefined);
+            }
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
                 journey: growthJourney,
@@ -715,6 +727,8 @@ export function AuthStep({
     },
     [
       beginPostAuthSettlement,
+      initialContactsEnabled,
+      findInitialContacts,
       completePostAuthSettlement,
       growthEntrySurface,
       growthJourney,
@@ -986,6 +1000,16 @@ export function AuthStep({
           </div>
 
           <div className={cn("relative mx-auto w-full max-w-[344px] space-y-3.5", lightStyles.actions)}>
+            {initialContactsEnabled ? (
+              <div className="space-y-2 text-start text-sm text-muted-foreground">
+                <label className="flex min-h-11 items-center gap-3">
+                  <Checkbox checked={findInitialContacts} disabled={providerBusy}
+                    onCheckedChange={(checked) => setFindInitialContacts(checked === true)} />
+                  <span>Find people I know</span>
+                </label>
+                <p>With your permission, we’ll organize a shared Contacts circle. Members can see who’s in it. You control sharing.</p>
+              </div>
+            ) : null}
             <div className="space-y-3" data-auth-provider-actions>
               {providerAttempt?.phase === "attention_required" ? (
                 <p
@@ -1016,6 +1040,13 @@ export function AuthStep({
                   )}
                 />
               ))}
+              {initialContactOnboardingEnabled() ? (
+                <button type="button" disabled={providerBusy}
+                  className="min-h-11 w-full text-sm text-muted-foreground hover:text-foreground"
+                  onClick={() => setReturningSignIn((value) => !value)}>
+                  {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
+                </button>
+              ) : null}
 
               {showReviewer ? (
                 <AuthProviderButton

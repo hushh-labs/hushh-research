@@ -9080,6 +9080,68 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/welcome",
+      "page_file": "app/one/welcome/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/onboarding/initial-contacts-welcome.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.welcome",
+          "purpose": "Review confirmed initial contacts, optionally manage circles or invite people, and continue into One.",
+          "screen": "one_welcome",
+          "entry_cue": "Your welcome is ready. Review it and continue when you like.",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Keep Continue available; require the existing owner authority for membership changes.",
+            "cancelled": "Respect source cancellation and keep the welcome available.",
+            "failed": "Show only confirmed results and offer explicit retry.",
+            "timeout": "Keep Continue available without claiming empty contacts.",
+            "callback_error": "Ignore late callbacks outside the owner signup session.",
+            "route_mismatch": "Stay within the registered welcome surface."
+          },
+          "completion_boundary": "Continue acknowledges only this welcome and resumes the validated original destination.",
+          "next_route": "/",
+          "return_policy": "resolve_root",
+          "out_of_scope_behavior": "No persistent agent chrome is mounted before this welcome is acknowledged."
+        }
+      },
+      "native": {
+        "route": "/one/welcome",
+        "classification": "native-required-functional",
+        "initialRoute": "/one/welcome",
+        "expectedMarker": "native-route-one-welcome",
+        "expectedRoute": "/one/welcome",
+        "autoReviewerLogin": true,
+        "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/people/[personRef]",
       "page_file": "app/people/[personRef]/page.tsx",
       "physical_page_exists": true,
@@ -10675,5 +10737,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "17ef8b1046b21e527be231442bba03c67b50eb51e7a437141ade5c48476e2e64"
+  "content_sha256": "0d3547007e3bac9c5e2a49e1b3115940480aeb9b51c91905a4b70731fbb402cb"
 }

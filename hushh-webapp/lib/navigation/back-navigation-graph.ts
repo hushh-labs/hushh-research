@@ -302,6 +302,11 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     },
   },
   {
+    id: "one-initial-welcome",
+    resolve: (pathname) => pathname === ROUTES.ONE_WELCOME
+      ? { backHref: ROUTES.HOME, hideBack: true, items: [] } : undefined,
+  },
+  {
     id: "one-wallet",
     resolve: (pathname) => {
       if (pathname !== ROUTES.ONE_WALLET) return undefined;

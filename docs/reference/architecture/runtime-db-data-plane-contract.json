@@ -118,11 +118,11 @@
         "vault_keys",
         "vault_key_wrappers"
       ],
-      "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, and owner-bound One review completion services",
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, owner-bound One review completion, and explicit initial-signup Contacts lifecycle services",
       "retention_policy": "Retain while account exists; delete on account deletion or explicit vault reset flow.",
       "deletion_behavior": "Hard-delete with account deletion after dependent personal data is purged.",
-      "trust_boundary": "Vault key material and wrappers remain encrypted or hashed; raw vault keys never persist server-side. Narrow vault_keys UI metadata exceptions one_business_profile_saved and one_magic_intelligence_saved are monotonic booleans set only after owner-confirmed PKM receipts; no research findings or profile facts are stored in these flags.",
-      "plaintext_posture": "ciphertext_or_hash_only",
+      "trust_boundary": "Vault key material and wrappers remain encrypted or hashed; raw vault keys never persist server-side. Narrow vault_keys UI metadata exceptions one_business_profile_saved and one_magic_intelligence_saved are monotonic booleans set only after owner-confirmed PKM receipts; no research findings or profile facts are stored in these flags. Initial Contacts source, welcome acknowledgement and circle reference are bounded plaintext lifecycle metadata for explicitly enrolled new owners; no address book, credentials, research findings or PKM payload enters these fields. The circle reference is not encryption material and account deletion removes these fields with the vault row.",
+      "plaintext_posture": "ciphertext_and_bounded_lifecycle_metadata",
       "expected_row_growth": "low_per_user"
     },
     {

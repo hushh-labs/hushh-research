@@ -149,6 +149,31 @@ describe("reviewer session authority", () => {
     else await expect(session).resolves.toBeDefined();
     expect(attempted).toBe(true);
   });
+  it("waits for asynchronous admission before navigating the reviewer", async () => {
+    const reviewer = await harness("operator_issued_token");
+    const b = browser();
+    let release!: () => void;
+    const installed = new Promise<void>(resolve => { release = resolve; });
+    const observe = vi.fn(async () => { await installed; });
+    const opening = reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false, onPageCreated: observe });
+    try {
+      await vi.waitFor(() => expect(observe).toHaveBeenCalledOnce());
+      expect(b.page.goto).not.toHaveBeenCalled();
+    } finally { release(); }
+    await opening;
+    expect(b.page.goto).toHaveBeenCalledOnce();
+  });
+  it("closes the reviewer context when pre-navigation admission fails", async () => {
+    const reviewer = await harness("operator_issued_token");
+    const b = browser();
+    const failure = new Error("fixture admission failed");
+    await expect(reviewer.openSession(b, "/one/setup", {
+      requireVaultUnlocked: false,
+      onPageCreated: async () => { throw failure; },
+    })).rejects.toMatchObject({ cause: failure });
+    expect(b.page.goto).not.toHaveBeenCalled();
+    expect(b.context.close).toHaveBeenCalledOnce();
+  });
   it("attaches observation before navigation and never injects a first-run passphrase", async () => {
     const reviewer = await harness();
     const b = browser();

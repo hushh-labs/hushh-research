@@ -2904,7 +2904,10 @@
       "updated_at",
       "one_hosting_choice",
       "one_hosting_choice_at",
-      "one_hosting_legacy_shared_at"
+      "one_hosting_legacy_shared_at",
+      "initial_contacts_source",
+      "initial_contacts_welcome_acknowledged",
+      "initial_contacts_circle_id"
     ],
     "wallet_card_access_audit": [
       "id",

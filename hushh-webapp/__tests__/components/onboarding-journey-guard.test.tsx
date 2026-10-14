@@ -82,6 +82,7 @@ vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/navigation/routes")>(),
   ROUTES: {
     HOME: "/",
+    ONE_WELCOME: "/one/welcome",
     ONE_SETUP: "/one/setup",
     ONE_SETUP_FINANCE: "/one/setup/finance",
     ONE_SETUP_CLOUD: "/one/setup/cloud",
@@ -159,6 +160,7 @@ describe("OnboardingJourneyGuard", () => {
   });
 
   beforeEach(() => {
+    vi.unstubAllEnvs();
     push.mockReset();
     replace.mockReset();
     bootstrapStateMock.mockReset();
@@ -176,6 +178,30 @@ describe("OnboardingJourneyGuard", () => {
     pathnameValue = "/one/setup";
     window.history.replaceState(null, "", "/one/setup");
     clearSetupIntent();
+  });
+
+  it("routes pending initial welcome before a positive root-setup latch", async () => {
+    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "true");
+    pathnameValue = "/finance";
+    window.history.replaceState(null, "", "/finance?tab=portfolio");
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+    getCachedBootstrapStateMock.mockReturnValue({ ...incompleteSetupState(), setupCompleted: true,
+      initialContactsWelcomeAcknowledged: false });
+    render(<OnboardingJourneyGuard><div>finance agent</div></OnboardingJourneyGuard>);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/one/welcome?return_to=%2Ffinance%3Ftab%3Dportfolio"));
+    expect(screen.queryByText("finance agent")).toBeNull();
+  });
+
+  it.each(["/one/welcome", "/one/welcome/", "/one/welcome/index.html"])("admits welcome alias %s without redirecting it back to setup", async (route) => {
+    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "true");
+    pathnameValue = route;
+    window.history.replaceState(null, "", route);
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+    getCachedBootstrapStateMock.mockReturnValue({ ...incompleteSetupState(), setupCompleted: true,
+      initialContactsWelcomeAcknowledged: false });
+    render(<OnboardingJourneyGuard><div>friendly welcome</div></OnboardingJourneyGuard>);
+    await waitFor(() => expect(screen.getByText("friendly welcome")).toBeTruthy());
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("admits a cached setup route without a bootstrap request or checking churn", async () => {
@@ -555,7 +581,9 @@ describe("OnboardingJourneyGuard", () => {
     vi.useRealTimers();
   });
 
-  it("shows recovery when bootstrap never resolves and ignores late completion", async () => {
+  it.each([false, true])("shows recovery when bootstrap never resolves and ignores late completion (Contacts=%s)", async (contactsEnabled) => {
+    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", String(contactsEnabled));
+    isPersistentSetupResolvedMock.mockReturnValue(contactsEnabled);
     vi.useFakeTimers();
     pathnameValue = "/one";
     window.history.replaceState(null, "", "/one");
