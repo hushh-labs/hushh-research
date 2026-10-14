@@ -13,8 +13,6 @@ import {
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { AppChatHistoryEdgeGesture } from "@/components/app-ui/app-chat-history-edge-gesture";
 
@@ -66,7 +64,6 @@ export function AgentConnectionsDrawer({
 }) {
   const drawer = useRef<HTMLDivElement>(null);
   const scrim = useRef<HTMLDivElement>(null);
-  const isMobile = useIsMobile();
   const [presentationReady, setPresentationReady] = useState(false);
   const [connectorHost, setConnectorHost] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -205,21 +202,14 @@ export function AgentConnectionsDrawer({
         onOpen={onGestureOpen ?? (() => onOpenChange(true))}
         onClose={() => onOpenChange(false)} /> : null}
       {connectorHost && createPortal(connections, connectorHost)}
-      {presentationReady && (isMobile ? (
+      {presentationReady && (
         <Sheet open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
-          <SheetContent {...connectorContentProps} side="bottom" contentDragDismiss={false} className="h-[85dvh] gap-0 overflow-hidden p-0">
+          <SheetContent {...connectorContentProps} side="right" data-app-side-pane contentDragDismiss={false} className="gap-0 overflow-hidden p-0">
             <SheetTitle className="sr-only">Connectors</SheetTitle>
             <div ref={attachConnectorHost} data-connector-host className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
           </SheetContent>
         </Sheet>
-      ) : (
-        <Dialog open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
-          <DialogContent {...connectorContentProps} className="agent-connections-dialog h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md" srDescription="Manage your connected apps.">
-            <DialogTitle className="sr-only">Connectors</DialogTitle>
-            <div ref={attachConnectorHost} data-connector-host className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
-          </DialogContent>
-        </Dialog>
-      ))}
+      )}
       {presentationReady && createPortal(
         <>
           <div

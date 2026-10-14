@@ -761,19 +761,18 @@ for (const width of [320, 390, 768, 1440])
     await page.getByLabel("Open Connectors", { exact: true }).click();
     const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
-    await expect(drawer).toHaveAttribute("data-slot", width < 768 ? "sheet-content" : "dialog-content");
-    if (width >= 768) {
-      expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(448);
-      await expect.poll(async () => {
-        const box = (await drawer.boundingBox())!;
-        return Math.abs(box.x + box.width / 2 - width / 2);
-      }).toBeLessThan(2);
-    } else {
-      await expect.poll(async () => {
-        const box = (await drawer.boundingBox())!;
-        return Math.abs(box.y + box.height - 820);
-      }).toBeLessThan(2);
-    }
+    await expect(drawer).toHaveAttribute("data-slot", "sheet-content");
+    await expect(drawer).toHaveAttribute("data-app-side-pane", "true");
+    const reference = await profileFrame(page);
+    await expect.poll(async () => {
+      const box = (await drawer.boundingBox())!;
+      return Math.abs(width - box.x - box.width - reference.x);
+    }).toBeLessThan(2);
+    const frame = (await drawer.boundingBox())!;
+    expect(Math.abs(frame.width - reference.width)).toBeLessThan(2);
+    expect(Math.abs(frame.y - reference.y)).toBeLessThan(2);
+    expect(Math.abs(frame.height - reference.height)).toBeLessThan(2);
+    expect(await drawer.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.material.background);
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
     const overlay = page.locator('[data-slot="dialog-overlay"], [data-slot="sheet-overlay"]').last();
     await expect(overlay).toBeVisible();
@@ -795,7 +794,7 @@ for (const width of [320, 390, 768, 1440])
       await expect(drawer.getByText(account)).toBeVisible();
       if (connector === "Google Drive") {
         await expect(drawer.getByRole("button", { name: "Retry Drive" })).toHaveCount(0);
-        if (width === 1440) expect((await drawer.boundingBox())!.height).toBeLessThan(600);
+        expect((await drawer.boundingBox())!.height).toBeLessThanOrEqual(796);
         if (width === 1440) await testInfo.attach("Drive connected details", {
           body: await page.screenshot({ path: testInfo.outputPath("drive-connected-details.png") }),
           contentType: "image/png",

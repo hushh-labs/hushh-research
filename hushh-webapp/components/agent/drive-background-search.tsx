@@ -7,9 +7,9 @@ import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vau
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { Button } from "@/lib/morphy-ux/button";
 import { Card } from "@/lib/morphy-ux/card";
-import { ChevronDown, ChevronRight, X } from "@/components/icons";
+import { ArrowLeft, ChevronDown, ChevronRight, X } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetClose } from "@/components/ui/sheet";
 import { ConnectorBrandMark } from "@/components/agent/connector-brand-mark";
 import { HelperText } from "@/components/app-ui/typography";
 import { dismissDriveSharingCard, isDriveSharingCardDismissed } from "@/lib/agent/drive-sharing-card-preferences";
@@ -243,10 +243,15 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
       })}</div>
       {ordered.length > 3 ? <button type="button" className="min-h-11 px-3 text-[12px] font-medium text-[color:var(--one-chat-meta)] hover:text-foreground"
         onClick={() => setShowAllShares(value => !value)}>{showAllShares ? "Show fewer updates" : `Show all ${ordered.length} updates`}</button> : null}
-      <Dialog modal open={!!selected} onOpenChange={open => { if (!open) { setSelectedShareId(null); void loadBulk(); } }}>
-        <DialogContent className="gap-3 p-4 sm:max-w-xl sm:p-5" srDescription="Google Drive sharing progress and available actions."
+      <Sheet modal open={!!selected} onOpenChange={open => { if (!open) { setSelectedShareId(null); void loadBulk(); } }}>
+        <SheetContent side="right" data-app-side-pane showCloseButton={false} contentDragDismiss={false} className="gap-0 overflow-hidden p-0"
           onCloseAutoFocus={event => { if (dismissingDetail.current) { event.preventDefault(); dismissingDetail.current = false; restoreSidebarFocus(); } }}>
-          <DialogTitle>Drive sharing</DialogTitle>
+          <SheetHeader className="profile-pane-header profile-pane-header--inner shrink-0 border-b">
+            <div><button type="button" aria-label="Back to Chats" onClick={() => setSelectedShareId(null)} className="inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="size-5" /></button><SheetTitle>Drive sharing</SheetTitle></div>
+            <SheetDescription className="sr-only">Google Drive sharing progress and available actions.</SheetDescription>
+          </SheetHeader>
+          <SheetClose asChild><button type="button" aria-label="Close Drive sharing" className="profile-pane-close absolute right-4 z-10 inline-flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X className="size-4" /></button></SheetClose>
+          <div data-chat-detail-body className="profile-pane-scroll-root min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-7 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-7">
           {selected ? <>
             <DriveBulkShareReview key={selected.shareId} searchJobId={selected.searchJobId} initial={selected} getToken={getToken} />
             <Button type="button" variant="muted" size="compact" className="self-start"
@@ -254,8 +259,9 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
                 requestAnimationFrame(restoreSidebarFocus); }}
               title="Hide this update without changing file access">Hide this update</Button>
           </> : null}
-        </DialogContent>
-      </Dialog>
+        </div>
+        </SheetContent>
+      </Sheet>
     </section>;
   }
   if (!jobs.length && !error && !detached.length && (!bulkError || bulkErrorDismissed)) return null;

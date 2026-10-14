@@ -2866,6 +2866,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  [data-app-side-pane],
   .profile-pane-sheet[data-slot="sheet-content"],
   [data-agent-history-drawer],
   [data-app-pane-material="profile"] {
@@ -9461,4 +9462,43 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     width: 18px;
     height: 18px;
   }
+}
+
+/* Chat detail bodies inherit the same grouped material and type as Profile. */
+[data-chat-detail-body] [role="region"] {
+  border: 1px solid var(--profile-pane-card-border);
+  border-radius: 17px;
+  background: var(--profile-pane-card-surface);
+  box-shadow: inset 0 1px 0 var(--profile-pane-card-highlight);
+  color: var(--ios-account-label);
+  font-family: var(--font-app-body);
+}
+[data-chat-detail-body] :is(p, ul) {
+  font-size: 13px;
+  line-height: 1.4;
+}
+[data-chat-detail-body] button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+[data-app-side-pane] [data-connections-panel] > header {
+  min-height: 79px;
+  padding: 16px;
+  border-bottom: 1px solid var(--profile-pane-hair);
+}
+[data-app-side-pane] [data-connections-panel] > header h2 {
+  color: var(--ios-account-label);
+  font-family: var(--font-app-display);
+  font-size: 20px;
+  line-height: 1.15;
+  text-align: center;
+  text-wrap: balance;
+}
+[data-app-side-pane] [data-connections-panel] > header > h2:first-child {
+  padding-left: 52px;
+}
+[data-app-side-pane] [data-connections-panel] > header + div {
+  padding: 22px 28px 28px;
 }
