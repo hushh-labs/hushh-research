@@ -122,3 +122,31 @@ def connector_feature_enabled(feature: str, user_id: str) -> bool:
 
 def connector_features(user_id: str) -> dict[str, bool]:
     return {feature: connector_feature_enabled(feature, user_id) for feature in FEATURES}
+
+
+def connector_feature_owner_cohort(*features: str) -> tuple[str, ...] | None:
+    """Query scope for background workers: None means all, () means nobody.
+
+    Reuse the admission predicate before applying a database LIMIT so excluded
+    owners cannot starve admitted work. This scope never replaces per-call checks.
+    """
+    production = os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+    raw = os.getenv(
+        "CONNECTOR_PRODUCTION_OWNER_COHORT" if production else "CONNECTOR_INTERNAL_OWNER_COHORT",
+        "",
+    )
+    if raw:
+        candidates = raw.split(",") if production else [value.strip() for value in raw.split(",")]
+        return tuple(
+            owner
+            for owner in dict.fromkeys(candidates)
+            if all(connector_feature_enabled(feature, owner) for feature in features)
+        )
+    # With no configured cohort, staged admission is owner-independent. A
+    # synthetic identity only evaluates configuration; no account is accessed.
+    return (
+        None
+        if features
+        and all(connector_feature_enabled(feature, "connector-scope-check") for feature in features)
+        else ()
+    )

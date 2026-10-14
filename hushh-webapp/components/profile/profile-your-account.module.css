@@ -19,8 +19,9 @@
   }
 
   .accountDialogCompact :global([data-slot="alert-dialog-footer"] > button) {
-    height: 44px !important;
-    min-height: 44px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    padding-block: 0 !important;
   }
 
   .paneAccountContent,
@@ -298,8 +299,8 @@
 
   .paneEditor :global([data-display-name-actions] > button) {
     width: auto !important;
-    height: 44px !important;
-    min-height: 44px !important;
+    height: 36px !important;
+    min-height: 36px !important;
     padding: 0 16px !important;
     font-size: 12px !important;
     line-height: 16px !important;

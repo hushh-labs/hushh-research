@@ -283,10 +283,10 @@ steps:
           --build-arg NEXT_PUBLIC_PASSKEY_RP_ID=$$PASSKEY_RP_ID \
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
-          --build-arg NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED=${_INITIAL_CONTACTS_ONBOARDING_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
           --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
+          --build-arg NEXT_PUBLIC_WORKOS_SSO_ENABLED=${_WORKOS_SSO_ENABLED} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
@@ -399,7 +399,6 @@ substitutions:
   # silently shipping in another lane's frontend image.
   # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
   # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
-  _INITIAL_CONTACTS_ONBOARDING_ENABLED: "false"
   _ONE_WALLET_CARD_ENABLED: "false"
   # Wallet (payment cards) tile, /one/wallet, and chat widgets. Default off;
   # Offers nearby check-in in a production build. Default off: the check-in
@@ -418,6 +417,9 @@ substitutions:
   # environment-shaped gate reads every store install as non-production and
   # hands real users a map of fabricated people.
   _LOCATION_MAP_DEMO: "false"
+  # Presentation only: shows "Continue with SSO". The backend WORKOS_SSO_ENABLED
+  # flag stays the authority, so a lane has to opt in deliberately.
+  _WORKOS_SSO_ENABLED: "false"
   _HUSHH_TECH_CLIENT_ENABLED: "false"
   _HUSHH_TECH_PROXY_AUDIENCE: ""
   _HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS: "0"

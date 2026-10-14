@@ -1,4 +1,5 @@
 import type { ReactNode, SVGProps } from "react";
+import { AccentedKeyIcon } from "@/components/icons/ui/accented-key-icon";
 
 type SecondaryIconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
@@ -43,12 +44,7 @@ export function ProfileSecondaryFingerprintIcon(props: SecondaryIconProps) {
 }
 
 export function ProfileSecondaryPassphraseIcon(props: SecondaryIconProps) {
-  return (
-    <SecondaryIcon {...props}>
-      <circle cx="8" cy="9" r="4.5" />
-      <path className="profile-pane-icon-accent" d="m11.2 12.2 8.3 8.3M16 17.1l2-2M18.2 19.3l2-2" />
-    </SecondaryIcon>
-  );
+  return <AccentedKeyIcon size={24} {...props} />;
 }
 
 export function ProfileSecondaryRefreshIcon(props: SecondaryIconProps) {

@@ -40,6 +40,14 @@
       "file": "app/api/auth/session/route.ts"
     },
     {
+      "template": "/api/auth/sso/exchange",
+      "file": "app/api/auth/sso/exchange/route.ts"
+    },
+    {
+      "template": "/api/auth/sso/start",
+      "file": "app/api/auth/sso/start/route.ts"
+    },
+    {
       "template": "/api/connected-systems",
       "file": "app/api/connected-systems/route.ts"
     },
@@ -374,7 +382,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
           "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -631,12 +639,65 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/calendar/reschedule",
+      "page_file": "app/calendar/reschedule/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Standalone recipient capability reader has no signed-in shell or booking authority.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.calendar.reschedule",
+          "purpose": "Review offered alternatives and reply to the sender without login or booking.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that the offered availability could not be checked.",
+            "cancelled": "Keep the meeting unchanged.",
+            "failed": "Ask the sender for another link without claiming any free time.",
+            "timeout": "Offer to check the same reviewed alternatives again.",
+            "callback_error": "No sign-in callback is required; ask the sender for a valid link.",
+            "route_mismatch": "Use only this capability reader; never open the logged-in Calendar homepage."
+          },
+          "completion_boundary": "The organizer updates the invitation after an email reply; this page never changes a meeting.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/calendar/reschedule",
+        "classification": "excluded-web-only",
+        "reason": "External recipients use this anonymous browser capability link; it requires no app install and grants no booking or native workspace authority."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/circle/join",
       "page_file": "app/circle/join/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
         "mode": "hidden",
-        "exemption_reason": "Public three-screen Circle invitation preview owns its navigation; account-based joining continues through the protected Connect flow.",
+        "exemption_reason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -2327,7 +2388,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
           "next_route": "/one",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2372,12 +2433,11 @@
       "route_contract": {
         "mode": "standard",
         "exemption_reason": null,
-        "shell_verification_file": "components/calendar/calendar-agent-page.tsx",
+        "shell_verification_file": "components/calendar/calendar-connected-workspace.tsx",
         "shell_verification_includes": [
           "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
           "PageHeader",
+          "TopShellTabs",
           "SurfaceCard"
         ],
         "interaction_layer_policy": {
@@ -2400,7 +2460,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Calendar changes happen only after the person confirms the exact proposal in chat.",
+          "completion_boundary": "Calendar changes happen only after the person confirms the exact review in Calendar or the exact proposal in chat. Attendance changes only the connected attendee response; email delivery has its own confirmed outcome.",
           "next_route": null,
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -7400,8 +7460,16 @@
       "voice_action_contract_ids": [
         "profile.world_model.build",
         "profile.world_model.claim",
+        "profile.world_model.discard",
+        "profile.world_model.email",
         "profile.world_model.invite",
-        "profile.world_model.review"
+        "profile.world_model.pause",
+        "profile.world_model.preview",
+        "profile.world_model.refresh",
+        "profile.world_model.reject",
+        "profile.world_model.retry",
+        "profile.world_model.review",
+        "profile.world_model.sources"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -7486,7 +7554,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.referrals",
-          "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share expands the sharing options; Back closes them. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+          "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share One opens WhatsApp, SMS and More sharing bubbles beneath the button; Back closes them and restores focus. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
           "screen": "one_referrals",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -10263,7 +10331,69 @@
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
+    },
+    {
+      "route": "/world-model/invite",
+      "page_file": "app/world-model/invite/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public invitation preview preserves its token through authentication and vault setup.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.world_model.invite",
+          "purpose": "Review an inviter-prepared public professional preview and continue through verified claiming.",
+          "screen": "app",
+          "entry_cue": "Review your starting profile, then continue when ready.",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Navigation only. Claim requires explicit action by the verified recipient.",
+          "next_route": "/one/profile/world-model",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/world-model/invite",
+        "classification": "native-required-functional",
+        "initialRoute": "/world-model/invite#claim=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expectedMarker": "native-route-pwm-invite",
+        "expectedRoute": "/world-model/invite",
+        "autoReviewerLogin": false,
+        "expectedAuth": "anonymous",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ],
+        "reason": "Public PWM preview and verified-recipient handoff."
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "3e67d60b9621f95c44c8c85e5168e9a18eb5543001cb99e7855dd693698f62b1"
+  "content_sha256": "9517f63bd5e660dda558468c4e9bde028bb5bd68e855edc4ceeebcd5e5c67328"
 }

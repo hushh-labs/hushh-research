@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -16,14 +16,22 @@ vi.mock("@/lib/services/gmail-information-requests-service", () => ({ GmailInfor
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { resetIdleSchedulerForTests } from "@/lib/perf/idle-scheduler";
 
 describe("Feed briefing invalidation", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    // Keep event invalidation separate from the wall-clock-aligned two-minute fallback.
+    vi.setSystemTime(new Date("2026-10-14T01:16:00.000Z"));
     state.vaultOwnerToken = "vault-A";
     state.list.mockResolvedValue({ workflows: [], total_count: 0 });
   });
-  afterEach(() => { vi.clearAllMocks(); vi.useRealTimers(); });
+  afterEach(() => {
+    cleanup();
+    resetIdleSchedulerForTests();
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
 
   it("coalesces remote activity but does not refresh provider reads for read-only or document consent changes", async () => {
     const view = renderHook(() => useFeedBriefing());
@@ -40,6 +48,23 @@ describe("Feed briefing invalidation", () => {
       dispatchFeedStateChanged("arrived");
       await vi.advanceTimersByTimeAsync(1_000);
     });
+    expect(state.calendarRefresh).toHaveBeenCalledTimes(1);
+    expect(state.gmailRefresh).toHaveBeenCalledTimes(1);
+    expect(state.list).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+
+  it("refreshes at the aligned fallback boundary without an activity event", async () => {
+    vi.setSystemTime(new Date("2026-10-14T01:17:59.700Z"));
+    const view = renderHook(() => useFeedBriefing());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(state.list).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    // The boundary wake still waits for its frame and the refresh debounce.
+    expect(state.calendarRefresh).not.toHaveBeenCalled();
+    expect(state.gmailRefresh).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     expect(state.calendarRefresh).toHaveBeenCalledTimes(1);
     expect(state.gmailRefresh).toHaveBeenCalledTimes(1);
     expect(state.list).toHaveBeenCalledTimes(2);

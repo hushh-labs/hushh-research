@@ -22,11 +22,6 @@ on:
         required: false
         default: false
         type: boolean
-      initial_contacts_onboarding:
-        description: "Build the optional initial Contacts welcome for UAT testing"
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   # write: this workflow tags a healthy release as "last known good"
@@ -55,7 +50,6 @@ env:
   BACKEND_REVISION_RETENTION: "2"
   FRONTEND_REVISION_RETENTION: "10"
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
-  INITIAL_CONTACTS_ONBOARDING_ENABLED: ${{ inputs.initial_contacts_onboarding && 'true' || 'false' }}
 
 concurrency:
   # Backend candidates share one admission queue. Explicit frontend-only
@@ -132,7 +126,7 @@ jobs:
     needs: select-target
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 100
     permissions:
       contents: read
       checks: read
@@ -368,18 +362,6 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
-      - name: Require paired backend for initial Contacts onboarding
-        id: initial-contacts-pairing
-        shell: bash
-        env:
-          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
-        run: |
-          set -euo pipefail
-          if [ "$INITIAL_CONTACTS_ONBOARDING_ENABLED" = "true" ] && [ "$DEPLOY_BACKEND" != "true" ]; then
-            echo "Refusing initial Contacts onboarding without its paired backend deployment. Use scope=all, or scope=auto when it selects the backend." >&2
-            exit 1
-          fi
-
       - name: Enforce UAT database connection budget before deployment
         shell: bash
         env:
@@ -397,7 +379,7 @@ jobs:
               --candidate-service consent-protocol \
               --candidate-service consent-protocol-drive-worker
           elif [ "$DEPLOY_FRONTEND" = true ]; then
-            python3 scripts/ci/runtime-capacity-budget.py --environment uat --no-candidates
+            python3 scripts/ci/runtime-capacity-budget.py --environment uat --frontend-only
           else
             echo "No resolved UAT deploy scope; refusing capacity admission." >&2
             exit 1
@@ -730,7 +712,12 @@ jobs:
           image_tag="uat-${{ steps.resolve-sha.outputs.sha }}"
           # The single definition of every value compiled into the web image.
           # The deploy step reuses it, so the build and deploy cannot disagree.
-          build_substitutions="_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=true,_LOCATION_MAP_DEMO=false,_INITIAL_CONTACTS_ONBOARDING_ENABLED=${INITIAL_CONTACTS_ONBOARDING_ENABLED}"
+          build_substitutions="_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=true,_LOCATION_MAP_DEMO=false"
+          # Older deployment SHAs do not declare this substitution in both builds.
+          if grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/frontend.cloudbuild.yaml \
+            && grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/frontend-image.cloudbuild.yaml; then
+            build_substitutions="${build_substitutions},_WORKOS_SSO_ENABLED=${{ vars.WORKOS_SSO_UAT_ENABLED || 'false' }}"
+          fi
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "build_substitutions=${build_substitutions}" >> "$GITHUB_OUTPUT"
           # A deployment SHA from before the split has no build-only config.
@@ -1064,6 +1051,11 @@ jobs:
           if grep -q '^[[:space:]]*_WALLET_CARD_ACCESS_ENABLED:' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
           fi
+          # Older deployment SHAs do not declare these. The secrets are bound by
+          # deploy/sso/bind_workos.sh only if they exist in the deploy project.
+          if grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_WORKOS_SSO_ENABLED=${{ vars.WORKOS_SSO_UAT_ENABLED || 'false' }}##_WORKOS_REDIRECT_URI=${{ env.APP_FRONTEND_ORIGIN }}/login"
+          fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
           # Curated connector OAuth client secrets are derived from the checked-in
           # manifests by the "Resolve curated connector secrets" step; empty (the
@@ -1090,9 +1082,6 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CLOUD_RUN_MEMORY=6Gi"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}##_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
-          if gcloud secrets describe PWM_TAVILY_API_KEY --project="${{ env.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
-            SUBSTITUTIONS="${SUBSTITUTIONS}##_PWM_TAVILY_API_KEY_SECRET=PWM_TAVILY_API_KEY"
-          fi
           # The packaged profile owns every managed AI surface.
           SUBSTITUTIONS="${SUBSTITUTIONS}##$(python3 scripts/ops/managed_ai_config.py --environment uat --format substitutions)"
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
@@ -1372,6 +1361,20 @@ jobs:
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify frontend-only candidate has no SQL binding before smoke
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend != 'true'
+        shell: bash
+        env:
+          FRONTEND_REVISION: ${{ steps.candidate-state.outputs.frontend_revision }}
+        run: |
+          set -euo pipefail
+          if [ -z "$FRONTEND_REVISION" ]; then
+            echo "UAT frontend candidate revision is unavailable for SQL-free verification." >&2
+            exit 1
+          fi
+          python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+            --frontend-only --frontend-revision "$FRONTEND_REVISION"
+
       - name: Verify frontend candidate runs the pinned image digest
         if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
         shell: bash
@@ -1494,7 +1497,25 @@ jobs:
           echo "::add-mask::$reviewer_passphrase"
           export REVIEWER_UID="$reviewer_uid"
           export REVIEWER_VAULT_PASSPHRASE="$reviewer_passphrase"
+          # Retry only a browser failure with observed Cloud Run 5xx responses
+          # for this tagged candidate's static assets. A second smoke must pass
+          # fully before either zero-traffic candidate can be promoted.
+          set +e
           npm run smoke:analytics:uat 2>&1 | tee /tmp/uat-analytics-smoke.log
+          smoke_attempt_1_statuses=("${PIPESTATUS[@]}")
+          set -e
+          if [ "${smoke_attempt_1_statuses[1]}" -ne 0 ]; then
+            exit "${smoke_attempt_1_statuses[1]}"
+          fi
+          if [ "${smoke_attempt_1_statuses[0]}" -ne 0 ]; then
+            if ! grep -Fq '"classification": "candidate_asset_unavailable"' \
+              /tmp/uat-analytics-smoke.log; then
+              exit "${smoke_attempt_1_statuses[0]}"
+            fi
+            echo "Candidate static assets returned 5xx; retrying the analytics smoke once after warmup."
+            sleep 15
+            npm run smoke:analytics:uat 2>&1 | tee -a /tmp/uat-analytics-smoke.log
+          fi
 
       - name: Remove zero-traffic frontend analytics candidate tag
         if: always() && steps.scope.outputs.deploy_frontend == 'true'
@@ -1581,6 +1602,13 @@ jobs:
           fi
 
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+              # Recheck the immutable candidate and current frontend template
+              # immediately before sending it serving traffic.
+              python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+                --frontend-only \
+                --frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"
+            fi
             gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --region="${{ env.GCP_REGION }}" \
@@ -2580,6 +2608,25 @@ jobs:
               raise SystemExit('Scheduled mail drain scheduler configuration drifted')
           PY
 
+      - name: Activate PWM completion notifications
+        id: activate-pwm-notifications
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.activate-account-deletion.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'true' }}
+        run: |
+          set -euo pipefail
+          bash deploy/pwm/setup_notification_scheduler.sh | tee /tmp/uat-pwm-notifications-setup.log
+
+      - name: Upload PWM scheduler verification
+        if: always() && steps.scope.outputs.deploy_backend == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-pwm-notification-scheduler
+          path: /tmp/uat-pwm-notifications-setup.log
+          if-no-files-found: warn
+
       - name: Activate personal Gmail monitor
         id: activate-personal-gmail-monitor
         if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
@@ -2770,6 +2817,7 @@ jobs:
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
+                 || [ "${{ steps.activate-pwm-notifications.outcome }}" != "success" ] \
                  || [ "${{ steps.deploy-drive-worker.outcome }}" != "success" ]; }; then
               STATUS="blocked"
             else
@@ -2848,6 +2896,7 @@ jobs:
                   "semantic_success": "${{ steps.classify-uat-release.outputs.semantic_success }}",
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
                   "reviewer_byok": "${{ steps.verify-reviewer-byok.outcome }}",
+                  "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",

@@ -61,6 +61,14 @@ steps:
   # their canonical names so the first deploy after provisioning picks them up
   # with no change to this file.
   #
+  # WorkOS enterprise SSO follows the same optional rule. This step body is within
+  # a few characters of Cloud Build's 10,000-character arg cap, so its bindings
+  # live in deploy/sso/bind_workos.sh, sourced after add_secret and add_env exist.
+  # Missing secrets are skipped and the routes answer 404 until WORKOS_SSO_ENABLED
+  # is true, so deploying this file changes nothing by itself. The source line
+  # tolerates a missing script because production deploys this file over the older
+  # commit it is asked to release or roll back to, which has no deploy/sso/.
+  #
   # Runtime identity may differ from deploy identity: the dev environment
   # deploys with _DEPLOY_ENV=dev (labels, provenance) but runs with
   # ENVIRONMENT=uat so behavior gates replicate UAT exactly.
@@ -119,8 +127,14 @@ steps:
         # UAT's cross-project release runs a mandatory no-traffic candidate
         # probe as the runtime identity before promotion. Cloud Build's separate
         # build identity need not read managed AI API state or IAM policy.
-        # Direct builds and other environments retain the static preflight.
-        if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" && "${_CLOUD_RUN_NO_TRAFFIC}" == "true" && "${_VERIFY_MANAGED_VERTEX_RUNTIME}" == "true" ]]; then
+        # Other environments retain the static preflight. UAT cannot fall back
+        # to an administrative read when its required candidate proof is absent.
+        if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          if [[ "$PROJECT_ID" != "hushh-pda-uat" || "${_CLOUD_RUN_NO_TRAFFIC}" != "true" || "${_VERIFY_MANAGED_VERTEX_RUNTIME}" != "true" ]] || \
+            ! [[ "${_IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ && "${_DEPLOY_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "UAT cross-project Vertex requires a no-traffic candidate, immutable image, exact SHA and successful runtime probe." >&2
+            exit 1
+          fi
           echo "UAT cross-project Vertex access will be verified by the required runtime-identity candidate probe."
         else
           vertex_api_name="$(gcloud services list --enabled \
@@ -249,7 +263,6 @@ steps:
             exit 1
           fi
         fi
-        add_secret "${_PWM_TAVILY_API_KEY_SECRET}" "PWM_TAVILY_API_KEY"
         add_secret "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_SECRET_KEY"
         add_secret "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_WEBHOOK_SECRET"
         add_secret "${_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_TEST_SECRET_KEY"
@@ -320,6 +333,7 @@ steps:
         add_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
         add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
         add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
+        source deploy/sso/bind_workos.sh || :
 
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
@@ -406,6 +420,8 @@ steps:
       - "_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED}"
       - "_WALLET_CARD_ACCESS_ENABLED=${_WALLET_CARD_ACCESS_ENABLED}"
       - "_WALLET_PASS_PROVIDER=${_WALLET_PASS_PROVIDER}"
+      - "_WORKOS_SSO_ENABLED=${_WORKOS_SSO_ENABLED}"
+      - "_WORKOS_REDIRECT_URI=${_WORKOS_REDIRECT_URI}"
       - "_APP_REVIEW_MODE=${_APP_REVIEW_MODE}"
       - "_HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}"
       - "_HUSHH_PROD_PHONE_TEST_ENABLED=${_HUSHH_PROD_PHONE_TEST_ENABLED}"
@@ -636,6 +652,35 @@ steps:
             raise SystemExit("One voice Vertex target did not pass its runtime-identity probe")
         PY
         fi
+        # This lane replaces cross-project administrative reads with positive
+        # capability evidence. It must never accept the legacy outage advisory.
+        if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          if [[ "${execute_status}" -ne 0 ]]; then
+            echo "Required UAT runtime-identity probe execution failed." >&2
+            exit 1
+          fi
+          PROBE_LINE="${probe_line}" python3 - <<'PY'
+        import json
+        import os
+
+        try:
+            verdict = json.loads(os.environ["PROBE_LINE"].split("managed_vertex_probe_result", 1)[1].strip())
+        except (IndexError, json.JSONDecodeError):
+            raise SystemExit("Required UAT runtime probe verdict is missing") from None
+        probes = verdict.get("probes")
+        if (
+            verdict.get("check") != "managed_vertex_runtime"
+            or verdict.get("ok") is not True
+            or verdict.get("classification") != "dependency_ok"
+            or verdict.get("candidate_models_exercised") is not True
+            or not isinstance(probes, list)
+            or not probes
+            or any(not isinstance(probe, dict) or probe.get("ok") is not True
+                   or probe.get("classification") != "dependency_ok" for probe in probes)
+        ):
+            raise SystemExit("Required UAT runtime probe did not fully pass")
+        PY
+        fi
         if [[ "${execute_status}" -eq 0 ]]; then
           echo "Managed Vertex candidate probe passed."
           exit 0
@@ -675,7 +720,6 @@ timeout: "1800s"
 substitutions:
   _BACKEND_SERVICE: consent-protocol
   _RUNTIME_SERVICE_ACCOUNT: ""
-  _PWM_TAVILY_API_KEY_SECRET: ""
   _GENAI_PROJECT_ID: ""
   _MANAGED_AI_CONFIG_HASH: ""
   _HUSHH_ONE_CHAT_VERTEX_PROJECT: ""
@@ -796,6 +840,10 @@ substitutions:
   _WALLET_API_KEY_SECRET: ""
   # local | service. Empty/local keeps in-process signing.
   _WALLET_PASS_PROVIDER: ""
+  # WorkOS enterprise SSO. Empty keeps the feature off (routes answer 404).
+  # The redirect URI is the web /login URL registered in the WorkOS dashboard.
+  _WORKOS_SSO_ENABLED: ""
+  _WORKOS_REDIRECT_URI: ""
   _ONE_EMAIL_ADDRESS: ""
   _ONE_EMAIL_DELEGATED_USER: ""
   _ONE_EMAIL_PUBSUB_TOPIC: ""

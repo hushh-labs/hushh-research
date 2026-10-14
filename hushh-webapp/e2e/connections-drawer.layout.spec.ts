@@ -128,6 +128,12 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:[a-z]+\.riv|rive\.wasm)$/, route =>
+    route.fulfill({
+      contentType: route.request().url().endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
     route.fulfill({
       contentType: "image/webp",
@@ -230,6 +236,7 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("http://localhost/connections-fixture");
   await page.addScriptTag({ content: script });
+  await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
   await awaitProductFont(page);
 });
@@ -263,15 +270,106 @@ async function profileFrame(page: import("@playwright/test").Page) {
     reference.className = "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
+    const card = document.createElement("div");
+    const stack = document.createElement("div");
+    stack.className = "profile-pane-scroll-root";
+    const content = document.createElement("div");
+    content.dataset.profileStackContent = "true";
+    card.dataset.slot = "settings-group-shell";
+    content.append(card);
+    stack.append(content);
+    reference.append(stack);
     document.body.append(reference);
     const bounds = reference.getBoundingClientRect();
+    const style = getComputedStyle(reference);
     const result = { x: innerWidth - bounds.right, y: bounds.y,
       width: bounds.width, height: bounds.height,
-      radius: getComputedStyle(reference).borderTopLeftRadius };
+      radius: style.borderTopLeftRadius,
+      card: { background: getComputedStyle(card).backgroundColor,
+        radius: getComputedStyle(card).borderTopLeftRadius, shadow: getComputedStyle(card).boxShadow },
+      material: {
+        background: style.backgroundColor, border: style.borderTopColor,
+        shadow: style.boxShadow, blur: style.backdropFilter,
+        webkitBlur: style.getPropertyValue("-webkit-backdrop-filter"),
+      } };
     reference.remove();
     return result;
   });
 }
+
+for (const width of [320, 390, 1440]) for (const dark of [false, true])
+  test(`Chats keeps Profile material through row actions at ${width}px in ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.evaluate(enabled => {
+      document.documentElement.classList.toggle("dark", enabled);
+      const fixture = document.querySelector<HTMLElement>("main")!;
+      fixture.style.background = "linear-gradient(135deg, #86b6ed, #dcaa9d 55%, #94c4b3)";
+      (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory();
+    }, dark);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const reference = await profileFrame(page);
+    const row = chats.locator('[data-agent-history-row][data-state="active"]');
+    const actions = row.getByRole("button", { name: "Open actions for Weekly planning" });
+    await expect(actions).toBeVisible();
+    const hit = (await actions.boundingBox())!;
+    // WebKit's translated matrices can round a 44px box down by 0.00002px.
+    expect(hit.width + 0.0001).toBeGreaterThanOrEqual(44);
+    expect(hit.height + 0.0001).toBeGreaterThanOrEqual(44);
+    await actions.click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    expect(await menu.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { background: style.backgroundColor, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
+    })).toEqual(reference.card);
+    expect(await menu.evaluate(element => getComputedStyle(element).backdropFilter)).toBe(reference.material.blur);
+    expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual([]);
+    await menu.getByRole("menuitem", { name: "Rename" }).click();
+    const rename = row.getByRole("textbox", { name: "Rename chat" });
+    await expect(rename).toBeFocused();
+    for (const target of [rename, row.getByRole("button", { name: "Save chat name" }), row.getByRole("button", { name: "Cancel rename" })]) {
+      const bounds = (await target.boundingBox())!;
+      // WebKit's translated matrices can round a 44px box down by 0.00002px.
+      expect(bounds.width + 0.0001).toBeGreaterThanOrEqual(44);
+      expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
+    }
+    await expect(chats.getByRole("heading", { name: "Chats", exact: true })).toBeVisible();
+    expect(await chats.evaluate(element => element.scrollTop)).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("chats-profile-rename.png") });
+    await row.getByRole("button", { name: "Cancel rename" }).click();
+    await page.screenshot({ path: testInfo.outputPath("chats-profile-material.png") });
+    await chats.getByRole("button", { name: /^Draft email/ }).click();
+    await expect(chats).not.toBeVisible();
+    expect(await page.locator("[data-agent-history-drawer]").evaluate(element =>
+      getComputedStyle(element, "::after").animationPlayState)).toBe("paused");
+    await expect(page.locator("[data-agent-history-drawer]")).toHaveCSS("visibility", "hidden");
+    expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual(["history-two"]);
+  });
+
+for (const dark of [false, true])
+  test(`Chats and Profile keep a solid material in Android blur-free mode (${dark ? "dark" : "light"})`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 850 });
+    await page.evaluate(enabled => {
+      document.documentElement.classList.add("native-android");
+      document.documentElement.classList.toggle("dark", enabled);
+      (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory();
+    }, dark);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const reference = await profileFrame(page);
+    // With the platform's intentional blur-off policy, alpha must not expose
+    // sharp transcript text through either pane or its portaled action menu.
+    expect(reference.material.background).toMatch(/^rgb\([^)]+\)$/);
+    expect(await chats.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.material.background);
+    expect(await chats.evaluate(element => getComputedStyle(element).backdropFilter)).toBe("none");
+    await chats.getByRole("button", { name: "Open actions for Weekly planning" }).click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    expect(reference.card.background).toMatch(/^rgb\([^)]+\)$/);
+    expect(await menu.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.card.background);
+    expect(await menu.evaluate(element => getComputedStyle(element).backdropFilter)).toBe("none");
+  });
 
 for (const width of [390, 768])
   test(`chat sidebar keeps Connectors in a visible footer at ${width}px`, async ({ page }) => {
@@ -299,20 +397,19 @@ for (const width of [390, 768])
       return { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
     });
     expect(titleStyle).toEqual({ size: "20px", line: "23px", weight: "700" });
-    // WebKit cannot reliably blur behind the transformed card. Its own
-    // material must remain opaque so chat content never reads through it.
+    // Both panels inherit the same material authority in each theme.
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
+      const reference = await profileFrame(page);
       const material = await chats.evaluate(element => {
-        const probe = document.createElement("div");
-        probe.style.backgroundColor = "var(--background)";
-        element.append(probe);
-        const result = { actual: getComputedStyle(element).backgroundColor,
-          opaque: getComputedStyle(probe).backgroundColor };
-        probe.remove();
-        return result;
+        const style = getComputedStyle(element);
+        return {
+          background: style.backgroundColor, border: style.borderTopColor,
+          shadow: style.boxShadow, blur: style.backdropFilter,
+          webkitBlur: style.getPropertyValue("-webkit-backdrop-filter"),
+        };
       });
-      expect(material.actual).toBe(material.opaque);
+      expect(material).toEqual(reference.material);
     }
   });
 
@@ -549,12 +646,20 @@ for (const width of [390, 768, 1440])
 
 test("chat sidebar scrim does not animate under reduced motion", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.evaluate(() => (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory());
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toBeVisible();
   const transition = await page
     .locator("[data-agent-history-scrim]")
     .evaluate((element) => getComputedStyle(element).transitionProperty);
   expect(transition).toBe("none");
+  const drawer = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+  const row = drawer.locator('[data-agent-history-row][data-state="active"]');
+  await row.getByRole("button", { name: /^Weekly planning/ }).hover();
+  expect(await row.evaluate(element => getComputedStyle(element).transform)).toBe("none");
+  const close = drawer.getByRole("button", { name: "Close chat history" });
+  await close.hover();
+  expect(await close.evaluate(element => getComputedStyle(element).transform)).toBe("none");
 });
 
 for (const width of [390, 768])
@@ -623,7 +728,7 @@ for (const width of [320, 390, 768, 1440])
     // The receipt names the connector and what the person will do there.
     const button = receipt.getByRole("button", { name: "Review Gmail access" });
     const bounds = (await button.boundingBox())!;
-    expect(bounds.height).toBeGreaterThanOrEqual(44);
+    expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
     await button.click();
@@ -709,7 +814,7 @@ for (const width of [320, 390, 768, 1440])
         const button = drawer.getByRole("button", { name, exact: true });
         await button.scrollIntoViewIfNeeded();
         const bounds = (await button.boundingBox())!;
-        expect(bounds.height).toBeGreaterThanOrEqual(44);
+        expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
       }
@@ -720,7 +825,7 @@ for (const width of [320, 390, 768, 1440])
       const button = drawer.getByRole("button", { name, exact: true });
       await button.scrollIntoViewIfNeeded();
       const bounds = (await button.boundingBox())!;
-      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
       expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
     }
@@ -893,9 +998,8 @@ test("background processing needs explicit consent and can be paused without rem
     await page.getByRole("button", { name: "Pick synthetic file" }).click();
   };
   await selectFile();
-  const consent = page.getByRole("checkbox", { name: /Prepare these files while the app is closed/ });
-  await expect(page.getByText(/Relevant excerpts may be sent to Gemini/)).toBeVisible();
-  await expect(page.getByText(/Prepared file information is stored outside your vault/)).toBeVisible();
+  const consent = page.getByRole("checkbox", { name: "Agent One prepares these files while you’re away." });
+  await expect(consent).toBeVisible();
   await expect(consent).not.toBeChecked();
   await consent.check();
   expect(writes).toHaveLength(0);
@@ -907,7 +1011,7 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("button", { name: "Add selected files" }).click();
   const processing = page.getByRole("checkbox", { name: /^Background processing for / });
   await expect(processing).toBeChecked();
-  await expect(page.getByText(/Turning this off stops new preparation; remove the file to clear what was prepared/)).toBeVisible();
+  await expect(page.getByText("Agent One prepares this file while you’re away.", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 440 });
   const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
   const remove = dialog.getByRole("button", { name: /^Remove .+$/ });
@@ -1411,9 +1515,14 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
 
 async function presencePixels(artwork: Locator) {
   return artwork.evaluate((canvas: HTMLCanvasElement) => {
-    // Rive sizes its backing surface for the rendered bounds and device DPR.
-    const { width, height } = canvas;
-    const pixels = canvas.getContext("2d")!.getImageData(0, 0, width, height).data;
+    // Rive sizes its drawing surface for device pixel density. Sample the whole
+    // rendered image instead of only the former fixed 128px corner.
+    const sample = document.createElement("canvas");
+    sample.width = 128; sample.height = 128;
+    const { width, height } = sample;
+    const context = sample.getContext("2d")!;
+    context.drawImage(canvas, 0, 0, 128, 128);
+    const pixels = context.getImageData(0, 0, 128, 128).data;
     let hash = 0, opaque = 0;
     for (let i = 0; i < pixels.length; i += 1) {
       hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
@@ -1466,6 +1575,7 @@ test.describe("One profile artwork and animated presence", () => {
         for (const artwork of [header, profile]) {
           const canvas = artwork.locator("canvas");
           await expect(canvas).toHaveCSS("visibility", "visible");
+          await expect(artwork.locator("img")).toHaveAttribute("src", `/one-presence/${phase.file}`);
           await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
           await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
           expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
@@ -1485,15 +1595,14 @@ test.describe("One profile artwork and animated presence", () => {
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
-    const profile = panel.locator("[data-one-presence-state]");
-    const canvas = profile.locator("canvas");
-    const poster = profile.locator("img");
+    const profile = panel.locator('[data-one-presence-state="working"]');
+    const canvas = profile.locator("canvas"), poster = profile.locator("img");
     await expect(canvas).toHaveCSS("visibility", "visible");
     await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(canvas).toHaveCSS("visibility", "hidden");
-    await expect(poster).toHaveCSS("visibility", "visible");
     await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
+    await expect(poster).toHaveCSS("visibility", "visible");
     await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
     const reduced = (await presencePixels(canvas)).hash;
     await page.waitForTimeout(200);
@@ -1525,6 +1634,9 @@ test.describe("One profile artwork and animated presence", () => {
     { width: 1440, height: 900 },
   ]) {
     test(`One profile keeps its header and tabs stationary while switching at ${viewport.width}px`, async ({ page }) => {
+      // HD artwork and three complete tab round trips share this scenario's budget.
+      // Geometry/state expectations retain their individual deadlines.
+      test.setTimeout(60_000);
       await page.setViewportSize(viewport);
       await page.route("**/api/one/feed**", route => route.fulfill({
         contentType: "application/json",

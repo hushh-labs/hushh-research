@@ -56,6 +56,7 @@ import type {
 } from "@/lib/observability/events";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { EnterpriseSsoRequestError } from "@/lib/auth/enterprise-sso";
 import { resolveRuntimeBackendUrl } from "@/lib/runtime/settings";
 import { shouldSkipFirstWelcomeForAutomation } from "@/lib/testing/native-test";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
@@ -526,7 +527,7 @@ const ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS = 180_000;
 
 export function webFetchTimeoutMsForPath(path: string): number {
   const pathname = path.split("?", 1)[0];
-  if (isLongDriveSharingPath(path)) return 180_000;
+  if (isLongDriveSharingPath(path) || pathname === "/api/one/world-model/source-reviews") return 180_000;
   if (pathname === "/api/account/delete" || pathname === "/api/account/delete-lost-vault") {
     return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
   }
@@ -587,6 +588,21 @@ export type ApiFetchOptions = RequestInit & {
   /** Synchronous final check: no await may separate authority from dispatch. */
   isEffectCurrent?: () => boolean;
 };
+
+/** Parse an SSO endpoint response; refusals carry a stable code and a fixed message. */
+async function readEnterpriseSsoResponse<T>(response: Response): Promise<T> {
+  const body = (await response.json().catch(() => null)) as
+    | (T & { detail?: { code?: unknown; message?: unknown } | string })
+    | null;
+  if (response.ok && body) return body;
+  const detail = body && typeof body.detail === "object" ? body.detail : undefined;
+  throw new EnterpriseSsoRequestError(
+    typeof detail?.code === "string" ? detail.code : "sso_unavailable",
+    typeof detail?.message === "string"
+      ? detail.message
+      : "Single sign-on is temporarily unavailable.",
+  );
+}
 
 async function apiFetch(
   path: string,
@@ -915,7 +931,7 @@ async function apiFetch(
       // unbounded — keep legitimately-slow uploads/downloads working).
       // Synchronous Drive work, document preparation included, waits as long
       // natively as on the web (webFetchTimeoutMsForPath).
-      const readTimeoutMs = isLongDriveSharingPath(path)
+      const readTimeoutMs = isLongDriveSharingPath(path) || path.split("?", 1)[0] === "/api/one/world-model/source-reviews"
           ? 180_000
           : isLiveGmailReceiptPath(path)
             ? LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS
@@ -1772,6 +1788,34 @@ export class ApiService {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  /** Start enterprise SSO for a work email. Resolves the org server-side; no session needed. */
+  static async startEnterpriseSso(email: string): Promise<{
+    authorization_url: string;
+    state: string;
+    organization: { name: string };
+  }> {
+    const response = await apiFetch(
+      `/api/auth/sso/start?email=${encodeURIComponent(email.trim())}`,
+      { method: "GET", cache: "no-store" },
+    );
+    return readEnterpriseSsoResponse(response);
+  }
+
+  /** Redeem the one-time WorkOS code for a Firebase custom token. */
+  static async exchangeEnterpriseSso(input: { code: string; state: string }): Promise<{
+    custom_token: string;
+    user_id: string;
+    is_new_account: boolean;
+    organization: { name: string };
+  }> {
+    const response = await apiFetch("/api/auth/sso/exchange", {
+      method: "POST",
+      cache: "no-store",
+      body: JSON.stringify(input),
+    });
+    return readEnterpriseSsoResponse(response);
   }
 
   /** Ask the account authority for the first-account welcome; routine sign-ins skip. */

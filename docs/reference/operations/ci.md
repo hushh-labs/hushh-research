@@ -133,10 +133,12 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-Web validation is intentionally split:
+Web validation is intentionally split. The targeted node job runs once and the
+browser packs run across two Playwright shards; each job has a 30-minute budget.
+Individual interaction and performance assertions keep their own deadlines.
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
-2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. The job (`Web Targeted Contracts (node)` / `(browser)`) is a two-leg matrix: `WEB_TARGETED_PART=node` runs the Vitest and verifier packs without downloading a browser, and `WEB_TARGETED_PART=browser` runs the Playwright packs with `PLAYWRIGHT_WORKERS=3` (the Playwright config's CI worker count; one when unset). Each pack is classified by whether its npm script reaches `playwright`, so the legs partition the matched packs; a local run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
+2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. Its three jobs are `Web Targeted Contracts (node)`, `(browser-1-of-2)` and `(browser-2-of-2)`. `WEB_TARGETED_PART=node` runs the Vitest and verifier packs once without downloading a browser. Both `WEB_TARGETED_PART=browser` jobs run the matched Playwright packs with `PLAYWRIGHT_WORKERS=3` and complementary `PLAYWRIGHT_SHARD=1/2` or `2/2`; the matrix aggregate must succeed for frontend changes. Each pack is classified by whether its npm script reaches `playwright`; a local unsharded run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
 3. PRs run `web-full-suite` (job `Web Full Suite (Vitest)`) for the whole Vitest suite (`npm run test:ci`, ~9,700 tests) plus the voice gateway, One Voice, surface-map, Capacitor static-parity and Capacitor plugin-contract checks. It runs in parallel with `web-core` as three Vitest shards (`WEB_FULL_SUITE_SHARD=<i>/3`, `vitest --shard`, jobs `Web Full Suite (Vitest) 1/3` to `3/3`); shard 1 also runs the contract verifiers, once. `CI Status Gate` reads the matrix's aggregate result, which is `success` only when every shard succeeded, and requires it to have **succeeded** (not merely not failed) whenever the frontend filter matches. Until 2026-09-26 this suite ran only in `Queue Validation`, which nothing merged through, so it gated no merge.
 4. `web-full` is `web-core` followed by `web-full-suite`, for local and exhaustive runs. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
@@ -460,18 +462,13 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 8. publish release artifacts with revisions, reports, and final status
 
 UAT and production revision retirement use the existing `Capacity Maintenance` workflow. It records
-drain deadlines and returns; scheduled passes revalidate the healthy source
-release and live traffic before deleting eligible revisions. The deployment
+drain deadlines and returns; a UAT follow-up waits outside the deploy lock until the verified deadline, then revalidates the healthy source and live traffic before deleting eligible revisions. Scheduled passes retry a failed or missed UAT follow-up and handle production; a failed workflow's artifact is not trusted, so its drain clock may restart. The deployment
 workflow finishes without awaiting retirement. Maintenance creates no environment
 deployment record and holds the shared mutation lock only during a short pass,
 never during the request drain. Both environments skip cloud authentication for settled
-or not-yet-due drain receipts. The same source-only check runs again after acquiring
-the deployment lock, so a preceding queued pass can make a duplicate exit before
-authentication, SDK setup, artifact upload or capacity reporting. Requested
-deployments explicitly wake inspection; requested/completed events and the
-15-minute schedule can still create visible workflow entries.
-UAT capacity admission is bounded to five minutes and longer shortages require a
-governed operator retry; no runner sleeps through request drainage. Both lanes reuse the existing timer. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
+or not-yet-due drain receipts; requested deployments explicitly wake inspection.
+UAT capacity admission is bounded to 90 minutes; shortages that outlast that bound require a governed operator retry. The UAT follow-up uses a waiting runner outside the deploy lock. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
+Frontend-only UAT releases use a separate zero-increment SQL admission check that verifies the live web runtime and candidate revision; backend and paired releases retain the full connection budget gate.
 
 Before increasing database pools or tiers after a failed load stage, inspect the
 existing request query counts and acquisition timing. Drive's consent projection

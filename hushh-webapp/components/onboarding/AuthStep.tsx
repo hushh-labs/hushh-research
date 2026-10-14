@@ -8,7 +8,6 @@ import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
 import { AuthService } from "@/lib/services/auth-service";
 import { InitialContactsOnboardingService } from "@/lib/services/initial-contacts-onboarding-service";
-import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiService } from "@/lib/services/api-service";
 import { LegalAcceptanceService } from "@/lib/services/legal-acceptance-service";
@@ -23,6 +22,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
+import { EnterpriseSsoSection } from "@/components/onboarding/EnterpriseSsoSection";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
@@ -129,7 +129,7 @@ export function AuthStep({
   const [hydrated, setHydrated] = useState(false);
   const [returningSignIn, setReturningSignIn] = useState(false);
   const [findInitialContacts, setFindInitialContacts] = useState(true);
-  const initialContactsEnabled = initialContactOnboardingEnabled() && !returningSignIn;
+  const initialContactsEnabled = !returningSignIn && AuthService.canRequestInitialGoogleContacts();
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
   const {
@@ -658,11 +658,14 @@ export function AuthStep({
             void ApiService.notifyFirstWelcome({ idToken });
             // The sign-in screen states "By continuing you agree"; record it.
             void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser);
-            if (initialContactsEnabled) {
-              // Optional acquisition must not hold up phone verification.
-              void InitialContactsOnboardingService.begin(authResult, provider, attempt.id, findInitialContacts)
-                .catch(() => undefined);
-            }
+            // Actual account newness decides enrollment, including accounts
+            // created from the returning sign-in entry. Acquisition stays optional.
+            void InitialContactsOnboardingService.begin(
+              authResult,
+              provider,
+              attempt.id,
+              initialContactsEnabled && findInitialContacts,
+            ).catch(() => undefined);
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
                 journey: growthJourney,
@@ -1044,13 +1047,16 @@ export function AuthStep({
                   )}
                 />
               ))}
-              {initialContactOnboardingEnabled() ? (
-                <button type="button" disabled={providerBusy}
-                  className="min-h-11 w-full text-sm text-muted-foreground hover:text-foreground"
-                  onClick={() => setReturningSignIn((value) => !value)}>
-                  {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
-                </button>
-              ) : null}
+              <button type="button" disabled={providerBusy}
+                className="min-h-11 w-full text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => setReturningSignIn((value) => !value)}>
+                {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
+              </button>
+
+              <EnterpriseSsoSection
+                redirectPath={redirectPath}
+                disabled={providerBusy}
+              />
 
               {showReviewer ? (
                 <AuthProviderButton

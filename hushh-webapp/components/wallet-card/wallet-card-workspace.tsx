@@ -1,5 +1,6 @@
 "use client";
 
+import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ProfilePanePrivacyIcon, ProfilePaneSecurityIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
@@ -9,7 +10,7 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
 import { WalletCardImageShareButton } from "@/components/wallet/wallet-card-image-share-button";
-import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -44,7 +45,6 @@ import {
   WalletCardManage,
   type WalletCardManageAction,
 } from "@/components/wallet-card/wallet-card-manage";
-import { WalletCardPassPreview } from "@/components/wallet-card/wallet-card-pass-preview";
 import { WalletCardSetup } from "@/components/wallet-card/wallet-card-setup";
 import {
   copyWalletCardLink,
@@ -672,6 +672,9 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
 
       {stage === "preview" ? (
         <div className="space-y-4">
+          {!embedded ? <div className="mx-auto w-full max-w-[420px]">
+            <WalletDemoCardFace summary={WALLET_DEMO_CARDS.find(item => item.cardId === (passVariant === "nws" ? "agent-one-nws" : "agent-one-profile"))!} profile={imageShareProfile} />
+          </div> : null}
           {visitorPreview.status === "ready" ? (
             <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
           ) : visitorPreview.status === "error" ? (
@@ -691,19 +694,6 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
             <PublicWalletCardSkeleton />
           )}
 
-          <details className="w-full rounded-[var(--app-card-radius-standard)] border border-border">
-            <summary className="cursor-pointer px-[var(--settings-row-px)] py-3 text-[13px] font-medium">Profile card preview</summary>
-            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              <WalletCardPassPreview
-                fullName={draft.fullName || card?.displayName || ""}
-                headline={draft.headline || card?.headline || ""}
-                organisation={draft.organisation}
-                locationLabel={draft.locationLabel}
-                shareUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null}
-              />
-            </div>
-          </details>
-
           {previewOrigin === "setup" ? (
             <div className="flex flex-wrap items-center gap-2">
                 {applePassSupported ? (
@@ -714,7 +704,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                     disabled={!shareLink}
                     onClick={() => void addToWallet()}
                   >
-                    <ProfilePaneWalletIcon className="mr-2 h-4 w-4" aria-hidden />
+                    <AppleWalletIcon />
                     {WALLET_CARD_OWNER_COPY.addToWallet}
                   </Button>
                 ) : imageShareAction}

@@ -44,6 +44,7 @@ import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session-invalidation";
 import { toast } from "sonner";
 import { GOOGLE_CONTACTS_READ_SCOPE } from "@/lib/contacts/initial-contact-onboarding-config";
+import { resolveAppEnvironment } from "@/lib/app-env";
 
 export type GoogleSignInOptions = { purpose?: "authentication" | "initial_contacts" };
 
@@ -482,6 +483,11 @@ export class AuthService {
     return "";
   }
 
+  /** Public signup must stay usable until Contacts OAuth verification completes. */
+  static canRequestInitialGoogleContacts(): boolean {
+    return resolveAppEnvironment() !== "production";
+  }
+
   /**
    * Sign in with Google using the appropriate method for the current platform.
    *
@@ -491,10 +497,16 @@ export class AuthService {
    * @returns Firebase User object (consistent on both platforms)
    */
   static async signInWithGoogle(options?: GoogleSignInOptions): Promise<AuthResult> {
+    // Contacts is still awaiting public OAuth verification. Keep production
+    // authentication usable; new-account welcome enrollment remains independent.
+    const effectiveOptions: GoogleSignInOptions | undefined =
+      options?.purpose === "initial_contacts" && !this.canRequestInitialGoogleContacts()
+        ? { purpose: "authentication" }
+        : options;
     if (Capacitor.isNativePlatform()) {
-      return this.nativeGoogleSignIn(options);
+      return this.nativeGoogleSignIn(effectiveOptions);
     } else {
-      return this.webGoogleSignIn(options);
+      return this.webGoogleSignIn(effectiveOptions);
     }
   }
 

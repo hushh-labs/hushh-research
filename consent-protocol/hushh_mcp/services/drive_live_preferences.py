@@ -118,7 +118,8 @@ class DriveLivePreferences(DriveDocumentStore):
                 },
             )
             # Pause collection jobs with the same account-level background toggle.
-            # The separate explicit processing permission remains recorded.
+            # The preparation preference remains recorded, including a saved
+            # pause. Enabling background work never overrides that choice.
             connection.execute(
                 text("""UPDATE drive_collection_sync SET lease_id=NULL,lease_expires_at=NULL,
               next_at=clock_timestamp()+make_interval(secs=>:delay),updated_at=clock_timestamp()

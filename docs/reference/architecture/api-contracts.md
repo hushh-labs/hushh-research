@@ -339,6 +339,18 @@ from attempting its legacy issuance before returning the incompatible response.
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
 
+### WorkOS enterprise SSO (flagged)
+
+Gated by `WORKOS_SSO_ENABLED` (default off). While off, every route below answers `404` and Firebase sign-in is unchanged. SSO proves identity only: a successful exchange returns a Firebase custom token and grants no role, consent, or vault access. WorkOS is the authority for organizations, DNS-verified domains and connections; there is no Hussh-side registry or table. See the [ADR](./enterprise-sso-workos-adr.md). Both sign-in routes are rate limited per client IP.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/api/auth/sso/start?email=` or `?organization_id=` | None | Ask WorkOS which organization has verified the email's domain and has not had SSO switched off, and return `{authorization_url, state, organization}`. Free-mail domains, unknown domains and organizations whose connections are all inactive return `404 sso_not_available`. |
+| POST | `/api/auth/sso/exchange` | None (one-time WorkOS code + signed state) | `{code, state}` returns `{custom_token, user_id, is_new_account, organization}`. The client signs in with the custom token. Refusals: `sso_state_invalid`, `sso_code_invalid`, `sso_org_mismatch`, `sso_org_not_enabled`, `sso_domain_not_verified`, `sso_deprovisioned`, `sso_email_conflict`, `sso_account_conflict`, `sso_account_deleted`. |
+| POST | `/api/webhooks/workos` | `WorkOS-Signature` over the raw body (180 s window) | Directory Sync deprovisioning. `dsync.user.deleted` and `dsync.user.updated` with `state: inactive` mark the person deprovisioned and refuse later sign-in through the organization. An account SSO created is also disabled, its refresh tokens revoked and its consent grants revoked; an existing personal account that SSO only linked has its sessions revoked and is otherwise left alone. Every step is idempotent, so redelivery repeats harmlessly. Other events are acknowledged and ignored. |
+
+The custom token carries exactly `auth_provider=workos` and `workos_org_id`. The browser must compare the returned `state` to the value it stored before redirecting, then pass it back to the exchange.
+
 ### Chat push device registration
 
 `POST /api/notifications/register` uses Firebase authentication and verifies the
@@ -1375,7 +1387,11 @@ merging two businesses merely because their names or contact details overlap.
 ### One Google Calendar
 
 Calendar is a live Google provider integration. Connection lifecycle uses
-Firebase identity; event reads and all action proposals require `VAULT_OWNER`.
+Firebase identity; legacy event reads and all action proposals require `VAULT_OWNER`.
+The two first-party Schedule reads instead verify Firebase identity and the
+owner-bound active Calendar OAuth consent grant, including required Google scopes.
+They derive the owner only from the verified bearer, never request parameters.
+This narrow provider-read lane grants no vault, PKM, Mail, agent or mutation access.
 Create, reschedule, and cancel are always two-step: a short-lived proposal is
 reviewed by the client and then executed once. Plans are deleted after execution
 or failure and become unusable after ten minutes; a subsequent Calendar mutation
@@ -1423,7 +1439,65 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/availability`      | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars.                                                         |
 | POST   | `/api/one/calendar/proposals`         | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google.                     |
 | POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed.                         |
+| POST | `/api/one/calendar/schedule/today` | Firebase Bearer + active owner-bound Calendar OAuth grant | Resolve `date` in `time_zone`, page the subscribed calendar inventory and all readable calendar events, including recurring instances and civil all-day dates. Fail on incomplete reads; report calendars that share only busy times separately. |
+| POST | `/api/one/calendar/schedule/availability` | Firebase Bearer + active owner-bound Calendar OAuth grant | Check every subscribed calendar and return up to three maximal free `windows` plus exact `full_count`, filtering by requested 15/30/60-minute duration. Missing permission or any unavailable calendar fails closed. |
+| POST | `/api/one/calendar/attendance/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Verify equal owners and the connected primary attendee; prepare a ten-minute encrypted review of decline and optionally the editable organizer email with checked alternatives. No meeting changes. |
+| POST | `/api/one/calendar/attendance/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Atomically claim `review_id`, validate `review_token`, current account/grant and ETag, patch only the connected attendee response. Return separate `calendar` and `email` outcomes, replay completed outcomes without sending twice. |
+| POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
+
+Connected `/one/calendar` defaults to Schedule → Today. Invitations and Insights
+are Coming soon. Today loads every event-readable subscribed calendar with
+source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
+subscribed calendars in batches of twenty, merges busy periods and clips elapsed
+time before counting matching windows. Overlaps and civil-day/DST boundaries
+are calculated server-side. Time zone resolves from the browser; the account
+menu edits time zone and availability hours for the current owner session.
+Calendar automatically loads using the current signed-in identity and its existing
+Calendar OAuth grant; it has no additional credential prompt or unlock card.
+Each provider request checks the original connection/grant binding. Disconnect,
+revocation, owner changes and unavailable provider information fail closed.
+Responses are private/no-store; events stay in component memory. A vault lock or
+HCT revocation does not revoke these two provider reads: Firebase invalidation
+or Calendar disconnect does. Attendance still requires matching Firebase and
+VAULT_OWNER authority. Date/view changes and session epochs reject stale results.
+Selected-day shortcuts open Google Calendar, and free-window actions hand off
+date, range, time zone and the exact requested-duration booking to Calendar chat.
+Chat gathers missing details and requires the existing proposal confirmation;
+selecting a window never creates an event by itself. New proposals bind the
+review to the current Google grant. With subscribed-calendar access, create
+proposals show busy-period warnings across the included calendars and reject
+changed availability at confirmation. Google must return an event identifier
+before creation is reported as successful; mutations are never automatically
+retried.
+
+The visible Schedule view refreshes every thirty seconds and on return to the
+page or network recovery, coalescing requests within three seconds. Superseded
+reads are cancelled. Transient read failures receive at most two short retries;
+authentication and permission failures require their existing recovery action.
+Today retains the last successful same-owner/day records during refresh with an
+explicit stale notice if checking fails. Free-time booking actions are removed
+until a fresh availability check succeeds. Permission loss clears retained events.
+Initial disconnected onboarding is
+unchanged. Native subscribed-calendar discovery is requested only through an
+explicit `include_calendar_list` upgrade; base native consent stays unchanged,
+and existing manage/list permissions are preserved.
+
+The five connected workspace endpoints belong to
+`api/routes/one/calendar_workspace.py`, registered independently beside the
+existing Calendar router. Calendar lifecycle, setup, and chat proposal APIs
+remain owned by `calendar.py`; their onboarding workflow inventory and paused
+cursors retain their existing contract.
+
+Attendance review stores only an opaque idempotency ledger in
+`calendar_attendance_reviews` (migration 337); encrypted review contents remain
+in memory in the client. The three-day organizer link uses
+`/calendar/reschedule#<encrypted-capability>` and is scrubbed before analytics
+or API dispatch. It discloses only offered times, the reviewed reply address
+and the original event-specific link, and expires on Calendar account/grant
+changes. Choosing a time opens the recipient's email app; the organizer must
+update the invitation. It never substitutes the logged-in Calendar homepage.
+
 
 ### Complete Consent source reads
 

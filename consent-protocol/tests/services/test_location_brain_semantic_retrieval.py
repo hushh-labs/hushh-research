@@ -43,15 +43,14 @@ def test_location_semantic_retrieval_ignores_legacy_aliases_and_routes_held_out_
 
     graph = deepcopy(runtime.load_capability_graph())
     assert isinstance(graph, dict)
-    workflow = next(
-        item
-        for item in graph["workflows"]
-        if isinstance(item, dict) and item.get("capability_id") == "workflow.setup.location"
-    )
     # If legacy aliases were accidentally admitted into the semantic index,
-    # this sentinel would appear in the document text captured below.
-    workflow["aliases"] = ["obsolete-alias-sentinel"]
-    workflow["search_keywords"] = ["obsolete-alias-sentinel"]
+    # this sentinel would appear in the document text captured below. Isolate
+    # every alias so unrelated new actions cannot change the held-out vocabulary.
+    for group in ("actions", "workflows"):
+        for item in graph[group]:
+            if isinstance(item, dict):
+                item["aliases"] = ["obsolete-alias-sentinel"]
+                item["search_keywords"] = ["obsolete-alias-sentinel"]
 
     catalog = runtime._location_brain_catalog_from_graph(graph)
     cards = runtime._location_brain_index_cards(catalog)

@@ -58,3 +58,57 @@ def profile_hash(value: dict) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def load_pwm_policy(path: Path = PROFILE_PATH) -> dict:
+    """Research limits share the managed-runtime configuration; no provider env split."""
+    value = json.loads(path.read_text())["pwm_research"]
+    if (
+        set(value)
+        != {
+            "provider",
+            "owner_source_provider",
+            "search_invocations",
+            "model_calls",
+            "slice_seconds",
+            "job_seconds",
+            "lease_seconds",
+            "preview_source_limit",
+            "preview_fact_limit",
+            "notification_scheduler",
+        }
+        or value["provider"] != "vertex_google_search"
+        or value["owner_source_provider"] != "vertex_url_context"
+    ):
+        raise ValueError("PWM requires the declared native Vertex providers")
+    limits = {
+        "search_invocations": 32,
+        "model_calls": 128,
+        "slice_seconds": 240,
+        "job_seconds": 270,
+        "lease_seconds": 300,
+        "preview_source_limit": 3,
+        "preview_fact_limit": 8,
+    }
+    if any(
+        type(value[key]) is not int or not 1 <= value[key] <= limit for key, limit in limits.items()
+    ):
+        raise ValueError("PWM budget exceeds the reviewed execution contract")
+    if not value["slice_seconds"] < value["job_seconds"] < value["lease_seconds"] <= 300:
+        raise ValueError("PWM execution must fit the existing owner-key lifetime")
+    validate_pwm_scheduler(value["notification_scheduler"])
+    return dict(value)
+
+
+def validate_pwm_scheduler(scheduler: dict) -> dict:
+    """One authority contract for runtime and the UAT deployment script."""
+    expected = {
+        "project": "hushh-pda-uat",
+        "audience": "https://api.uat.hushh.ai",
+        "service_account": "pwm-notifications@hushh-pda-uat.iam.gserviceaccount.com",
+        "job": "pwm-notifications-uat",
+        "location": "us-central1",
+    }
+    if scheduler != expected:
+        raise ValueError("PWM scheduler is outside the reviewed UAT authority")
+    return scheduler

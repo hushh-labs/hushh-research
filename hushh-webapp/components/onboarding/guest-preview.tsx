@@ -6,6 +6,7 @@ import Link from "next/link";
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import { IntroV2Carousel } from "./IntroV2Carousel";
 import { OneWelcomeStory } from "./OneWelcomeStory";
 import introStyles from "./IntroV2Carousel.module.css";
@@ -82,6 +83,12 @@ export function GuestPreview({
     setStep(next);
   }
 
+  useBackLayer(ROUTES.HOME, invitation ? 0 : step, () => {
+    if (step < 1) return false;
+    moveTo(step - 1);
+    return true;
+  });
+
   const invitationContent = invitation ? (
     <>
       <strong role="heading" aria-level={2}>
@@ -113,7 +120,7 @@ export function GuestPreview({
     ? "Join this Circle"
     : invitation
       ? "Accept invitation"
-      : "Start with One";
+      : "Get started";
 
   return (
     <FullscreenFlowShell

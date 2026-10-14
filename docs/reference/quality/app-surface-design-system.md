@@ -671,7 +671,7 @@ Rules:
    action below it on phone and desktop: Confirm pin, then Skip for now; Save
    location, then Skip for now. The surface or pinned footer owns the bottom
    safe-area padding once; action groups do not add another inset.
-   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation. Chats and Profile share the bounded side-pane geometry: a safe-area-aware 12–18px outer inset, 430px maximum width, 820px maximum height, and 25px corners. Chats mirrors Profile at the left edge; its close control uses the same 44px target, 16px glyph, and 20px content inset. Screen gaps remain covered by the modal scrim. The Chats frame stays opaque in light and dark themes because WebKit cannot reliably blur content behind a transformed drawer; the shared scrim supplies backdrop blur outside the card.
+   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation. Chats and Profile share the bounded side-pane geometry: a safe-area-aware 12–18px outer inset, 430px maximum width, 820px maximum height, and 25px corners. Chats mirrors Profile at the left edge; its close control uses the same 44px target, 16px glyph, and 20px content inset. Screen gaps remain covered by the modal scrim. Both frames share Profile's translucent light/dark material, backdrop filter, sheen, and row hover/focus feedback. Chats' inner controls and portaled actions menu use the same material tokens; reduced transparency and motion retain the shared accessibility fallbacks. Native Android uses the same solid pane/card tokens for both surfaces under its existing blur-free policy. Conversation selection uses the existing Profile ripple without changing its navigation owner. The mounted Chats frame clips decoration without becoming a focus-scroll container and retires rendering after its exit; its gesture owner temporarily exposes the frame during a pull.
    `AppChatHistoryEdgeGesture` owns both directions: pull right on the Chat
    body to open, or left on the drawer/list or backdrop to close. The panel
    transform and scrim opacity follow the finger; release settles through the
@@ -894,8 +894,10 @@ Rules:
    - do not use generic `Sparkles` as a fallback for AI, optimize, onboarding, or premium semantics
 3. For application-owned surfaces, import icons from `@/components/icons`. The registry owns official Phosphor geometry, native viewBoxes, and default weight so that shell, route, and Profile treatments stay visually aligned. Do not use dynamic icon loading for normal page chrome.
 4. Icon emphasis must match text emphasis in active and highlighted states.
-   Password fields and the shell's vault unlock control use `AccentedKeyIcon`:
-   the original canonical key artwork with Profile ink and an accent pinpoint.
+   All key aliases, password fields and the shell's vault unlock control use `AccentedKeyIcon`:
+   the original canonical outline key artwork with Profile ink and a blue accent
+   pinpoint. Keys have no translucent interior fill and ignore legacy yellow/gray
+   colour overrides.
    Field keys remain 18px and the shell key remains 20px.
    Chat's To-do, Get the app and Connectors shortcuts use foreground ink.
    All three use a finite 850ms registry-owned part animation on whole-row hover or
@@ -907,7 +909,7 @@ Rules:
    circle is a separate layer. Dark mode uses the corresponding semantic ink.
 5. Prefer relative icons that describe the section or action directly.
 6. When building custom icon wells or icon-bearing surfaces, preserve the canonical Phosphor assumptions:
-   - native `viewBox="0 0 256 256"` and the registry's duotone geometry
+   - native `viewBox="0 0 256 256"` and the registry's regular outline geometry, without translucent interior fills
    - visually centered composition
    - similar optical weight across sibling headers and actions
 7. Refer to:

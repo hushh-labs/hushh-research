@@ -1,5 +1,6 @@
 /** Mail owns canonical transactions. PKM receives only an aggregate projection. */
 import { buildRecentReceiptRows, receiptDocumentLabel, receiptAttentionLabel, receiptStatusLabel, type RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
+import { DurableResourceError } from "@/lib/services/durable-resource-error";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 import { resolveSavedReceiptMerchantBrand, isVerifiedReceiptMerchantKey, type VerifiedReceiptMerchantKey } from "@/lib/mail/receipt-merchant-registry";
@@ -34,10 +35,13 @@ const STATUSES = ["paid", "overdue", "refunded", "cancelled", "trial", "delivere
 const DOCS = ["invoice", "receipt", "payment_confirmation", "order_confirmation", "booking", "fulfillment"];
 const text = (v: unknown, max: number) => typeof v === "string" && v.length > 0 && v.length <= max && !/[\r\n\x00-\x1f]|https?:|www\.|@/i.test(v);
 const date = (v: unknown) => v === null || (typeof v === "string" && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2}))?$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v.slice(0, 10)).toISOString().slice(0, 10) === v.slice(0, 10));
+// Document dates are verbatim evidence from the reviewed extraction contract.
+// Preserve the displayed value; never infer a year or change canonical grouping.
+const documentDate = (v: unknown) => v === null || text(v, 64);
 const oneOf = (v: unknown, values: readonly string[]) => typeof v === "string" && values.includes(v);
 const member = (v: unknown, values: readonly string[]) => v === null || (typeof v === "string" && values.includes(v));
 function record(v: unknown, keys: string[]): asserts v is Record<string, unknown> {
-  if (!v || typeof v !== "object" || Array.isArray(v) || Object.keys(v).some(k => !keys.includes(k)) || keys.some(k => !(k in v))) throw new Error("Invalid receipt snapshot shape.");
+  if (!v || typeof v !== "object" || Array.isArray(v) || Object.keys(v).some(k => !keys.includes(k)) || keys.some(k => !(k in v))) throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt snapshot shape.");
 }
 function identifiers(v: unknown): boolean {
   return Array.isArray(v) && v.length <= 30 && v.every(i => {
@@ -47,26 +51,26 @@ function identifiers(v: unknown): boolean {
 }
 /** Reject unknown nested fields, even in authenticated old envelopes. Never spread a live DTO. */
 export function validateReceiptSnapshot(v: unknown): ReceiptSnapshot {
-  if (new TextEncoder().encode(JSON.stringify(v)).length > RECEIPT_SNAPSHOT_MAX_BYTES) throw new Error("Receipt snapshot exceeds device capacity. Existing saved receipts were kept.");
+  if (new TextEncoder().encode(JSON.stringify(v)).length > RECEIPT_SNAPSHOT_MAX_BYTES) throw new DurableResourceError("capacity_exceeded", "schema", "Receipt snapshot exceeds device capacity. Existing saved receipts were kept.");
   record(v, ["schema", "account_binding", "freshness", "coverage", "rows"]);
   record(v.coverage, ["partial", "truncated", "source_count", "window_from", "window_to", "source"]);
   if (v.schema !== "mail_receipt_snapshot.v1" || (typeof v.account_binding !== "string" || !REF.test(v.account_binding)) || !date(v.freshness) || !v.freshness ||
     typeof v.coverage.partial !== "boolean" || typeof v.coverage.truncated !== "boolean" || !Number.isSafeInteger(v.coverage.source_count) || Number(v.coverage.source_count) < 0 || Number(v.coverage.source_count) > 10000 ||
-    !date(v.coverage.window_from) || !date(v.coverage.window_to) || !oneOf(v.coverage.source, ["gmail_live", "legacy_pkm"]) || !Array.isArray(v.rows) || v.rows.length > 10000) throw new Error("Invalid receipt snapshot.");
+    !date(v.coverage.window_from) || !date(v.coverage.window_to) || !oneOf(v.coverage.source, ["gmail_live", "legacy_pkm"]) || !Array.isArray(v.rows) || v.rows.length > 10000) throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt snapshot.");
   const rowRefs = new Set<string>(); const eventRefs = new Set<string>();
   for (const r of v.rows) {
     record(r, ["ref", "display_id", "primary_event_ref", "merchant", "category", "display_kind", "brand", "amount", "currency", "transaction_date", "identifiers", "status", "recurrence", "attention_state", "attention_reason", "attention_is_prediction", "attention_date", "document_kind", "confidence", "events"]);
     if ((typeof r.ref !== "string" || !REF.test(r.ref)) || rowRefs.has(String(r.ref)) || typeof r.display_id !== "string" || !/^group-[a-z0-9]{1,64}$/.test(r.display_id) || !text(r.merchant, 100) || !member(r.category, CATEGORIES) || !oneOf(r.display_kind, ["merchant", "category", "generic"]) || (r.brand !== null && !isVerifiedReceiptMerchantKey(r.brand)) ||
-      (r.amount !== null && (typeof r.amount !== "string" || !DECIMAL.test(r.amount))) || !member(r.currency, ["USD", "INR", "EUR", "GBP", "$"]) || !date(r.transaction_date) || !date(r.attention_date) || !identifiers(r.identifiers) || !member(r.status, STATUSES) || !oneOf(r.recurrence, ["recurring", "one_time", "unknown"]) ||
+      (r.amount !== null && (typeof r.amount !== "string" || !DECIMAL.test(r.amount))) || !member(r.currency, ["USD", "INR", "EUR", "GBP", "$"]) || !documentDate(r.transaction_date) || !documentDate(r.attention_date) || !identifiers(r.identifiers) || !member(r.status, STATUSES) || !oneOf(r.recurrence, ["recurring", "one_time", "unknown"]) ||
       !oneOf(r.attention_state, ["none", "needs_attention", "coming_up", "needs_review"]) || !member(r.attention_reason, ["overdue", "payment_failed", "suspended", "renewal_due", "low_confidence"]) || typeof r.attention_is_prediction !== "boolean" || !member(r.document_kind, DOCS) ||
-      (r.confidence !== null && (typeof r.confidence !== "number" || !Number.isFinite(r.confidence) || r.confidence < 0 || r.confidence > 1)) || !Array.isArray(r.events) || !r.events.length || r.events.length > 300) throw new Error("Invalid canonical receipt.");
+      (r.confidence !== null && (typeof r.confidence !== "number" || !Number.isFinite(r.confidence) || r.confidence < 0 || r.confidence > 1)) || !Array.isArray(r.events) || !r.events.length || r.events.length > 300) throw new DurableResourceError("schema_invalid", "schema", "Invalid canonical receipt.");
     rowRefs.add(String(r.ref));
     for (const e of r.events) {
       record(e, ["ref", "locator", "document_kind", "status", "kind", "date", "amount", "currency"]);
-      if ((typeof e.ref !== "string" || !REF.test(e.ref)) || eventRefs.has(String(e.ref)) || (e.locator !== null && (typeof e.locator !== "string" || !/^grs1_[A-Za-z0-9_-]{39,310}$/.test(e.locator))) || !member(e.document_kind, DOCS) || !member(e.status, STATUSES) || !oneOf(e.kind, ["purchase", "fulfillment", "refund", "cancellation", "unknown"]) || !date(e.date) || (e.amount !== null && (typeof e.amount !== "string" || !DECIMAL.test(e.amount))) || !member(e.currency, ["USD", "INR", "EUR", "GBP", "$"])) throw new Error("Invalid receipt event.");
+      if ((typeof e.ref !== "string" || !REF.test(e.ref)) || eventRefs.has(String(e.ref)) || (e.locator !== null && (typeof e.locator !== "string" || !/^grs1_[A-Za-z0-9_-]{39,310}$/.test(e.locator))) || !member(e.document_kind, DOCS) || !member(e.status, STATUSES) || !oneOf(e.kind, ["purchase", "fulfillment", "refund", "cancellation", "unknown"]) || !documentDate(e.date) || (e.amount !== null && (typeof e.amount !== "string" || !DECIMAL.test(e.amount))) || !member(e.currency, ["USD", "INR", "EUR", "GBP", "$"])) throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt event.");
       eventRefs.add(String(e.ref));
     }
-    if (!r.events.some(e => e.ref === r.primary_event_ref)) throw new Error("Receipt representative is missing.");
+    if (!r.events.some(e => e.ref === r.primary_event_ref)) throw new DurableResourceError("schema_invalid", "schema", "Receipt representative is missing.");
   }
   return v as unknown as ReceiptSnapshot;
 }

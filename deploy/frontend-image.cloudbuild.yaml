@@ -251,10 +251,10 @@ steps:
           --build-arg NEXT_PUBLIC_PASSKEY_RP_ID=$$PASSKEY_RP_ID \
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
-          --build-arg NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED=${_INITIAL_CONTACTS_ONBOARDING_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
           --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
+          --build-arg NEXT_PUBLIC_WORKOS_SSO_ENABLED=${_WORKOS_SSO_ENABLED} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
@@ -290,10 +290,10 @@ timeout: "1800s"
 
 substitutions:
   _APP_ENV: production
-  _INITIAL_CONTACTS_ONBOARDING_ENABLED: "false"
   _ONE_WALLET_CARD_ENABLED: "false"
   _ONE_LOCATION_NEARBY_CHECK_IN: "false"
   _LOCATION_MAP_DEMO: "false"
+  _WORKOS_SSO_ENABLED: "false"
   _IMAGE_TAG: manual-build
   _DEPLOY_ENV: manual
 

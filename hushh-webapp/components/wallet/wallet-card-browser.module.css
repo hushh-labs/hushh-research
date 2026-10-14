@@ -36,8 +36,8 @@
 .transactions li { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid var(--border); font-size:14px; }
 .transactions small { display:block; margin-top:4px; color:var(--muted-foreground); font-size:11px; }
 .transactions strong { flex:none; font-size:13px; font-weight:500; font-variant-numeric:tabular-nums; }
-.quickActions { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:8px; padding-top:12px; }
-.addAction { width:auto; max-width:100%; font-size:13px; }
+.quickActions { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; padding-top:12px; }
+.addAction { width:244px; max-width:100%; font-size:13px; }
 .previewPanel { display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding-block:12px; }
 .previewPanel p { color:var(--muted-foreground); font-size:14px; line-height:1.6; }
 @media(prefers-reduced-motion:reduce) { .thumbnailButton { transition:none; } }
@@ -82,7 +82,7 @@
 
 /* Keep card navigation visually lightweight while retaining its hit area. */
 @layer base {
-  .addAction, .searchAction { font-size:13px !important; }
+  .searchAction { font-size:13px !important; }
   .detailNavigation > button {
     background: transparent !important;
     box-shadow: none !important;
@@ -96,8 +96,12 @@
 
 /* A visitor preview is its own reading surface; the payment-card face remains in Cards. */
 .browser:has([data-wallet-visitor-preview="true"]) { margin-top: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.browser:has([data-wallet-visitor-preview="true"]) .selectedFace { display: none; }
 
 @layer base {
   .browser [data-wallet-visitor-preview="true"] h3 { font-family: var(--font-app-body) !important; font-size: 13px !important; font-weight: 500 !important; line-height: 1.2 !important; }
+}
+
+/* Leave room for View details and both card edges above the dock in short windows. */
+@media (min-width: 640px) and (max-height: 640px) {
+  .browser[data-mode="all"] { padding-top: 8px; }
 }
