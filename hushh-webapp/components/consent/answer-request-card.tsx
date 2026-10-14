@@ -29,6 +29,8 @@ import { AuthService } from "@/lib/services/auth-service";
 import {
   AnswerRequestService,
   type AnswerPaymentView,
+  type AnswerRequestCoverage,
+  type AnswerRequestState,
   type PendingAnswerRequest,
 } from "@/lib/services/answer-request-service";
 import { decryptMarketplaceEnvelope } from "@/lib/one-marketplace/encryption";
@@ -57,14 +59,25 @@ function money(cents: number | null): string {
   return cents === null ? "" : `$${(cents / 100).toFixed(0)}`;
 }
 
+function validAnswerCoverage(value: AnswerRequestCoverage | undefined): value is AnswerRequestCoverage {
+  if (!value || !Array.isArray(value.included) || !Array.isArray(value.notIncluded) ||
+      !value.included.length || value.included.length + value.notIncluded.length > 12) return false;
+  const rows = [...value.included, ...value.notIncluded];
+  if (rows.some(entry => !entry || typeof entry.scope !== "string" ||
+      !/^attr\.[a-z0-9_]+(?:\.[a-z0-9_*]+)+$/.test(entry.scope) ||
+      !(entry.label === null || typeof entry.label === "string" && entry.label.length <= 160))) return false;
+  return new Set(rows.map(entry => entry.scope)).size === rows.length;
+}
+
+function coverageLabel(label: string | null): string {
+  const clean = label?.replace(/\s+/g, " ").trim();
+  return clean && !/[\u0000-\u001f\u007f]/.test(clean) ? clean.slice(0, 120) : "Requested information";
+}
+
 export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
-  const [state, setState] = useState<{
-    role: string;
-    requestStatus: string;
-    question: string;
-  } | null>(null);
+  const [state, setState] = useState<AnswerRequestState | null>(null);
   const ownerRef = useRef(user?.uid);
   ownerRef.current = user?.uid;
   const requestRef = useRef(requestId);
@@ -242,6 +255,8 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
 
   const openCheckout = () =>
     run(async (token, epoch) => {
+      if (!validAnswerCoverage(state?.coverage))
+        throw new Error("Answer coverage could not be verified. Refresh this question before paying.");
       const url = await AnswerRequestService.checkout(token, requestId);
       // Validated as a Stripe-hosted host by the service before we get here.
       if (ownerRef.current === user?.uid && requestRef.current === requestId &&
@@ -355,6 +370,8 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
 
   // ---- requester ---------------------------------------------------------
   if (payment) {
+    const proposedCoverage = state?.coverage;
+    const coverage = validAnswerCoverage(proposedCoverage) ? proposedCoverage : null;
     const owed =
       payment.requestStatus === "approved" &&
       (payment.orderStatus === null ||
@@ -363,12 +380,21 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
 
     return (
       <div className="min-w-0 space-y-4">
+        {state?.question ? <BodyText>{state.question}</BodyText> : null}
+        {coverage ? (
+          <div className="space-y-1" aria-label="Priced answer coverage">
+            <HelperText as="p">Included in this answer: {coverage.included.map(entry => coverageLabel(entry.label)).join(", ")}.</HelperText>
+            {coverage.notIncluded.length > 0 ? (
+              <HelperText as="p">Not included in this answer: {coverage.notIncluded.map(entry => coverageLabel(entry.label)).join(", ")}.</HelperText>
+            ) : null}
+          </div>
+        ) : null}
         {owed ? (
           <>
             <BodyText>
               {money(payment.amountCents)} to answer this question.
             </BodyText>
-            {payments === "on" && payment.preparationStatus === "ready" ? (
+            {payments === "on" && payment.preparationStatus === "ready" && coverage ? (
               <>
                 {/* The wait is disclosed BEFORE checkout, not after. */}
                 <HelperText as="p">
@@ -392,6 +418,8 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
                   ? "Preparation needs another attempt. Ask them to open this request, unlock their memory, and retry. You have not been charged."
                   : payment.preparationStatus === "empty"
                   ? "Answer not found. You have not been charged."
+                  : payment.preparationStatus === "ready" && !coverage
+                  ? "Answer coverage could not be verified. Refresh this question before paying. You have not been charged."
                   : payments === "on"
                     ? "Their answer is being prepared. Payment opens when it is ready."
                     : payments === "off"
