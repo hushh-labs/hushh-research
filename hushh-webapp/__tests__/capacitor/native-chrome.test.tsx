@@ -11,7 +11,7 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
 import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
-import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
+import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
 import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
@@ -229,6 +229,7 @@ describe("private native drawer action boundary", () => {
   function presentationBridge() {
     const listeners = new Set<(event: NativeDrawerChoice) => void>();
     const isolationListeners = new Set<(event: NativeDrawerIsolation) => void>();
+    const readmissionListeners = new Set<(event: NativeDrawerReadmission) => void>();
     let isolation = { ...nativeDrawerIsolation() };
     const remove = vi.fn(async () => undefined);
     const apply = vi.fn(async (projection: NativeDrawerProjection) => ({ ...projection, phase: "active" as const }));
@@ -236,19 +237,61 @@ describe("private native drawer action boundary", () => {
     const plugin: HushhNativeDrawersPlugin = {
       getCapabilities: async () => ({ contractVersion: 1, supported: true, wholePresentation: true, ...isolation }),
       apply, retire, confirmChoice: vi.fn(async () => ({ valid: true })),
-      addListener: async (name: "choice" | "isolationChanged", callback: ((event: NativeDrawerChoice) => void) | ((event: NativeDrawerIsolation) => void)) => {
+      addListener: async (name: "choice" | "isolationChanged" | "readmissionRequested", callback: ((event: NativeDrawerChoice) => void) | ((event: NativeDrawerIsolation) => void) | ((event: NativeDrawerReadmission) => void)) => {
         if (name === "choice") listeners.add(callback as (event: NativeDrawerChoice) => void);
+        else if (name === "readmissionRequested") readmissionListeners.add(callback as (event: NativeDrawerReadmission) => void);
         else isolationListeners.add(callback as (event: NativeDrawerIsolation) => void);
         return { remove: async () => { listeners.delete(callback as (event: NativeDrawerChoice) => void);
+          readmissionListeners.delete(callback as (event: NativeDrawerReadmission) => void);
           isolationListeners.delete(callback as (event: NativeDrawerIsolation) => void); await remove(); } };
       },
     };
     return { plugin, apply, retire, remove, emit: (event: NativeDrawerChoice) => listeners.forEach(callback => callback(event)),
+      readmit: (event: NativeDrawerReadmission) => readmissionListeners.forEach(callback => callback(event)),
       isolate: (isolated: boolean, notify = true) => {
         isolation = { generation: isolation.generation + 1, isolated };
         if (notify) isolationListeners.forEach(callback => callback(isolation));
       } };
   }
+
+  it("refreshes a timed-out drawer presentation once without repeating any operation", async () => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, terminalReadmission: true });
+    const refresh = vi.fn(() => true), close = vi.fn(), phases = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases, undefined, refresh);
+    await presentation.listen();
+    presentation.publish(state(), { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close });
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    const request = { ...state(), interactionGeneration: 3 };
+    for (const stale of [{ ...request, ownerEpoch: "old-owner" }, { ...request, privacyGeneration: 7 },
+      { ...request, updateSequence: 0 }, { ...request, interactionGeneration: NaN }]) bridge.readmit(stale);
+    expect(refresh).not.toHaveBeenCalled();
+    bridge.readmit(request); bridge.readmit(request);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
+    expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+    await presentation.retire();
+    bridge.readmit({ ...request, interactionGeneration: 4 });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("withdraws a timeout readmission when the feature owner no longer has authority", async () => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, terminalReadmission: true });
+    let current = true;
+    const refresh = vi.fn(() => true), phases = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => current, phases, undefined, refresh);
+    await presentation.listen();
+    presentation.publish(state(), { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn() });
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    current = false;
+    bridge.readmit({ ...state(), interactionGeneration: 3 });
+    await waitFor(() => expect(bridge.retire).toHaveBeenCalledOnce());
+    expect(refresh).not.toHaveBeenCalled();
+    expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+  });
 
   it("completes one emitted Close through compatible content refreshes without replaying or using obsolete authority", async () => {
     const bridge = presentationBridge();

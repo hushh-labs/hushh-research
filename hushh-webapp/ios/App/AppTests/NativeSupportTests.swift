@@ -586,6 +586,40 @@ final class NativeSupportTests: XCTestCase {
         changedPrivacy.retire()
     }
 
+    @MainActor
+    func testUnacknowledgedDrawerCloseRequestsFreshPresentationWithoutReplayingClose() {
+        let controller = NativeDrawerPresentationController(privateDrawerState())
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.activateInitialPresentation()
+        let host = controller.host
+        var choices = 0, invalidations = 0
+        controller.model.choose = { action, _, _ in
+            XCTAssertEqual(action, "close")
+            choices += 1
+            return true // Deliberately do not acknowledge the authored Close.
+        }
+        controller.invalidateInteractions = { invalidations += 1 }
+        let refresh = expectation(description: "Timed-out presentation requests readmission")
+        controller.requestReadmission = {
+            XCTAssertFalse(controller.model.interactionEnabled)
+            XCTAssertGreaterThanOrEqual(invalidations, 2, "Timeout must invalidate the original action token")
+            refresh.fulfill()
+        }
+        controller.settle(open: false, userIntent: true)
+        wait(for: [refresh], timeout: 7)
+        XCTAssertEqual(choices, 1, "A presentation refresh must not replay Close")
+        controller.update(privateDrawerState(update: 2))
+        let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            controller.model.interactionEnabled && controller.allowsInteraction("close", row: nil)
+        }, object: controller)
+        XCTAssertEqual(XCTWaiter.wait(for: [admitted], timeout: 2), .completed,
+            "Fresh owner presentation must restore interaction after settlement")
+        XCTAssertTrue(controller.host === host)
+        XCTAssertEqual(choices, 1)
+        controller.retire()
+        XCTAssertNil(controller.requestReadmission)
+    }
+
     #if DEBUG
     func testNativeHistoryQualificationNeverReactivatesExperimentalProductControls() {
         XCTAssertTrue(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: true))

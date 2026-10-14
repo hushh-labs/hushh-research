@@ -55,14 +55,18 @@ export type NativeDrawerChoice = NativeDrawerIdentity & {
   text?: string;
 };
 export type NativeDrawerIsolation = { generation: number; isolated: boolean };
+export type NativeDrawerReadmission = NativeDrawerIdentity & {
+  updateSequence: number; privacyGeneration: number; interactionGeneration: number;
+};
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; agentProfileMenu?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; agentProfileMenu?: boolean }>;
   apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
   confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;
   settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
   retire(options: NativeDrawerIdentity): Promise<NativeDrawerReceipt>;
   addListener(eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
 }
 export const nativeDrawers = registerPlugin<HushhNativeDrawersPlugin>("HushhNativeDrawers");
 

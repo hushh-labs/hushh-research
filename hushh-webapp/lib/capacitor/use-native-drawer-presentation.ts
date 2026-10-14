@@ -39,18 +39,20 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     // an unchanged open state after a failed receipt.
     if (requested && supported === true && phase === "web") readmit(value => value + 1);
   }, [port.open, supported, phase]);
-  const publish = () => {
+  const publish = (force = false): boolean => {
     const live = replica.current, nextPort = current.current.port;
     if (!live || !current.current.theme || !nextPort.ready || live.owner !== nextPort.owner || live.epoch !== nextPort.vaultEpoch ||
-      snapshotValidatedAuthSessionOwner()?.userId !== live.owner) return;
+      snapshotValidatedAuthSessionOwner()?.userId !== live.owner) return false;
     const next = nextPort.project(live.handles);
     const state = { ...live.presentation.identity, ...current.current.theme, privacyGeneration: live.privacy,
       title: nextPort.title, open: nextPort.open, enabled: true, backEnabled: !!next.actions.back,
       ...(contentHandoffSupported.current && nextPort.family === "profile" && nextPort.surfaceOpen !== undefined ? { surfaceOpen: nextPort.surfaceOpen } : {}),
       searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections };
     const fingerprint = JSON.stringify(state); // Private in-memory comparison only.
-    if (fingerprint === live.fingerprint) { live.presentation.refreshActions(next.actions); return; }
-    if (live.presentation.publish({ ...state, updateSequence: ++live.update }, next.actions)) live.fingerprint = fingerprint;
+    if (!force && fingerprint === live.fingerprint) { live.presentation.refreshActions(next.actions); return true; }
+    if (!live.presentation.publish({ ...state, updateSequence: ++live.update }, next.actions)) return false;
+    live.fingerprint = fingerprint;
+    return true;
   };
   useEffect(() => {
     if (!nativeDrawersPlatformEligible()) return;
@@ -89,7 +91,8 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       nativeDrawerOwnerIsCurrent(identity);
     const presentation = new NativeDrawerPresentation(identity, nativeDrawers, isCurrent, next => {
       if (active) setPhase(next === "active" ? "native" : next === "retired" ? "web" : next === "quarantined" ? "blocked" : "preparing");
-    }, state => { if (isCurrent() && state.open) current.current.port.onPresented?.(); });
+    }, state => { if (isCurrent() && state.open) current.current.port.onPresented?.(); },
+    () => isCurrent() && publish(true));
     const instance = { presentation, update: 0, privacy: generation, owner, epoch, handles: new Map<string, string>(), fingerprint: null as string | null };
     replica.current = instance; setPhase("preparing");
     void (async () => { if (await presentation.listen() && isCurrent()) publish(); })()

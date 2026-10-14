@@ -34,27 +34,44 @@ below do not identify this new candidate; source, executable and runtime receipt
 must be recorded after its build and installation.
 
 The installed product on both devices is Debug 1.4.0 (69), UAT-backed, from
-`82176c8f84`; executable SHA-256
-`574fef745dd231750d578ecfdbca9feca90b4a86b7cc6e5e2e2bc138706f22e1`.
+`12180b51b5`; executable SHA-256
+`324a70d777104e90cb00e3251d05a7ffa71ac7c62d264ae92d5a62b7c9ce402b`.
 Strict signatures and 38 packaged presence/onboarding asset hashes pass. Both
 devices passed XCTest body admission and normal passphrase unlock. Core passed
 in 445 seconds at `3501811eb6`, after correcting owner-scoped message-delivery
 effect dependencies. Later runner builds do not replace that installed product.
 
-Physical failures remain acceptance evidence, not environmental waivers: iPad
-History has one AX element reported unhittable despite one diagnostic touch
-opening its native drawer; Profile detail handoffs remain unaccepted on both
-devices. iPhone History alignment, independent row hit regions and inline Rename
-cancellation passed before its subsequent Delete-menu interruption. Neither
-result completes ten integrated cycles, accessibility or Release performance.
+Physical results remain bounded: both outer Profile panes pass full-height
+geometry. Nine iPhone destinations and their return paths passed across focused
+runs, including Gemini, Voice and Vault methods. Referrals correctly restores
+its initiating Profile query through the existing destination-origin owner;
+One is its direct-entry fallback. Earlier detail-frame failures measured AX title
+hulls rather than pane bounds. The harness now uses fresh, document/privacy-fenced
+authored DOM bounds while retaining physical edge and control checks.
+
+The final Profile Close exposed a visible disabled native menu excluding Chat.
+Source confirms that the terminal deadline waits for readmission without sending
+a request. The new capability-negotiated NativeDrawers v1 handshake invalidates
+the original token and asks the current React owner to republish presentation.
+It never repeats Close or another operation. Requests are identity, update,
+privacy and interaction-generation fenced; duplicate/stale requests are ignored,
+and lost authority retires the presentation. These changes are not yet installed.
+The nearest web contracts pass 169 cases, including an old-listener negative
+control. Original Close-delivery cause and integrated device acceptance remain
+unverified; readmission is a liveness repair, not evidence that delivery succeeded.
+
+iPad lost its device-service tunnel after Account/Gemini. Its History AX and
+keyboard gates remain open. iPhone History geometry/Rename cancellation passed
+before the unclassified Delete-menu interruption. No result here completes ten
+integrated cycles, accessibility or physical Release performance.
 
 Nested Profile content now retains the shared `DialogOverlay` backdrop. The
 transparent rule is restricted to bounded non-pane feature pages. The optimized
 real-component fixture passes in Chromium and WebKit at phone/tablet widths;
 reinstating the old rule removes dimming/blur and restoring the fix restores
 them. Body push/pop remains owned by the existing `ProfileStackNavigator`; no
-new outer-pane animation is introduced. This correction is not yet in the
-installed executable above.
+new outer-pane animation is introduced. This correction is in the installed
+executable above.
 
 Dismissal now revokes both native header bindings immediately through `open`;
 closing DOM fallbacks are disabled while the existing pane keeps exit isolation.

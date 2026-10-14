@@ -116,6 +116,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     private var deleteConfirmation: HushhNativeChromePresenter?
     var isolation: ((Bool) -> Void)?
     var invalidateInteractions: (() -> Void)?
+    var requestReadmission: (() -> Void)?
     var leadingHeaderFrame: (() -> CGRect?)?
     private var direction: CGFloat { model.projection.family == "history" ? -1 : 1 }
     // Keep the last committed layout's travel while reconstructing a drag
@@ -380,9 +381,11 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             guard let self, !self.motion.retired, self.motion.generation == generation, self.intentPending else { return }
             self.intentPending = false
             self.awaitingReadmission = true
+            self.invalidateInteractions?()
             // If JavaScript is stalled, restore a visible authored surface but
             // never revive its action eligibility or replay the terminal intent.
             self.settle(open: self.model.projection.open, userIntent: false)
+            self.requestReadmission?()
         }
         intentTimeout = deadline
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: deadline)
@@ -398,6 +401,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         view.endEditing(true)
         model.choose = nil
         model.close = nil
+        requestReadmission = nil
         model.requestDelete = nil
         model.search = ""; model.clearDetails()
         invalidateInteractions = nil

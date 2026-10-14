@@ -89,6 +89,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileContentHandoff": self?.supported == true,
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
+                "terminalReadmission": self?.supported == true,
                 "coherentShell": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell,
                 "generation": self?.container?.isolationGeneration ?? 0, "isolated": self?.container?.interactionIsolated == true])
         }
@@ -155,6 +156,18 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 controller.model.choose = { [weak self] action, row, text in self?.emit(next.family, action: action, row: row, text: text) == true }
                 controller.invalidateInteractions = { [weak self] in self?.leases[next.family]?.invalidateInteractions() }
+                controller.requestReadmission = { [weak self, weak controller] in
+                    guard let self, let controller, self.controllers[next.family] === controller,
+                          let lease = self.leases[next.family] else { return }
+                    let state = controller.model.projection
+                    let privacy = HushhSessionPrivacyShield.shared.snapshot()
+                    guard self.supported, self.sessionFence.contains(state.identity), privacy.appIsActive,
+                          !privacy.shielded, state.privacyGeneration == privacy.generation else { return }
+                    var event = self.receipt(state, phase: "active")
+                    event.removeValue(forKey: "phase")
+                    event["interactionGeneration"] = lease.interactionGeneration
+                    self.notifyListeners("readmissionRequested", data: event, retainUntilConsumed: false)
+                }
                 self.controllers[next.family] = controller
                 controller.activateInitialPresentation()
             }

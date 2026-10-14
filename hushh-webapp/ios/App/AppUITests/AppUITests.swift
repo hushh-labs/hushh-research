@@ -516,7 +516,10 @@ final class AppUITests: XCTestCase {
             returnToRehearsalChat(app)
         }
         let hosts = app.webViews.matching(identifier: "native-webview")
-        XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
+        if !hosts.firstMatch.waitForExistence(timeout: 15) {
+            printCoherentPresentationAdmission(app)
+            XCTFail("NATIVE_ADMISSION_HOST_UNAVAILABLE"); return
+        }
         XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
         let web = hosts.firstMatch
         if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETRY_VERIFICATION"] == "true" {
@@ -988,6 +991,7 @@ final class AppUITests: XCTestCase {
         returnToRehearsalChat(app)
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         guard web.waitForExistence(timeout: 15), !web.buttons["Unlock"].exists else {
+            printCoherentPresentationAdmission(app)
             XCTFail("COHERENT_SHELL_REQUIRES_UNLOCKED_CHAT"); return
         }
         for label in ["Close Profile", "Close chat history"] {
@@ -3807,7 +3811,10 @@ final class AppUITests: XCTestCase {
         }
         XCTAssertTrue(waitForAdmittedControl(close))
         close.tap()
-        XCTAssertTrue(waitForAdmittedControl(editor))
+        guard waitForAdmittedControl(editor) else {
+            printCoherentPresentationAdmission(app)
+            XCTFail("PROFILE_BATCH_CLOSE_DID_NOT_RESTORE_CHAT"); return
+        }
         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
         XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
         print("PROFILE_STACK_CONTINUITY screens=\(admittedDestinations.count) warm=true single_host=true")

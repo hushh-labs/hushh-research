@@ -5,6 +5,7 @@ import {
   nativeDrawerAcknowledged as acknowledged,
   type HushhNativeDrawersPlugin, type NativeDrawerChoice, type NativeDrawerIdentity,
   type NativeDrawerProjection, type NativeDrawerReceipt,
+  type NativeDrawerReadmission,
 } from "./native-drawers";
 
 export type NativeDrawerActions = {
@@ -30,6 +31,8 @@ export class NativeDrawerPresentation {
   private inFlight: Promise<void> | null = null;
   private handle: PluginListenerHandle | null = null;
   private isolationHandle: PluginListenerHandle | null = null;
+  private readmissionHandle: PluginListenerHandle | null = null;
+  private readmissionGeneration = 0;
   private listening = false;
   private disposed = false;
   private applied = 0;
@@ -45,6 +48,7 @@ export class NativeDrawerPresentation {
     private readonly ownerIsCurrent: () => boolean,
     private readonly onPhase: (phase: NativeDrawerPresentationPhase) => void,
     private readonly onApplied?: (state: NativeDrawerProjection) => void,
+    private readonly onReadmission?: () => boolean,
   ) { this.fence = new NativeDrawerChoiceFence(identity); }
 
   async listen(): Promise<boolean> {
@@ -64,6 +68,11 @@ export class NativeDrawerPresentation {
       const handle = await this.plugin.addListener("choice", event => { void this.choose(event); });
       if (this.disposed) { await handle.remove(); return false; }
       this.handle = handle;
+      if (capability.terminalReadmission === true) {
+        const readmission = await this.plugin.addListener("readmissionRequested", event => this.readmit(event));
+        if (this.disposed) { await readmission.remove(); return false; }
+        this.readmissionHandle = readmission;
+      }
       const pendingIsolation = subscribeNativeDrawerIsolation(this.plugin);
       let isolationRemoved = false;
       const removeLateIsolation = (handle: PluginListenerHandle) => {
@@ -104,6 +113,19 @@ export class NativeDrawerPresentation {
     if (!this.disposed && this.current && this.ownerIsCurrent()) {
       this.current.actions = { ...actions, rows: new Map(actions.rows) };
     }
+  }
+
+  private readmit(event: NativeDrawerReadmission): void {
+    const state = this.current?.state;
+    if (this.disposed || !state || !sameNativeDrawer(event, this.identity) ||
+        event.privacyGeneration !== state.privacyGeneration || event.updateSequence !== state.updateSequence ||
+        !Number.isSafeInteger(event.interactionGeneration) || event.interactionGeneration <= this.readmissionGeneration ||
+        event.interactionGeneration > Number.MAX_SAFE_INTEGER) return;
+    this.readmissionGeneration = event.interactionGeneration;
+    // Refresh presentation from the current feature. Never replay the timed-out
+    // choice, retain an old callback, or grant authority from the native receipt.
+    try { if (!this.ownerIsCurrent() || !this.onReadmission?.()) this.quarantine(); }
+    catch { this.quarantine(); }
   }
 
   private pump() {
@@ -221,11 +243,14 @@ export class NativeDrawerPresentation {
     this.current = null; // Clear private bodies and feature callbacks immediately.
     const handle = this.handle;
     const isolationHandle = this.isolationHandle;
+    const readmissionHandle = this.readmissionHandle;
     this.handle = null;
     this.isolationHandle = null;
+    this.readmissionHandle = null;
     // Listener cleanup may stall; it must not delay native privacy withdrawal.
     // A disposed callback cannot invoke an operation even if removal is late.
     if (handle) void acknowledged(handle.remove()).catch(() => undefined);
+    if (readmissionHandle) void acknowledged(readmissionHandle.remove()).catch(() => undefined);
     // Keep public isolation metadata observable through withdrawal. Otherwise
     // the final uncover event may be missed and base controls stay blocked.
     // Native retirement tombstones this identity even before admission. Send
