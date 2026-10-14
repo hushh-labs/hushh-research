@@ -17,8 +17,8 @@ registration, and redirects; (2) One home, Feed, Profile, wallet, and settings;
 and (4) shared type tokens, native wrappers, route coverage, and automated
 layout checks. The implementation was then made in a fresh branch from `main`.
 
-The route census below contains **152 `app/**/page.tsx` files**: 95 under
-`/one` and 57 elsewhere. A route file is not necessarily a unique rendered
+The route census below contains **153 `app/**/page.tsx` files**: 95 under
+`/one` and 58 elsewhere. A route file is not necessarily a unique rendered
 screen: some routes redirect, and chat panels, sheets, tabs, and OAuth popups
 can render without their own `page.tsx`. These were included in the component
 and asset inspection.
@@ -33,6 +33,7 @@ and asset inspection.
 | Initial Contacts onboarding | A later main update enabled the Contacts setup choice in signup and added a welcome invite sheet. The signup checkbox label inherited body 400, provider CTAs used 700, and “Join Contacts” in the invite sheet used 500. | Give the active signup form label the 600 label role, provider CTAs the CSS 650 role, and the invite card title the 400 regular role. The new welcome screen inherits the shared Jakarta family. |
 | One home and Feed | Shared app shell and capability tiles inherit the global family; Feed rows use shared semantic list roles. | Shared family/role change reaches both. The roster and Feed keep their existing route and data behavior. |
 | Profile and account | 38 route files under `/one/profile`, including account, security, preferences, connected systems, receipts, and support. Local profile pane and row weights competed with shared tokens. | Align page and pane titles with 600, descriptive rows with 400, and labels/actions with the semantic roles. |
+| Personal World Model research and invitations | A later main update added the public invite preview and Profile research/invitation forms. New input labels inherited 400, and research section and coverage topic labels used 500. | Give input, section, and coverage topic labels the 600 role; retain 400 for explanatory copy and consent sentences. The public invite page inherits the shared Jakarta family and PageHeader roles. |
 | Specialist agents and chat | The roster includes Messages, Finance/Kai, Wallet, Location, Advisor/RIA, Mail, Calendar, KYC, Memory, Consent, Information Marketplace, and CRM. Chat workspaces and connector panels used local bold/medium utilities. | Use the shared family across One, Puppy, Marketplace, Circle, Gmail, Location, and specialist chat entry points. Align key chat titles, card titles, connectors, calendar, Kai, and Location headings. Capability status and visibility remain state driven. |
 | Calendar connected and public screens | A later main update added schedule rows with 600-weight event titles, 500-weight provider titles, a regular-weight Join action, 400-weight form labels, and a 500-weight Ask One CTA override. Its browser contract still expected Inter. The public rescheduling page's “Suggest” links also inherited body weight. | Use 400 for event/provider card titles and quiet row copy, 650 for Join, Ask One, and public “Suggest” actions, 600 for form labels and settings legends, and assert Jakarta in the Calendar browser contract. |
 | ToDos | A later main update added a ToDos page with task titles at 600 and an uppercase “Completed” label in Jakarta 600. | Render task titles in the regular 400 row role and the completed-group metadata in system monospace 400. Keep the page and section headings at 600, action buttons at the CTA weight, and form labels at 600. |
@@ -260,3 +261,4 @@ automated contracts without signing into a personal account.
 | `/terms` | [page.tsx](../../../hushh-webapp/app/terms/page.tsx) |
 | `/wallet/open` | [page.tsx](../../../hushh-webapp/app/wallet/open/page.tsx) |
 | `/welcome` | [page.tsx](../../../hushh-webapp/app/welcome/page.tsx) |
+| `/world-model/invite` | [page.tsx](../../../hushh-webapp/app/world-model/invite/page.tsx) |
