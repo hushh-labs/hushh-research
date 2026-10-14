@@ -333,6 +333,7 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
       const stack = page.getByTestId("wallet-add-stack");
       const layers = stack.locator("li:not([inert])");
       await expect(layers).toHaveCount(count + 3);
+      await expect(stack.locator('[data-stack-details] button')).toHaveCount(count + 3);
       await expect(stack.locator("[data-agent-card]")).toHaveCount(3);
       await expect(stack.locator("li[data-gesture-card^=card_]")).toHaveCount(count);
       const geometry = await stack.evaluate((el) => {
@@ -367,7 +368,7 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         // Keep the details consistent with the face across network groupings,
         // while independently requiring only the final four digits to appear.
         expect(maskedNumber).toMatch(/^(?:•+ )+•?\d{4}$/);
-        await last.click();
+        await lastCard.getByRole("button", { name: /^View details for/ }).click();
         await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
         const details = page.getByRole("region", { name: "Saved card details", exact: true });
         await expect(details).toBeVisible();
@@ -976,7 +977,13 @@ test("Wallet onboarding opens stacked cards directly", async ({ page }) => {
 
   await expect.poll(() => page.getByTestId("wallet-card-browser").evaluate(el => el.getAnimations({ subtree: true }).filter(animation => animation.playState === "running" && !((animation.effect as KeyframeEffect)?.target as Element | null)?.closest("[data-wallet-swipe-hint]")).length)).toBe(0);
   await expect.poll(() => page.locator('[data-swipe-views-root="true"]').evaluate(el => Math.abs(el.getBoundingClientRect().height - document.querySelector('#top-shell-wallet-panel-cards')!.getBoundingClientRect().height))).toBeLessThan(1);
-  await expect(page.getByRole("button", { name: /^View details for/ })).toHaveCount(0);
+  await expect(page.getByTestId("wallet-add-stack").locator('[data-stack-details] button')).toHaveCount(6);
+  const profileDetails = page.getByRole("button", { name: "View details for Agent One Profile", exact: true });
+  await expect(profileDetails).toBeInViewport();
+  expect((await profileDetails.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await profileDetails.click();
+  await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
+  await page.getByRole("button", { name: "All cards", exact: true }).click();
   await scrollRoot.evaluate(el => { el.scrollTop = el.scrollHeight; });
   const last = page.getByTestId("wallet-add-stack").locator("li").last().getByRole("button").first();
   await last.focus();
