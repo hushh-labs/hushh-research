@@ -7889,12 +7889,6 @@ html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-c
   top: var(--native-overlay-top, 0px);
   max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
 }
-/* The shared inset-pane recipe uses important geometry. Reconcile its inputs
- * with acknowledged native seats instead of competing with those declarations. */
-html.native-reserved-chrome:not([data-session-check-active]) [data-app-side-pane] {
-  --app-side-pane-top-inset: max(var(--native-overlay-top, 0px), var(--app-side-pane-gutter), var(--app-safe-area-top-effective, 0px));
-  --app-side-pane-bottom-inset: max(var(--native-overlay-bottom, 0px), var(--app-side-pane-gutter), env(safe-area-inset-bottom, 0px));
-}
 html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) [data-testid="profile-pane"] > [data-slot="sheet-header"] {
   padding-top: 1rem;
 }
@@ -7915,21 +7909,10 @@ html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-
 html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) :is(
   [data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]
 ) {
-  /* Do not let the web card's geometry defeat negotiated full-window coverage. */
-  top: 0 !important;
-  bottom: 0 !important;
-  height: 100dvh !important;
-}
-html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-testid="profile-pane"] {
-  right: 0 !important;
-  width: min(430px, 100vw) !important;
-  border-radius: 24px 0 0 24px !important;
-}
-html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-agent-history-drawer] {
-  left: 0 !important;
-  right: auto !important;
-  width: min(430px, 100vw) !important;
-  border-radius: 0 24px 24px 0 !important;
+  /* Coverage admits the overlay; the canonical bounded-pane geometry still owns it. */
+  top: 0;
+  bottom: 0;
+  height: auto;
 }
 html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   [data-profile-preview], [data-profile-preview-scrim],
@@ -7938,60 +7921,6 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   visibility: hidden !important;
 }
 
-/* Profile is a full mobile surface, including its opening preview. History
-   shares that mobile boundary; desktop cards stay bounded. Match a
-   landscape phone by its coarse pointer and short side, not width alone. */
-@media (pointer: coarse) {
-  html:not(.native-reserved-chrome) :is(.profile-pane-sheet[data-slot="sheet-content"], [data-profile-preview]) {
-    --app-side-pane-top-inset: 0px;
-    --app-side-pane-bottom-inset: 0px;
-    --app-side-pane-height: 100dvh;
-    top: 0 !important;
-    bottom: 0 !important;
-    height: 100dvh !important;
-  }
-}
-@media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
-  html:not(.native-reserved-chrome) .profile-pane-sheet[data-slot="sheet-content"],
-  html:not(.native-reserved-chrome) [data-profile-preview],
-  html:not(.native-reserved-chrome) [data-agent-history-drawer],
-  html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) :is([data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]) {
-    --app-side-pane-right-inset: 0px;
-    --app-side-pane-left-inset: 0px;
-    --app-side-pane-top-inset: 0px;
-    --app-side-pane-bottom-inset: 0px;
-    --app-side-pane-height: 100dvh;
-    top: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100vw !important;
-    max-width: none !important;
-    height: 100dvh !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-  }
-  html:not(.native-reserved-chrome) [data-agent-history-drawer],
-  html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-agent-history-drawer] {
-    left: 0 !important;
-  }
-}
-@media (max-width: 639px), (pointer: coarse) {
-  html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-header,
-  html.native-full-window-overlays .profile-pane-sheet .profile-pane-header {
-    padding-top: calc(16px + env(safe-area-inset-top, 0px)) !important;
-    padding-left: max(16px, env(safe-area-inset-left, 0px)) !important;
-    padding-right: max(68px, calc(52px + env(safe-area-inset-right, 0px))) !important;
-  }
-  html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-header--inner,
-  html.native-full-window-overlays .profile-pane-sheet .profile-pane-header--inner {
-    padding-right: max(16px, env(safe-area-inset-right, 0px)) !important;
-  }
-  html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-close,
-  html.native-full-window-overlays .profile-pane-sheet .profile-pane-close {
-    top: calc(17px + env(safe-area-inset-top, 0px)) !important;
-    right: max(16px, env(safe-area-inset-right, 0px)) !important;
-  }
-}
 @media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
   html:not(.native-reserved-chrome) [data-agent-history-sidebar="drawer"],
   html.native-full-window-overlays [data-agent-history-sidebar="drawer"] {

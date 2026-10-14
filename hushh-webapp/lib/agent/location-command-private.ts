@@ -77,6 +77,7 @@ const NOT_FINISHED =
 const OUTCOME_UNCERTAIN =
   "This action may already have happened. Check its result before continuing.";
 const CODES: Readonly<Record<string, string>> = {
+  POD_DIRECT_NOT_READY: "Your private pod connection is not ready yet.",
   COMMAND_SEMANTIC_REQUIRED:
     "Your agent could not understand that request. Try saying it another way.",
   COMMAND_CAPABILITY_MISMATCH:

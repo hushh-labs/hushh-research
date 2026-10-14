@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-export async function expectPaneRestingAtFrame(page: Page, pane: Locator) {
-  const inset = (await profileFrame(page)).x;
+export async function expectPaneRestingAtFrame(page: Page, pane: Locator, leftSafeInset = 0) {
+  const inset = Math.max((await profileFrame(page)).x, leftSafeInset);
   await expect.poll(() => pane.evaluate((element, x) => Math.abs(element.getBoundingClientRect().left - x), inset)).toBeLessThanOrEqual(1);
 }
 

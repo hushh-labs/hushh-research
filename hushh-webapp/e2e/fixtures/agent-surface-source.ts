@@ -108,7 +108,7 @@ const headerContainerClass = one(
 )[1];
 const chromeSource = read("components/app-ui/native-chat-chrome.tsx");
 const historySource = chromeSource.slice(chromeSource.indexOf("export function NativeHistoryOpener"), chromeSource.indexOf("export function NativeHistoryClose"));
-const historyClass = one(historySource, /className="(relative z-\[540\] flex h-11 w-11[^\"]+)"/,
+const historyClass = one(historySource, /<NativeChatChrome\b[\s\S]*?kind="history"[\s\S]*?className="([^\"]+)"/,
   "authored History hit region", "components/app-ui/native-chat-chrome.tsx")[1];
 
 /**

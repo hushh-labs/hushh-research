@@ -25,6 +25,7 @@ function historyCallbacks() {
     useRef: <T,>(value: T) => ({ current: value }),
     user: { uid: "history-owner" },
     workspaceOwnerIdRef: { current: "history-owner" },
+    historyListOwner: { current: null },
     snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent,
     snapshotVaultSessionEpoch, isVaultSessionEpochCurrent,
     getVaultOwnerToken: () => "synthetic-capability",

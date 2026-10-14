@@ -231,7 +231,7 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
     { width: 393, regions: { top: 120, bottom: 280 } },
     { width: 393, regions: { top: 120, bottom: 280, fullWindow: true } }]) {
     const { width, regions } = options;
-    const rightInset = regions?.fullWindow ? 0 : width < 640 ? 12 : 18;
+    const rightInset = width < 640 ? 12 : 18;
     await mount(page, { ...options, at: "/one?profile_pane=1" });
     // A visible sheet can still be travelling in from the right. Measure
     // only its settled grid, not the opening animation's translated frame.

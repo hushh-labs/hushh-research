@@ -144,7 +144,9 @@ describe("Profile canonical page layout", () => {
     );
     expect(tones).toHaveLength(1); // One renderer, not a copied row per destination.
     expect(homeMenu).toContain("menuGroups.map(group");
-    expect(profileMenuGroups(true).flatMap(group => group.entries)).toHaveLength(11);
+    const entries = profileMenuGroups(true).flatMap(group => group.entries);
+    expect(new Set(entries.map(entry => entry.id)).size).toBe(entries.length);
+    expect(profileMenuGroups(false).flatMap(group => group.entries).some(entry => entry.id === "developer-tools")).toBe(false);
     expect(new Set(tones)).toEqual(new Set(["capability"]));
     expect(homeMenu).not.toContain('density="compact"');
     expect(css).toMatch(

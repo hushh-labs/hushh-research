@@ -301,7 +301,7 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     const closeBox = (await close.boundingBox())!;
     expect(closeBox.width).toBeGreaterThanOrEqual(44);
     expect(closeBox.height).toBeGreaterThanOrEqual(44);
-    expect(closeBox.x - drawerBox.x).toBeCloseTo(16, 0);
+    expect(closeBox.x - (await chats.boundingBox())!.x).toBeCloseTo((width < 640 ? 16 : width < 1024 ? 20 : 24) + 1, 0);
     // Layout width, not WebKit's fractional translated DOMRect rounding.
     expect(await close.evaluate(element => (element as HTMLElement).offsetWidth)).toBeGreaterThanOrEqual(44);
     expect(await close.evaluate(element => parseFloat(getComputedStyle(element).borderRadius))).toBeGreaterThanOrEqual(closeBox.width / 2);
@@ -338,12 +338,12 @@ test("History tap motion and interrupted pulls move the entire panel without shi
       };
       requestAnimationFrame(sample);
     });
-    return { frames, width, before, after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y] };
+    return { frames, width, restingX: panel.offsetLeft, before, after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y] };
   });
   // An instantaneous endpoint jump passes a settled screenshot but fails here.
   expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1)).toBe(true);
   expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed).toBeLessThan(100);
-  expect(Math.abs(motion.frames.at(-1)!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(motion.frames.at(-1)!.x - motion.restingX)).toBeLessThanOrEqual(1);
   expect(motion.after).toEqual(motion.before);
   const dialog = page.locator("[data-agent-history-drawer]");
   await expect(dialog).toBeVisible();
@@ -370,7 +370,7 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   expect(measured.after[0]! - measured.after[1]!).toBeCloseTo(measured.before[0]! - measured.before[1]!, 0);
   await expectPaneRestingAtFrame(page, dialog);
   await expect(dialog).toHaveAttribute("aria-hidden", "false");
-  await expect.poll(() => dialog.evaluate(element => element.getBoundingClientRect().x)).toBeCloseTo(0, 0);
+  await expectPaneRestingAtFrame(page, dialog);
   const exit = await page.evaluate(async () => {
     const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
     // The authored Escape handler closes History without another navigation owner.
@@ -384,10 +384,10 @@ test("History tap motion and interrupted pulls move the entire panel without shi
       };
       requestAnimationFrame(sample);
     });
-    return { samples, width: panel.offsetWidth };
+    return { samples, width: panel.offsetWidth, shadowClearance: Number.parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")) || 0 };
   });
   expect(exit.samples.some(x => x < -1 && x > -exit.width + 1)).toBe(true);
-  expect(exit.samples.at(-1)).toBeCloseTo(-exit.width, 0);
+  expect(exit.samples.at(-1)).toBeCloseTo(-exit.width - exit.shadowClearance, 0);
 });
 
 for (const { width, safeLeft } of [
@@ -453,10 +453,7 @@ for (const { width, safeLeft } of [
     // Removing the gesture hint is not a rendered-position receipt. WebKit
     // can still be completing the CSS handoff; that is a valid interrupted
     // re-grab, tested separately, not this fully-open closing contract.
-    await expect.poll(async () => {
-      const bounds = await page.locator('[data-agent-history-drawer]').boundingBox();
-      return bounds?.x;
-    }).toBeCloseTo(0, 0);
+    await expectPaneRestingAtFrame(page, page.locator('[data-agent-history-drawer]'), safeLeft);
     await expect(page.locator("[data-agent-history-drawer]")).not.toHaveAttribute("style", /will-change/);
     // Auth freshness can temporarily disable the gesture while the drawer
     // remains open. Reattaching must preserve the same closed endpoint.

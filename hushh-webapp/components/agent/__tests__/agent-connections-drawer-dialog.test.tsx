@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentConnectionsDrawer } from "@/components/agent/agent-connections-drawer";
@@ -48,7 +48,7 @@ describe("chat drawer dialog layering", () => {
     await waitFor(() => expect(detail).not.toBeInTheDocument());
     expect(screen.getByRole("dialog", { name: "Agent chat history" })).toBeVisible();
   });
-  it("retains the same leading pane and connector state across History child navigation", async () => {
+  it("preserves connector state across the separate modal and History navigation", async () => {
     function Journey() {
       const [mode, setMode] = useState<"chats" | "connections">("chats");
       const trigger = useRef<HTMLButtonElement>(null);
@@ -59,7 +59,8 @@ describe("chat drawer dialog layering", () => {
     render(<Journey />);
     const history = await screen.findByRole("dialog", { name: "Agent chat history" });
     fireEvent.click(screen.getByRole("button", { name: "Open connectors" }));
-    expect(screen.getByRole("dialog", { name: "Chat connectors" })).toBe(history);
+    expect(screen.getByRole("dialog", { name: "Connectors", exact: true })).not.toBe(history);
+    expect(screen.queryByRole("dialog", { name: "Agent chat history" })).toBeNull();
     const field = screen.getByRole("textbox", { name: "Synthetic connector draft" });
     fireEvent.change(field, { target: { value: "public draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Back to chats" }));
@@ -67,5 +68,21 @@ describe("chat drawer dialog layering", () => {
     expect(screen.getByRole("textbox", { name: "Synthetic connector draft" })).toBe(field);
     expect(field).toHaveValue("public draft");
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  });
+  it("refuses delayed web focus restoration after native presentation takes ownership", async () => {
+    function Journey({ renderer }: { renderer: "web" | "blocked" }) {
+      const trigger = useRef<HTMLButtonElement>(null);
+      return <><button ref={trigger}>History trigger</button><AgentConnectionsDrawer open mode="connections"
+        onOpenChange={vi.fn()} triggerRef={trigger} externalModalOpen={false} historyRenderer={renderer}
+        chats={null} connections={<input aria-label="Synthetic connector draft" />} /></>;
+    }
+    const view = render(<Journey renderer="web" />);
+    await screen.findByRole("dialog", { name: "Connectors", exact: true });
+    const trigger = screen.getByRole("button", { name: "History trigger", hidden: true });
+    const focus = vi.spyOn(trigger, "focus");
+    view.rerender(<Journey renderer="blocked" />);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(screen.queryByRole("dialog", { name: "Connectors", exact: true })).toBeNull();
+    expect(focus).not.toHaveBeenCalled();
   });
 });

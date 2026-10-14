@@ -21933,7 +21933,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/agent/location-command-private.ts",
       "symbol": null,
-      "value": 520,
+      "value": 521,
       "ratchet_reason": "new finding"
     },
     {
@@ -43762,5 +43762,13 @@
         "review": "Incoming root8eae owner-bound payout management independently reviewed: strict caller body, current owner/source/mode binding, provider account and HTTPS Express URL checked before/after issuance, no-store, no login-link journaling. One cohesive method, one small adapter port and parametrized security controls. Exact integrated source ceiling; live Stripe acceptance unverified."
       }
     ]
+  },
+  "reviewed_private_command_refusal_20261013": {
+    "base": "e7005fca8c",
+    "key": "module_size|hushh-webapp/lib/agent/location-command-private.ts||module exceeds the advisory operon budget",
+    "before": 520,
+    "after": 521,
+    "source_sha256": "1c58a0d5d861a1f3cf5c1e8bb5ae29344ba57ff8f21d3cca99c845e7e3be5c16",
+    "review": "Independent read-only authority review admits one fixed POD_DIRECT_NOT_READY code/message entry. Existing capability preflight refuses before hub grants or effects. No budget, authorization or error-body disclosure changed."
   }
 }

@@ -175,7 +175,11 @@ stale evidence refuses new placement. No fixed customer count is qualified yet.
 | Cleanup | Provider operation IDs, absence and retention receipts | Keep reservations for uncertain or retained resources | Release only after reconciled absence |
 
 For each resource `r`, calculate
-`floor((effective_limit[r] - observed_usage[r] - reserved[r] - headroom[r]) / per_owner[r])`.
+`max(0, floor((effective_limit[r] - observed_usage[r] - unobserved_reservations[r] - headroom[r]) / per_owner[r]))`.
+Reconcile observed resources and reservations by immutable resource identity;
+`unobserved_reservations` contains only commitments absent from observed usage.
+Active resources are counted once, while pending and uncertain commitments
+remain reserved until their cloud outcome is verified.
 The minimum is the additional permanent-owner envelope. Derive the wake envelope
 separately from granted CPU/RAM and selected configuration; a vCPU label is not a
 performance benchmark. Missing dimensions yield no admissible placement.

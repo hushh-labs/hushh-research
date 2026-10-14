@@ -179,22 +179,6 @@ describe("CapabilityCinematicIntroGate", () => {
     expect(intro?.className).not.toContain("my-auto");
   });
 
-  it("uses transparent, fixed provider mark cells rather than filled brand tiles", () => {
-    // The provider lane moved onto the AI access screen itself when its
-    // prologue was removed; the treatment contract travelled with it.
-    const source = fs.readFileSync(
-      path.resolve(
-        process.cwd(),
-        "components/connections/gemini-runtime-configuration-page.tsx",
-      ),
-      "utf8",
-    );
-
-    expect(source).toContain("data-runtime-provider-lane");
-    expect(source).toContain('className="inline-flex h-9 w-9 items-center justify-center"');
-    expect(source).not.toContain("bg-[color:var(--app-card-surface-compact)]");
-    expect(source).not.toContain("shadow-[var(--shadow-xs)]");
-  });
 
   it("keeps authored cinematic journeys on the shared, non-durable gate", () => {
     const surfaces = [

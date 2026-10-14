@@ -17,18 +17,18 @@ import { CacheService } from "@/lib/services/cache-service";
 
 const mocks = vi.hoisted(() => ({
   loadRuntimeSecret: vi.fn(),
-  getByocSetupStatus: vi.fn(),
+  getPersonalAgentStatus: vi.fn(),
   loadAgentAiState: vi.fn(),
   hasSavedOpenAiKey: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname: () => "/one/setup/connections" }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({
   morphyToast: { success: vi.fn(), error: vi.fn(), promise: vi.fn() },
 }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
-    getByocSetupStatus: (...args: unknown[]) => mocks.getByocSetupStatus(...args),
+    getPersonalAgentStatus: (...args: unknown[]) => mocks.getPersonalAgentStatus(...args),
     validateGeminiRuntimeCredential: vi.fn(),
     selectManagedGeminiRuntime: vi.fn(),
     apiFetch: vi.fn(),
@@ -73,7 +73,7 @@ beforeEach(() => {
   publishValidatedAuthSessionOwner(null);
   publishValidatedAuthSessionOwner("owner-1");
   mocks.loadRuntimeSecret.mockResolvedValue(null);
-  mocks.getByocSetupStatus.mockResolvedValue({ status: "not_started", projectId: null });
+  mocks.getPersonalAgentStatus.mockResolvedValue({ hostingMode: "shared" });
   mocks.loadAgentAiState.mockResolvedValue({ readiness: { kind: "ready" }, selection: null });
   mocks.hasSavedOpenAiKey.mockResolvedValue(false);
 });
