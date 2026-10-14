@@ -214,6 +214,15 @@ by `hushh-webapp/lib/navigation/profile-routes.ts`.
 not be reintroduced as a Connected apps settings surface. Calendar OAuth
 returns through `/one/profile/google/oauth/return` and routes back to Calendar.
 
+The connected workspace defaults to Schedule → Today and uses Location's
+agent shell, Inter heading and segmented main tabs. Invitations and Insights
+are Coming soon. Disconnected onboarding remains unchanged. The standalone
+`/calendar/reschedule` recipient page is public, onboarding/analytics exempt,
+noindex and web-only, with no persistent signed-in chrome. Its fragment
+capability is consumed into memory and scrubbed before requests; it permits
+only reviewed alternatives and an email reply, never a booking or event write.
+
+
 `/one/profile/connectors` is the authenticated connector-management surface.
 Its curated OAuth return route is a transient web callback: it consumes only
 the opaque, same-tab handoff and redirects to Connector Settings after

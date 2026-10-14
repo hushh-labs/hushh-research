@@ -721,8 +721,9 @@ test("all twenty payment finishes fit long names and a revealed 19-digit number 
 
 for (const width of [320, 390, 1440]) {
   test(`Wallet Sharing keeps history and revocation reachable at ${width}px`, async ({ page }) => {
-    // This journey covers two details and Cancel, Escape and revoke paths.
-    // Give the whole scenario room on Linux WebKit; each expectation stays bounded.
+    // This journey opens both histories and exercises cancel, Escape, and revoke.
+    // Shared WebKit runners need room for the full sequence; each assertion
+    // retains its normal timeout so a stalled dialog still fails promptly.
     test.setTimeout(60_000);
     const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
     await mount(page);
