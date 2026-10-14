@@ -3643,6 +3643,12 @@ final class AppUITests: XCTestCase {
         let close = app.buttons["native-profile-drawer-close"].firstMatch
         let back = app.buttons["Back in Profile"].firstMatch
         let destinations = ["account", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
+        let requestedStart = ProcessInfo.processInfo.environment["HUSHH_PROFILE_BATCH_START"]
+        guard requestedStart == nil || destinations.contains(requestedStart!) else {
+            XCTFail("PROFILE_BATCH_START_UNADMITTED"); return
+        }
+        let startIndex = requestedStart.flatMap { destinations.firstIndex(of: $0) } ?? 0
+        let admittedDestinations = Array(destinations.dropFirst(startIndex))
         func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
         func publicPaneGeometry() -> (sample: Int, frame: CGRect)? {
             let probe = app.buttons["native-profile-back-admission"].firstMatch
@@ -3709,7 +3715,7 @@ final class AppUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
         XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
         XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
-        for id in destinations {
+        for id in admittedDestinations {
             let destination = root(id)
             for _ in 0..<5 {
                 if destination.exists && destination.isHittable { break }
@@ -3733,7 +3739,11 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                 XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
                 routeBack.tap()
-                guard web.links["Open Memory"].firstMatch.waitForExistence(timeout: 15) else {
+                // The launcher is the parent contract; a lower roster item
+                // may be virtualized outside WebKit's visible AX tree.
+                // Observe its stationary authored view control instead.
+                guard web.buttons["Show agent grid view"].firstMatch.waitForExistence(timeout: 15),
+                      !web.staticTexts["Referrals"].firstMatch.exists else {
                     XCTFail("PROFILE_BATCH_REFERRALS_PARENT_NOT_RESTORED"); return
                 }
                 perfTapNav(app, label: "Chat")
@@ -3809,7 +3819,7 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(waitForAdmittedControl(editor))
         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
         XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
-        print("PROFILE_STACK_CONTINUITY screens=9 warm=true single_host=true")
+        print("PROFILE_STACK_CONTINUITY screens=\(admittedDestinations.count) warm=true single_host=true")
         let oneProfile = web.buttons["Open One profile"].firstMatch
         guard waitForAdmittedControl(oneProfile) else { XCTFail("ONE_PROFILE_OPENER_UNAVAILABLE"); return }
         oneProfile.tap()
