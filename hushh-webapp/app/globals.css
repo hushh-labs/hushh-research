@@ -977,6 +977,7 @@ textarea {
   --motion-duration-md: 125ms;
   --motion-duration-lg: 140ms;
   --motion-duration-xl: 150ms;
+  --motion-shortcut-icon-cycle-duration: 850ms;
   --motion-duration-xxl: 150ms;
 
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);

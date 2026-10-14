@@ -897,10 +897,14 @@ Rules:
    Password fields and the shell's vault unlock control use `AccentedKeyIcon`:
    the original canonical key artwork with Profile ink and an accent pinpoint.
    Field keys remain 18px and the shell key remains 20px.
-   Chat's To-do, Get the app, and Connectors shortcuts use foreground ink.
-   Their registry-owned outline artwork animates internal parts on hover or
-   keyboard focus while the glyph stays anchored. Reduced motion disables
-   those animations; dark mode uses the corresponding foreground token.
+   Chat's To-do shortcut uses foreground ink; Get the app and Connectors retain
+   muted utility ink. All three use a finite 850ms registry-owned part animation on whole-row hover or
+   keyboard focus. Paper folds and redraws its text, the download arrow enters
+   a masked tray, and diagonal plug halves join briefly before separating.
+   Labels and whole glyphs stay anchored. Playback finishes on pointer leave,
+   ignores re-entry while running, and replays only on a later entry. Reduced
+   motion is static; touch actions remain immediate. The paper's soft hover
+   circle is a separate layer. Dark mode uses the corresponding semantic ink.
 5. Prefer relative icons that describe the section or action directly.
 6. When building custom icon wells or icon-bearing surfaces, preserve the canonical Phosphor assumptions:
    - native `viewBox="0 0 256 256"` and the registry's duotone geometry
