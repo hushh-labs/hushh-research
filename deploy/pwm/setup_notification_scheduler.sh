@@ -47,4 +47,4 @@ ACTUAL="$(gcloud scheduler jobs describe "$PWM_JOB" "${ARGS[@]}" --format='value
 EXPECTED="ENABLED"$'\t'"$PWM_ORIGIN/api/internal/pwm-notifications/drain"$'\t'"$PWM_ACCOUNT"$'\t'"$PWM_ORIGIN"$'\t'"POST"$'\t'"* * * * *"$'\t'"Etc/UTC"
 [[ "$ACTUAL" == "$EXPECTED" ]] || { echo 'PWM scheduler verification failed' >&2; exit 1; }
 gcloud scheduler jobs describe "$PWM_JOB" "${ARGS[@]}" --format=json
- echo 'PWM notification scheduler configured and verified.' 
+echo 'PWM notification scheduler configured and verified.'
