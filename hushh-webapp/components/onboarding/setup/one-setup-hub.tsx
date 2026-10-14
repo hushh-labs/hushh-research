@@ -15,7 +15,6 @@ import { SetupNavigationTile } from "@/components/onboarding/setup/capability-se
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useInitialContacts } from "@/components/onboarding/initial-contacts-bridge";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
-import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -242,7 +241,7 @@ export function OneSetupHub() {
       // in-memory context and consumes this marker once; no private values
       // enter the route or conversation history.
       const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
-      const showContactsWelcome = initialContactOnboardingEnabled() &&
+      const showContactsWelcome =
         (bootstrap?.initialContactsWelcomeAcknowledged === false ||
           InitialContacts.getSnapshot().ownerId === user.uid);
       if (!showContactsWelcome) queueEntryWelcome(user.uid);
@@ -445,7 +444,7 @@ export function OneSetupHub() {
                   isComplete={runtimeChoiceComplete}
                 />
               </SettingsGroup>
-              {initialContactOnboardingEnabled() && initialContacts.ownerId === user?.uid ? (
+              {initialContacts.ownerId === user?.uid ? (
                 <SettingsGroup separatorInset>
                   <SettingsRow title={initialContacts.source === "device" ? "Find people from your phone" : "Find people with Google Contacts"}
                     description={initialContacts.status === "ready"
