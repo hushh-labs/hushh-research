@@ -83,6 +83,7 @@ async def test_uncertain_scanned_date_cannot_be_declared_ready(monkeypatch):
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
         "correct_record_status": True,
+        "correct_standalone_value": True,
         "correct_coverage": True,
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
