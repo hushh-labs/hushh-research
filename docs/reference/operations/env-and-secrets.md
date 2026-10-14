@@ -438,6 +438,21 @@ secret, or a client-visible model credential. `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMP
 is presentation-only public configuration and must never carry any of those
 values.
 
+Receipt logo configuration is a Next.js build-time value. A Cloud Run runtime
+variable alone cannot change an already compiled client. An approved Logo.dev
+publishable token can use this exact template in the deployment build environment:
+
+```text
+NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE=https://img.logo.dev/{domain}?token=APPROVED_PUBLISHABLE_TOKEN&size=128&format=png&fallback=404&redirect=404
+```
+
+Replace only the token placeholder through the approved deployment configuration;
+never commit the real value or put it in source/env examples. Leave the optional
+resource absent until an approved publishable token exists. The existing UAT
+build lane is described in [UAT receipt-logo build configuration](#uat-receipt-logo-build-configuration);
+provisioning the resource does not authorize a rollout. The `404` options preserve
+category/generic fallback for missing or redirected logos.
+
 **Migrations/scripts:** Use **DB_*** only (same as runtime). `db/migrate.py` uses `db.connection.get_database_url()` and `get_database_ssl()`. No `DATABASE_URL` anywhere.
 
 ### Frontend (hushh-webapp)
