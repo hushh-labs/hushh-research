@@ -185,6 +185,54 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: Drive request package assessment
+
+- Owner: the existing Documents `agent_documents_suggestions` gene, with explicit
+  `document_assessment` and `package_assessment` task modes in
+  `hushh_mcp/agents/documents/agent.yaml`; no parallel router or direct model prompt.
+- Output: `DocumentBatchAssessment` and `PackageAssessment` in
+  `hushh_mcp/services/drive_request_package_assessment.py`. The gene decides
+  relevance, content periods, inclusion, coverage, confidence (0–100 assessment,
+  not a probability), importance (1–500) and editable estimated USD cents (50–50000).
+- Validators check supplied document identity, exact same-document quotation,
+  source references, provider-version binding, calendar validity, bounded context,
+  typed money, and consistency with explicit truncation/unreadable evidence. They
+  reject invalid output; they never invent relevance, substitute prices, approve
+  sharing, or treat the model's confidence as measured accuracy. The caller owns
+  consent, current provider versions, request revision and exact package approval.
+- Live eval before promotion: `scripts/eval_drive_package_assessment.py --reps 3`
+  uses 12 synthetic gold-labeled cases, both real model stages and 36 repetitions.
+  Every exact document/package decision and money bound must pass, with zero
+  false acceptance or missing expected included file. It reports abstention,
+  precision, recall, latency and errors. Mock tests and model self-confidence do
+  not satisfy that gate. This is bounded synthetic evidence, not a calibration,
+  production-corpus recall measurement or empirical market-price validation.
+
+### Declared: Continuous Drive evidence and reusable packets
+
+- Owner: existing Documents `agent_documents_suggestions` gene in
+  `hushh_mcp/agents/documents/agent.yaml`; modes `page_facts`, `document_facts`,
+  `canonical_packet`, and `packet_verification`. Request matching retains its
+  existing document/package modes. No keyword router decides relevance.
+- Output: `DocumentPageFacts`, `DocumentFacts`, `PacketAssessment`, and
+  `PacketVerification` in `services/drive_packet_contract.py`. Meaning, canonical
+  grouping, coverage, importance and suggested prices remain model decisions.
+- Validators account for every supplied page, exact page/unit quotation,
+  source/facts versions, complete processing, bounded context and approved
+  identities. Consolidation cannot invent citations; unfinished evidence cannot
+  be ready. A simpler provider JSON grammar avoids measured Vertex complexity
+  errors; all original Pydantic limits still apply to returned output.
+- Live evaluation: original PDFs, including image-only scans, through real OCR,
+  fact extraction, request selection and a separate runtime verifier using
+  `consent-protocol/scripts/eval_drive_pipeline.py` and
+  `consent-protocol/scripts/drive_pipeline_model_adapter.py`.
+  Independent fixture labels never enter model inputs. Preserve every failure,
+  report all-attempt denominators, model/prompt/schema/extraction versions and
+  latency. Synthetic results are a regression gate, never the 99.9% proof.
+- Permission and commerce: explicit collection processing consent is separate
+  from summary publication and exact buyer approval. Existing purchase/delivery
+  workers retain authority. A runtime checker is not an independent gold label.
+
 ### Declared: Soul.md reconciliation profile
 
 - Owners: existing Memory Segmentation, Intent, Merge and PKM Structure agents;
@@ -802,3 +850,26 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   the same input that proposed the card, refused as `card_not_shown`, which
   is recorded like a person's yes (structure cannot tell it from a yes given
   with the request, such as "call it Home instead, yes").
+
+
+### Declared: explicit Personal World Model research
+
+- Owning agent: One's `one_personal_world_model` manifest specialist, entered by
+  the owner from Profile. It chooses source queries, identity pivots, evidence
+  interpretation, fact support, coverage gaps and plain-English summaries.
+- Host contract: verified owner/setup/vault authority; exact contact matching for
+  invitation claims; bounded durable attempts, timeouts, response schemas and
+  receipt resolution. These checks cannot promote an uncertain candidate or
+  manufacture a numerical confidence probability. Python rejects inconsistent
+  identity/report enums; it does not recompute a successful semantic answer.
+- Persistence: only selected/edited owner-confirmed facts use the existing exact
+  review mutation. Source references resolve only from received tool receipts.
+  Draft generation IDs and CAS fences reject stale dismissal/completion. The
+  saved page projects approved PKM; it does not synthesize new claims.
+- Failure: missing provider, exhausted budget, invalid output or authority loss
+  yields unavailable/disabled; never inferred no-match. The job records terminal
+  state and attempt charges without logging identity or query contents.
+- Evidence: checkpoint/revocation/completion tests and invitation authority tests
+  exercise production services. Live precision, preference attribution and
+  latency require consented evaluation after the optional search key is configured.
+- Scope and exact prompt: [Personal World Model KT](../../../docs/reference/one/personal-world-model.md).

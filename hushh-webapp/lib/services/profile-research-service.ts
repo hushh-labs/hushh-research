@@ -34,12 +34,33 @@ const report = z
       .array(
         z
           .object({
-            kind: z.enum(["business", "career", "education", "personal"]),
+            kind: z.enum([
+              "business",
+              "career",
+              "education",
+              "personal",
+              "projects",
+              "publications",
+              "achievements",
+              "community",
+              "interests",
+              "preferences",
+              "dislikes",
+              "style",
+              "food",
+              "travel",
+              "entertainment",
+              "shopping",
+              "communication",
+              "digital_presence",
+              "public_records",
+              "security",
+            ]),
             facts: z.array(fact).min(1).max(8),
           })
           .strict(),
       )
-      .max(4),
+      .max(20),
   })
   .strict()
   .refine(
@@ -70,10 +91,31 @@ const response = z
     z
       .object({
         status: z.literal("offered"),
+        draft_id: z.string().uuid().optional(),
         pkm_written: z.literal(false),
         report,
         search_suggestions: z.array(z.string().max(40_000)).max(5),
         verification: verification.optional(),
+        research: z
+          .object({
+            identity: z
+              .object({
+                state: z.enum([
+                  "owner_linked",
+                  "candidate_for_review",
+                  "ambiguous",
+                  "no_match",
+                ]),
+                reason: z.string().max(600),
+                probability: z.null(),
+              })
+              .strict(),
+            checked_topics: z.array(z.string().max(160)).max(20),
+            gaps: z.array(z.string().max(600)).max(20),
+            searches_used: z.number().int().min(0).max(32),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
     z
@@ -159,17 +201,58 @@ export const PROFILE_SECTION_LABELS = {
   career: "Career",
   education: "Education",
   personal: "Personal details",
+  projects: "Projects",
+  publications: "Publications",
+  achievements: "Achievements",
+  community: "Community",
+  interests: "Interests",
+  preferences: "Preferences",
+  dislikes: "Dislikes",
+  style: "Style & colors",
+  food: "Food",
+  travel: "Travel",
+  entertainment: "Entertainment",
+  shopping: "Shopping",
+  communication: "Communication",
+  digital_presence: "Public profiles",
+  public_records: "Professional records",
+  security: "Security",
 } as const;
 
 export const ProfileResearchService = {
+  async discard(input: {
+    vaultKey: string;
+    vaultOwnerToken: string;
+    draftId?: string;
+  }): Promise<void> {
+    z.object({ discarded: z.literal(true) })
+      .strict()
+      .parse(
+        await apiJson(
+          `/api/one/world-model/jobs${input.draftId ? `?draft_id=${encodeURIComponent(input.draftId)}` : ""}`,
+          {
+            method: "DELETE",
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${input.vaultOwnerToken}`,
+              ...(await oneChatKeyHeaders(input.vaultKey)),
+            },
+          },
+        ),
+      );
+  },
   /** Only acknowledged owner-reviewed PKM receipts can complete the offer. */
   async complete(input: {
     vaultKey: string;
     vaultOwnerToken: string;
     commits: { domain: string; planId: string }[];
+    worldModel?: boolean;
+    draftId?: string;
   }): Promise<void> {
     const result = await apiJson<unknown>(
-      "/api/one/profile-research/complete",
+      input.worldModel
+        ? "/api/one/world-model/complete"
+        : "/api/one/profile-research/complete",
       {
         method: "POST",
         cache: "no-store",
@@ -179,6 +262,7 @@ export const ProfileResearchService = {
           ...(await oneChatKeyHeaders(input.vaultKey)),
         },
         body: JSON.stringify({
+          ...(input.worldModel ? { draft_id: input.draftId } : {}),
           commits: input.commits.map(({ domain, planId }) => ({
             domain,
             plan_id: planId,
@@ -196,28 +280,37 @@ export const ProfileResearchService = {
     vaultOwnerToken: string;
     signal: AbortSignal;
     isCurrent?: () => boolean;
+    worldModel?: boolean;
   }): Promise<ProfileResearchResult> {
     const assertCurrent = () => {
       if (input.signal.aborted || input.isCurrent?.() === false)
         throw new DOMException("Aborted", "AbortError");
     };
+    const deadline = Date.now() + 330_000;
     let method = "POST";
     let delay = 3000;
     for (;;) {
       assertCurrent();
+      if (Date.now() >= deadline)
+        return { status: "unavailable", pkm_written: false };
       const keyHeaders = await oneChatKeyHeaders(input.vaultKey);
       assertCurrent();
       let payload: unknown;
       try {
-        payload = await apiJson<unknown>("/api/one/profile-research/jobs", {
-          method,
-          cache: "no-store",
-          signal: input.signal,
-          headers: {
-            Authorization: `Bearer ${input.vaultOwnerToken}`,
-            ...keyHeaders,
+        payload = await apiJson<unknown>(
+          input.worldModel
+            ? "/api/one/world-model/jobs"
+            : "/api/one/profile-research/jobs",
+          {
+            method,
+            cache: "no-store",
+            signal: input.signal,
+            headers: {
+              Authorization: `Bearer ${input.vaultOwnerToken}`,
+              ...keyHeaders,
+            },
           },
-        });
+        );
       } catch (error) {
         assertCurrent();
         if (
@@ -235,7 +328,11 @@ export const ProfileResearchService = {
       }
       assertCurrent();
       const result = jobResponse.parse(payload);
-      if (result.status !== "pending") return result;
+      if (result.status !== "pending") {
+        if (input.worldModel && result.status === "offered" && !result.draft_id)
+          throw new Error("Missing reviewed draft identity");
+        return result;
+      }
       method = "GET";
       if (result.restart_required) {
         return { status: "unavailable", pkm_written: false };

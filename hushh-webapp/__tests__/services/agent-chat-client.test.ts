@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockTransport = vi.hoisted(() => ({
   runAgent: vi.fn(),
+  addMessage: vi.fn(),
+  setMessages: vi.fn(),
+  nativeMode: false,
   outcome: "success" as "success" | "interrupt",
   emitEvents: null as null | ((subscriber: Record<string, (input: any) => void>) => void),
   aborted: false,
@@ -17,18 +20,27 @@ const mockTransport = vi.hoisted(() => ({
   readBody: false,
 }));
 
-vi.mock("@ag-ui/client", () => ({
+vi.mock("@ag-ui/client", async () => {
+  const actual = await vi.importActual<typeof import("@ag-ui/client")>("@ag-ui/client");
+  return {
   HttpAgent: class {
     private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     private releaseAfterEof: (() => void) | null = null;
-    constructor(public config: { fetch?: (url: string, init: RequestInit) => Promise<Response> }) {}
+    private realAgent: InstanceType<typeof actual.HttpAgent> | null;
+    constructor(public config: ConstructorParameters<typeof actual.HttpAgent>[0]) {
+      this.realAgent = mockTransport.nativeMode ? new actual.HttpAgent(config) : null;
+    }
+    addMessage(message: Parameters<typeof actual.HttpAgent.prototype.addMessage>[0]) { mockTransport.addMessage(message); this.realAgent?.addMessage(message); }
+    setMessages(messages: Parameters<typeof actual.HttpAgent.prototype.setMessages>[0]) { mockTransport.setMessages(messages); this.realAgent?.setMessages(messages); }
     abortRun() {
       mockTransport.aborted = true;
+      this.realAgent?.abortRun();
       void this.reader?.cancel();
       this.releaseAfterEof?.();
     }
     async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
       mockTransport.runAgent(parameters, this.config);
+      if (this.realAgent) return this.realAgent.runAgent(parameters as Parameters<typeof actual.HttpAgent.prototype.runAgent>[0], subscriber);
       if (mockTransport.failWith) {
         const error = mockTransport.failWith;
         subscriber.onRunFailed?.({ error });
@@ -86,7 +98,7 @@ vi.mock("@ag-ui/client", () => ({
       });
     }
   },
-}));
+}; });
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
@@ -98,6 +110,14 @@ vi.mock("@/lib/services/api-service", () => ({
     deleteAgentChatConversation: vi.fn(),
   },
 }));
+
+const receiptTools = vi.hoisted(() => ({ run: vi.fn() }));
+vi.mock("@/lib/mail/receipt-store", () => ({ runReceiptFunction: receiptTools.run }));
+const receiptResetSignal = vi.hoisted(() => ({ listener: null as null | ((owner: string) => void), unsubscribe: vi.fn() }));
+vi.mock("@/lib/services/secure-durable-resource-service", () => ({ subscribeDurableOwnerReset: (listener: (owner: string) => void) => {
+  receiptResetSignal.listener = listener;
+  return receiptResetSignal.unsubscribe;
+} }));
 
 import {
   AGENT_CHAT_STREAM_IDLE_MS,
@@ -139,6 +159,7 @@ describe("One chat key transport", () => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.runAgent.mockClear();
     mockTransport.aborted = false;
+    mockTransport.nativeMode = false;
     mockTransport.failWith = null;
     const selection = { jobId: "11111111-1111-4111-8111-111111111111", position: 3 };
     await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Show me this file",
@@ -850,6 +871,9 @@ describe("AG-UI Agent One client", () => {
   beforeEach(() => {
     publishValidatedAuthSessionOwner(null);
     mockTransport.runAgent.mockClear();
+    mockTransport.addMessage.mockClear();
+    mockTransport.setMessages.mockClear();
+    receiptTools.run.mockReset();
     mockTransport.outcome = "success";
     mockTransport.emitEvents = null;
     mockTransport.aborted = false;
@@ -885,7 +909,7 @@ describe("AG-UI Agent One client", () => {
     expect(experiences).toEqual(["one.scope_discovery.v1"]);
     expect(experienceIds).toEqual(["activity-1"]);
     expect(mockTransport.runAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ tools: [], context: [], forwardedProps: expect.any(Object) }),
+      expect.objectContaining({ tools: expect.arrayContaining([expect.objectContaining({ name: "list_recent_receipts" }), expect.objectContaining({ name: "receipt_spending" })]), context: [], forwardedProps: expect.any(Object) }),
       expect.objectContaining({ url: "/api/one/agent-chat", threadId: "thread-1" }),
     );
   });
@@ -1060,7 +1084,7 @@ describe("AG-UI Agent One client", () => {
     );
   });
 
-  it("carries the saved receipt index only on a turn that has one", async () => {
+  it("never forwards a legacy receipt index, including receipt questions", async () => {
     const receiptMemory = {
       schema: "receipt_canonical_index.v1" as const,
       generated_at: "2026-10-09T10:00:00Z",
@@ -1075,11 +1099,100 @@ describe("AG-UI Agent One client", () => {
     await streamAgentChat({ ...turn, message: "What is on my calendar?", receiptMemory: null });
     await streamAgentChat({ ...turn, message: "Hello" });
 
-    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.receiptMemory).toEqual(receiptMemory);
+    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps).not.toHaveProperty("receiptMemory");
     expect(mockTransport.runAgent.mock.calls[1]?.[0].forwardedProps).not.toHaveProperty("receiptMemory");
     expect(mockTransport.runAgent.mock.calls[2]?.[0].forwardedProps).not.toHaveProperty("receiptMemory");
     // Typed data beside the turn, never inside the memory packet One reads as text.
     expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.pkmContext ?? "").not.toContain("receipt_canonical_index");
+  });
+
+  it.each([false, true])("uses native streamed receipt calls despite redacted snapshots (remapped=%s)", async remapped => {
+    publishValidatedAuthSessionOwner("user-1");
+    mockTransport.nativeMode = true;
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const query = { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 };
+    const result = { schema: "receipt_analysis.v1", operation: "receipt_spending", status: "ok", results: [{ label: "SYNTHETIC_PRIVATE_MERCHANT", paid_amount: "7.00" }] };
+    receiptTools.run.mockResolvedValue(result);
+    const stream = (events: unknown[]) => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+    vi.mocked(ApiService.apiFetchStream).mockResolvedValueOnce(stream([
+      { type: "RUN_STARTED", threadId: "thread-1", runId: "native-1" },
+      { type: "TOOL_CALL_START", toolCallId: "streamed-call", toolCallName: "receipt_spending" },
+      { type: "TOOL_CALL_ARGS", toolCallId: "streamed-call", delta: JSON.stringify(query) },
+      { type: "STATE_SNAPSHOT", snapshot: {} },
+      { type: "MESSAGES_SNAPSHOT", messages: [{ id: "native-assistant", role: "assistant", toolCalls: [{ id: remapped ? "final-call" : "streamed-call", type: "function", function: { name: "receipt_spending", arguments: "{}" } }] }] },
+      { type: "TOOL_CALL_END", toolCallId: "streamed-call" },
+      { type: "RUN_FINISHED", threadId: "thread-1", runId: "native-1" },
+    ])).mockResolvedValueOnce(stream([
+      { type: "RUN_STARTED", threadId: "thread-1", runId: "native-2" },
+      { type: "TEXT_MESSAGE_START", messageId: "answer", role: "assistant" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "answer", delta: "SYNTHETIC_PRIVATE_MERCHANT paid 7.00" },
+      { type: "TEXT_MESSAGE_END", messageId: "answer" },
+      { type: "RUN_FINISHED", threadId: "thread-1", runId: "native-2" },
+    ]));
+    const events: string[] = [], onToolResult = vi.fn();
+    try {
+      await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant",
+        handlers: { onReceiptPrivate: () => events.push("private"), onToken: () => events.push("token"), onToolResult } });
+      expect(receiptTools.run).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1" }), "receipt_spending", query);
+      expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
+      expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps).not.toHaveProperty("receiptToolResults");
+      expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps.receiptToolResults).toEqual([{ toolCallId: "streamed-call", toolName: "receipt_spending", request: query, result }]);
+      expect(events[0]).toBe("private");
+      expect(events).toContain("token");
+      expect(JSON.stringify(mockTransport.addMessage.mock.calls)).not.toMatch(/SYNTHETIC_PRIVATE|7\.00/);
+      expect(JSON.parse(mockTransport.addMessage.mock.calls[0][0].content)).toEqual({ schema: "receipt_result.v1", operation: "receipt_spending", ephemeral_result: true });
+      expect(JSON.stringify(onToolResult.mock.calls)).not.toMatch(/SYNTHETIC_PRIVATE|7\.00/);
+      expect(mockTransport.setMessages).toHaveBeenLastCalledWith([]);
+    } finally { mockTransport.nativeMode = false; }
+  });
+
+  it("refuses the receipt continuation after an owner vault transition", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    mockTransport.emitEvents = subscriber => subscriber.onToolCallEndEvent({ event: { toolCallId: "stale-receipt" }, toolCallName: "receipt_spending", toolCallArgs: { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 } });
+    receiptTools.run.mockImplementation(async () => { advanceVaultSessionEpoch(); return { private_amount: "7.00" }; });
+    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant" })).rejects.toThrow("authority changed");
+    expect(mockTransport.runAgent).toHaveBeenCalledOnce();
+    expect(mockTransport.setMessages).toHaveBeenLastCalledWith([]);
+  });
+
+  it("returns unavailable receipt coverage for that turn without inbox fallback or persistence", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const query = { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 };
+    mockTransport.emitEvents = subscriber => { if (mockTransport.runAgent.mock.calls.length === 1) subscriber.onToolCallEndEvent({ event: { toolCallId: "unavailable-receipt" }, toolCallName: "receipt_spending", toolCallArgs: query }); };
+    receiptTools.run.mockRejectedValue(new Error("Snapshot unavailable"));
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant" });
+    expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
+    expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps.receiptToolResults[0].result).toMatchObject({ status: "unavailable", requested_range: { from: query.from_date, to: query.to_date, timezone }, source_freshness: null, canonical_transaction_count: null, coverage: null });
+    expect(mockTransport.setMessages).toHaveBeenLastCalledWith([]);
+    expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps).not.toHaveProperty("pkmContext");
+  });
+
+  it("refuses native receipt continuation when Reset arrives after computation but before terminal delivery", async () => {
+    publishValidatedAuthSessionOwner("user-1"); mockTransport.nativeMode = true;
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const query = { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 };
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const emit = (event: unknown) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+    const body = new ReadableStream<Uint8Array>({ start(c) { controller = c;
+      emit({ type: "RUN_STARTED", threadId: "thread-1", runId: "native-1" });
+      emit({ type: "TOOL_CALL_START", toolCallId: "call", toolCallName: "receipt_spending" });
+      emit({ type: "TOOL_CALL_ARGS", toolCallId: "call", delta: JSON.stringify(query) });
+      emit({ type: "TOOL_CALL_END", toolCallId: "call" });
+    } });
+    receiptTools.run.mockImplementation(async () => {
+      setTimeout(() => { receiptResetSignal.listener?.("user-1"); emit({ type: "RUN_FINISHED", threadId: "thread-1", runId: "native-1" }); controller.close(); }, 0);
+      return { private_amount: "7.00" };
+    });
+    vi.mocked(ApiService.apiFetchStream).mockResolvedValueOnce(new Response(body, { headers: { "content-type": "text/event-stream" } }));
+    try {
+      await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant" })).rejects.toThrow("authority changed");
+      expect(mockTransport.runAgent).toHaveBeenCalledOnce();
+      expect(mockTransport.addMessage).not.toHaveBeenCalled();
+      expect(mockTransport.setMessages).toHaveBeenLastCalledWith([]);
+      expect(receiptResetSignal.unsubscribe).toHaveBeenCalled();
+    } finally { mockTransport.nativeMode = false; }
   });
 
   it("uses the same AG-UI endpoint before vault unlock", async () => {

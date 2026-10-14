@@ -151,6 +151,33 @@ def test_targeted_rejects_an_unknown_part() -> None:
     assert code == 2 and not calls
 
 
+def test_paid_answer_photo_inputs_schedule_browser_pack() -> None:
+    # Drive the selector, including fixture-only and crypto-only changes that
+    # previously had no browser proof. Merely naming a spec is insufficient:
+    # the explicit pack must include it in both shipped-browser runs.
+    for changed in (
+        "hushh-webapp/components/consent/answer-request-card.tsx",
+        "hushh-webapp/components/ui/avatar.tsx",
+        "hushh-webapp/lib/answers/answer-profile-photo.ts",
+        "hushh-webapp/lib/one-marketplace/encryption.ts",
+        "hushh-webapp/lib/services/answer-request-service.ts",
+        "hushh-webapp/lib/vault/session-epoch.ts",
+        "hushh-webapp/e2e/fixtures/answer-profile-photo-boundaries.tsx",
+    ):
+        code, calls, output = _run(
+            TARGETED,
+            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed},
+        )
+        assert code == 0, output[-2000:]
+        assert calls.count("run test:layout-contracts") == 1, (changed, calls)
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    pack = scripts["test:layout-contracts"]
+    spec = "e2e/answer-profile-photo.layout.spec.ts"
+    assert pack.count(spec) == 2
+    assert f"{spec}" in pack.split("--project=chromium")[0]
+    assert f"{spec}" in pack.split("--project=chromium")[1].split("--project=webkit")[0]
+
+
 def test_full_suite_shards_run_verifiers_once() -> None:
     code, unsharded, output = _run(FULL_SUITE, {"WEB_FULL_SUITE_SHARD": ""})
     assert code == 0, output[-2000:]
@@ -206,6 +233,7 @@ def main() -> int:
     tests = (
         test_targeted_legs_partition_the_matched_packs,
         test_targeted_rejects_an_unknown_part,
+        test_paid_answer_photo_inputs_schedule_browser_pack,
         test_full_suite_shards_run_verifiers_once,
         test_workflow_schedules_every_leg_and_shard,
     )

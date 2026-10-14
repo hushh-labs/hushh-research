@@ -2,7 +2,8 @@
  * Wallet service - the single boundary for the reserved `wallet`
  * PKM domain. All storage rides PersonalKnowledgeModelService (client-side
  * AES-256-GCM under the vault key; the server holds ciphertext only), so this
- * module performs no fetch of its own.
+ * credential storage never bypasses that service. Network metadata alone uses
+ * the owner-authorized Wallet backend.
  *
  * Domain data shape (inside the encrypted blob):
  *   { summary: { [cardId]: WalletCardSummaryRecord },
@@ -13,10 +14,16 @@
  */
 
 import {
+  isCardNetworkId,
+  normalizePan,
   validateCardForRegion,
   type CardBrand,
   type CardValidationResult,
 } from "@/lib/wallet/card-validation";
+import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
@@ -52,6 +59,34 @@ export interface WalletCardInput {
   issuingRegion?: string;
 }
 
+class WalletNetworkSessionChangedError extends Error {}
+
+export interface WalletNetworkContext { userId: string; vaultOwnerToken: string }
+export interface WalletNetworkInput { iinPrefix: string; panLength: number; selectedNetwork?: CardBrand }
+export interface WalletNetworkResult {
+  network: CardBrand;
+  source: "prefix" | "owner_selected" | "ambiguous" | "unknown";
+  candidates: CardBrand[];
+}
+
+function normalizedNetwork(value: unknown): CardBrand {
+  const key = String(value ?? "").trim().toLowerCase() as CardBrand;
+  return isCardNetworkId(key) ? key : "other";
+}
+
+function networkSessionGuard(context: WalletNetworkContext, signal?: AbortSignal): () => void {
+  const epoch = snapshotVaultSessionEpoch();
+  const owner = snapshotValidatedAuthSessionOwner();
+  return () => {
+    const user = AuthService.getCurrentUser();
+    if (!owner || owner.userId !== context.userId || !isValidatedAuthSessionOwnerCurrent(owner) ||
+        !isVaultSessionEpochCurrent(epoch) || (user && user.uid !== context.userId)) {
+      throw new WalletNetworkSessionChangedError("Wallet changed.");
+    }
+    if (signal?.aborted) throw new DOMException("Network request cancelled.", "AbortError");
+  };
+}
+
 /** An acknowledged sent-copy receipt, not a revocable Wallet access grant. */
 export interface WalletCardShareReceipt {
   messageId: string; conversationId: string; recipientPersonRef: string;
@@ -79,7 +114,7 @@ function toSummary(cardId: string, value: unknown): WalletCardSummary | null {
   return {
     cardId,
     nickname: String(value.nickname ?? ""),
-    brand: String(value.brand ?? "other") as CardBrand,
+    brand: normalizedNetwork(value.brand),
     last4: String(value.last4 ?? ""),
     expiryMonth: Number(value.expiry_month ?? 0),
     expiryYear: Number(value.expiry_year ?? 0),
@@ -99,6 +134,43 @@ function summariesFromDomain(data: Record<string, unknown> | null): WalletCardSu
 export class WalletService {
   static isEnabled(): boolean {
     return true;
+  }
+
+  private static async networkRequest(context: WalletNetworkContext, suffix: string, signal?: AbortSignal, input?: WalletNetworkInput): Promise<unknown> {
+    const assertCurrent = networkSessionGuard(context, signal);
+    assertCurrent();
+    const token = await AuthService.getIdTokenWithRetry({ expectedUserId: context.userId });
+    assertCurrent();
+    if (!token) throw new Error("Network identification unavailable.");
+    const response = await ApiService.apiFetch(`/api/one/wallet/card-access/networks${suffix}`, {
+      method: input ? "POST" : "GET", cache: "no-store", signal,
+      isEffectCurrent: () => { try { assertCurrent(); return true; } catch { return false; } },
+      headers: { Authorization: `Bearer ${token}`, "X-Hushh-Consent": context.vaultOwnerToken, "Content-Type": "application/json" },
+      ...(input ? { body: JSON.stringify(input) } : {}),
+    });
+    assertCurrent();
+    if (!response.ok) throw new Error("Network identification unavailable.");
+    const data = await response.json();
+    assertCurrent();
+    return data;
+  }
+
+  static async supportedCardNetworks(context: WalletNetworkContext, signal?: AbortSignal): Promise<CardBrand[]> {
+    const data = await this.networkRequest(context, "", signal);
+    if (!isRecord(data) || !Array.isArray(data.networks)) throw new Error("Network identification unavailable.");
+    if (!data.networks.length || !data.networks.every(isCardNetworkId)) throw new Error("Network identification unavailable.");
+    return [...new Set(data.networks)];
+  }
+
+  static async resolveCardNetwork(context: WalletNetworkContext, input: WalletNetworkInput, signal?: AbortSignal): Promise<WalletNetworkResult> {
+    // Construct the wire object explicitly; never serialize a card or vault key.
+    if (!/^[0-9]{6}$/.test(input.iinPrefix) || !Number.isInteger(input.panLength) || input.panLength < 13 || input.panLength > 19) throw new Error("Network identification unavailable.");
+    const payload = { iinPrefix: input.iinPrefix, panLength: input.panLength, ...(input.selectedNetwork ? { selectedNetwork: input.selectedNetwork } : {}) };
+    const data = await this.networkRequest(context, "/resolve", signal, payload);
+    if (!isRecord(data) || typeof data.network !== "string" || !isCardNetworkId(data.network.trim().toLowerCase())) throw new Error("Network identification unavailable.");
+    const source = data.source;
+    if (!["prefix", "owner_selected", "ambiguous", "unknown"].includes(String(source))) throw new Error("Network identification unavailable.");
+    return { network: normalizedNetwork(data.network), source: source as WalletNetworkResult["source"], candidates: Array.isArray(data.candidates) ? data.candidates.map(normalizedNetwork).filter(value => value !== "other") : [] };
   }
 
   static validateCard(input: WalletCardInput): CardValidationResult {
@@ -183,11 +255,24 @@ export class WalletService {
     if (!this.isEnabled()) {
       throw new Error("Payment cards are not enabled in this environment.");
     }
-    const validation = this.validateCard(params.card);
-    if (!validation.valid) {
-      throw new Error(`CARD_VALIDATION_FAILED:${validation.errors.join(",")}`);
+    const assertCurrent = networkSessionGuard(params);
+    assertCurrent();
+    const preliminary = this.validateCard(params.card);
+    if (!preliminary.valid) throw new Error(`CARD_VALIDATION_FAILED:${preliminary.errors.join(",")}`);
+    let network: CardBrand = "other";
+    try {
+      network = (await this.resolveCardNetwork(params, { iinPrefix: normalizePan(params.card.pan).slice(0, 6), panLength: normalizePan(params.card.pan).length, selectedNetwork: params.card.brand })).network;
+    } catch (error) {
+      assertCurrent();
+      if (error instanceof WalletNetworkSessionChangedError) throw error;
+      // A lookup failure must never substitute a guessed or stale network.
+      network = "other";
     }
+    assertCurrent();
+    const validation = this.validateCard({ ...params.card, brand: network });
+    if (!validation.valid) throw new Error(`CARD_VALIDATION_FAILED:${validation.errors.join(",")}`);
     const cardId = await params.reserveCardId?.() || `card_${crypto.randomUUID()}`;
+    assertCurrent();
     const createdAt = new Date().toISOString();
     const summaryRecord = {
       nickname: params.card.nickname?.trim() ?? "",
@@ -208,6 +293,7 @@ export class WalletService {
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      mayPublish: () => { try { assertCurrent(); return true; } catch { return false; } },
       scopePath: "summary",
       explanation: "The owner confirmed saving a payment card to their vault.",
       confirmation: {
@@ -216,6 +302,7 @@ export class WalletService {
         source: params.source,
       },
       applyMutation: (base) => {
+        assertCurrent();
         const next = isRecord(base) ? { ...base } : {};
         const summary = isRecord(next.summary) ? { ...next.summary } : {};
         const secrets = isRecord(next.secrets) ? { ...next.secrets } : {};
@@ -226,6 +313,7 @@ export class WalletService {
         return next;
       },
     });
+    assertCurrent();
     return {
       cardId,
       summary: toSummary(cardId, summaryRecord)!,

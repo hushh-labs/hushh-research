@@ -119,6 +119,24 @@ def lock_connection_graph_users(conn: Any, *, user_ids: Iterable[str]) -> None:
     )
 
 
+async def lock_connection_graph_users_async(conn: Any, *, user_ids: Iterable[str]) -> None:
+    """Asyncpg adapter for the same account-reset serialization namespace."""
+    normalized = sorted({str(user_id).strip() for user_id in user_ids if user_id})
+    if normalized:
+        await conn.execute(
+            """
+            WITH ordered_users AS MATERIALIZED (
+              SELECT user_id FROM UNNEST($1::text[]) AS item(user_id) ORDER BY user_id
+            )
+            SELECT pg_advisory_xact_lock(hashtextextended(user_id, $2))
+            FROM ordered_users ORDER BY user_id
+        """,
+            normalized,
+            _GRAPH_MUTATION_LOCK_NAMESPACE,
+            timeout=5,
+        )
+
+
 class ConnectionGraphService:
     """Idempotent connection/origin mutations inside a caller-owned transaction."""
 

@@ -12,7 +12,8 @@
  * the whole gate, matching the existing request lanes.
  */
 
-import { useEffect, useState } from "react";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { useEffect, useState, type RefObject } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -41,17 +42,28 @@ export interface RequestScopeButtonProps {
   personName: string;
   /** Grid placement from the profile's action cluster. */
   className?: string;
+  canRequest?: boolean;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }
 
 export function RequestScopeButton({
   personRef,
   personName,
   className,
+  canRequest = true,
+  returnFocusRef,
 }: RequestScopeButtonProps) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [takingLonger, setTakingLonger] = useState(false);
+  useEffect(() => {
+    setTakingLonger(false);
+    if (!busy) return;
+    const timer = window.setTimeout(() => setTakingLonger(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
   // Every active connection can open this, exactly like Request files. A
@@ -118,7 +130,7 @@ export function RequestScopeButton({
   };
 
   const submit = async () => {
-    if (!valid || busy) return;
+    if (!canRequest || gate.kind !== "ready" || !valid || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -131,6 +143,7 @@ export function RequestScopeButton({
           question,
         },
       );
+      if (user?.uid) CacheSyncService.onConsentMutated(user.uid);
       setCreated(requestId);
       reset();
     } catch (cause) {
@@ -153,7 +166,7 @@ export function RequestScopeButton({
         else close();
       }}
     >
-      <DialogTrigger asChild>
+      {canRequest ? <DialogTrigger asChild>
         {/* Same bare Button as the file actions, so `.actions button` in
             person-profile-page.module.css gives it their exact styling. The
             className carries only grid placement: a third auto-placed button
@@ -166,12 +179,18 @@ export function RequestScopeButton({
         >
           Request scope
         </Button>
-      </DialogTrigger>
+      </DialogTrigger> : null}
       <DialogContent
         data-request-scope-dialog
         className="max-h-[85dvh] overflow-y-auto sm:max-w-md"
         showCloseButton={Boolean(created) || gate.kind !== "ready"}
         srDescription={`Ask ${personName} a question.`}
+        onCloseAutoFocus={(event) => {
+          if (!canRequest && returnFocusRef?.current) {
+            event.preventDefault();
+            returnFocusRef.current.focus();
+          }
+        }}
       >
         <DialogHeader className="text-left">
           <DialogTitle>Request scope</DialogTitle>
@@ -199,6 +218,7 @@ export function RequestScopeButton({
               type="button"
               size="standard"
               variant="none"
+              disabled={!canRequest}
               onClick={() => {
                 setCreated(null);
                 reset();
@@ -271,9 +291,9 @@ export function RequestScopeButton({
                 <Button
                   type="submit"
                   size="prominent"
-                  disabled={!valid || busy}
+                  disabled={!canRequest || !valid || busy}
                 >
-                  {busy ? "Sending…" : "Send request"}
+                  {busy ? takingLonger ? "Still sending—please wait…" : "Sending…" : "Send request"}
                 </Button>
               }
               secondary={

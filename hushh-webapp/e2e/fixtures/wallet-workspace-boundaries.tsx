@@ -3,9 +3,9 @@
 // card, and nothing leaves the page. The scenario is read from
 // `window.__walletScenario`, set by the spec before the fixture script runs.
 import React from "react";
-import { detectBrand } from "../../lib/wallet/card-validation";
 import { createEncryptedCardFile } from "../../lib/wallet/wallet-card-file";
 import type { CardShareContext } from "../../lib/services/wallet-card-share-service";
+import type { CardSharingHistory, CardSharingHistoryItem } from "../../lib/services/wallet-card-access-service";
 
 type FixtureCard = {
   cardId: string;
@@ -29,6 +29,8 @@ type Scenario = {
   delayMs?: number;
   error?: boolean;
   artworkGallery?: boolean;
+  sharingHistory?: boolean;
+  revokeFailure?: boolean;
 };
 
 const SYNTHETIC: FixtureCard[] = [
@@ -76,6 +78,9 @@ function summaryOf(card: FixtureCard) {
 }
 
 export class WalletService {
+  static async supportedCardNetworks() { return ["visa", "mastercard", "amex", "discover", "rupay", "other"]; }
+  static async resolveCardNetwork(_context: unknown, input: { selectedNetwork?: string }) { return { network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }; }
+
   static async listCardShareReceipts() { return []; }
   static isEnabled() {
     return true;
@@ -112,7 +117,7 @@ export class WalletService {
     const saved: FixtureCard = {
       ...card,
       cardId: `card_saved_${cards().length + 1}`,
-      brand: card.brand || detectBrand(card.pan) || "other",
+      brand: card.brand || "visa",
       last4: card.pan.slice(-4),
       issuingRegion: card.issuingRegion || "",
       pin: card.pin || "",
@@ -136,6 +141,17 @@ export class OneLocationService {
 
 export const findCardShareRecipients = () => OneLocationService.listRecipientsPage();
 export const shareSavedCard = async () => { throw new Error("No delivery from the layout fixture."); };
+export class CardRecipientKeyUnavailableError extends Error {
+  constructor() { super("Ask each recipient to unlock Hushh once before sharing card details."); }
+}
+// Keep the production share-service exports available without staging a delivery.
+export const prepareTemporaryCardShares = async (
+  _context: CardShareContext,
+  _cardId: string,
+  _personRefs: string[],
+): Promise<Record<string, string>> => {
+  throw new Error("No delivery from the layout fixture.");
+};
 export const prepareSavedCardFile = async (context: CardShareContext, cardId: string, password: string) => {
   const saved = await WalletService.getCard({ cardId });
   if (!saved || !context.isCurrent()) throw new Error("Fixture card unavailable.");
@@ -204,35 +220,70 @@ export const toDurationBucket = (durationMs: number) => {
 export const trackApiRequestCompleted = () => undefined;
 export const NativeTestBeacon = () => null;
 
+const sharedCardHistory: CardSharingHistoryItem = {
+  id: "fixture-history-grant", cardId: "card_a", cardType: "payment",
+  displayLabel: "Everyday •••• 4242", last4: "4242",
+  senderName: "Alex Rivera", recipientName: "Sample recipient",
+  createdAt: "2026-10-12T10:00:00Z", expiresAt: "2026-10-12T10:15:00Z",
+  durationMinutes: 15, status: "active", trustedCircle: false,
+  method: "standard_connection", verificationMethod: "identity_reauthentication",
+  verifiedAt: null, revokedAt: null, lastAccessedAt: null, permittedFields: [],
+  activity: [{ event: "SHARE_CREATED", at: "2026-10-12T10:00:00Z", actor: "owner", outcome: "recorded" }],
+};
+let sharedCardRevoked = false;
+let profileQrRotated = false;
+let referralQrRotated = false;
+
 // The production Wallet Card service imports ApiService through the shared
 // client. Keep that transport inert in this fixture so a layout test never
 // initializes Firebase or performs a network request just to load an empty
 // card state.
 export const ApiService = {
   getDirectBackendUrl: () => "",
-  apiFetch: async (requestPath: string) => {
+  apiFetch: async (requestPath: string, options?: { method?: string }) => {
+    if (options?.method === "POST" && (requestPath === "/api/one/wallet-card/rotate" || requestPath === "/api/one/referrals/rotate")) {
+      record(`qr-revoke:${requestPath.includes("referrals") ? "referral" : "profile"}`);
+      if (scenario().revokeFailure) return new Response(JSON.stringify({ detail: { code: "FIXTURE_REVOKE_FAILED" } }), { status: 500, headers: { "content-type": "application/json" } });
+      if (requestPath.includes("referrals")) referralQrRotated = true;
+      else profileQrRotated = true;
+    }
+    if (scenario().sharingHistory && requestPath === "/api/one/wallet/card-access/grants/fixture-history-grant" && options?.method === "DELETE") {
+      record("sharing-revoke:fixture-history-grant");
+      sharedCardRevoked = true;
+      return new Response(JSON.stringify({ revoked: true }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
     // Production profile/referral views keep their rendering; only network
     // responses are synthetic. No live profile, visitor, or payment is touched.
-    const payload = requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
+    const hasSharingHistory = scenario().sharingHistory && !requestPath.includes("direction=received");
+    const history: CardSharingHistory = {
+      items: hasSharingHistory ? [{ ...sharedCardHistory, status: sharedCardRevoked ? "revoked" : "active", revokedAt: sharedCardRevoked ? "2026-10-12T10:02:00Z" : null }] : [],
+      recipientCount: hasSharingHistory ? 1 : 0,
+      hasMore: false, nextCursor: null, serverNow: "2026-10-12T10:02:00Z",
+    };
+    const payload = requestPath.startsWith("/api/one/wallet/card-access/history") ? history
+      : requestPath.startsWith("/api/one/wallet/card-access/profile") ? { eligible: false, cardId: null }
+      : requestPath.startsWith("/api/one/wallet/card-access/connections") ? {
       items: [
         { personRef: "11111111-1111-4111-8111-111111111111", displayName: "Test Recipient", photoUrl: null, trusted: false },
         { personRef: "22222222-2222-4222-8222-222222222222", displayName: "Trusted Recipient", photoUrl: null, trusted: true },
       ], hasMore: false,
     } : requestPath.startsWith("/api/one/wallet/card-access/cards/") ? { eligible: true, grants: [] }
-      : requestPath.startsWith("/api/one/referrals/summary") ? {
-      slug: "fixture-referral", link: "https://example.test/r/fixture-referral",
-      link_open_count: 7, last_opened_at: "2026-09-01T10:00:00Z",
+      : (requestPath.startsWith("/api/one/referrals/summary") || requestPath === "/api/one/referrals/rotate") ? {
+      slug: referralQrRotated ? "fixture-referral-new" : "fixture-referral", link: `https://example.test/r/fixture-referral${referralQrRotated ? "-new" : ""}`,
+      link_open_count: referralQrRotated ? 0 : 7, last_opened_at: referralQrRotated ? null : "2026-09-01T10:00:00Z",
       qualified_count: 2, in_progress_count: 1, under_review_count: 0,
       required_active_minutes: 15, new_users_only: true, referrals: [],
     } : requestPath.startsWith("/api/one/wallet-card") ? {
       card: {
-        pass_serial: "fixture-wallet-0001", status: "active", share_token_version: 1,
+        pass_serial: "fixture-wallet-0001", status: "active", share_token_version: profileQrRotated ? 2 : 1,
         card_payload: { full_name: "Alex Rivera", username: "alex.rivera" },
         display_name: "Alex Rivera", created_at: "2026-01-01T00:00:00Z",
-        updated_at: "2026-09-01T10:00:00Z", scan_count: 3,
-        last_scanned_at: "2026-09-01T09:00:00Z",
+        updated_at: "2026-09-01T10:00:00Z", scan_count: profileQrRotated ? 0 : 3,
+        last_scanned_at: profileQrRotated ? null : "2026-09-01T09:00:00Z",
       },
-      share_token: "fixture-wallet-share-token-000001", share_url: "https://example.test/c/fixture-wallet-share-token-000001",
+      share_token: profileQrRotated ? "fixture-wallet-share-token-000002" : "fixture-wallet-share-token-000001", share_url: `https://example.test/c/fixture-wallet-share-token-00000${profileQrRotated ? "2" : "1"}`,
     } : {};
     return new Response(JSON.stringify(payload), {
       status: 200, headers: { "content-type": "application/json" },

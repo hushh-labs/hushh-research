@@ -6,9 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
-import { JsonLd } from "@/components/seo/json-ld";
-import { buildFaqGraph } from "@/lib/seo/structured-data";
-import { HOME_FAQ } from "@/lib/seo/faq-data";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { IntroStep } from "@/components/onboarding/IntroStep";
@@ -214,7 +211,6 @@ function HomeContent() {
 export default function Home() {
   return (
     <>
-      <JsonLd data={buildFaqGraph(HOME_FAQ)} />
       <Suspense fallback={<HushhLoader stage="session" label="Preparing welcome…" />}>
         <HomeContent />
       </Suspense>

@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Lock, Wallet } from "@/components/icons";
-import { SuccessRowIcon, WalletAgentIcon } from "@/components/icons/agents";
+import { ProfilePanePrivacyIcon, ProfilePaneSecurityIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
+import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { toast } from "sonner";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
-import { RowDescription, SectionTitle } from "@/components/app-ui/typography";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
 import { WalletCardImageShareButton } from "@/components/wallet/wallet-card-image-share-button";
 import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
@@ -89,11 +88,11 @@ type VisitorPreviewState =
  * page, and the management surface afterwards. Every network call goes through
  * `WalletCardService` — nothing here talks to the API directly.
  */
-function WalletProfileShell({ embedded, title, description, children }: {
-  embedded: boolean; title: string; description: string; children: ReactNode;
+function WalletProfileShell({ embedded, title, description, children, preview }: {
+  embedded: boolean; title: string; description: string; children: ReactNode; preview?: boolean;
 }) {
-  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} className="space-y-4">
-    <div className="space-y-1"><SectionTitle as="h3">{title}</SectionTitle><RowDescription compact>{description}</RowDescription></div>
+  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} className={`${profileStyles.walletContent} space-y-4`}>
+    <div className={preview ? "px-[var(--settings-row-px)]" : undefined}><div className={preview ? "mx-auto max-w-[36rem] space-y-1" : "space-y-1"}><h3 className="text-[13px] font-medium leading-[1.22]">{title}</h3>{description ? <p className="text-xs leading-[1.3] text-muted-foreground">{description}</p> : null}</div></div>
     {children}
   </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
 }
@@ -192,6 +191,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
    */
   const adoptCard = useCallback(
     (next: WalletCardRecord | null) => {
+      const currentLink = userId ? WalletCardService.readShareLink(userId) : null;
+      if (next?.shareTokenVersion != null && currentLink?.version != null && currentLink.version > next.shareTokenVersion) return;
       setCard(next);
       setShareLink(
         userId ? WalletCardService.readShareLink(userId, next) : null,
@@ -563,8 +564,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
     }
     if (stage === "preview") {
       return {
-        title: WALLET_CARD_OWNER_COPY.previewTitle,
-        description: WALLET_CARD_OWNER_COPY.previewDescription,
+        title: "Preview as visitor",
+        description: "",
       };
     }
     if (stage === "success") {
@@ -589,6 +590,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
   return (
     <WalletProfileShell
       embedded={embedded}
+      preview={stage === "preview"}
       title={header.title}
       description={header.description}
     >
@@ -602,26 +604,26 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
       /> : null}
 
       {stage === "loading" ? (
-        <div className="rounded-2xl border p-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border p-6 text-center text-xs text-muted-foreground">
           Loading your Wallet Profile…
         </div>
       ) : null}
 
       {stage === "locked" ? (
-        <div className="flex items-center gap-2 rounded-2xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          <Lock className="h-4 w-4 shrink-0" aria-hidden />
+        <div className="flex items-center gap-2 rounded-2xl border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+          <ProfilePanePrivacyIcon className="h-4 w-4 shrink-0" aria-hidden />
           {WALLET_CARD_OWNER_COPY.vaultLocked}
         </div>
       ) : null}
 
       {stage === "unavailable" ? (
-        <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border border-dashed p-6 text-center text-xs text-muted-foreground">
           {WALLET_CARD_OWNER_COPY.featureUnavailable}
         </div>
       ) : null}
 
       {stage === "error" ? (
-        <div className="space-y-3 rounded-2xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div className="space-y-3 rounded-2xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-xs text-destructive">
           <p>{WALLET_CARD_OWNER_COPY.loadFailed}</p>
           <Button
             type="button"
@@ -639,7 +641,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
         <div className="space-y-4">
           <SettingsGroup>
             <SettingsRow
-              icon={WalletAgentIcon}
+              icon={ProfilePaneWalletIcon}
               iconTone="capability"
               title={WALLET_CARD_COPY.setupIntro.title}
               description={WALLET_CARD_COPY.setupIntro.description}
@@ -670,30 +672,12 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
 
       {stage === "preview" ? (
         <div className="space-y-4">
-          <SettingsGroup
-            title={WALLET_CARD_OWNER_COPY.walletPreviewTitle}
-            description={WALLET_CARD_OWNER_COPY.walletPreviewHint}
-          >
-            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              <WalletCardPassPreview
-                fullName={draft.fullName || card?.displayName || ""}
-                headline={draft.headline || card?.headline || ""}
-                organisation={draft.organisation}
-                locationLabel={draft.locationLabel}
-                shareUrl={shareLink?.shareUrl ?? null}
-              />
-            </div>
-          </SettingsGroup>
-
-          <SettingsGroup
-            title={WALLET_CARD_OWNER_COPY.visitorPreviewTitle}
-            description={WALLET_CARD_OWNER_COPY.visitorPreviewHint}
-          >
+          <SettingsGroup>
             <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
               {visitorPreview.status === "ready" ? (
-                <PublicWalletCardView card={visitorPreview.card} embedded />
+                <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
               ) : visitorPreview.status === "error" ? (
-                <div className="space-y-3 text-sm text-muted-foreground">
+                <div className="space-y-3 text-xs text-muted-foreground">
                   <p>{visitorPreview.message}</p>
                   <Button
                     type="button"
@@ -711,9 +695,20 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
             </div>
           </SettingsGroup>
 
-          <RowDescription compact className="px-1">
-            {WALLET_CARD_OWNER_COPY.updatesAutomatically}
-          </RowDescription>
+          <div className="px-[var(--settings-row-px)]">
+          <details className="mx-auto w-full max-w-[36rem] rounded-[var(--app-card-radius-standard)] border border-border">
+            <summary className="cursor-pointer px-[var(--settings-row-px)] py-3 text-[13px] font-medium">Profile card preview</summary>
+            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+              <WalletCardPassPreview
+                fullName={draft.fullName || card?.displayName || ""}
+                headline={draft.headline || card?.headline || ""}
+                organisation={draft.organisation}
+                locationLabel={draft.locationLabel}
+                shareUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null}
+              />
+            </div>
+          </details>
+          </div>
 
           {previewOrigin === "setup" ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -725,7 +720,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                     disabled={!shareLink}
                     onClick={() => void addToWallet()}
                   >
-                    <Wallet className="mr-2 h-4 w-4" aria-hidden />
+                    <ProfilePaneWalletIcon className="mr-2 h-4 w-4" aria-hidden />
                     {WALLET_CARD_OWNER_COPY.addToWallet}
                   </Button>
                 ) : imageShareAction}
@@ -756,7 +751,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
         <div className="space-y-4">
           <SettingsGroup>
             <SettingsRow
-              icon={SuccessRowIcon}
+              icon={ProfilePaneSecurityIcon}
               iconTone="capability"
               title={WALLET_CARD_COPY.success.title}
               description={WALLET_CARD_COPY.success.description}

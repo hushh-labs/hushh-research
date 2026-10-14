@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode, type RefObject } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { User } from "firebase/auth";
@@ -8,6 +8,7 @@ import type { User } from "firebase/auth";
 import {
   Sheet,
   SheetContent,
+  SheetClose,
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -20,11 +21,14 @@ import { FeedRow } from "@/components/feed/feed-row";
 import {
   Fingerprint,
   Heart,
-  LockKeyhole,
+  X,
   Newspaper,
   ArrowUpRight,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
+import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
+import { ownerStyleFromBranch } from "@/lib/agent/owner-style-settings";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import {
@@ -40,9 +44,9 @@ import { isFeedIdAtOrBefore } from "@/lib/feed/feed-pagination";
 import { readFeedClearedThroughId } from "@/lib/feed/feed-clear-watermark";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ROUTES } from "@/lib/navigation/routes";
-import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 
 import styles from "./one-agent-profile-sheet.module.css";
+import { OnePresenceAvatar, type OnePresenceState } from "./one-presence-avatar";
 
 /** A read-only feed preview; the full Feed owns actions and read acknowledgements. */
 function OneFeedPreview({
@@ -81,7 +85,7 @@ function OneFeedPreview({
   return (
     <div className={styles.feed}>
       <div className={styles.sectionHeading}>
-        <h3>Latest activity</h3>
+        <h3 data-app-pane-section-label>Latest activity</h3>
         <button type="button" onClick={() => onNavigate(ROUTES.ONE_FEED)}>
           Open Feed <ArrowUpRight className="size-4" aria-hidden />
         </button>
@@ -127,11 +131,6 @@ function OneFeedPreview({
 function ProfileCards({ close }: { close: () => void }) {
   return (
     <div className={styles.profile}>
-      <div className={styles.identityNote}>
-        <span className={styles.eyebrow}>ONE</span>
-        <h3>Your private agent</h3>
-        <p>A place for One’s identity and what you’ve chosen to remember.</p>
-      </div>
       <div className={styles.cards}>
         <article
           className={`${styles.fileCard} ${styles.soul}`}
@@ -139,11 +138,11 @@ function ProfileCards({ close }: { close: () => void }) {
         >
           <div>
             <Heart className="size-5" aria-hidden />
-            <h4>soul.md</h4>
+            <h4 data-app-pane-row-title>soul.md</h4>
             <p>Voice, values, and personality.</p>
           </div>
           <div className={styles.cardFooter}>
-            <span>Identity preview</span>
+            <span>Soul preview</span>
             <Heart className="size-5" fill="currentColor" aria-hidden />
           </div>
         </article>
@@ -155,7 +154,7 @@ function ProfileCards({ close }: { close: () => void }) {
         >
           <div>
             <Fingerprint className="size-5" aria-hidden />
-            <h4>memory.md</h4>
+            <h4 data-app-pane-row-title>memory.md</h4>
             <p>What you’ve chosen to remember.</p>
           </div>
           <div className={styles.cardFooter}>
@@ -172,14 +171,33 @@ export function OneAgentProfileSheet({
   open,
   onOpenChange,
   triggerRef,
+  presenceState = "connected",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
+  presenceState?: OnePresenceState;
 }) {
   const { user } = useAuth();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const identity = usePkmDomainResource({
+    userId: user?.uid ?? "",
+    domain: "identity",
+    vaultKey,
+    vaultOwnerToken,
+    enabled: open && isVaultUnlocked && Boolean(vaultKey && vaultOwnerToken),
+  });
+  const profileName = isVaultUnlocked && vaultKey && vaultOwnerToken &&
+    identity.data?.key.userId === user?.uid
+    ? ownerStyleFromBranch(identity.data?.data.communication_preferences).preferred_name || "One"
+    : "One";
   const router = useRouter();
   const [tab, setTab] = useState("feed");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const changeTab = (value: string) => {
+    setTab(value);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
   const navigate = (href: string) => {
     onOpenChange(false);
     router.push(href);
@@ -195,6 +213,8 @@ export function OneAgentProfileSheet({
       <SheetContent
         side="right"
         className={styles.sheet}
+        data-app-side-pane
+        showCloseButton={false}
         onCloseAutoFocus={(event) => {
           if (triggerRef?.current?.isConnected) {
             event.preventDefault();
@@ -202,39 +222,43 @@ export function OneAgentProfileSheet({
           }
         }}
       >
-        <div className={styles.scroll}>
-          <div className={styles.hero}>
-            <div className={styles.avatar}>
-              <HushhMark
-                aria-hidden
-                className="size-20 items-center justify-center"
-                imageClassName="!size-16"
-              />
-            </div>
-            <SheetTitle className={styles.title}>One</SheetTitle>
-            <SheetDescription>Your private agent</SheetDescription>
-            <span className={styles.privateBadge}>
-              <LockKeyhole className="size-3.5" aria-hidden /> Private to you
-            </span>
+        <SheetClose asChild>
+          <button
+            type="button"
+            aria-label="Close One profile"
+            className="app-side-pane-close absolute right-5 z-10 inline-flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="size-4" aria-hidden />
+          </button>
+        </SheetClose>
+        <div className={styles.hero}>
+          <div className={styles.avatar}>
+            <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
           </div>
-          <Tabs value={tab} onValueChange={setTab} className={styles.tabs}>
-            <TabsList
-              className={styles.tabList}
-              aria-label="One profile sections"
-            >
-              <TabsTrigger value="feed">
-                <Newspaper aria-hidden /> Feed
-              </TabsTrigger>
-              <TabsTrigger value="profile">
-                <Fingerprint aria-hidden /> Profile
-              </TabsTrigger>
-            </TabsList>
+          <SheetTitle className={styles.title}>{profileName}</SheetTitle>
+          <SheetDescription className="sr-only">
+            One profile and activity.
+          </SheetDescription>
+        </div>
+        <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
+          <TabsList
+            className={styles.tabList}
+            aria-label="One profile sections"
+          >
+            <TabsTrigger value="feed">
+              <Newspaper aria-hidden /> Feed
+            </TabsTrigger>
+            <TabsTrigger value="profile">
+              <Fingerprint aria-hidden /> Profile
+            </TabsTrigger>
+          </TabsList>
+          <div ref={scrollRef} className={styles.scroll} data-one-profile-scroll>
             <TabsContent value="feed">{feed}</TabsContent>
             <TabsContent value="profile">
               <ProfileCards close={() => onOpenChange(false)} />
             </TabsContent>
-          </Tabs>
-        </div>
+          </div>
+        </Tabs>
       </SheetContent>
     </Sheet>
   );

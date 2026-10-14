@@ -882,6 +882,25 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
+        "drive_collection_sync",
+        "drive_document_extractions",
+        "drive_document_pages",
+        "drive_document_facts",
+        "drive_document_fact_pages",
+        "drive_packet_heads",
+        "drive_packet_members",
+        "drive_packet_versions",
+        "drive_packet_version_sources",
+        "drive_packet_listings"
+      ],
+      "id": "drive_continuous_document_evidence",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
         "drive_document_rules"
       ],
       "id": "drive_document_trust_rules",
@@ -994,7 +1013,7 @@
       "id": "drive_request_owner_pricing",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only."
+      "primary_access_path": "An authenticated document owner sets one USD Drive request price in integer cents from 50 to 50000 in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only."
     },
     {
       "data_class": "workflow_state",
@@ -1007,7 +1026,7 @@
       "id": "drive_request_payment_authority",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective quote from 50 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
     },
     {
       "data_class": "reference",
@@ -1487,7 +1506,7 @@
       "id": "pkm_answer_deliveries",
       "lifecycle_status": "customer0",
       "owner": "security-audit",
-      "primary_access_path": "The owner's unlocked device produces the answer from decrypted PKM within the approved scopes, seals it to the requester's ECDH P-256 recipient key and posts the envelope; the requester fetches and decrypts it on their own device. The server is a blind relay, exactly as in the marketplace delivery sweep."
+      "primary_access_path": "The unlocked owner device retrieves exact approved scope slices from the shared encrypted source-linked memory.md, refreshing stale/missing slices from authoritative PKM/account facts before absence. Every successful answer is composed by consent-gated Gemini with approved values and freshness metadata only, then sealed to the requester ECDH P-256 key. New staging requires a request-bound composition receipt; requester access is released only after verified settlement. Historical immutable staged orders retain recovery and settlement eligibility."
     },
     {
       "data_class": "workflow_state",
@@ -1499,7 +1518,7 @@
       "id": "pkm_answer_payment_authority",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after the owner approves a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer."
+      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after a completed nonempty staged envelope and owner approval of a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer."
     },
     {
       "data_class": "personal_metadata",
@@ -1521,7 +1540,7 @@
       "id": "pkm_answer_settlement",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Durable settlement for the paid-answer lane, on the existing Drive work drain. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded."
+      "primary_access_path": "Durable settlement for the paid-answer lane, on its separately authenticated answer work drain, using each obligation's stored Stripe mode. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded."
     },
     {
       "data_class": "workflow_state",
@@ -1649,6 +1668,26 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "pwm_claim_invitations"
+      ],
+      "id": "pwm_invitation_authority",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated PWM invitation create/list/revoke/claim routes. Shared account graph locks and existing transaction connection for strict owner authority."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pwm_provider_budget"
+      ],
+      "id": "pwm_provider_budget",
+      "lifecycle_status": "current",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "Atomic monthly provider credit charge before dispatch."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "relay_ticket_nonces"
       ],
       "id": "relay_ticket_replay_guard",
@@ -1673,7 +1712,7 @@
       "id": "selected_drive_documents",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access."
+      "primary_access_path": "Owner-authenticated selection/management and separately consented continuous live collection discovery, with durable connection-generation-bound ingestion leases and versioned publication. No client database access."
     },
     {
       "data_class": "workflow_state",
@@ -1791,12 +1830,14 @@
         "wallet_card_registrations",
         "wallet_card_share_requests",
         "wallet_card_access_grants",
-        "wallet_card_access_audit"
+        "wallet_card_access_audit",
+        "wallet_profile_share_requests",
+        "wallet_profile_access_grants"
       ],
       "id": "wallet_temporary_card_access",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant."
+      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant. The same policy orchestrates selected Profile fields through a separate source adapter; outgoing and received participant history is paginated independently of live card eligibility."
     }
   ],
   "database_retirements": [
@@ -4115,6 +4156,7 @@
           "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
+          "route.profile_world_model",
           "route.ria_settings_compat"
         ],
         "delegate_agent_ids": [],
@@ -4208,6 +4250,7 @@
           "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
+          "route.profile_world_model",
           "route.ria_settings_compat"
         ],
         "delegate_agent_ids": [],
@@ -4255,6 +4298,7 @@
           "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
+          "route.profile_world_model",
           "route.ria_settings_compat"
         ],
         "delegate_agent_ids": [],
@@ -5056,6 +5100,32 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "pkm_metadata",
+          "pkm_projection"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile-world-model",
+      "page_file": "app/one/profile/world-model/page.tsx",
+      "pathname": "/one/profile/world-model",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_world_model"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.world_model"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
@@ -5418,6 +5488,7 @@
         "action_ids": [
           "location.onboarding.choose_place",
           "setup.finish_location",
+          "setup.finish_location_intro",
           "setup.skip_location"
         ],
         "delegate_agent_ids": [],
@@ -5566,6 +5637,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "people.profile.browse_packets",
           "people.profile.cancel_connection_request",
           "people.profile.connect",
           "people.profile.manage_consent",
@@ -6242,29 +6314,29 @@
   ],
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
-    "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "b57ae04f7519a4ed4e3df054ce393d2ad6f004ee6b8be6c99fb8641fb9f22179",
-    "agent_registry": "378b53ef0abd359b24fbe0981caeaeba80fa34c97abf28dcc5788a72fef0e3c6",
-    "cache_manifest": "a755d259334378b86771604d20c27dcc668c6f97bb954f483548ba1c3bdcb755",
-    "data_plane": "74b2dbb77839d76d7c7f545e2d29d2113c7ee2b771e33b65b58b8d280e715378",
+    "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
+    "action_gateway": "8b3aba3024ee630e40a020a20364089e1a3cbd769c3a81151dcd6a904b7e16a3",
+    "agent_registry": "2dee6ce61ea25a330e1113534e0ebabcd5f83c788a08d9c1ed4a0a7c77971e96",
+    "cache_manifest": "7d51e72dedd470a6129e4d61e606803bbfd4c320989c64db46614c1928f7a400",
+    "data_plane": "ac2a6429207505ad69b4921427e80eff567d0244f96d0bda3c7abf0634f7988f",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "084c4287101963ac51c7c2e589ab3fe46be4294017dcfc093150a906de8bce24",
-    "route_index": "050835fe6b71712f753412281ec9218ea0d0223106d757ad9b54a79a2faa4efd",
-    "route_layout": "46508c39ebea9ce72bdbbdb0cfc2e4d2871a4f40a206e798d695eec4b8e010e8",
-    "surface_map": "3479f99980335cd710a69a4ff5c27a95f3dc8475e0aeafc500ac55a1c69549b5",
+    "route_index": "335300eb4fa1c0c28f7dd651b477ba9e2182d94fa223330432c78bc2977d52eb",
+    "route_layout": "85f8d52e7d9d0a5b87f415a44d84077e029b14ae31171f16743203cc23b0ca5d",
+    "surface_map": "6945b9595e0518f382a07ed7dbc51000330cae677fed654aa4be92455c765567",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 238,
+    "actions": 246,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 150,
+    "physical_routes": 151,
     "semantic_routes": 14,
-    "table_families": 100
+    "table_families": 103
   }
 }

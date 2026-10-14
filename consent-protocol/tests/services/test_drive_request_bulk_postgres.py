@@ -19,6 +19,7 @@ from hushh_mcp.services.connection_graph_service import lock_connection_graph_us
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
+from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
 from hushh_mcp.services.drive_request_payment_refunds import _claim_refunds
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_request_recovery_view import (
@@ -163,12 +164,42 @@ async def _request(sharing):
 
 
 @pytest.mark.asyncio
-async def test_nontrusted_progressive_payment_starts_only_after_owner_approval(
-    request_bulk, sharing
+@pytest.mark.parametrize("authority", ["nontrusted", "owner_allowed", "trusted"])
+@pytest.mark.parametrize("selection_intent", ["document_coverage", "legacy"])
+async def test_unverified_candidates_payment_starts_only_after_exact_owner_approval(
+    request_bulk, sharing, authority, selection_intent
 ):
+    if authority == "trusted":
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO one_location_circle_memberships
+                SELECT id,'recipient','active' FROM one_location_circles
+                WHERE owner_user_id='owner' AND system_kind='trusted'""")
+            )
     created = await _request(sharing)
     request_id = created["requestId"]
-    search = _search(request_bulk, request_id=request_id, count=1)
+    if authority == "owner_allowed":
+        await sharing.allow_request(
+            user_id="owner", request_id=request_id, revision=created["revision"], amount_cents=1000
+        )
+    selection = (
+        {
+            "request_selection_version": 2,
+            "request_time_intent": "document_coverage",
+            "request_owner_review_required": True,
+        }
+        if selection_intent == "document_coverage"
+        else None
+    )
+    search = _search(request_bulk, request_id=request_id, count=1, selection=selection)
+    assert (await sharing.owner_review(user_id="owner", request_id=request_id))[
+        "trustedAuto"
+    ] is False
+    assert (
+        await DriveOwnerSearchStore(db=sharing.db).by_client(
+            user_id="owner", client_request_id=request_id
+        )
+    )["coverage"]["ownerReviewRequired"] is True
     review = await request_bulk.create_review(
         user_id="owner",
         search_job_id=search,
@@ -204,6 +235,14 @@ async def test_nontrusted_progressive_payment_starts_only_after_owner_approval(
         await payment.ensure_payment_for_frozen_batch("owner", request_id, review["shareId"])
     with pytest.raises(DriveSharingError, match="payment_not_ready"):
         await payment.checkout(requester_user_id="recipient", request_id=request_id)
+    with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+        await request_bulk.approve(
+            user_id="owner",
+            share_id=review["shareId"],
+            revision=review["revision"],
+            review_digest=review["reviewDigest"],
+            approval_source="trusted_auto",
+        )
     create_session.assert_not_called()
     with sharing.db.engine.begin() as connection:
         assert (
@@ -265,6 +304,33 @@ async def test_nontrusted_progressive_payment_starts_only_after_owner_approval(
             ).scalar_one()
             == 1
         )
+
+    # Payment can enable only this exact, explicitly approved owner batch.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+            SET status='paid',paid_at=clock_timestamp() WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+        assert (
+            connection.execute(
+                text("SELECT approval_source FROM drive_bulk_shares WHERE share_id=:share"),
+                {"share": review["shareId"]},
+            ).scalar_one()
+            == "owner"
+        )
+    claim = await request_bulk.claim(
+        user_id="owner", share_id=review["shareId"], position=1, recipient_user_id="recipient"
+    )
+    assert claim is not None
+    await request_bulk.require_current(claim)
+
+
+FILE_ACTIVITY_SELECTION = {
+    "request_selection_version": 2,
+    "request_time_intent": "file_activity",
+    "request_owner_review_required": False,
+}
 
 
 def _search(
@@ -922,7 +988,9 @@ async def _trusted_review(bulk, sharing, *, paid=True):
     request = await _trusted_request(sharing)
     review = await bulk.create_review(
         user_id="owner",
-        search_job_id=_search(bulk, request_id=request["requestId"], count=1),
+        search_job_id=_search(
+            bulk, request_id=request["requestId"], count=1, selection=FILE_ACTIVITY_SELECTION
+        ),
         client_request_id=str(uuid4()),
         recipients=[_recipient("trusted-member", "trusted@example.invalid")],
         excluded=[],
@@ -949,7 +1017,9 @@ async def _trusted_review(bulk, sharing, *, paid=True):
 
 async def _paid_partial_progressive_request(bulk, sharing, *, batches=1):
     request_id = (await _trusted_request(sharing))["requestId"]
-    search = _search(bulk, request_id=request_id, count=batches * 2)
+    search = _search(
+        bulk, request_id=request_id, count=batches * 2, selection=FILE_ACTIVITY_SELECTION
+    )
     with bulk.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
@@ -2012,14 +2082,106 @@ async def test_legacy_frozen_request_review_cannot_queue_drive_grants(request_bu
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("history", ["legacy", "current", "frozen", "paid", "completed"])
+async def test_request_start_replans_only_unfrozen_pending_legacy_search(
+    request_bulk, sharing, history
+):
+    request = await _trusted_request(sharing)
+    request_id = request["requestId"]
+    old_job = _search(
+        request_bulk,
+        request_id=request_id,
+        count=1,
+        selection=FILE_ACTIVITY_SELECTION if history == "current" else None,
+    )
+    if history in {"frozen", "paid"}:
+        await request_bulk.create_review(
+            user_id="owner",
+            search_job_id=old_job,
+            client_request_id=str(uuid4()),
+            recipients=[_recipient("trusted-member", "trusted@example.invalid")],
+            excluded=[],
+            origin_request_id=request_id,
+            selected_positions=[1],
+        )
+    with request_bulk.db.engine.begin() as connection:
+        if history == "paid":
+            connection.execute(
+                text("""INSERT INTO drive_request_payment_orders
+                (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+                VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
+                {"request": request_id},
+            )
+        if history == "completed":
+            connection.execute(
+                text(
+                    "UPDATE drive_share_requests SET status='completed' WHERE request_id=:request"
+                ),
+                {"request": request_id},
+            )
+    planner = AsyncMock(
+        return_value={
+            "mode": "find",
+            "terms": ["standup"],
+            "file_kind": "document",
+            "time_intent": "document_coverage",
+            "subject_scope": "specific_records",
+            "subject_complete": True,
+        }
+    )
+    search = SimpleNamespace(
+        store=DriveOwnerSearchStore(db=sharing.db),
+        create_for_request=AsyncMock(return_value={"jobId": "replacement", "status": "queued"}),
+    )
+    service = DriveRequestBulkService(
+        sharing=sharing,
+        search=search,
+        bulk=request_bulk,
+        planner=planner,
+        require_owner=AsyncMock(),
+        wake=AsyncMock(),
+    )
+    result = await service.start_search(user_id="owner", request_id=request_id)
+    if history == "legacy":
+        assert result["jobId"] == "replacement"
+        planner.assert_awaited_once()
+        search.create_for_request.assert_awaited_once()
+        assert (
+            search.create_for_request.await_args.kwargs["plan"]["time_intent"]
+            == "document_coverage"
+        )
+    else:
+        assert result["jobId"] == old_job
+        planner.assert_not_awaited()
+        search.create_for_request.assert_not_awaited()
+    with request_bulk.db.engine.begin() as connection:
+        assert connection.execute(
+            text("SELECT count(*) FROM drive_owner_search_jobs WHERE job_id=:job"),
+            {"job": old_job},
+        ).scalar_one() == (0 if history == "legacy" else 1)
+        if history == "paid":
+            assert (
+                connection.execute(
+                    text(
+                        "SELECT status FROM drive_request_payment_orders WHERE request_id=:request"
+                    ),
+                    {"request": request_id},
+                ).scalar_one()
+                == "paid"
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [False, True])
 async def test_legacy_request_search_refresh_is_idempotent_and_preserves_review(
-    request_bulk, sharing
+    request_bulk, sharing, verified
 ):
     store = DriveOwnerSearchStore(db=request_bulk.db)
     request = await _request(sharing)
-    old_job = _search(request_bulk, request_id=request["requestId"], count=2, verified=False)
+    old_job = _search(request_bulk, request_id=request["requestId"], count=2, verified=verified)
     old_status = await store.by_client(user_id="owner", client_request_id=request["requestId"])
-    assert old_status["coverage"]["shareabilityVerified"] is False
+    assert old_status["coverage"]["shareabilityVerified"] is verified
+    assert old_status["coverage"]["ownerReviewRequired"] is True
     assert await store.clear_legacy_completed_request(
         user_id="owner", request_id=request["requestId"]
     )
@@ -2042,7 +2204,13 @@ async def test_legacy_request_search_refresh_is_idempotent_and_preserves_review(
             == 0
         )
 
-    current_job = _search(request_bulk, request_id=request["requestId"], count=1, verified=True)
+    current_job = _search(
+        request_bulk,
+        request_id=request["requestId"],
+        count=1,
+        verified=True,
+        selection=FILE_ACTIVITY_SELECTION,
+    )
     assert not await store.clear_legacy_completed_request(
         user_id="owner", request_id=request["requestId"]
     )
@@ -2658,7 +2826,17 @@ async def test_manual_approval_after_trusted_authority_changes_can_grant(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("revocation", ["membership", "background", "manual_takeover"])
+@pytest.mark.parametrize(
+    "revocation",
+    [
+        "membership",
+        "background",
+        "manual_takeover",
+        "document_coverage",
+        "legacy",
+        "request_mismatch",
+    ],
+)
 async def test_auto_approved_batch_stops_after_authority_revoked(request_bulk, sharing, revocation):
     with request_bulk.db.engine.begin() as connection:
         connection.execute(
@@ -2692,6 +2870,36 @@ async def test_auto_approved_batch_stops_after_authority_revoked(request_bulk, s
             connection.execute(
                 text("""UPDATE drive_live_preferences SET background_enabled=FALSE
                 WHERE user_id='owner'""")
+            )
+        elif revocation in {"document_coverage", "legacy", "request_mismatch"}:
+            search_id = str(row["search_job_id"])
+            envelope = connection.execute(
+                text("SELECT checkpoint_envelope FROM drive_owner_search_jobs WHERE job_id=:job"),
+                {"job": search_id},
+            ).scalar_one()
+            checkpoint = request_bulk._open(
+                envelope, user_id="owner", resource_id=search_id, purpose="owner-search-checkpoint"
+            )
+            if revocation == "legacy":
+                checkpoint.pop("request_selection_version")
+            elif revocation == "request_mismatch":
+                checkpoint["request_origin_id"] = str(uuid4())
+            else:
+                checkpoint.update(
+                    request_time_intent="document_coverage", request_owner_review_required=True
+                )
+            connection.execute(
+                text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:envelope AS jsonb)
+                    WHERE job_id=:job"""),
+                {
+                    "job": search_id,
+                    "envelope": request_bulk._seal(
+                        checkpoint,
+                        user_id="owner",
+                        resource_id=search_id,
+                        purpose="owner-search-checkpoint",
+                    ),
+                },
             )
         else:
             connection.execute(

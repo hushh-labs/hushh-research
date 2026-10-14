@@ -45,6 +45,11 @@ import type {
   ReceiptListItem,
 } from "@/lib/services/gmail-receipts-service";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
+import { getVerifiedReceiptMerchant } from "@/lib/mail/receipt-merchant-registry";
+
+const DEFAULT_RECEIPT_LOGO_TEMPLATE = "https://icons.duckduckgo.com/ip3/{domain}.ico";
+const RECEIPT_LOGO_TIMEOUT_MS = 5000;
 
 const CATEGORY_ICONS = {
   Shopping: ShoppingBag,
@@ -98,6 +103,7 @@ export function ReceiptMerchantLogo({
   category?: ReceiptCategory | null;
 }) {
   const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
+  const [loadedLogoUrl, setLoadedLogoUrl] = useState<string | null>(null);
   const online = useSyncExternalStore(
     subscribeToConnectivity,
     getConnectivitySnapshot,
@@ -105,16 +111,23 @@ export function ReceiptMerchantLogo({
   );
   const configuredTemplate =
     providerUrlTemplate === undefined
-      ? process.env.NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE
+      ? process.env.NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE ?? DEFAULT_RECEIPT_LOGO_TEMPLATE
       : providerUrlTemplate;
   const logoUrl = buildReceiptLogoUrl(configuredTemplate, logoDomain);
-  const showFallback = !online || !logoUrl || failedLogoUrl === logoUrl;
+  const requestLogo = online && Boolean(logoUrl) && failedLogoUrl !== logoUrl;
+  const showFallback = !requestLogo || loadedLogoUrl !== logoUrl;
   const FallbackIcon = category ? CATEGORY_ICONS[category] : Receipt;
+
+  useEffect(() => {
+    if (!requestLogo || loadedLogoUrl === logoUrl) return;
+    const timeout = window.setTimeout(() => setFailedLogoUrl(logoUrl), RECEIPT_LOGO_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [requestLogo, loadedLogoUrl, logoUrl]);
 
   return (
     <span
       aria-hidden="true"
-      className="inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]"
+      className="relative inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]"
       data-logo-kind={
         showFallback
           ? category && category !== "Other" && category !== "Uncategorized"
@@ -131,23 +144,53 @@ export function ReceiptMerchantLogo({
           className={`size-[18px] ${CATEGORY_COLORS[category || "Other"]}`}
           weight="duotone"
         />
-      ) : (
+      ) : null}
+      {requestLogo ? (
         // A repeated merchant uses an identical domain-only URL so the
         // browser/WebView and provider can reuse their normal HTTP caches.
         // eslint-disable-next-line @next/next/no-img-element
         <img
           alt=""
           aria-hidden="true"
-          className="h-full w-full bg-white object-contain p-1.5"
-          crossOrigin="anonymous"
+          className={cn("absolute inset-0 h-full w-full bg-white object-contain p-1.5", showFallback && "opacity-0")}
           decoding="async"
-          loading="lazy"
+          loading="eager"
           onError={() => setFailedLogoUrl(logoUrl)}
+          onLoad={() => setLoadedLogoUrl(logoUrl)}
           referrerPolicy="no-referrer"
-          src={logoUrl}
+          src={logoUrl!}
         />
-      )}
+      ) : null}
     </span>
+  );
+}
+
+function ReceiptMerchantVisit({ homepageUrl }: { homepageUrl: string }) {
+  const [openError, setOpenError] = useState(false);
+  return (
+    <div className="space-y-2">
+      <Button
+        className="min-h-11 w-full"
+        data-voice-control-id="visit_receipt_merchant"
+        type="button"
+        variant="outline"
+        onClick={() => {
+          setOpenError(false);
+          try {
+            openExternalUrl(homepageUrl);
+          } catch {
+            setOpenError(true);
+          }
+        }}
+      >
+        Visit merchant
+      </Button>
+      {openError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          We couldn’t open the merchant website. Please try again.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -383,11 +426,15 @@ function receiptTimelineLabel(event: ReceiptTimelineEvent): string {
 export function GmailRecentReceipts({
   accountKey,
   receipts,
+  savedRows,
+  sourceKeyAliases,
   loadReceiptDetail,
   onReceiptDetailLoaded,
 }: {
   accountKey: string | null | undefined;
   receipts: readonly ReceiptListItem[];
+  savedRows?: readonly RecentReceiptRow[];
+  sourceKeyAliases?: Readonly<Record<string, string>>;
   loadReceiptDetail: (
     sourceId: string,
     signal: AbortSignal,
@@ -400,6 +447,7 @@ export function GmailRecentReceipts({
       truncated?: boolean;
     } | null;
     source_evidence?: GmailReceiptSourceEvidence[];
+    live_unavailable?: string;
   }>;
   onReceiptDetailLoaded?: (item: ReceiptListItem) => void;
 }) {
@@ -420,17 +468,18 @@ export function GmailRecentReceipts({
   >([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [liveUnavailable, setLiveUnavailable] = useState<string | null>(null);
   const [detailAttempt, setDetailAttempt] = useState(0);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<ReceiptFilter>("all");
   const [displayPage, setDisplayPage] = useState(1);
   const rows = useMemo(
-    () => buildRecentReceiptRows(receipts, accountKey),
-    [accountKey, receipts],
+    () => savedRows ?? buildRecentReceiptRows(receipts, accountKey),
+    [accountKey, receipts, savedRows],
   );
   const selectedRow = useMemo(
-    () => rows.find((row) => row.id === selectedRowId || Boolean(selectedReceiptKey && row.sourceReceiptKeys.includes(selectedReceiptKey))) || null,
-    [rows, selectedRowId, selectedReceiptKey],
+    () => rows.find((row) => row.id === selectedRowId || Boolean(selectedReceiptKey && row.sourceReceiptKeys.includes(sourceKeyAliases?.[selectedReceiptKey] ?? selectedReceiptKey))) || null,
+    [rows, selectedRowId, selectedReceiptKey, sourceKeyAliases],
   );
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -459,7 +508,12 @@ export function GmailRecentReceipts({
       ) || null,
     [receipts, selectedReceiptKey],
   );
-  const selectedReceiptAvailable = Boolean(selectedListReceipt);
+  const selectedReceiptAvailable = Boolean(selectedListReceipt || (savedRows && selectedRow?.sourceReceiptKeys.includes(selectedReceiptKey ?? "")));
+
+  useEffect(() => {
+    if (selectedRow && selectedReceiptKey && !selectedRow.sourceReceiptKeys.includes(selectedReceiptKey))
+      setSelectedReceiptKey(sourceKeyAliases?.[selectedReceiptKey] && selectedRow.sourceReceiptKeys.includes(sourceKeyAliases[selectedReceiptKey]!) ? sourceKeyAliases[selectedReceiptKey]! : selectedRow.primaryReceiptKey);
+  }, [selectedRow, selectedReceiptKey, sourceKeyAliases]);
 
   useEffect(() => {
     if (displayPage > pageCount) setDisplayPage(pageCount);
@@ -472,6 +526,7 @@ export function GmailRecentReceipts({
       setSourceEvidence([]);
       setDetailLoading(false);
       setDetailError(null);
+      setLiveUnavailable(null);
       return;
     }
 
@@ -480,11 +535,13 @@ export function GmailRecentReceipts({
     setEmailExcerpt(null);
     setSourceEvidence([]);
     setDetailError(null);
+    setLiveUnavailable(null);
     setDetailLoading(true);
     void loadReceiptDetail(selectedReceiptKey, controller.signal)
       .then((detail) => {
         if (controller.signal.aborted) return;
         setReceiptDetail(detail.item);
+        setLiveUnavailable(detail.live_unavailable ?? null);
         onReceiptDetailLoaded?.(detail.item);
         const excerpt = detail.email_excerpt;
         setSourceEvidence(detail.source_evidence || []);
@@ -543,6 +600,11 @@ export function GmailRecentReceipts({
       )
     : null;
   const detailIdentity = receiptDetail ? resolveReceiptMerchant(receiptDetail) : null;
+  // A saved detail has no live sender/domain evidence. Keep its reviewed key
+  // authoritative instead of promoting a formerly rejected label-only match.
+  const detailBrand = liveUnavailable && savedRows
+    ? getVerifiedReceiptMerchant(selectedRow?.brandKey)
+    : detailIdentity;
   const sender = receiptDetail
     ? [receiptDetail.from_name, receiptDetail.from_email]
         .map((value) => String(value || "").trim())
@@ -654,7 +716,7 @@ export function GmailRecentReceipts({
       ) : null}
 
       <AdaptiveDetailSurface
-        open={Boolean(selectedRow && selectedListReceipt)}
+        open={Boolean(selectedRow && selectedReceiptAvailable)}
         onOpenChange={(open) => {
           if (!open) closeDetail();
         }}
@@ -662,7 +724,7 @@ export function GmailRecentReceipts({
           selectedRow ? (
             <ReceiptMerchantLogo
               merchantName={detailIdentity?.displayName || selectedRow.merchantName}
-              logoDomain={detailIdentity ? detailIdentity.logoDomain : selectedRow.logoDomain}
+              logoDomain={detailIdentity ? detailBrand?.logoDomain ?? null : selectedRow.logoDomain}
               category={detailIdentity?.category || selectedRow.category}
             />
           ) : null
@@ -681,6 +743,7 @@ export function GmailRecentReceipts({
         desktopMaxWidthClassName="sm:!max-w-[520px]"
         bodyClassName="py-3"
       >
+        {liveUnavailable ? <p className="text-sm text-muted-foreground" role="status">{liveUnavailable}</p> : null}
         {detailLoading ? (
           <p className="text-sm text-muted-foreground" role="status">
             Loading receipt details…
@@ -825,6 +888,9 @@ export function GmailRecentReceipts({
                   ))}
                 </ul>
               </div>
+            ) : null}
+            {detailBrand?.homepageUrl ? (
+              <ReceiptMerchantVisit key={detailBrand.homepageUrl} homepageUrl={detailBrand.homepageUrl} />
             ) : null}
           </div>
         ) : null}

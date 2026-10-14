@@ -68,7 +68,8 @@ WITH participants AS (
     {refund_amount_cents} AS refund_amount_cents,
     {payment_owner_payout_ready} AS payment_owner_payout_ready,
     {estimate_known} AS estimate_known,
-    {estimate_cents} AS estimate_cents
+    {estimate_cents} AS estimate_cents,
+    {agent_package} AS agent_package
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
@@ -77,7 +78,7 @@ WITH participants AS (
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -144,7 +145,7 @@ _QUERIES = """
       ELSE status END,
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -344,6 +345,7 @@ def _projection(
     pricing: bool = False,
     payout_projection: bool = False,
     estimate: bool = False,
+    packages: bool = False,
 ) -> str:
     projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
     projection = projection.replace("{identity_joins}", _IDENTITY_JOINS if identity_cache else "")
@@ -352,6 +354,7 @@ def _projection(
         _COUNTERPART_LABEL if identity_cache else "'Document request'::text",
     )
     for name, expression in {
+        "agent_package": "drive_share_requests.agent_package_required" if packages else "FALSE",
         "owner_search_state": _OWNER_SEARCH_STATE if owner_search else "'unavailable'::text",
         "trusted_authority_ready": _trusted_authority_ready(owner_allowed)
         if background
@@ -533,6 +536,7 @@ def entry(row: Any) -> dict[str, Any]:
         not in {"awaiting_payment", "checkout_open", "refunded", "expired"}
         and row.get("payment_reconciliation_required") is not True
         and row.get("trusted_authority_ready") is True
+        and (row.get("agent_package") is not True or row.get("owner_allowed") is True)
         and row.get("trusted_recovery_needed") is not True
         and (
             preparation_code == "trusted_auto_queued"
@@ -558,7 +562,11 @@ def entry(row: Any) -> dict[str, Any]:
         and row["bucket"] == "incoming_requests"
         and row["state"] == "pending"
         and not row.get("access_stopped")
-        and row.get("owner_decision_ready") is True
+        and (
+            row.get("owner_decision_ready") is True
+            or row.get("agent_package") is True
+            and row.get("owner_allowed") is not True
+        )
     )
     return {
         "id": row["id"],
@@ -615,10 +623,12 @@ def entry(row: Any) -> dict[str, Any]:
                 and row["bucket"] == "incoming_requests"
                 and row["state"] == "pending"
                 and not row.get("access_stopped")
+                and row.get("agent_package") is not True
                 and row.get("owner_price_ready") is True
                 and row.get("owner_payout_account_ready") is True
             ),
             "owner_allowed": row.get("owner_allowed") is True,
+            **({"agent_package": True} if row.get("agent_package") is True else {}),
             **(
                 {"payment_required": row.get("payment_required") is True}
                 if row["direction"] == "incoming"
@@ -697,6 +707,7 @@ def _payment_view_metadata(row: Any) -> dict[str, Any]:
     return {
         "paymentView": requester_payment_view(
             payment_required=True,
+            package_disclosure_required=row.get("agent_package") is True,
             # The requester projection renames no_match; the view needs the status.
             request_status="no_match" if state == "no_files_shared" else state,
             request_expires_at=row.get("request_expires_at"),
@@ -824,6 +835,16 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
+    def _packages_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS (SELECT 1 FROM pg_attribute
+            WHERE attrelid=to_regclass('drive_share_requests')
+              AND attname='agent_package_required' AND NOT attisdropped)""")
+            ).scalar_one()
+        )
+
+    @staticmethod
     def _estimate_installed(connection) -> bool:
         return bool(
             connection.execute(
@@ -901,6 +922,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._owner_allowed_installed(connection),
                         self._pricing_installed(connection),
                         self._payout_projection_installed(connection),
+                        packages=self._packages_installed(connection),
                     )  # nosec B608
                     + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
                 ),
@@ -940,6 +962,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                             self._pricing_installed(connection),
                             self._payout_projection_installed(connection),
                             self._estimate_installed(connection),
+                            packages=self._packages_installed(connection),
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -994,6 +1017,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._pricing_installed(connection),
                         self._payout_projection_installed(connection),
                         self._estimate_installed(connection),
+                        packages=self._packages_installed(connection),
                     )  # nosec B608
                     + """
                     , ranked AS (

@@ -13,7 +13,7 @@ flowchart LR
   provision["provision_curated_connector.py\nregister and apply"]
   registry["external_mcp_connectors row\noperator-writable"]
   secrets["Secret Manager\nclient id, and secret if any"]
-  deploy["UAT deploy\nsecret names from manifests"]
+  deploy["Environment deploy\nsecret names from manifests"]
   runtime["Backend runtime\nmanifest pins a row to be served"]
   panel["Connectors panel\nserver curatedOAuth flag"]
   chat["One chat\nreads run, changes need a review card"]
@@ -45,7 +45,7 @@ is never served.
 | `oauth.clientIdEnv`, `oauth.clientSecretEnv` | Named `<ID>_OAUTH_CLIENT_ID` and `<ID>_OAUTH_CLIENT_SECRET`. A public client names no secret. The Secret Manager name equals the variable name. |
 | `tools.allowlist` | The exact tools chat may offer. |
 | `tools.freeRead` | The subset that may run without a review card. A tool must also be annotated read-only by the server itself. |
-| `environments.<env>.registeredRedirectUris` | The return addresses the registry row is applied with. |
+| `environments.<env>.registeredRedirectUris` | The return addresses the registry row is applied with (1-9 HTTPS addresses; production allows only its canonical return). Public clients register this exact list with the provider, so changing it means re-registering with `--force`, which orphans existing grants. |
 
 Every tool outside `tools.freeRead` keeps an exact-call review card. A provider
 with no free-read tools keeps a card on every call.
@@ -128,6 +128,40 @@ python3 scripts/ops/provision_curated_connector.py verify hubspot --env uat --st
 
 `verify` only reads. It lists the differing field names, never their values. To
 fix a row, re-run `apply <id> --env uat --operator you@hushh.ai`.
+
+## Production activation
+
+The three reviewed manifests now pin a separate production callback:
+`https://one.hushh.ai/one/profile/connectors/oauth/return`. The production
+deploy leaves curated connectors off unless `CURATED_MCP_CONNECTORS_PROD=true`.
+When enabled, it checks that every manifest-derived production client secret has
+an enabled latest version, as well as production's existing
+`EXTERNAL_CONNECTOR_CREDENTIAL_KEY`, before changing the production runtime
+configuration, and mounts those names only in production. The runtime also requires the
+production rollout flag, a matching active production registry row, and the
+provider credentials before offering a connector.
+
+- Notion and Attio use public PKCE clients. Review the request with
+  `register <id> --env production --project hushh-pda --store --dry-run`, then
+  repeat without `--dry-run` once per provider. Their dynamic registration
+  creates production clients and stores each client ID in production Secret
+  Manager; it does not change the UAT registration. Production registration
+  rejects an extra callback or a UAT Secret Manager project.
+- HubSpot's MCP auth app is confidential. Create it under Development → MCP
+  Auth Apps in the intended HubSpot account with the production callback, then
+  store its new client ID and client secret as `HUBSPOT_OAUTH_CLIENT_ID` and
+  `HUBSPOT_OAUTH_CLIENT_SECRET` in `hushh-pda`. The provisioning script cannot
+  dynamically register this client.
+- Apply each reviewed row to the production registry with
+  `apply <id> --env production --operator <you>`, then check
+  `verify --env production --strict`. The command must run with production DB
+  connection settings. Both commands attest the configured project and Cloud
+  SQL instance plus the connected PostgreSQL database identity before reading
+  or writing the registry. A missing or drifting row remains unavailable.
+
+The production client IDs and HubSpot secret are separate from UAT's. An OAuth
+client registered only with the UAT callback cannot complete the production
+return flow.
 
 ## Registration-only bootstrap
 
@@ -223,9 +257,8 @@ secret fails the UAT deploy.
 
 ## Limits
 
-- Production is not enabled. Provider credentials are provisioned for UAT, and
-  the deploy coverage baseline records the curated secrets as deliberately
-  absent from the production and dev lanes.
+- Production remains off until its own OAuth clients are provisioned, registry
+  rows are applied, and `CURATED_MCP_CONNECTORS_PROD` is enabled.
 - Disconnect removes the local credential; it does not call the provider's
   revocation endpoint.
 - Notion refresh tokens rotate on every refresh and end after 180 days, or after

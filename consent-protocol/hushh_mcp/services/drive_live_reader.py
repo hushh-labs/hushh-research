@@ -53,6 +53,7 @@ MAX_TITLE_DATES = 3
 MIME_CLAUSES = {
     "document": (
         "(mimeType = 'application/vnd.google-apps.document'"
+        " or mimeType = 'application/pdf'"
         " or mimeType = 'application/msword' or mimeType contains 'wordprocessingml')"
     ),
     "spreadsheet": (
@@ -289,6 +290,7 @@ class DriveLiveReader:
         self,
         *,
         query: list[str],
+        term_groups: list[list[str]] | None = None,
         time_field: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
@@ -302,8 +304,8 @@ class DriveLiveReader:
     ) -> dict:
         """Search bounded file metadata; no content read, selection, or index.
 
-        Terms must all match first (Drive's own multi-word behaviour); any term
-        may match only when that finds nothing. A file type is a mimeType clause.
+        Equivalent variants are OR within a concept, and concepts are AND.
+        Legacy terms remain distinct required concepts. A type is a mime clause.
         """
         date_bounded = time_field is not None or start_time is not None or end_time is not None
         if (
@@ -332,6 +334,22 @@ class DriveLiveReader:
         terms = self._validate_query(
             query, date_bounded=filtered or recent or exact_title is not None
         )
+        groups = [[term] for term in terms]
+        if term_groups is not None:
+            if (
+                not isinstance(term_groups, list)
+                or len(term_groups) > 3
+                or any(
+                    not isinstance(group, list) or not 1 <= len(group) <= 4 for group in term_groups
+                )
+            ):
+                raise DriveReadError("narrow_selection_required")
+            groups = [
+                [self._validate_query([variant])[0] for variant in group] for group in term_groups
+            ]
+            variants = [variant.casefold() for group in groups for variant in group]
+            if [group[0] for group in groups] != terms or len(set(variants)) != len(variants):
+                raise DriveReadError("narrow_selection_required")
         base = [MIME_CLAUSES[file_kind]] if file_kind != "any" else []
         if shared_with_me:
             base.append("sharedWithMe = true")
@@ -345,7 +363,16 @@ class DriveLiveReader:
         term_clauses = (
             [f"name = {quote_literal(exact_title)}"]
             if exact_title is not None
-            else [compile_search_terms([term], title_only=title_only) for term in terms]
+            else [
+                "("
+                + " or ".join(
+                    compile_search_terms([variant], title_only=title_only) for variant in group
+                )
+                + ")"
+                if len(group) > 1
+                else compile_search_terms(group, title_only=title_only)
+                for group in groups
+            ]
         )
         # Metadata-only queries can rank by file time before the page cut.
         # The REST transport leaves full-text searches in provider relevance order.
@@ -360,9 +387,6 @@ class DriveLiveReader:
             requests.append(
                 ("search_files", {"query": " and ".join([*term_clauses, *base]), **order})
             )
-            if len(term_clauses) > 1:
-                either = "(" + " or ".join(term_clauses) + ")"
-                requests.append(("search_files", {"query": " and ".join([either, *base]), **order}))
         elif base:
             requests.append(("search_files", {"query": " and ".join(base), **order}))
         elif recent:
@@ -470,12 +494,11 @@ class DriveLiveReader:
                         "arguments": {**request, "pageToken": page_token},
                     }
                 if pages >= MAX_SEARCH_PAGES or len(matches) >= max_results:
-                    # An unattempted OR fallback is not a complete empty search.
+                    # An unattempted request is not a complete empty search.
                     if not request_has_matches and (tool_name, base_request) != requests[-1]:
                         truncated = True
                     break
                 if request_has_matches:
-                    # All terms matched; the broader any-term search is only a fallback.
                     break
 
         await scan()

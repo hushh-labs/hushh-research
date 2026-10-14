@@ -96,7 +96,7 @@ def _initialize_gemini_client(force: bool = False) -> None:
 
     _gemini_client = None
     _gemini_unavailable_reason = None
-    _gemini_model_name = (os.getenv("GEMINI_MODEL") or GEMINI_MODEL).strip()
+    _gemini_model_name = GEMINI_MODEL
     _gemini_use_vertex = _resolve_vertex_mode()
     binding = None
     try:

@@ -14,7 +14,7 @@ from collections.abc import Awaitable
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
@@ -107,6 +107,9 @@ class GmailLiveReceiptItem(BaseModel):
 
     id: int
     source_id: str = Field(min_length=1, max_length=340)
+    durable_source_ref: str | None = Field(
+        default=None, max_length=315, pattern=r"^grs1_[A-Za-z0-9_-]{39,310}$"
+    )
     receipt_key: str = Field(min_length=1, max_length=340)
     source_kind: Literal["gmail_live"]
     category: (
@@ -134,6 +137,9 @@ class GmailLiveReceiptItem(BaseModel):
     from_email: str | None = Field(default=None, max_length=320)
     order_id: str | None = Field(default=None, max_length=80)
     amount: float | None = Field(default=None, ge=0)
+    amount_decimal: str | None = Field(
+        default=None, max_length=15, pattern=r"^\d{1,12}(?:\.\d{1,2})?$"
+    )
     currency: Literal["INR", "USD", "EUR", "GBP", "$"] | None = None
     receipt_date: str | None = Field(default=None, max_length=64)
     gmail_internal_date: str | None = Field(default=None, max_length=64)
@@ -711,6 +717,29 @@ async def gmail_live_receipt_scan(
                 cursor=payload.cursor,
             ),
         )
+        try:
+            GmailLiveReceiptScanResponse.model_validate(result)
+        except ValidationError as exc:
+            # FastAPI's own response_model validation runs after this handler
+            # returns, outside every except block above, so a shape mismatch
+            # here would otherwise surface as an opaque, unclassified 500 that
+            # the frontend cannot distinguish from a dependency crash and
+            # therefore will not retry. Validate explicitly, inside the
+            # handler's own try/except, so it becomes the same classified,
+            # retried-by-neither-side error every other extraction defect in
+            # this route already produces. Field locations only: `errors()`
+            # entries also carry the rejected value, which can be the
+            # owner's own receipt content.
+            field_paths = [".".join(str(part) for part in error["loc"]) for error in exc.errors()]
+            logger.warning(
+                "kai.gmail.live_receipt_scan_invalid_response fields=%s",
+                field_paths,
+            )
+            raise GmailApiError(
+                "Gmail returned an invalid receipt response.",
+                status_code=502,
+                code="GMAIL_RECEIPT_INVALID_RESPONSE",
+            ) from None
         coverage = result.get("coverage") if isinstance(result, dict) else None
         logger.info(
             "kai.gmail.live_receipt_scan_completed page=%s returned_count=%s "

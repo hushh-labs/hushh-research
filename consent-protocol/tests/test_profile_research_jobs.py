@@ -592,3 +592,100 @@ def test_job_routes_are_private_and_owner_only(monkeypatch, method):
     assert response.status_code == 202
     assert "no-store" in response.headers["cache-control"]
     operation.assert_awaited_once_with("owner", "fixture-token")
+
+
+def pwm_manager(monkeypatch, **kwargs):
+    from hushh_mcp.services import world_model_service as pwm
+
+    monkeypatch.setattr(pwm, "validate_first_party_owner_token", AsyncMock(return_value=object()))
+    return pwm.WorldModelJobs(
+        store=kwargs.pop("store", MemoryStore()),
+        offer=kwargs.pop("offer", AsyncMock(return_value=RESULT)),
+        check=kwargs.pop("check", AsyncMock(return_value=(None, "owner-bound-identity"))),
+        max_attempts=52,
+        stored_attempts=52,
+        review_ids=True,
+        preserve_budget_on_identity_change=True,
+        **kwargs,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["start", "status"])
+async def test_pwm_discard_while_admission_waits_never_releases_cached_draft(
+    monkeypatch, operation
+):
+    instance = pwm_manager(monkeypatch)
+    await instance.start("owner", "token")
+    await settle(instance)
+    draft_id = instance.store.rows["owner"]["job_id"]
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def check(*args):
+        entered.set()
+        await release.wait()
+        return None, "owner-bound-identity"
+
+    instance.check = check
+    poll = asyncio.create_task(getattr(instance, operation)("owner", "token"))
+    await entered.wait()
+    await instance.dismiss("owner", "token", draft_id)
+    release.set()
+    assert "report" not in await poll
+    assert "report" not in instance.store.rows["owner"]["result"]
+
+
+@pytest.mark.asyncio
+async def test_pwm_old_completion_cannot_discard_new_draft(monkeypatch):
+    instance = pwm_manager(monkeypatch)
+    await instance.start("owner", "token")
+    await settle(instance)
+    old = instance.store.rows["owner"]["job_id"]
+    await instance.dismiss("owner", "token", old)
+    await instance.start("owner", "token")
+    await settle(instance)
+    with pytest.raises(RuntimeError, match="Draft changed"):
+        await instance.dismiss("owner", "token", old)
+    assert instance.store.rows["owner"]["status"] == "offered"
+    assert instance.store.rows["owner"]["result"]["draft_id"] != old
+
+
+@pytest.mark.asyncio
+async def test_pwm_identity_edit_preserves_durable_search_and_model_charges(monkeypatch):
+    used = []
+
+    async def research(**kwargs):
+        used.append(kwargs["attempts_used"])
+        if not used[0] and len(used) == 1:
+            await kwargs["on_attempts_start"]((1, 33))
+        return RESULT
+
+    instance = pwm_manager(monkeypatch, offer=research)
+    await instance.start("owner", "token")
+    await settle(instance)
+    instance.check = AsyncMock(return_value=(None, "changed-owner-name"))
+    await instance.start("owner", "token")
+    await settle(instance)
+    assert used == [(), (1, 33)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["start", "status"])
+async def test_revoked_owner_during_final_checkpoint_read_is_denied(monkeypatch, operation):
+    instance = pwm_manager(monkeypatch)
+    await instance.start("owner", "token")
+    await settle(instance)
+    original = instance.store.get
+    reads = 0
+
+    async def read(owner):
+        nonlocal reads
+        reads += 1
+        result = await original(owner)
+        if reads == 2:
+            jobs.validate_first_party_owner_token.return_value = None
+        return result
+
+    instance.store.get = read
+    with pytest.raises(PermissionError):
+        await getattr(instance, operation)("owner", "token")

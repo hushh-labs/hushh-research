@@ -120,6 +120,7 @@ async def sharing(documents, monkeypatch):
             "304_connect_bank_payout_reconciliation.sql",
             "316_connect_bank_payout_snapshot.sql",
             "320_drive_request_initial_quote.sql",
+            "328_drive_request_packages.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
@@ -389,7 +390,7 @@ def test_price_view_states(initial, quoted, allowed, order, expected):
         order_amount_cents=order,
     )
     assert (view["state"], view["currentCents"], view["finalCents"]) == expected
-    assert view["estimateCents"] == (initial if initial in {2500} else None)
+    assert view["estimateCents"] == initial
 
 
 @pytest.mark.asyncio
@@ -889,6 +890,7 @@ async def test_payment_context_is_only_the_requesters_own_text(sharing, monkeypa
     context = await sharing.requester_context(user_id="recipient", request_id=request_id)
     assert context == {
         "requestId": request_id,
+        "requestRevision": 0,
         "purpose": {
             "purpose": "Private six-month statements",
             "periodStart": "2026-01-01",
@@ -1293,7 +1295,7 @@ async def test_owner_price_is_required_for_a_paid_request_and_fixed_once_allowed
             text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
             {"id": request_id},
         )
-    for missing_or_invalid in (None, 2050, 50100):
+    for missing_or_invalid in (None, 49, 50001):
         with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
             await owner_allow(sharing, created, missing_or_invalid)
 

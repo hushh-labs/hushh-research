@@ -58,12 +58,16 @@ from datetime import datetime, timezone
 from typing import Any, Final, TypedDict, cast
 from urllib.parse import urlparse
 
+from sqlalchemy import text
+
 from db.db_client import get_db
+from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.one_wallet_card_token_store import open_share_token, seal_share_token
 from hushh_mcp.services.one_wallet_card_username import (
     generate_wallet_username,
     validate_wallet_username,
 )
+from hushh_mcp.services.wallet_profile_write_lock import lock_profile_share_participants
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +275,8 @@ _REACTIVATE_CARD: Final = """
         share_token_hash = :share_token_hash,
         share_token_envelope = CAST(:share_token_envelope AS JSONB),
         share_token_version = share_token_version + 1,
+        scan_count = 0,
+        last_scanned_at = NULL,
         status = CASE WHEN status = 'revoked' THEN 'active' ELSE status END,
         revoked_at = NULL,
         avatar_url = CASE WHEN :apply_avatar
@@ -288,6 +294,8 @@ _ROTATE_SHARE_HASH: Final = """
     SET share_token_hash = :share_token_hash,
         share_token_envelope = CAST(:share_token_envelope AS JSONB),
         share_token_version = share_token_version + 1,
+        scan_count = 0,
+        last_scanned_at = NULL,
         updated_at = NOW()
     WHERE user_id = :user_id
       AND status <> 'revoked'
@@ -1078,11 +1086,43 @@ class OneWalletCardService:
         sql: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        if sql in {
+            _INSERT_CARD,
+            _UPDATE_CARD,
+            _REACTIVATE_CARD,
+            _ROTATE_SHARE_HASH,
+            _ADOPT_SHARE_ENVELOPE,
+            _SET_CARD_STATUS,
+            _REVOKE_CARD,
+        }:
+            # Shared grant readers and account erasure acquire identity locks
+            # before source rows. Every authored owner write uses that order too.
+            for _ in range(3):
+                with get_db().engine.begin() as conn:
+                    if not lock_profile_share_participants(conn, (params or {})["user_id"]):
+                        continue
+                    row = conn.execute(text(sql), params or {}).mappings().first()
+                    return dict(row) if row is not None else None
+            raise OneWalletCardError(
+                "WALLET_CARD_BUSY", "Please try updating the card again.", status_code=409
+            )
         result = get_db().execute_raw(sql, params or {})
         rows = getattr(result, "data", None) or []
         return dict(rows[0]) if rows else None
 
     def _execute(self, sql: str, params: dict[str, Any] | None = None) -> None:
+        if sql == _BUMP_SCAN_COUNTERS:
+            with get_db().engine.begin() as conn:
+                owner = conn.execute(
+                    text(
+                        "SELECT user_id FROM one_wallet_cards WHERE share_token_hash=:share_token_hash"
+                    ),
+                    params or {},
+                ).scalar()
+                if owner:
+                    lock_connection_graph_users(conn, user_ids=[owner])
+                    conn.execute(text(sql), params or {})
+            return
         get_db().execute_raw(sql, params or {})
 
     def _row_for_owner(self, owner_id: str) -> dict[str, Any] | None:

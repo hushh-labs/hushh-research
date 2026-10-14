@@ -18,6 +18,8 @@ import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -48,6 +50,10 @@ MIGRATIONS.append(
     Path(__file__).resolve().parents[2] / "db/migrations/305_pkm_answer_payment_recovery.sql"
 )
 
+MIGRATIONS.append(
+    Path(__file__).resolve().parents[2] / "db/migrations/326_answer_scope_resolution_lease.sql"
+)
+
 # The owner's registry. attr.financial.holdings is deliberately present so a
 # resolver over-reach can be distinguished from a legitimate narrow answer.
 OWNER_SCOPES = [
@@ -68,7 +74,10 @@ def answer_engine(connector_postgres_url):  # noqa: F811
             """CREATE TABLE IF NOT EXISTS connections (
                  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                  user_a_id TEXT NOT NULL, user_b_id TEXT NOT NULL,
-                 status TEXT NOT NULL DEFAULT 'active')"""
+                 status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','revoked')),
+                 source TEXT NOT NULL DEFAULT 'request' CHECK (source IN ('request','circle_invite','import')),
+                 CONSTRAINT connections_canonical_order CHECK (user_a_id < user_b_id),
+                 UNIQUE (user_a_id,user_b_id))"""
         )
         # The lane projects milestones into the Feed; migration 117 owns the
         # real table and only these columns are written here.
@@ -133,6 +142,11 @@ def answer_engine(connector_postgres_url):  # noqa: F811
                  scope_label TEXT, visibility_posture TEXT NOT NULL,
                  PRIMARY KEY (user_id, scope_handle))"""
         )
+        # Migration 179's real partial index; duplicate milestones must pass
+        # the same constraint as UAT, not a permissive homemade Feed table.
+        connection.exec_driver_sql("""CREATE UNIQUE INDEX IF NOT EXISTS uq_feed_events_source_projection
+            ON feed_events (user_id, source_domain, event_type, source_row_id)
+            WHERE source_row_id IS NOT NULL""")
     # The migration contains format('... %I ...'), which psycopg2 would try to
     # interpolate. Run it through a raw cursor so the SQL reaches the server
     # byte for byte, exactly as psql applies it.
@@ -149,7 +163,8 @@ def answer_engine(connector_postgres_url):  # noqa: F811
 
 
 @pytest.fixture(autouse=True)
-def clean(answer_engine):
+def clean(answer_engine, monkeypatch):
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
     with answer_engine.begin() as connection:
         connection.exec_driver_sql("DELETE FROM consent_audit")
         connection.exec_driver_sql("DELETE FROM actor_identity_cache")
@@ -206,6 +221,48 @@ def _db(engine):
     return SimpleNamespace(engine=engine)
 
 
+async def _successful_composition(service, request_id, *, answer="The approved trip was to Tokyo."):
+    """Real compose route and writer with an isolated fake Gemini provider."""
+    from fastapi import Response
+
+    from api.routes.one import answer_requests as routes
+    from hushh_mcp.services.answer_composer import AnswerComposer
+
+    work = await service.assert_answerable(owner_user_id=OWNER, request_id=request_id)
+
+    async def provider(_prompt):
+        return {"answer": answer, "covers": ["Approved trip"], "gaps": []}
+
+    projection = {
+        "memory": "# Approved memory\n\nThe approved trip was to Tokyo.",
+        "values": {scope: {"trips": [{"city": "Tokyo"}]} for scope in work["approvedScopes"]},
+    }
+    writer = AnswerComposer(runner=provider)
+    with (
+        patch.object(routes, "_requests", return_value=service),
+        patch.object(routes, "AnswerComposer", return_value=writer),
+    ):
+        return await routes.compose_answer(
+            UUID(request_id), Response(), {"projection": projection}, OWNER
+        )
+
+
+async def _deliver_composed(service, engine, **kwargs):
+    """Financial fixtures require successful composition without hiding authority guards."""
+    del engine  # The actual service already holds this isolated fixture database.
+    if kwargs.get("has_content", True):
+        try:
+            await service.assert_answerable(
+                owner_user_id=kwargs["owner_user_id"], request_id=kwargs["request_id"]
+            )
+        except (AnswerRequestError, AnswerPaymentError):
+            # Run the real delivery authority check for its negative regressions.
+            return await service.deliver(**kwargs)
+        written = await _successful_composition(service, kwargs["request_id"])
+        kwargs["composition_receipt"] = written["compositionReceipt"]
+    return await service.deliver(**kwargs)
+
+
 def _fixture_catalog(engine):
     # This minimal PostgreSQL fixture models the already canonical catalog
     # port, not the production opaque registry-to-manifest projection.
@@ -250,6 +307,7 @@ async def _ask(engine, resolver, *, dated=True):
         question="How much did you spend on travel last year?",
         **({"period_start": "2026-01-01", "period_end": "2026-12-31"} if dated else {}),
     )
+    await service.resolve_pending(request_id=created["requestId"])
     return service, created["requestId"]
 
 
@@ -323,7 +381,9 @@ class TestHappyPath:
         assert len(work) == 1
         assert work[0]["approvedScopes"] == ["attr.travel.trips"]
 
-        await service.deliver(
+        await _deliver_composed(
+            service,
+            answer_engine,
             owner_user_id=OWNER,
             request_id=request_id,
             envelope=ENVELOPE,
@@ -417,12 +477,15 @@ class TestScopeIsolation:
         inbox = await service.pending_for_owner(owner_user_id=OWNER)
         assert inbox[0]["resolutionMode"] == "skipped"
         assert inbox[0]["resolutionSkippedReason"] == "resolver_failed"
-        # Explicit manual selection offers only the existing safe catalog.
-        assert {row["scope"] for row in inbox[0]["proposedScopes"]} == {
-            "attr.travel.trips",
-            "attr.preferences.food",
-            "attr.financial.holdings",
-        }
+        assert inbox[0]["proposedScopes"] == []
+        with pytest.raises(AnswerRequestError, match="request_not_approvable"):
+            await service.approve(
+                owner_user_id=OWNER,
+                request_id=_request_id,
+                scopes=["attr.travel.trips"],
+                amount_cents=100,
+                model_processing_consent=True,
+            )
 
 
 class TestConnectionGate:
@@ -473,7 +536,13 @@ class TestPaymentGate:
                 {"r": request_id},
             )
         with pytest.raises(AnswerPaymentError, match="payment_required"):
-            await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+            await _deliver_composed(
+                service,
+                answer_engine,
+                owner_user_id=OWNER,
+                request_id=request_id,
+                envelope=ENVELOPE,
+            )
         with answer_engine.begin() as connection:
             delivered = connection.execute(
                 text("SELECT count(*) FROM pkm_answer_deliveries WHERE request_id=:r"),
@@ -498,7 +567,13 @@ class TestPaymentGate:
                 {"r": request_id, "d": "f" * 64},
             )
         with pytest.raises(AnswerPaymentError, match="terms_changed"):
-            await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+            await _deliver_composed(
+                service,
+                answer_engine,
+                owner_user_id=OWNER,
+                request_id=request_id,
+                envelope=ENVELOPE,
+            )
 
     async def test_plaintext_shaped_envelope_is_refused(self, answer_engine):
         service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
@@ -511,7 +586,9 @@ class TestPaymentGate:
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with pytest.raises(AnswerRequestError, match="invalid_envelope"):
-            await service.deliver(
+            await _deliver_composed(
+                service,
+                answer_engine,
                 owner_user_id=OWNER,
                 request_id=request_id,
                 envelope={**ENVELOPE, "answer": "they spent $4,200"},
@@ -624,7 +701,9 @@ class TestFeed:
             model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
-        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE
+        )
 
         with answer_engine.begin() as connection:
             rows = (
@@ -698,13 +777,15 @@ async def test_late_resolver_respects_terminal_state_and_connection(answer_engin
         resolver=DelayedResolver(),
         catalog_reader=_fixture_catalog(answer_engine),
     )
-    task = asyncio.create_task(
+    created = await asyncio.wait_for(
         service.create(
             requester_user_id=REQUESTER,
             owner_user_id=OWNER,
             question="Where did you travel last year?",
-        )
+        ),
+        2,
     )
+    task = asyncio.create_task(service.resolve_scopes(request_id=created["requestId"]))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         with answer_engine.begin() as connection:
@@ -758,3 +839,93 @@ async def test_approval_rechecks_current_private_scope_posture(answer_engine):
             connection.execute(text("SELECT count(*) FROM pkm_answer_payment_orders")).scalar_one()
             == 0
         )
+
+
+async def test_creation_is_durable_before_catalog_or_model_work(answer_engine):
+    class NeverInlineResolver:
+        async def propose_scopes(self, **kwargs):
+            raise AssertionError("Resolution must not run during creation")
+
+    async def blocked_catalog(*args, **kwargs):
+        raise AssertionError("Catalog must not run during creation")
+
+    service = PkmAnswerRequestService(
+        _db(answer_engine), resolver=NeverInlineResolver(), catalog_reader=blocked_catalog
+    )
+    created = await asyncio.wait_for(
+        service.create(
+            requester_user_id=REQUESTER, owner_user_id=OWNER, question="What is your name?"
+        ),
+        2,
+    )
+    with answer_engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM pkm_answer_requests WHERE request_id=:r"),
+                {"r": created["requestId"]},
+            ).scalar_one()
+            == "pending_resolution"
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM feed_events WHERE source_row_id=:r"),
+                {"r": f"answer_request:{created['requestId']}"},
+            ).scalar_one()
+            == 1
+        )
+    assert (await service.pending_for_owner(owner_user_id=OWNER))[0]["proposedScopes"] == []
+
+
+async def test_resolution_lease_recovers_abandoned_work_and_excludes_competing_drains(
+    answer_engine,
+):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    class WaitingResolver:
+        async def propose_scopes(self, **kwargs):
+            nonlocal calls
+            calls += 1
+            entered.set()
+            await release.wait()
+            return ["attr.travel.trips"]
+
+    service = PkmAnswerRequestService(
+        _db(answer_engine),
+        resolver=WaitingResolver(),
+        catalog_reader=_fixture_catalog(answer_engine),
+    )
+    created = await service.create(
+        requester_user_id=REQUESTER, owner_user_id=OWNER, question="Where did you travel?"
+    )
+    with answer_engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE pkm_answer_requests
+            SET resolution_lease_until=clock_timestamp()-interval '1 second',
+                resolution_attempts=1 WHERE request_id=:request"""),
+            {"request": created["requestId"]},
+        )
+    first = asyncio.create_task(service.resolve_pending())
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        await service.resolve_pending()
+        assert calls == 1
+    finally:
+        release.set()
+        await asyncio.wait_for(first, 5)
+    with answer_engine.begin() as connection:
+        row = (
+            connection.execute(
+                text("""SELECT status, resolution_attempts,
+            resolution_lease_until FROM pkm_answer_requests""")
+            )
+            .mappings()
+            .one()
+        )
+        assert row["status"] == "awaiting_owner"
+        assert row["resolution_attempts"] == 2
+        assert row["resolution_lease_until"] is None
+    assert (await service.pending_for_owner(owner_user_id=OWNER))[0]["proposedScopes"][0][
+        "scope"
+    ] == "attr.travel.trips"

@@ -1949,7 +1949,7 @@ export class AuthService {
    * Restores the session using @capacitor-firebase/authentication
    * Works on all platforms for uniform behavior
    */
-  static async restoreNativeSession(): Promise<User | null> {
+  static async restoreNativeSession(options?: { nativeOnly?: boolean }): Promise<User | null> {
     const waitForFirebaseJsUser = async (): Promise<User | null> =>
       new Promise((resolve) => {
         let settled = false;
@@ -2041,14 +2041,14 @@ export class AuthService {
     };
 
     try {
-      if (auth.currentUser) {
+      if (!options?.nativeOnly && auth.currentUser) {
         this.debugLog(
           "✅ [AuthService] Firebase JS SDK user already available",
         );
         return auth.currentUser;
       }
 
-      const firebaseJsUser = await waitForFirebaseJsUser();
+      const firebaseJsUser = options?.nativeOnly ? null : await waitForFirebaseJsUser();
       if (firebaseJsUser) {
         this.debugLog(
           "✅ [AuthService] Firebase JS SDK user restored from persistence",

@@ -8,6 +8,14 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 
 const pkmGetMetadataMock = vi.fn();
+const prepareNaturalLanguageMock = vi.fn();
+vi.mock("@/lib/pkm/pkm-natural-language-ingestion", async (original) => ({
+  ...(await original<typeof import("@/lib/pkm/pkm-natural-language-ingestion")>()),
+  prepareNaturalLanguagePkm: (...args: unknown[]) => prepareNaturalLanguageMock(...args),
+}));
+vi.mock("@/lib/profile/pkm-agent-lab-capture", () => ({
+  loadPkmAgentLabContext: async () => ({ metadata: { domains: [] }, manifests: {} }),
+}));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     getMetadata: (...args: unknown[]) => pkmGetMetadataMock(...args),
@@ -47,6 +55,7 @@ import {
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { prepareProfileReview } from "@/lib/agent/profile-research-review";
 import { toPlainMemoryText } from "@/lib/pkm/memory-plain-text";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -259,6 +268,84 @@ describe("agent PKM memory helpers", () => {
       cards: [{ card_id: "bad-target", source_text: "A company detail", write_mode: "confirm_first", target_domain: "professional",
         candidate_payload: { notes: { entities: { known: { summary: "A company detail" } } } },
         merge_decision: { merge_mode: "create_entity", target_entity_path: "profile.entities.known.details" } }] })).rejects.toThrow("destination");
+  });
+
+  it("keeps one reviewed inventory through a concurrent PKM change, without rebinding business identity", async () => {
+    pkmGetMetadataMock.mockResolvedValue({ ...METADATA, domains: [{ key: "professional" }] });
+    const entity = (uid: string) => ({ businesses: { entities: { chosen: {
+      summary: "Example Company", _business_origin: { business_uid: uid },
+    } } } });
+    pkmBlob = { professional: entity("business-A") };
+    const personal: AgentPkmPreviewCard = { card_id: "personal", source_text: "I studied mathematics.",
+      write_mode: "can_save", target_domain: "professional",
+      candidate_payload: { education: { entities: { school: { summary: "I studied mathematics." } } } },
+      merge_decision: { merge_mode: "create_entity", target_entity_path: "education.entities.school" } };
+    const business: AgentPkmPreviewCard = { card_id: "business", source_text: "Example Company",
+      write_mode: "can_save", target_domain: "professional",
+      candidate_payload: { businesses: { entities: { chosen: { summary: "Example Company" } } } },
+      merge_decision: { merge_mode: "extend_entity", target_entity_path: "businesses.entities.chosen" } };
+    prepareNaturalLanguageMock.mockImplementation(async (input) => {
+      window.dispatchEvent(new CustomEvent("pkm-domain-changed", { detail: { userId: "user_1" } }));
+      expect(input.findDuplicate("Example Company")?.kind).toBe("exact");
+      expect(input.findReconciliationCandidates("Example Company")).toHaveLength(1);
+      // A subsequent authoritative refresh has a different UID at the same path.
+      pkmBlob = { professional: entity("business-B") };
+      await AgentPkmContextStore.load({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token", forceRefresh: true });
+      return { cards: [personal, business], sourceCoverage: [] };
+    });
+    const review = await prepareProfileReview({ userId: "user_1", vaultKey: "test-key",
+      vaultOwnerToken: "test-token", isCurrent: () => true, assertCurrent: async () => {} },
+      "I studied mathematics. Example Company");
+    expect(review.origins.has("personal")).toBe(false);
+    expect(review.origins.get("business")).toEqual({ businessUid: "business-A" });
+    pkmSavePreparedDomainMock.mockImplementation(async (input) => {
+      await input.build({ currentDomainData: pkmBlob.professional });
+      return { success: true, dataVersion: 2, fullBlob: {} };
+    });
+    const save = (card: AgentPkmPreviewCard) => addToPKM({ userId: "user_1", vaultKey: "test-key",
+      vaultOwnerToken: "test-token", source: "profile_research_review", sourceMessage: review.message,
+      businessOrigin: review.origins.get(card.card_id), cards: [card],
+      confirmation: { confirmedByUser: true, surface: "chat" } });
+    expect((await save(review.cards[0]!)).saved).toBe(1);
+    const rejected = await save(review.cards[1]!);
+    expect(rejected.saved).toBe(0);
+    expect(rejected.results[0]?.message).toContain("different or unidentified");
+    pkmBlob = { professional: entity("business-A") };
+    expect((await save(review.cards[1]!)).saved).toBe(1);
+  });
+
+  it("never captures another owner's or incomplete inventory, and revokes the review witness on vault expiry", async () => {
+    const params = { userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token", forceRefresh: true };
+    pkmGetManyStaleFirstMock.mockResolvedValueOnce({ snapshots: {}, failedDomains: ["preferences"] });
+    await AgentPkmContextStore.load(params);
+    expect(() => AgentPkmContextStore.captureProfileReviewInventory("user_1")).toThrow("could not be checked");
+    await AgentPkmContextStore.load(params);
+    expect(() => AgentPkmContextStore.captureProfileReviewInventory("other-owner")).toThrow("could not be checked");
+    const inventory = AgentPkmContextStore.captureProfileReviewInventory("user_1");
+    advanceVaultSessionEpoch();
+    expect(() => inventory.findLocalDuplicate("concise summaries")).toThrow("Unlock your vault");
+    expect(() => inventory.findReconciliationCandidates("concise summaries")).toThrow("Unlock your vault");
+    expect(() => inventory.businessTarget({ card_id: "expired", source_text: "" }, "preferences")).toThrow("Unlock your vault");
+  });
+
+  it.each(["deleted", "moved", "inactive"])("does not resurrect a %s business from a pinned profile review", async (change) => {
+    const business = { summary: "Example Company", status: "active", _business_origin: { business_uid: "business-A" } };
+    const current = change === "deleted" ? {} : change === "moved"
+      ? { businesses: { entities: { relocated: business } } }
+      : { businesses: { entities: { chosen: { ...business, status: "deleted" } } } };
+    pkmSavePreparedDomainMock.mockImplementation(async (input) => {
+      await input.build({ currentDomainData: current });
+      return { success: true, dataVersion: 2, fullBlob: {} };
+    });
+    const result = await addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "Example Company", source: "profile_research_review", businessOrigin: { businessUid: "business-A" },
+      confirmation: { confirmedByUser: true, surface: "chat" },
+      cards: [{ card_id: "business", source_text: "Example Company", write_mode: "can_save", target_domain: "professional",
+        candidate_payload: { businesses: { entities: { chosen: business } } },
+        merge_decision: { merge_mode: "extend_entity", target_entity_path: "businesses.entities.chosen" } }] });
+    expect(result.saved).toBe(0);
+    expect(result.results[0]?.message).toContain(change === "moved" ? "another destination" : "saved business changed");
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
   });
 
   afterEach(() => {
@@ -875,7 +962,7 @@ describe("agent PKM memory helpers", () => {
     pkmGetStaleFirstMock.mockResolvedValueOnce(null);
     pkmGetMetadataMock.mockClear(); pkmGetManyStaleFirstMock.mockClear();
     const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token", requireDecrypted: true });
-    expect(context.text).toBe("# Soul.md\n\n## Facts\n\n## Preferences\n\n## Commitments\n");
+    expect(context.text).toBe("# memory.md\n\n## Facts\n\n## Preferences\n\n## Commitments\n");
     expect(context.text).not.toContain("concise summaries");
     expect(context.domains).toEqual(["one_memory"]);
     expect(pkmGetMetadataMock).not.toHaveBeenCalled();
@@ -947,7 +1034,7 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).not.toContain("must-not-reach-agent-context");
   });
 
-  it("keeps the saved receipt index out of One's packet and offers it only as typed turn data", async () => {
+  it("keeps legacy receipt rows and highlights out of routine Chat context", async () => {
     const transaction = {
       ref: `txn_${"a".repeat(24)}`,
       merchant: "Supabase",
@@ -973,7 +1060,7 @@ describe("agent PKM memory helpers", () => {
     pkmGetMetadataMock.mockResolvedValue(shoppingMetadata);
     pkmBlob = {
       preferences: { writing: { default_style: "concise summaries" } },
-      shopping: { wishlists: { first: "noise-cancelling headphones" }, receipts_memory: { _canonical_index: index } },
+      shopping: { wishlists: { first: "noise-cancelling headphones" }, receipts_memory: { _canonical_index: index, readable_summary: { text: "RAW_SUBJECT USD 124.01" }, observed_facts: { recent_highlights: [{ amount: 124.01, transaction_date: "2026-10-04", subject: "RAW_SUBJECT" }], merchant_affinity: [{ merchant_label: "Amazon", receipt_count_365d: 5 }, { merchant_label: "Amazon paid USD 124.01 on 2026-10-04", receipt_count_365d: 1 }] } } },
     };
 
     const context = await loadLegacyPkmContext({
@@ -984,10 +1071,10 @@ describe("agent PKM memory helpers", () => {
     });
     // The rest of the shopping domain still reaches One; the transaction index never does.
     expect(context.text).toContain("noise-cancelling headphones");
-    for (const leaked of ["Supabase", "ZSUQHV", "124.01", "txn_aaaa"]) {
+    for (const leaked of ["Supabase", "ZSUQHV", "124.01", "txn_aaaa", "RAW_SUBJECT", "2026-10-04"]) {
       expect(context.text).not.toContain(leaked);
     }
-    expect(peekReceiptMemoryIndex({ userId: "user_1" })).toEqual(index);
+    expect(peekReceiptMemoryIndex({ userId: "user_1" })).toBeNull();
     expect(peekReceiptMemoryIndex({ userId: "someone_else" })).toBeNull();
 
     // Negative control: an index carrying a field the reader's closed schema forbids is not offered.

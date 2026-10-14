@@ -66,11 +66,14 @@ describe("Wallet Profile owner isolation", () => {
       },
     });
     await act(async () => {});
-    mocks.readShareLink.mockReturnValue({ shareUrl: "/c/rotated", shareToken: "rotated" });
+    mocks.readShareLink.mockReturnValue({ shareUrl: "/c/rotated", shareToken: "rotated", version: 2 });
     mocks.getCard.mockResolvedValue({ card: { ...card, shareTokenVersion: 2, cardPayload: { ...card.cardPayload, username: "updated.name" } } });
     await act(async () => { mocks.changed?.(); });
     expect(mocks.imageShare.mock.lastCall?.[0].profile).toMatchObject({ shareUrl: "/c/rotated", shareToken: "rotated", cardPayload: { username: "updated.name" } });
-    mocks.getCard.mockResolvedValue({ card: { ...card, status: "paused" } });
+    mocks.getCard.mockResolvedValue({ card: { ...card, cardPayload: { ...card.cardPayload, username: "stale.name" } } });
+    await act(async () => { mocks.changed?.(); });
+    expect(mocks.imageShare.mock.lastCall?.[0].profile).toMatchObject({ shareUrl: "/c/rotated", cardPayload: { username: "updated.name" } });
+    mocks.getCard.mockResolvedValue({ card: { ...card, status: "paused", shareTokenVersion: 2 } });
     await act(async () => { mocks.changed?.(); });
     expect(screen.getByRole("button", { name: "Share card image" })).toBeDisabled();
   });

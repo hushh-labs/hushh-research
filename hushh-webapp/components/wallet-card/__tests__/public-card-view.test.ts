@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { buildVCard, normalizePublicWalletCard, PublicWalletCardView } from "@/components/wallet-card/public-card-view";
+import { buildVCard, normalizePublicWalletCard, PublicWalletCardView, publicProfileQrUrl } from "@/components/wallet-card/public-card-view";
 
 it("shows the supplied contact details and uses them in the downloaded contact", () => {
   const card = normalizePublicWalletCard({ fullName: "Ada Lovelace", email: "ada@example.com", phone: "+1 202 555 0142" });
@@ -11,10 +11,24 @@ it("shows the supplied contact details and uses them in the downloaded contact",
   expect(html).toContain("ada@example.com</span>");
   expect(html).toContain(`${card!.phone}</span>`);
   expect(html).toContain('href="mailto:ada@example.com"');
-  expect(html).toContain('<article class="space-y-6">');
+  expect(html).toContain('data-testid="visitor-profile-card"');
+  expect(html).toContain('aria-label="Hushh profile badge"');
+  expect(html).not.toContain('Verified by Hushh');
   const contact = buildVCard(card!);
   expect(contact).toContain("ada@example.com");
   expect(contact).toContain("Ada Lovelace");
+});
+
+it("integrates only an authorized-shaped profile link and preserves visitor-only details", () => {
+  const card = normalizePublicWalletCard({ fullName: "Ada", summary: "Engineer", skills: ["Design"], organisation: "Example" })!;
+  const url = "https://one.hushh.ai/c/abcdefghijklmnop";
+  expect(publicProfileQrUrl(url)).toBe(url);
+  for (const value of ["javascript:alert(1)", "https://example.com/private", `${url}?private=1`, "https://user:pass@one.hushh.ai/c/abcdefghijklmnop"]) expect(publicProfileQrUrl(value)).toBeNull();
+  const html = renderToStaticMarkup(createElement(PublicWalletCardView, { card, profileUrl: url }));
+  expect(html).toContain('aria-label="Profile QR code"');
+  expect(html).toContain("Engineer");
+  expect(html).toContain("Design");
+  expect(html).not.toContain("mailto:");
 });
 
 const PHOTO = `data:image/png;base64,${"QUJD".repeat(8)}`;
@@ -45,7 +59,7 @@ describe("visitor photo", () => {
 it("shows Hussh branding and contact details without an extra QR card", () => {
   const card = normalizePublicWalletCard({ fullName: "Ada Lovelace", email: "ada@example.com" })!;
   const html = renderToStaticMarkup(createElement(PublicWalletCardView, { card, embedded: true }));
-  expect(html).toContain('aria-label="Hussh profile"');
+  expect(html).toContain('aria-label="Hushh profile badge"');
   expect(html).toContain('href="mailto:ada@example.com"');
   expect(html).not.toContain('data-testid="wallet-card-pass-preview"');
   expect(html).not.toContain("Scan to open");

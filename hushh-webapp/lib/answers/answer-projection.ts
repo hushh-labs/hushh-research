@@ -105,7 +105,7 @@ function applyPeriod(
 }
 
 /** True when a projection carries anything at all worth answering from. */
-function hasAnyValue(value: unknown): boolean {
+export function hasAnyValue(value: unknown): boolean {
   if (value === null || value === undefined || value === "") return false;
   if (Array.isArray(value)) return value.some(hasAnyValue);
   if (isRecord(value)) {

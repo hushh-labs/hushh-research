@@ -18,12 +18,14 @@ from sqlalchemy import text
 from hushh_mcp.services.drive_owner_allowed import (
     DEFAULT_PRICE_CENTS,
     owner_allowed_price_cents,
+    request_has_document_scope,
     valid_owner_price_cents,
 )
 from hushh_mcp.services.drive_request_payment_view import (
     order_view_input,
     requester_payment_view,
 )
+from hushh_mcp.services.drive_request_review_policy import request_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -107,6 +109,71 @@ def _record_new_owner_payout(
 
 
 class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
+    @staticmethod
+    def settle_existing_access_nocharge_locked(connection, request) -> None:
+        """Void only provably undispatched money authority in the caller's transaction.
+
+        The caller holds graph, frozen-share and request locks and has verified
+        exact recipient access. An allocated attempt can already be executing
+        outside a transaction, even if its provider session is not bound yet.
+        """
+        identity = {"request": request["request_id"]}
+        locked = {}
+        statements = (
+            (
+                "orders",
+                "SELECT * FROM drive_request_payment_orders WHERE request_id=:request FOR UPDATE",
+            ),
+            (
+                "obligations",
+                "SELECT * FROM drive_request_payment_obligations WHERE request_id=:request FOR UPDATE",
+            ),
+            (
+                "refunds",
+                "SELECT * FROM drive_request_payment_refunds WHERE request_id=:request FOR UPDATE",
+            ),
+            (
+                "owner_payouts",
+                "SELECT * FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
+            ),
+        )
+        for name, statement in statements:
+            locked[name] = connection.execute(text(statement), identity).mappings().first()
+        for name in ("orders", "obligations"):
+            row = locked[name]
+            if row is not None and (
+                row["status"] not in {"awaiting_payment", "expired"}
+                or row["paid_at"] is not None
+                or row["checkout_attempt_id"] is not None
+                or row["stripe_checkout_session_id"] is not None
+                or row["stripe_payment_intent_id"] is not None
+                or row["reconciliation_required"]
+            ):
+                raise DriveSharingError("payment_not_ready")
+        payout = locked["owner_payouts"]
+        if (
+            locked["refunds"] is not None
+            or payout is not None
+            and (
+                payout["status"] not in {"awaiting_delivery", "void"}
+                or payout["finalized_at"] is not None
+                or payout["transfer_attempt_id"] is not None
+            )
+        ):
+            raise DriveSharingError("payment_not_ready")
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders SET status='expired',
+          stripe_checkout_url=NULL,updated_at=clock_timestamp()
+          WHERE request_id=:request AND status='awaiting_payment'"""),
+            identity,
+        )
+        connection.execute(
+            text("""UPDATE drive_request_owner_payouts SET status='void',
+          next_check_at=clock_timestamp(),updated_at=clock_timestamp()
+          WHERE request_id=:request AND status='awaiting_delivery' AND finalized_at IS NULL"""),
+            identity,
+        )
+
     async def due_checkout_orders(self, *, limit: int = 20) -> list[dict[str, str]]:
         """Read bounded eligible orders; checkout rechecks all authority under locks."""
         if type(limit) is not int or not 1 <= limit <= 20:
@@ -349,8 +416,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
 
         private = DriveSharingStore(db=self.db)._open_request(request)
         if request["status"] == "pending" and request["expires_at"] > datetime.now(UTC):
-            purpose = private.get("purpose", {})
-            if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+            if not request_has_document_scope(private):
                 # Preserve paid/refunded state for reconciliation, while
                 # withholding new checkout and payment-ready authority.
                 if existing is not None and existing["status"] == "paid":
@@ -370,7 +436,12 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 if existing is not None and existing["status"] == "refunded":
                     return request, existing, False
                 raise DriveSharingError("date_range_required")
-        if private.get("trusted_auto") is not True:
+        if private.get("trusted_auto") is not True or request_requires_owner_review(
+            connection,
+            user_id=user_id,
+            request_id=request["request_id"],
+            revision=request["revision"],
+        ):
             raise DriveSharingError("payment_not_ready")
         if existing is not None:
             return request, existing, False
@@ -506,9 +577,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 
                 private = DriveSharingStore(db=self.db)._open_request(request)
-                purpose = private.get("purpose", {})
-                missing_dates = request["status"] == "pending" and not (
-                    purpose.get("periodStart") and purpose.get("periodEnd")
+                missing_dates = request["status"] == "pending" and not request_has_document_scope(
+                    private
                 )
                 if missing_dates and (order is None or order["status"] not in {"paid", "refunded"}):
                     raise DriveSharingError("date_range_required")
@@ -516,9 +586,39 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 # actionable unless the owner actually approved a batch.
                 approved = (
                     private.get("trusted_auto") is True
+                    and (
+                        # Selection policy gates new payment authority without
+                        # reclassifying previously settled charges or refunds.
+                        order is not None
+                        and order["status"] in {"paid", "refunded"}
+                        or not request_requires_owner_review(
+                            connection,
+                            user_id=request["user_id"],
+                            request_id=request["request_id"],
+                            revision=request["revision"],
+                        )
+                    )
                     or request["status"] in {"approved", "partial", "completed"}
                     or self.owner_approved_progressive_batch(connection, request)
                 )
+            from hushh_mcp.services.drive_request_package_disclosure import buyer_package_disclosure
+
+            package_required = bool(private and private.get("agent_package_required") is True)
+            disclosure = (
+                buyer_package_disclosure(
+                    private or {},
+                    request_revision=request["revision"],
+                    owner_allowed_at=request.get("owner_allowed_at"),
+                )
+                if package_required
+                else None
+            )
+            if (
+                package_required
+                and disclosure is None
+                and (order is None or order["status"] not in {"paid", "refunded"})
+            ):
+                approved = False
             checkout_expired = bool(
                 order
                 and order["status"] not in {"paid", "refunded"}
@@ -561,13 +661,20 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
             view = requester_payment_view(
                 payment_required=True,
+                package_disclosure_required=package_required,
+                package_disclosure=disclosure,
                 request_status=request["status"],
                 request_expires_at=request.get("expires_at"),
                 now=datetime.now(UTC),
                 access_stopped=request.get("access_stop_requested_at") is not None,
                 preparation_error_code=request.get("preparation_error_code"),
                 quoted_amount_cents=request.get("quoted_amount_cents"),
-                order=order_view_input(order),
+                order=order_view_input(order)
+                if approved
+                or request_expired
+                or order is not None
+                and order["status"] in {"paid", "refunded"}
+                else None,
                 refund=(
                     {
                         "status": order["refund_status"],
@@ -583,8 +690,14 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 ),
                 configured_mode=configured_stripe_mode(),
             )
+            if package_required:
+                # This authenticated read knows whether sealed terms are current.
+                # Null prevents clients from reusing a stale context disclosure.
+                view["packageDisclosure"] = disclosure
             return {
                 "paymentView": view,
+                **({"packageDisclosureRequired": True} if package_required else {}),
+                **({"packageDisclosure": disclosure} if disclosure is not None else {}),
                 "status": status,
                 "amountCents": None
                 if setup.get("ownerPriceRequired")
@@ -615,6 +728,11 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 if order
                 else request.get("settlement_method", "stripe_transfer"),
                 "_payout_owner_user_id": request["user_id"] if payout_enrolled else None,
+                **(
+                    {"_package_owner_user_id": request["user_id"]}
+                    if private is not None and private.get("agent_package_required") is True
+                    else {}
+                ),
                 **setup,
             }
 
@@ -683,7 +801,6 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 ):
                     continue
                 private = sharing._open_request(request)
-                purpose = private.get("purpose", {})
                 # Trusted creation and an owner's Allow both seal trusted_auto.
                 authorized = (
                     private.get("trusted_auto") is True
@@ -691,8 +808,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     or self.owner_approved_progressive_batch(connection, request)
                 )
                 invalid = (
-                    request["status"] == "pending"
-                    and not (purpose.get("periodStart") and purpose.get("periodEnd"))
+                    request["status"] == "pending" and not request_has_document_scope(private)
                 ) or not authorized
                 if invalid:
                     connection.execute(

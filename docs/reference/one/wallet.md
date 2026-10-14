@@ -84,6 +84,11 @@ and the LlmAgent `name="wallet"` were the two the first pass missed and they cra
 
 ## Wallet entry and card collection
 
+The Sharing tab also includes [card sharing history](./wallet-sharing.md): sent and
+received eligible cards, recipients, duration, expiry, verification, revocation
+and activity. This uses the existing temporary-grant authority and preserves
+the distinction between payment storage and the canonical Wallet Profile.
+
 The first visit per account on a device to `/one/wallet` starts with the Wallet illustration and Continue,
 without a duplicate Wallet page heading. Continue saves a cosmetic account-scoped device preference; later visits open
 the workspace directly. This does not complete account setup or unlock the vault.
@@ -232,13 +237,48 @@ card-verification step. A confirmed Wallet write registers saved cards automatic
 sharing an older card refreshes its encrypted metadata without changing its details.
 Sharing uses selected active connections and individual 5/10/15-minute server
 grants. Default identity cards and other owners' cards are excluded. The shared
-view contains masked details only. Each
+view decrypts the full card number on the recipient's unlocked device. Each
 successful share creates a Messages reference and a Feed notice reading
 “[Sender name] shared their card with you.” Explicit Trusted Circle recipients
 can open it directly; other connections must complete fresh identity verification.
 Owners can revoke access under Shared with. See the
 [temporary sharing API contract](../architecture/api-contracts.md#wallet-profile-lifecycle)
 for rollout requirements and browser/native limits.
+
+New shares seal the number, cardholder name, network, expiry and region for each
+selected recipient using the existing P-256/AES-GCM recipient-key envelope.
+The server stores that opaque envelope inside the grant's encrypted contents;
+it never receives the plaintext number, CVV, PIN or vault key. Both circle types
+use the same payload. Recipient keys must already be registered, and the receiver
+unlocks their Wallet to recover the key. Expiry, revocation, relationship checks
+and identity verification still precede envelope delivery. Closing, backgrounding,
+locking, or losing access clears the displayed details. These controls cannot
+recall information a recipient has already copied or captured. Existing masked-only
+grants remain readable; the owner must create a new share to include the full number.
+
+#### Recipient browser safeguards
+
+Full card viewing remains available in Messages for the authorized recipient.
+Current grant messages and older encrypted card messages clear visible contents
+and invalidate pending reveals when the window loses focus, the tab is hidden,
+the page is left, or printing starts. Returning to the window does not reopen a
+card. Identity verification may finish in a popup, but a grant is displayed only
+after the window regains focus. The viewer suppresses copy, cut, drag and context
+menu actions and hides its content in print layouts. Older encrypted messages
+follow the same native-viewer restriction as grant messages; native capture
+protection is not implemented by these browser safeguards.
+
+Forwarding a grant reference does not grant another account access: server reads
+remain recipient-bound. Older encrypted envelopes bind both participants with
+authenticated encryption. Received cards have no forward/export control and do
+not become owner Wallet cards. These controls cannot stop an authorized recipient
+from transcribing or re-entering information they can see. Older encrypted copies
+also retain their existing lack of grant expiry or revocation.
+
+These are exposure-reduction measures, not screenshot prevention. Browsers cannot
+reliably block OS screenshots or screen recordings, and neither the browser nor
+the app can reliably detect a photo taken with another device. The viewer says
+so explicitly; it does not request camera access or claim photo detection.
 
 ### Legacy encrypted Chat copies (read compatibility)
 
@@ -306,3 +346,45 @@ trigger a download. Copy link remains a separate action. Profile/NWS image shari
 is disabled when sharing is paused. Referral exports use the latest referral URL.
 No export uploads the card or adds a new tracking authority; the existing QR
 resolver still owns visits, pause and rotation behavior.
+
+
+## Card network identification
+
+The owner-authorized Wallet API provides the supported-network catalog at
+`GET /api/one/wallet/card-access/networks` and classification at
+`POST /api/one/wallet/card-access/networks/resolve`. Classification receives only
+`iinPrefix` (exactly six ASCII digits), `panLength` and an optional
+`selectedNetwork`; full PAN, last four digits, names, security codes and vault
+keys are refused. The prefix remains transient request metadata and never enters
+PKM, indexes, logs, caches, models, notifications or an external provider.
+
+The existing backend `wallet_card_validation.py` owns the supported prefix
+rules. Responses distinguish prefix matches, explicit owner choices, ambiguous
+ranges and unknown ranges. Recognized prefixes and explicit owner selections
+retain their network even when the length is wrong. The form explains a length
+mismatch immediately, and local credential validation rejects saving the card
+until it is corrected; an input mismatch is not a network-service outage.
+These rules are not a live issuer registry. On lookup
+failure, a valid card can still be saved with the neutral Card network. Client
+Luhn, expiry, CVV/PIN and region validation remain local; the backend continues
+validating only the non-secret stored envelope. The stored summary holds the
+normalized network, and the full card remains encrypted with the owner's key.
+Requests and saves are fenced by the existing validated account generation and
+vault session epoch; signing out or locking the vault invalidates delayed replies
+and prevents their eventual encrypted publication.
+
+The frontend `CARD_BRANDS` list names networks with specialized local credential
+rules; it is not a supported-network allowlist or a prefix classifier.
+`BRAND_PAN_LENGTHS` and `REGION_LOCKED_BRANDS` validate an already identified or
+selected network. The dropdown uses the backend catalogue without filtering
+against that list. New backend network IDs survive resolution, encrypted storage
+and existing-card reads, with generic credential checks and neutral artwork
+until specialized client rules or approved artwork are available. Network-specific
+credential rules for future networks still require a client update. Malformed
+catalogue entries fail the request instead of silently disappearing.
+The form distinguishes owner selection from prefix identification and explains
+that neither verifies the card or issuing bank. No issuer lookup is performed.
+
+Visa previously lacked an official asset in the mark inventory, so its compact
+mark showed a generic icon. The existing fallback cell now prints `VISA` for
+recognition. No new official artwork or network partnership claim is introduced.

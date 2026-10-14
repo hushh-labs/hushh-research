@@ -1,3 +1,4 @@
+import { parseDrivePackageDisclosure, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 import type { DocumentRequestSetup } from "@/lib/consent/document-request-setup";
 import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 import {
@@ -55,6 +56,8 @@ export type DocumentRequestDraft = {
   };
 };
 export type SharingRequestContext = {
+  requestRevision?: number;
+  packageDisclosure?: DrivePackageDisclosure | null;
   requestId: string;
   purpose: DocumentRequestDraft["purpose"];
   /** The Google account files go to, as sealed when sent. Absent from older servers. */
@@ -95,7 +98,27 @@ export function validDocumentRequestTerms(
     validDocumentRequestPeriod(start, end)
   );
 }
+/** Owner-only assessment of the exact package prepared for this request. */
+export type AgentDocumentPackage = {
+  status: "preparing" | "ready" | "no_match" | "unavailable" | "stale" | "allowed";
+  revision: number;
+  digest: string | null;
+  selectedCount: number;
+  evaluatedCount: number;
+  candidateCount: number;
+  /** A model assessment score, not a calibrated probability. */
+  confidenceScore: number | null;
+  confidenceBasis: "model_assessment";
+  importanceScore: number | null;
+  suggestedPriceCents: number | null;
+  priceReason: string;
+  summary: string;
+  coverageStatus: "complete" | "partial" | "unknown";
+  gaps: string[];
+  canAllow: boolean;
+};
 export type SharingReview = DocumentRequestSetup & {
+  agentPackage?: AgentDocumentPackage;
   revision: number;
   status: string;
   recipientEmail: string;
@@ -173,9 +196,15 @@ export type OwnerDocumentPayout = {
   ownerEarningCents: number | null;
   status: OwnerDocumentPayoutStatus;
 };
-export type SharingAllowInput = { revision: number; amountCents: number | null };
+export type SharingAllowInput = {
+  revision: number;
+  amountCents: number | null;
+} & ({ packageRevision: number; packageDigest: string } |
+  { packageRevision?: never; packageDigest?: never });
 export type SharingAllowResult = { requestId: string; status: string; revision: number };
 const SHARING_PREPARATION_ERRORS = [
+  "package_existing_access_requires_review",
+  "payment_not_ready",
   "no_relevant_files",
   "no_ready_files",
   "narrow_selection_required",
@@ -196,6 +225,34 @@ function preparationError(value: unknown): SharingPreparationError | null {
   return (SHARING_PREPARATION_ERRORS as readonly unknown[]).includes(value)
     ? (value as SharingPreparationError)
     : null;
+}
+function parseAgentDocumentPackage(value: unknown): AgentDocumentPackage {
+  const item = record(value);
+  if (typeof item.status !== "string" ||
+      !["preparing", "ready", "no_match", "unavailable", "stale", "allowed"].includes(item.status) ||
+      typeof item.coverageStatus !== "string" || !["complete", "partial", "unknown"].includes(item.coverageStatus) ||
+      item.confidenceBasis !== "model_assessment" || typeof item.canAllow !== "boolean" ||
+      !Array.isArray(item.gaps) || item.gaps.length > 24)
+    throw new DriveSharingError("invalid_response");
+  const packageDigest = item.digest === null ? null : digest(item.digest);
+  const selectedCount = bulkCount(item.selectedCount, 10_000);
+  const confidenceScore = item.confidenceScore === null ? null : bulkCount(item.confidenceScore, 100);
+  const importanceScore = item.importanceScore === null ? null : bulkCount(item.importanceScore, 500);
+  if (importanceScore === 0 || item.suggestedPriceCents !== null &&
+      !isValidDocumentRequestPriceCents(item.suggestedPriceCents) ||
+      item.canAllow && (item.status !== "ready" || !packageDigest || selectedCount === 0))
+    throw new DriveSharingError("invalid_response");
+  return {
+    status: item.status as AgentDocumentPackage["status"],
+    revision: revision(item.revision), digest: packageDigest, selectedCount,
+    evaluatedCount: bulkCount(item.evaluatedCount, 10_000),
+    candidateCount: bulkCount(item.candidateCount, 10_000),
+    confidenceScore, confidenceBasis: "model_assessment", importanceScore,
+    suggestedPriceCents: item.suggestedPriceCents as number | null,
+    priceReason: string(item.priceReason), summary: string(item.summary),
+    coverageStatus: item.coverageStatus as AgentDocumentPackage["coverageStatus"],
+    gaps: item.gaps.map(gap => string(gap)), canAllow: item.canAllow,
+  };
 }
 function parseRequestSetup(value: Record<string, unknown>): DocumentRequestSetup {
   const ownerDriveReady = optionalFlag(value.ownerDriveReady);
@@ -1164,12 +1221,18 @@ export class DriveSharingService {
     };
     if (!purpose.purpose.trim() || !validDocumentRequestPeriod(purpose.periodStart, purpose.periodEnd))
       throw new DriveSharingError("invalid_response");
+    const packageDisclosure = result.packageDisclosure == null ? null : parseDrivePackageDisclosure(result.packageDisclosure);
+    if (result.packageDisclosure != null && !packageDisclosure) throw new DriveSharingError("invalid_response");
+    if (result.requestRevision !== undefined && (!Number.isSafeInteger(result.requestRevision) || Number(result.requestRevision) < 1))
+      throw new DriveSharingError("invalid_response");
     // Newer servers add the sealed Google account and when it was sent.
     const recipientEmail = result.recipientEmail == null ? null : string(result.recipientEmail, 320);
     if (recipientEmail !== null && !/^[^\s@]{1,64}@[^\s@]{1,254}$/.test(recipientEmail))
       throw new DriveSharingError("invalid_response");
     return {
       requestId,
+      ...(result.packageDisclosure === undefined ? {} : { packageDisclosure }),
+      ...(result.requestRevision === undefined ? {} : { requestRevision: Number(result.requestRevision) }),
       purpose,
       ...(result.recipientEmail === undefined ? {} : { recipientEmail }),
       ...(result.requestedAt === undefined
@@ -1327,6 +1390,7 @@ export class DriveSharingService {
       ? null
       : parseOwnerPayout(result.ownerPayout, requestId);
     return {
+      ...(result.agentPackage === undefined ? {} : { agentPackage: parseAgentDocumentPackage(result.agentPackage) }),
       revision: revision(result.revision),
       status: string(result.status, 80),
       recipientEmail: string(result.recipientEmail, 320),
@@ -1692,8 +1756,8 @@ export class DriveSharingService {
     return { ...result, payment: parseRequesterPaymentView(result.payment) };
   }
   /**
-   * The owner allows a request from outside their Trusted circle. It then runs the
-   * same automatic search, payment and sharing as a Trusted request, at this price.
+   * Approve the prepared package by revision and digest. Legacy requests omit
+   * those fields; the server rejects omissions for package-marked requests.
    */
   static async allow(
     token: string,
@@ -1704,8 +1768,13 @@ export class DriveSharingService {
     if (!Number.isSafeInteger(input.revision) || input.revision < 0 ||
       input.amountCents !== null && !isValidDocumentRequestPriceCents(input.amountCents))
       throw new DriveSharingError("invalid_argument");
+    const hasPackage = input.packageRevision !== undefined || input.packageDigest !== undefined;
+    if (hasPackage && (!Number.isSafeInteger(input.packageRevision) || input.packageRevision! < 0 ||
+        typeof input.packageDigest !== "string" || !/^[a-f0-9]{64}$/.test(input.packageDigest)))
+      throw new DriveSharingError("invalid_argument");
     const result = await this.request(token, requestId, guard, "/allow", {
       revision: input.revision,
+      ...(hasPackage ? { packageRevision: input.packageRevision, packageDigest: input.packageDigest } : {}),
       ...(input.amountCents === null ? {} : { amountCents: input.amountCents }),
       confirmed: true,
     });

@@ -1,4 +1,4 @@
-// Synthetic auth/native/Mail boundaries only; the production drawer, Drive
+// Synthetic auth/native/Mail/cache boundaries; the production drawer, Drive
 // transport, popup controller, Picker adapter and card actions are unchanged.
 import { createContext, useState } from "react";
 // This layout fixture has no unlocked encrypted custom-connector catalog.
@@ -18,6 +18,15 @@ const user = {
 export function useAuth() {
   return { user, loading: false };
 }
+// Packet controls use the auth service for verified buyer identity. Keep that
+// provider boundary synthetic instead of importing Firebase's full sign-out
+// and vault warm-up graph into this mounted settings fixture.
+export const AuthService = {
+  getIdToken: user.getIdToken,
+  getCurrentUser: () => user,
+  documentRequestIdentityToken: async () => "synthetic-firebase",
+  linkGoogleIdentity: async () => { throw new Error("No identity mutation in the layout fixture"); },
+};
 export function useVault() {
   return { vaultOwnerToken: "synthetic-owner" };
 }
@@ -93,3 +102,19 @@ export function useGmailConnectorStatus() {
     },
   };
 }
+
+// Feed-preview layout never reads or persists a native recipient key.
+export const HushhKeychain = {
+  get: async () => ({ value: null }),
+  set: async () => { throw new Error("Not admitted in layout fixture"); },
+  delete: async () => { throw new Error("Not admitted in layout fixture"); },
+};
+
+// The mounted Feed preview reads through the real service/cache/epoch paths.
+// Mutations are outside this fixture; keep their cold resource imports out of
+// its synthetic auth/PKM/Plaid boundaries and reject an unexpected write.
+export const CacheSyncService = {
+  onFeedChanged(_userId: string): never {
+    throw new Error("Feed mutations are not admitted in the read-only Connections layout fixture");
+  },
+};

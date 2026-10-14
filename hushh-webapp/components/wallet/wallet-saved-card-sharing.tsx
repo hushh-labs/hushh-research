@@ -10,20 +10,26 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
+import { CardRecipientKeyUnavailableError, prepareTemporaryCardShares } from "@/lib/services/wallet-card-share-service";
 import { CardAccessUnavailableError, WalletCardAccessService, type CardAccessRecipient, type CardAccessState } from "@/lib/services/wallet-card-access-service";
 import { WalletService, type WalletCardSummary } from "@/lib/services/wallet-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import styles from "./wallet-saved-card-sharing.module.css";
 
-export function WalletSavedCardSharing({ card, getContext, disabled }: {
-  card: WalletCardSummary; getContext: (cardId: string) => CardShareContext | null; disabled: boolean;
+// Present the existing API limit before the owner submits their selection.
+const MAX_CARD_SHARE_RECIPIENTS = 20;
+
+export function WalletSavedCardSharing({ card, getContext, disabled, showHistory = true }: {
+  card: Pick<WalletCardSummary, "cardId">; getContext: (cardId: string) => CardShareContext | null; disabled: boolean; showHistory?: boolean;
 }) {
+  const isProfile = card.cardId.startsWith("profile_");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [recipients, setRecipients] = useState<CardAccessRecipient[]>([]);
   const [selected, setSelected] = useState<Record<string, CardAccessRecipient>>({});
-  const [duration, setDuration] = useState<5 | 10 | 15>(10);
+  const selectedCount = Object.keys(selected).length;
+  const [duration, setDuration] = useState<15 | 60 | 120>(15);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -113,22 +119,27 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
   const send = async () => {
     const base = getContext(card.cardId);
     const refs = Object.keys(selected).sort();
-    if (!base || !refs.length || sending.current || stateFailed || !state) return;
+    if (!base || !refs.length || refs.length > MAX_CARD_SHARE_RECIPIENTS || sending.current || stateFailed || !state) return;
     const requestGeneration = generation.current;
     const context = { ...base, isCurrent: () => requestGeneration === generation.current && base.isCurrent() };
     const fingerprint = JSON.stringify([base.userId, card.cardId, refs, duration]);
     if (attempt.current?.fingerprint !== fingerprint) attempt.current = { fingerprint, id: crypto.randomUUID() };
     sending.current = true; setBusy(true);
     try {
-      if (!state?.eligible) await WalletService.prepareCardSharing({ ...context, cardId: card.cardId });
+      if (!state.eligible && isProfile) throw new Error("Profile sharing is unavailable.");
+      if (!state.eligible) await WalletService.prepareCardSharing({ ...context, cardId: card.cardId });
       if (!context.isCurrent()) return;
-      await WalletCardAccessService.share(context, card.cardId, refs, duration, attempt.current.id);
+      const encryptedCards = isProfile ? undefined : await prepareTemporaryCardShares(context, card.cardId, refs);
+      if (!context.isCurrent()) return;
+      await WalletCardAccessService.share(context, card.cardId, refs, duration, attempt.current.id, encryptedCards);
       if (!context.isCurrent()) return;
       attempt.current = null; close(); setRevision(value => value + 1);
       morphyToast.success("Card shared.");
     } catch (error) {
       if (context.isCurrent()) {
-        if (error instanceof CardAccessUnavailableError) {
+        if (error instanceof CardRecipientKeyUnavailableError) {
+          morphyToast.error(error.message);
+        } else if (error instanceof CardAccessUnavailableError) {
           close(); setState(null); setStateFailed(true); setUnavailable(true);
           morphyToast.error("Card sharing is temporarily unavailable. Try again later.");
         } else {
@@ -159,7 +170,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
           chevron onClick={() => setOpen(true)} disabled={disabled || busy || stateFailed || !state} />
         {stateFailed ? <SettingsRow title="Retry" description={unavailable ? "Card sharing is temporarily unavailable." : "Could not load sharing. Check your connection."} onClick={() => setRevision(value => value + 1)} /> : null}
       </SettingsGroup>
-      <SettingsGroup title="Shared with">
+      {showHistory ? <SettingsGroup title="Shared with">
         {state?.grants.length ? state.grants.map(grant => <SettingsRow key={grant.id} icon={ProfilePaneAccountIcon} iconTone="transparent"
           title={grant.recipientName} description={<span>
             <span className="block">{grant.status === "active" ? `Until ${new Date(grant.expiresAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : grant.status === "revoked" ? "Access revoked" : "Access expired"}</span>
@@ -167,13 +178,13 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
           </span>}
           trailing={grant.status === "active" ? <Button variant="secondary" size="compact" disabled={busy} onClick={() => void revoke(grant.id)}>Revoke</Button> : undefined} />)
           : <SettingsRow icon={ProfilePaneAccountIcon} iconTone="transparent" title={stateFailed ? "Could not load shared access." : state ? "No active shares" : "Loading shares…"} />}
-      </SettingsGroup>
-      {state?.nextCursor ? <div ref={historyEnd} className="px-2 py-2" aria-live="polite">
+      </SettingsGroup> : null}
+      {showHistory && state?.nextCursor ? <div ref={historyEnd} className="px-2 py-2" aria-live="polite">
         <Button variant="ghost" size="compact" disabled={loadingMore} onClick={() => void loadMore()}>
           {loadingMore ? "Loading more shares…" : moreFailed ? "Retry loading shares" : "Load more shares"}
         </Button>
       </div> : null}
-      <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Share card" description="Share masked card details with your connections."
+      <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title={isProfile ? "Share Profile Card" : "Share card"} description={isProfile ? "Share your selected profile details with your connections." : "Share your full card number and details with selected connections."}
         mobilePresentation="sheet" desktopMaxWidth="580px" desktopMaxWidthClassName="sm:!max-w-[580px]" surfaceClassName={styles.accessSurface} bodyClassName={styles.accessBody}
         footer={<Button className="w-full" disabled={busy || stateFailed || !state || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button>}>
         <div className="space-y-4">
@@ -182,13 +193,14 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
             {loading ? <p role="status">Finding connections…</p> : failed ? <Button variant="secondary" onClick={() => setRecipientRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-[13px]">
               <Avatar className="size-8"><AvatarImage src={recipient.photoUrl || undefined} alt="" /><AvatarFallback>{recipient.displayName.slice(0, 1)}</AvatarFallback></Avatar>
               <span className="min-w-0 flex-1 break-words">{recipient.displayName}{recipient.trusted ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><ProfilePaneSecurityIcon size={14} />Trusted Circle</span> : null}</span>
-              <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy}
-                onCheckedChange={checked => setSelected(previous => { const next = { ...previous }; if (checked === true) next[recipient.personRef] = recipient; else delete next[recipient.personRef]; return next; })} />
+              <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy || (selectedCount >= MAX_CARD_SHARE_RECIPIENTS && !selected[recipient.personRef])}
+                onCheckedChange={checked => setSelected(previous => { const next = { ...previous }; if (checked === true) { if (Object.keys(previous).length < MAX_CARD_SHARE_RECIPIENTS) next[recipient.personRef] = recipient; } else delete next[recipient.personRef]; return next; })} />
             </label>)}
             {!loading && !failed && !recipients.length ? <p className="py-3 text-xs text-muted-foreground">No connections found.</p> : null}
             {hasMore ? <p className="text-xs text-muted-foreground">Search by name to find more connections.</p> : null}
           </div>
-          <fieldset><legend className="mb-2 text-[13px]">Access time</legend><div className="flex gap-2">{([5, 10, 15] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes} minutes</Button>)}</div></fieldset>
+          <p role="status" className="text-xs text-muted-foreground">{selectedCount} of {MAX_CARD_SHARE_RECIPIENTS} connections selected. Share with up to {MAX_CARD_SHARE_RECIPIENTS} at a time.</p>
+          <fieldset><legend className="mb-2 text-[13px]">Access time</legend><div className="flex gap-2">{([15, 60, 120] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes === 15 ? "15 minutes" : minutes === 60 ? "1 hour" : "2 hours"}</Button>)}</div></fieldset>
           <p className="text-xs text-muted-foreground">People outside your Trusted Circle verify their identity before viewing. CVV and PIN stay private.</p>
         </div>
       </SettingsDetailPanel>

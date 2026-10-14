@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { WalletReferralCardDetails } from "@/components/wallet/wallet-referral-card-details";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
 import { copyWalletCardLink } from "@/components/wallet-card/wallet-card-share";
@@ -70,5 +70,19 @@ describe("Wallet referral card details", () => {
     render(<WalletReferralCardDetails summary={null} shareToken={null} />);
     expect(screen.getByRole("status")).toBeTruthy();
     expect(screen.queryByText("0")).toBeNull();
+  });
+
+  it("retains confirmed referral counts after a failed revoke", async () => {
+    const revoke = vi.fn().mockRejectedValue(new Error("Storage unavailable"));
+    render(<WalletReferralCardDetails summary={summary} shareToken={null} onRevoke={revoke} />);
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access", exact: true }));
+    const dialog = screen.getByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke access", exact: true }));
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith(summary.slug));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled());
+    expect(screen.getByTestId("wallet-referral-opens")).toHaveTextContent("17");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByRole("link", { name: "Preview referral page" })).toHaveAttribute("href", summary.link);
   });
 });

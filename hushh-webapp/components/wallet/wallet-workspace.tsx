@@ -13,6 +13,7 @@
  * States and the reveal rule live in `lib/wallet/wallet-view-state.ts`.
  */
 
+import profileStyles from "@/components/profile/profile-your-account.module.css";
 import {
   useCallback,
   useDeferredValue,
@@ -42,7 +43,7 @@ import {
   PageTitle,
   TYPOGRAPHY_CLASSNAMES,
 } from "@/components/app-ui/typography";
-import { Lock, Plus } from "@/components/icons";
+import { Lock } from "@/components/icons";
 import { ProfilePaneSearchIcon } from "@/components/profile/profile-pane-icons";
 import {
   AlertDialog,
@@ -404,19 +405,35 @@ export function WalletWorkspace() {
   }, [user?.uid, user?.displayName, user?.metadata?.creationTime, vaultKey]);
   const [referralState, setReferralState] = useState<{ ownerId: string; summary: ReferralSummary } | null>(null);
   const [referralErrorOwnerId, setReferralErrorOwnerId] = useState<string | null>(null);
+  const referralReadRevision = useRef(0);
   const loadReferral = useCallback(async () => {
     if (!user) return;
+    const revision = ++referralReadRevision.current;
     const ownerId = user.uid;
     setReferralErrorOwnerId(null);
     try {
       const idToken = await user.getIdToken();
       const summary = await ReferralService.getSummary({ idToken });
-      if (activeOwnerIdRef.current === ownerId) setReferralState({ ownerId, summary });
+      if (revision === referralReadRevision.current && activeOwnerIdRef.current === ownerId) setReferralState({ ownerId, summary });
     } catch {
       // Preserve a confirmed summary, but make a failed first load actionable.
-      if (activeOwnerIdRef.current === ownerId) setReferralErrorOwnerId(ownerId);
+      if (revision === referralReadRevision.current && activeOwnerIdRef.current === ownerId) setReferralErrorOwnerId(ownerId);
     }
   }, [user]);
+  const revokeReferral = useCallback(async (slug: string) => {
+    const context = vaultContext();
+    if (!user || !context) throw new Error("Unlock your vault to revoke access.");
+    const idToken = await user.getIdToken();
+    if (activeOwnerIdRef.current !== context.userId || getVaultOwnerTokenRef.current() !== context.vaultOwnerToken) throw new Error("Your session changed.");
+    ++referralReadRevision.current;
+    const summary = await ReferralService.rotateShareLink({ idToken, slug });
+    // Fence reads started before the confirmed mutation, including stream refreshes.
+    ++referralReadRevision.current;
+    if (activeOwnerIdRef.current === context.userId && getVaultOwnerTokenRef.current() === context.vaultOwnerToken) {
+      setReferralState({ ownerId: context.userId, summary });
+      setReferralErrorOwnerId(null);
+    }
+  }, [user, vaultContext]);
   useEffect(() => { void loadReferral(); }, [loadReferral]);
   const { connected: referralConnected } = useReferralStream(user, loadReferral);
   useEffect(() => {
@@ -568,6 +585,21 @@ export function WalletWorkspace() {
     return () => { cancelled = true; readRevision += 1; document.removeEventListener("visibilitychange", visibility); };
   }, [numberScopeRevision, numberReadRevision, activeTab, view.kind, focusedCardId, focusedCard?.cardId]);
   const displayedNumber = ownerNumber?.revision === cardActionScopeRef.current.revision ? ownerNumber.pan : undefined;
+  const getHistoryContext = useCallback((_cardId: string) => {
+    const context = vaultContextRef.current();
+    const revision = cardActionScopeRef.current.revision;
+    const isCurrent = () => {
+      const current = vaultContextRef.current();
+      return Boolean(context && current?.userId === context.userId && current.vaultKey === context.vaultKey &&
+        current.vaultOwnerToken === context.vaultOwnerToken && cardActionScopeRef.current.revision === revision &&
+        cardActionScopeRef.current.tab === "sharing" && document.visibilityState !== "hidden");
+    };
+    if (!context || !isCurrent()) return null;
+    return { ...context, isCurrent, getIdToken: async () => {
+      if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
+      return sharingUserRef.current.getIdToken();
+    } };
+  }, []);
   const getCardShareContext = useCallback((cardId: string) => {
     const context = vaultContextRef.current();
     const revision = cardActionScopeRef.current.revision;
@@ -671,10 +703,9 @@ export function WalletWorkspace() {
         setRemovingCardId(cardId);
         if (!prefersReducedMotion()) await new Promise((resolve) => setTimeout(resolve, 220));
         if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-        const index = cards.findIndex((card) => card.cardId === cardId);
-        setSelectedDeckCardId((current) => (current ?? cards[0]?.cardId) === cardId
-          ? cards[index + 1]?.cardId ?? cards[index - 1]?.cardId ?? null
-          : current);
+        // Return to the overview after removal. A neighboring card must be
+        // explicitly opened before loading its number or sharing context.
+        setSelectedDeckCardId(null);
       }
       cardReadRevision.current += 1;
       setCardSnapshot((previous) => {
@@ -722,16 +753,6 @@ export function WalletWorkspace() {
       data-testid="one-wallet-done"
     >
       Done
-    </Button>
-  ) : hasCards ? (
-    <Button
-      variant="secondary"
-      size="compact"
-      onClick={() => dispatch({ type: "open_add" })}
-      data-testid="one-wallet-add"
-    >
-      <Plus aria-hidden="true" />
-      Add card
     </Button>
   ) : null;
 
@@ -800,7 +821,6 @@ export function WalletWorkspace() {
             actionsInlineMobile
             titleRole="agent"
             className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-            // Keep the same action track across tabs and loading states.
             actions={
               <span className="flex h-11 items-center sm:h-[53px]" data-slot="wallet-header-action">
                 {headerAction}
@@ -828,7 +848,7 @@ export function WalletWorkspace() {
           />
 
           {introductionOpen ? (
-            introductionLoading ? <div role="status" className="py-6 text-center text-sm text-muted-foreground">Opening your wallet…</div> :
+            introductionLoading ? <div role="status" className="py-6 text-center text-xs text-muted-foreground">Opening your wallet…</div> :
             <WalletIntroduction loading={introductionSaving} onConnect={() => void completeIntroduction()} />
           ) : <>
           <TopShellTabs
@@ -918,7 +938,7 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
+            <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} onRevokeReferral={revokeReferral} ownerId={renderedOwnerId || undefined}
               key={renderedOwnerId || "wallet"}
               cards={cards}
               cardholderNames={cardholderNames}
@@ -940,6 +960,8 @@ export function WalletWorkspace() {
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
+                showIntroduction={false}
+                getNetworkContext={vaultContext}
                 scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
@@ -1013,7 +1035,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} /> : null}
+            {ready ? <WalletSharing key={renderedOwnerId} cards={cards} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
           </div>
           </SwipeViews>
           </div>
@@ -1026,7 +1048,7 @@ export function WalletWorkspace() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <AlertDialogContent className={browserStyles.removeDialog} data-testid="one-wallet-remove-confirm">
+          <AlertDialogContent className={cn(profileStyles.accountDialog, profileStyles.dangerDialog)} data-testid="one-wallet-remove-confirm">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {removeTitle}?</AlertDialogTitle>
               <AlertDialogDescription>

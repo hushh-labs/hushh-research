@@ -4,9 +4,13 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException, Response
+from fastapi import BackgroundTasks, HTTPException, Response
 
 from api.routes.one import answer_requests as routes
+
+
+async def _create_answer_request(*args, **kwargs):
+    return await routes.create_answer_request(*args, **kwargs, background_tasks=BackgroundTasks())
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +64,7 @@ async def test_request_intake_survives_paused_payments_but_checkout_does_not(mon
 
     gates = await routes.answer_requests_available(Response(), "requester")
     assert (gates["enabled"], gates["requests"], gates["payments"]) == (False, True, False)
-    assert await routes.create_answer_request(
+    assert await _create_answer_request(
         Response(),
         {"ownerUserId": "owner", "question": "Which flights do you prefer?"},
         "requester",
@@ -146,7 +150,7 @@ async def test_unset_request_flag_opens_intake_with_payments_off(monkeypatch):
 
     gates = await routes.answer_requests_available(Response(), "requester")
     assert (gates["requests"], gates["payments"]) == (True, False)
-    assert await routes.create_answer_request(
+    assert await _create_answer_request(
         Response(),
         {"ownerUserId": "owner", "question": "Which flights do you prefer?"},
         "requester",
@@ -165,7 +169,7 @@ async def test_request_kill_switch_closes_intake_even_with_payments_live(monkeyp
     requests = Mock(create=AsyncMock(), approve=AsyncMock())
     monkeypatch.setattr(routes, "_requests", lambda: requests)
     for call in (
-        lambda: routes.create_answer_request(
+        lambda: _create_answer_request(
             Response(),
             {"ownerUserId": "owner", "question": "Which flights do you prefer?"},
             "requester",
@@ -215,6 +219,293 @@ async def test_composer_rejects_unapproved_projection(monkeypatch, projection):
         await routes.compose_answer(uuid4(), Response(), {"projection": projection}, "owner")
     assert error.value.status_code == 422
     composer.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"attr.identity.identity_profile.declared_age": 29},
+        {
+            "attr.identity.identity_profile.declared_age": 29,
+            "attr.identity.identity_profile.sex": None,
+        },
+        {
+            "attr.identity.identity_profile.declared_age": 29,
+            "attr.identity.identity_profile.sex": {"identity_profile": {"full_name": "Owner"}},
+        },
+        {
+            "attr.identity.identity_profile.declared_age": 29,
+            "attr.identity.identity_profile.sex": "   ",
+        },
+    ],
+)
+async def test_incomplete_exact_approved_facts_never_reach_composer(monkeypatch, values):
+    service = Mock(
+        assert_answerable=AsyncMock(
+            return_value={
+                "approvedScopes": [
+                    "attr.identity.identity_profile.declared_age",
+                    "attr.identity.identity_profile.sex",
+                ],
+                "modelProcessingConsented": True,
+            }
+        )
+    )
+    monkeypatch.setattr(routes, "_requests", lambda: service)
+    composer = Mock()
+    monkeypatch.setattr(routes, "AnswerComposer", composer)
+    with pytest.raises(HTTPException) as error:
+        await routes.compose_answer(
+            uuid4(),
+            Response(),
+            {"projection": {"memory": "Owner is 29", "values": values}},
+            "owner",
+        )
+    assert error.value.status_code == 422
+    composer.assert_not_called()
+
+
+async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(monkeypatch):
+    from hushh_mcp.services.answer_composer import AnswerComposer
+
+    service = Mock(
+        assert_answerable=AsyncMock(
+            return_value={
+                "approvedScopes": ["attr.travel.trips"],
+                "modelProcessingConsented": True,
+                "question": "Where and when was the trip?",
+                "termsDigest": "b" * 64,
+            }
+        )
+    )
+
+    async def provider(_prompt):
+        return {"answer": "The trip was to Tokyo.", "gaps": ["Trip date is unavailable."]}
+
+    writer = AnswerComposer(runner=provider)
+    monkeypatch.setattr(routes, "_requests", lambda: service)
+    monkeypatch.setattr(routes, "AnswerComposer", lambda: writer)
+    result = await routes.compose_answer(
+        uuid4(),
+        Response(),
+        {
+            "projection": {
+                "memory": "Trip to Tokyo",
+                "values": {"attr.travel.trips": {"trips": [{"city": "Tokyo"}]}},
+            }
+        },
+        "owner",
+    )
+    assert result == {
+        "answerMode": "projection",
+        "answer": None,
+        "gaps": ["Trip date is unavailable."],
+    }
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"attr.other.secret": {}},
+        {
+            "attr.identity.identity_profile.declared_age": {
+                "sources": [],
+                "builtAt": "private",
+                "derivedOn": None,
+            }
+        },
+        {
+            "attr.identity.identity_profile.declared_age": {
+                "sources": [
+                    {
+                        "domain": "financial",
+                        "contentRevision": 1,
+                        "manifestRevision": 2,
+                        "absent": False,
+                    }
+                ],
+                "builtAt": "2026-10-13T01:00:00Z",
+                "derivedOn": "2026-10-13",
+            }
+        },
+        {
+            "attr.identity.identity_profile.declared_age": {
+                "sources": [
+                    {
+                        "domain": "identity",
+                        "contentRevision": True,
+                        "manifestRevision": 2,
+                        "absent": False,
+                    }
+                ],
+                "builtAt": "2026-10-13T01:00:00Z",
+                "derivedOn": "2026-10-13",
+            }
+        },
+        {
+            "attr.identity.identity_profile.declared_age": {
+                "sources": [
+                    {
+                        "domain": "identity",
+                        "contentRevision": 1,
+                        "manifestRevision": 2,
+                        "absent": False,
+                        "readablePaths": ["private.dob"],
+                    }
+                ],
+                "builtAt": "2026-10-13T01:00:00Z",
+                "derivedOn": "2026-10-13",
+            }
+        },
+    ],
+)
+async def test_composer_refuses_unapproved_or_unbounded_freshness_before_model(
+    monkeypatch, invalid
+):
+    scope = "attr.identity.identity_profile.declared_age"
+    service = Mock(
+        assert_answerable=AsyncMock(
+            return_value={
+                "approvedScopes": [scope],
+                "modelProcessingConsented": True,
+            }
+        )
+    )
+    monkeypatch.setattr(routes, "_requests", lambda: service)
+    writer = Mock()
+    monkeypatch.setattr(routes, "AnswerComposer", writer)
+    with pytest.raises(HTTPException) as error:
+        await routes.compose_answer(
+            uuid4(),
+            Response(),
+            {
+                "projection": {
+                    "memory": "Age 29",
+                    "values": {scope: {"identity_profile": {"declared_age": 29}}},
+                    "sourceFreshness": invalid,
+                }
+            },
+            "owner",
+        )
+    assert error.value.status_code == 422
+    writer.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("scope", "value"),
+    [
+        ("attr.identity.identity_profile.declared_age", {"identity_profile": {"declared_age": 29}}),
+        ("attr.professional.profile.age", {"profile": {"age": 29}}),
+        ("attr.professional.profile.*", {"profile": {"age": 29}}),
+    ],
+)
+async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receipt(
+    monkeypatch, scope, value
+):
+    from hushh_mcp.services.answer_composer import AnswerComposer
+    from hushh_mcp.services.answer_composition_receipt import verify_composition_receipt
+
+    request = uuid4()
+    service = Mock(
+        assert_answerable=AsyncMock(
+            return_value={
+                "approvedScopes": [scope],
+                "modelProcessingConsented": True,
+                "question": "What is your age?",
+                "termsDigest": "b" * 64,
+            }
+        )
+    )
+    seen = []
+
+    async def provider(prompt):
+        seen.append(prompt)
+        return {"answer": "I am 29 years old."}
+
+    writer = AnswerComposer(runner=provider)
+    monkeypatch.setattr(routes, "_requests", lambda: service)
+    monkeypatch.setattr(routes, "AnswerComposer", lambda: writer)
+    response = await routes.compose_answer(
+        request,
+        Response(),
+        {
+            "projection": {
+                "memory": "Age 29",
+                "values": {scope: value},
+                "sourceFreshness": {
+                    scope: {
+                        "sources": [
+                            {
+                                "domain": "identity",
+                                "contentRevision": 7,
+                                "manifestRevision": 9,
+                                "absent": False,
+                            },
+                            {
+                                "domain": "one_memory",
+                                "contentRevision": 3,
+                                "manifestRevision": 5,
+                                "absent": False,
+                            },
+                        ],
+                        "builtAt": "2026-10-13T01:00:00Z",
+                        "derivedOn": "2026-10-13",
+                    }
+                },
+            }
+        },
+        "owner",
+    )
+    assert response["answer"] == "I am 29 years old."
+    assert '"contentRevision": 7' in seen[0] and '"derivedOn": "2026-10-13"' in seen[0]
+    assert "date_of_birth" not in seen[0] and "readablePaths" not in seen[0]
+    verify_composition_receipt(
+        response["compositionReceipt"],
+        request_id=str(request),
+        owner_user_id="owner",
+        terms_digest="b" * 64,
+    )
+
+
+@pytest.mark.parametrize("leaf", ["sex", "job_title", "*"])
+async def test_composer_refuses_identity_metadata_for_other_professional_scopes(monkeypatch, leaf):
+    scope = f"attr.professional.profile.{leaf}"
+    service = Mock(
+        assert_answerable=AsyncMock(
+            return_value={"approvedScopes": [scope], "modelProcessingConsented": True}
+        )
+    )
+    writer = Mock()
+    monkeypatch.setattr(routes, "_requests", lambda: service)
+    monkeypatch.setattr(routes, "AnswerComposer", writer)
+    with pytest.raises(HTTPException) as error:
+        await routes.compose_answer(
+            uuid4(),
+            Response(),
+            {
+                "projection": {
+                    "memory": "Only the approved professional fact",
+                    "values": {scope: {"profile": {leaf if leaf != "*" else "job_title": "Saved"}}},
+                    "sourceFreshness": {
+                        scope: {
+                            "sources": [
+                                {
+                                    "domain": "identity",
+                                    "contentRevision": 7,
+                                    "manifestRevision": 9,
+                                    "absent": False,
+                                }
+                            ],
+                            "builtAt": "2026-10-13T01:00:00Z",
+                            "derivedOn": None,
+                        }
+                    },
+                }
+            },
+            "owner",
+        )
+    assert error.value.status_code == 422
+    writer.assert_not_called()
 
 
 def test_answer_payout_setup_uses_answer_credentials_and_no_drive_wake(monkeypatch):
@@ -273,7 +564,7 @@ async def test_public_person_reference_resolves_before_active_connection_admissi
     monkeypatch.setattr(routes, "PersonProfileService", lambda: identity)
     requests = Mock(create=AsyncMock(return_value={"requestId": "synthetic-request"}))
     monkeypatch.setattr(routes, "_requests", lambda: requests)
-    result = await routes.create_answer_request(
+    result = await _create_answer_request(
         Response(),
         {"personRef": public_ref, "question": "Which flights do you prefer?"},
         "requester",
@@ -293,7 +584,7 @@ async def test_missing_public_profile_never_admits_or_falls_back_to_reference_as
     requests = Mock(create=AsyncMock())
     monkeypatch.setattr(routes, "_requests", lambda: requests)
     with pytest.raises(HTTPException) as error:
-        await routes.create_answer_request(
+        await _create_answer_request(
             Response(),
             {"personRef": str(uuid4()), "question": "Which flights do you prefer?"},
             "requester",
@@ -310,7 +601,7 @@ async def test_invalid_or_ambiguous_public_target_is_rejected(monkeypatch, body)
     identity = Mock()
     monkeypatch.setattr(routes, "PersonProfileService", identity)
     with pytest.raises(HTTPException) as error:
-        await routes.create_answer_request(
+        await _create_answer_request(
             Response(), {**body, "question": "Which flights do you prefer?"}, "requester"
         )
     assert error.value.status_code == 422
@@ -329,7 +620,7 @@ async def test_create_preserves_question_and_optional_period(monkeypatch, period
     question = "What did you spend on travel in January 2026?"
     requests = Mock(create=AsyncMock(return_value={"requestId": str(uuid4())}))
     monkeypatch.setattr(routes, "_requests", lambda: requests)
-    await routes.create_answer_request(
+    await _create_answer_request(
         Response(), {"ownerUserId": "owner", "question": question, **period}, "requester"
     )
     requests.create.assert_awaited_once_with(
@@ -346,7 +637,7 @@ async def test_invalid_date_types_are_not_silently_dropped(monkeypatch, value):
     requests = Mock(create=AsyncMock(side_effect=routes.AnswerRequestError("invalid_period")))
     monkeypatch.setattr(routes, "_requests", lambda: requests)
     with pytest.raises(HTTPException) as error:
-        await routes.create_answer_request(
+        await _create_answer_request(
             Response(),
             {
                 "ownerUserId": "owner",

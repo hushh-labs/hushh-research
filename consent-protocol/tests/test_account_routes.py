@@ -25,7 +25,21 @@ from hushh_mcp.services.account_service import (
     PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
     AccountService,
 )
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityPhoneClaimConflictError,
+    ActorIdentityService,
+    ActorIdentitySyncUnavailableError,
+)
+
+
+@pytest.fixture(autouse=True)
+def _stub_test_phone_start_lookup(monkeypatch):
+    """Route unit tests stub the read; real SQL is covered by PostgreSQL tests."""
+
+    async def available(self, *, user_id, phone_number):
+        return True
+
+    monkeypatch.setattr(ActorIdentityService, "can_claim_test_phone", available)
 
 
 def _build_app() -> FastAPI:
@@ -437,6 +451,27 @@ def test_upload_account_avatar_requires_firebase_auth():
     response = client.post("/api/account/avatar", json={"image_data_url": data_url})
 
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize("failure", [ActorIdentitySyncUnavailableError, ConnectionError])
+def test_strict_identity_refresh_fails_closed_instead_of_returning_cached_identity(
+    monkeypatch, failure
+):
+    async def sync(self, firebase_uid, *, force=False, require_success=False):
+        assert force is True
+        if require_success:
+            raise failure()
+        return {"user_id": firebase_uid, "phone_verified": True, "phone_number": "+12025550101"}
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", sync)
+    client = TestClient(app)
+    assert client.post("/api/account/identity/refresh").status_code == 200
+    response = client.post("/api/account/identity/refresh?require_success=true&force=false")
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "IDENTITY_PROVIDER_UNAVAILABLE"
+    assert "identity" not in response.json()
 
 
 def test_upload_account_avatar_accepts_valid_image_data_url(monkeypatch):
@@ -1022,6 +1057,75 @@ def test_start_uat_test_phone_verification_requires_prod_challenge_secret(monkey
 
     assert response.status_code == 200
     assert response.json()["eligible"] is False
+
+
+@pytest.mark.parametrize("environment", ["uat", "production"])
+def test_test_phone_owner_conflict_uses_real_otp_and_confirmation_rechecks(
+    monkeypatch, environment
+):
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_ENABLED", "true")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+
+    async def unavailable(self, *, user_id, phone_number):
+        return False
+
+    async def conflict(self, **kwargs):
+        raise ActorIdentityPhoneClaimConflictError()
+
+    monkeypatch.setattr(ActorIdentityService, "can_claim_test_phone", unavailable)
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", conflict)
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    client = TestClient(app)
+    start = client.post("/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"})
+    assert start.status_code == 200
+    assert start.json()["eligible"] is False
+    # An older/racing challenge must still be refused at the mutation boundary.
+    response = client.post(
+        "/api/account/phone/uat-test/confirm",
+        json={
+            "phone_number": "+16505550101",
+            "verification_code": "000000",
+            "verification_id": account._create_uat_phone_test_verification_id("+16505550101"),
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PHONE_TEST_NUMBER_IN_USE"
+
+
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("/api/account/phone/claim", {"phone_id_token": "phone-proof"}),
+        (
+            "/api/account/phone/uat-test/confirm",
+            {
+                "phone_number": "+16505550101",
+                "verification_code": "000000",
+                "verification_id": "challenge",
+            },
+        ),
+    ],
+)
+def test_phone_claim_rejects_changed_token_owner_before_verification_or_mutation(
+    monkeypatch, path, payload
+):
+    async def must_not_run(*args, **kwargs):
+        pytest.fail("Changed-owner phone verification must stop before proof/mutation")
+
+    monkeypatch.setattr(account, "_verify_phone_claim_id_token", must_not_run)
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", must_not_run)
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "new-owner"
+    response = TestClient(app).post(path, json={**payload, "expected_user_id": "old-owner"})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PHONE_VERIFICATION_ACCOUNT_CHANGED"
 
 
 def test_confirm_uat_test_phone_verification_persists_verified_phone(monkeypatch):

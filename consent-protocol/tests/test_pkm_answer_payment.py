@@ -101,6 +101,20 @@ class FakeConnection:
         sql = " ".join(str(statement).split())
         self.statements.append(sql)
         params = params or {}
+        if sql.startswith("SELECT request_id, status, owner_user_id"):
+            return SimpleNamespace(
+                mappings=lambda: SimpleNamespace(
+                    first=lambda: {
+                        "request_id": REQUEST_ID,
+                        "status": "approved",
+                        "owner_user_id": "owner",
+                        "requester_user_id": "requester",
+                        "terms_digest": DIGEST,
+                    }
+                )
+            )
+        if sql.startswith("SELECT id FROM connections"):
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: {"id": "edge"}))
         if sql.startswith("SELECT * FROM pkm_answer_payment_orders"):
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: self.order))
         if "INSERT INTO pkm_answer_payment_webhook_events" in sql:
@@ -110,7 +124,11 @@ class FakeConnection:
             self.seen_events.add(event_id)
             return SimpleNamespace(first=lambda: (event_id,))
         if sql.startswith("UPDATE pkm_answer_payment_orders SET status = 'paid'"):
-            self.order = {**(self.order or {}), "status": "paid"}
+            self.order = {
+                **(self.order or {}),
+                "status": "paid",
+                "stripe_payment_intent_id": params["intent"],
+            }
         return SimpleNamespace(
             mappings=lambda: SimpleNamespace(first=lambda: None), first=lambda: None
         )
@@ -136,6 +154,8 @@ def _service(connection: FakeConnection) -> PkmAnswerPaymentService:
 def _open_order(**overrides) -> dict:
     return {
         "request_id": REQUEST_ID,
+        "owner_user_id": "owner",
+        "requester_user_id": "requester",
         "status": "checkout_open",
         "stripe_mode": "test",
         "stripe_checkout_session_id": "cs_test_1",

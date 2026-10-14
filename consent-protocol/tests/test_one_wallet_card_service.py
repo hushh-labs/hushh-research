@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -87,6 +88,15 @@ class _Result:
     def __init__(self, data: list[dict[str, Any]]) -> None:
         self.data = data
 
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self.data[0] if self.data else None
+
+    def scalar(self):
+        return next(iter(self.data[0].values())) if self.data else None
+
 
 class FakeDb:
     """In-memory stand-in for the ``one_wallet_cards`` table.
@@ -101,6 +111,14 @@ class FakeDb:
         self.rows: dict[str, dict[str, Any]] = {}
         self.identities: dict[str, dict[str, Any]] = {}
         self.fail_on: str | None = None
+        self.engine = self
+
+    @contextmanager
+    def begin(self):
+        yield self
+
+    def execute(self, sql, params=None):
+        return self.execute_raw(str(sql), params)
 
     # --- helpers -----------------------------------------------------
 
@@ -179,12 +197,19 @@ class FakeDb:
         compact = " ".join(sql.split())
         returning = "RETURNING" in compact.upper()
 
+        if "pg_advisory_xact_lock" in compact:
+            return _Result([])
+        if "to_regclass" in compact:
+            return _Result([{"installed": False}])
+
         if "FROM actor_identity_cache" in compact:
             row = self.identities.get(str(values.get("user_id")))
             return _Result([dict(row)] if row else [])
 
         if compact.upper().startswith("SELECT"):
             row = self._row_for(values, compact)
+            if compact.startswith("SELECT user_id FROM"):
+                return _Result([{"user_id": row["user_id"]}] if row else [])
             return _Result([dict(row)] if row else [])
 
         if "INSERT INTO one_wallet_cards" in compact:
@@ -233,6 +258,9 @@ class FakeDb:
                 row["revoked_at"] = row["revoked_at"] or _now()
             if "revoked_at = NULL" in compact:
                 row["revoked_at"] = None
+            if "scan_count = 0" in compact:
+                row["scan_count"] = 0
+                row["last_scanned_at"] = None
             if "scan_count = scan_count + 1" in compact:
                 row["scan_count"] = int(row["scan_count"]) + 1
                 row["last_scanned_at"] = _now()
@@ -436,6 +464,9 @@ def test_rotating_invalidates_the_previous_token_immediately(
     service: OneWalletCardService, db: FakeDb
 ) -> None:
     old_token = db.seed()
+    service.record_scan(share_token=old_token)
+    service.record_scan(share_token=old_token)
+    assert db.rows[OWNER_ID]["scan_count"] == 2
 
     result = service.rotate_share_token(user_id=OWNER_ID)
     new_token = _share_token(result)
@@ -443,6 +474,12 @@ def test_rotating_invalidates_the_previous_token_immediately(
     assert new_token and new_token != old_token
     assert db.rows[OWNER_ID]["share_token_hash"] == _sha256(new_token)
     assert db.rows[OWNER_ID]["share_token_version"] == 2
+    assert result["card"]["scanCount"] == 0
+    assert result["card"]["lastScannedAt"] is None
+    service.record_scan(share_token=old_token)
+    assert db.rows[OWNER_ID]["scan_count"] == 0
+    service.record_scan(share_token=new_token)
+    assert db.rows[OWNER_ID]["scan_count"] == 1
 
     # The old token must no longer resolve to anything.
     assert _public(service.resolve_public_card(share_token=old_token)) == (
@@ -811,6 +848,11 @@ def test_no_statement_ever_touches_the_projection_or_marketplace_planes(
 
     assert db.statements, "the lifecycle must actually have hit the database"
     for sql, _ in db.statements:
+        if "to_regclass" in sql:
+            continue
+        if "pg_advisory_xact_lock" in sql:
+            assert _["user_ids"] == [OWNER_ID]
+            continue
         assert "one_wallet_cards" in sql
         for table in FORBIDDEN_TABLES:
             assert table not in sql

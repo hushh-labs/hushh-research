@@ -71,6 +71,7 @@ _WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
+    "pwm_tavily_api_key": "PWM_TAVILY_API_KEY",
     "pkm_answer_requests_enabled": "PKM_ANSWER_REQUESTS_ENABLED",
     "pkm_answer_payments_enabled": "PKM_ANSWER_PAYMENTS_ENABLED",
     "pkm_answer_composer_enabled": "PKM_ANSWER_COMPOSER_ENABLED",
@@ -110,6 +111,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "google_drive_picker": "GOOGLE_DRIVE_PICKER",
     "drive_document_indexing": "DRIVE_DOCUMENT_INDEXING",
     "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",
+    "drive_agent_packages_enabled": "DRIVE_AGENT_PACKAGES_ENABLED",
     "gmail_chat_reads": "GMAIL_CHAT_READS",
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
     "curated_mcp_connectors": "CURATED_MCP_CONNECTORS",
@@ -619,3 +621,70 @@ def clear_runtime_settings_caches() -> None:
 
 
 hydrate_runtime_environment()
+
+
+def pwm_tavily_api_key() -> str:
+    hydrate_runtime_environment()
+    return str(os.getenv("PWM_TAVILY_API_KEY", "")).strip()
+
+
+@dataclass(frozen=True)
+class ManagedAISettings:
+    project: str
+    auth_mode: str
+    text_model: str
+    text_locations: tuple[str, ...]
+    live_model: str
+    live_location: str
+    embedding_model: str
+    config_hash: str
+
+
+def managed_ai_settings() -> ManagedAISettings:
+    """Single managed AI contract. Infrastructure GOOGLE_CLOUD_PROJECT stays separate.
+
+    Hosted revisions use the checked-in profile. Local development retains explicit
+    environment overrides; surface-specific overrides cannot split hosted clients.
+    """
+    from hushh_mcp.managed_ai_config import load_profile, profile_hash, validate_profile
+
+    hydrate_runtime_environment()
+    env = (os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "local").strip().lower()
+    env = {"prod": "production", "staging": "uat", "development": "local", "test": "local"}.get(
+        env, env
+    )
+    value = load_profile(env, _REPO_ROOT / "config" / "managed-ai-runtime.json")
+    if env == "local":
+        overrides = {
+            "project": "GENAI_GOOGLE_CLOUD_PROJECT",
+            "auth_mode": "HUSHH_GENAI_AUTH_MODE",
+            "text_model": "HUSSH_GEMINI_TEXT_MODEL",
+            "live_model": "VERTEX_LIVE_MODEL_ID",
+            "live_location": "VERTEX_LIVE_LOCATION",
+        }
+        for key, variable in overrides.items():
+            if str(os.getenv(variable) or "").strip():
+                value[key] = os.environ[variable].strip()
+        if not os.getenv("GENAI_GOOGLE_CLOUD_PROJECT"):
+            for variable in (
+                "GOOGLE_CLOUD_PROJECT",
+                "GCP_PROJECT",
+                "GOOGLE_PROJECT",
+                "GCLOUD_PROJECT",
+                "VERTEX_PROJECT_ID",
+            ):
+                if os.getenv(variable):
+                    value["project"] = os.environ[variable].strip()
+                    break
+        locations = os.getenv("HUSHH_VERTEX_LOCATIONS")
+        primary = os.getenv("GOOGLE_CLOUD_LOCATION")
+        if locations or primary:
+            value["text_locations"] = list(
+                dict.fromkeys(filter(None, [primary, *(locations or "").split(",")]))
+            )
+    value["live_location"] = value["live_location"].lower()
+    validate_profile(value, local=env == "local")
+    digest = profile_hash(value)
+    return ManagedAISettings(
+        **{**value, "text_locations": tuple(value["text_locations"])}, config_hash=digest
+    )

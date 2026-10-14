@@ -87,6 +87,7 @@ class AccountService:
         self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "one_adk_sessions": text("DELETE FROM one_adk_sessions WHERE user_id = :user_id"),
             "contact_sync_lookup_budgets": text(
                 "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id"
             ),
@@ -250,6 +251,12 @@ class AccountService:
             ),
             "wallet_card_access_grants": text(
                 "DELETE FROM wallet_card_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
+            ),
+            "wallet_profile_access_grants": text(
+                "DELETE FROM wallet_profile_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
+            ),
+            "wallet_profile_share_requests": text(
+                "DELETE FROM wallet_profile_share_requests WHERE owner_user_id = :user_id"
             ),
             "wallet_card_share_requests": text(
                 "DELETE FROM wallet_card_share_requests WHERE owner_user_id = :user_id"
@@ -1435,14 +1442,29 @@ class AccountService:
         One identity and vault survive a reset.
         """
         params = {"user_id": user_id}
+        if self._table_exists(conn, "pwm_claim_invitations"):
+            conn.execute(
+                text(
+                    "DELETE FROM pwm_claim_invitations WHERE inviter_user_id=:user_id OR recipient_user_id=:user_id"
+                ),
+                params,
+            )
+            results["pwm_claim_invitations"] = True
         self._clear_external_connector_data(conn, user_id, results, permanent=False)
         self._delete_optional_user_tables(
             conn,
             table_names=[
+                "one_adk_sessions",
                 "one_action_directive_ledger",
                 "one_mcp_pending_calls",
                 "agent_chat_messages",
                 "agent_chat_conversations",
+                "wallet_card_access_audit",
+                "wallet_profile_access_grants",
+                "wallet_card_access_grants",
+                "wallet_profile_share_requests",
+                "wallet_card_share_requests",
+                "wallet_card_registrations",
                 "messages",
                 "conversations",
                 "direct_message_blocks",
@@ -1972,10 +1994,17 @@ class AccountService:
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
+                        "one_adk_sessions",
                         "one_action_directive_ledger",
                         "one_mcp_pending_calls",
                         "agent_chat_messages",
                         "agent_chat_conversations",
+                        "wallet_card_access_audit",
+                        "wallet_profile_access_grants",
+                        "wallet_card_access_grants",
+                        "wallet_profile_share_requests",
+                        "wallet_card_share_requests",
+                        "wallet_card_registrations",
                         "messages",
                         "conversations",
                         "direct_message_blocks",

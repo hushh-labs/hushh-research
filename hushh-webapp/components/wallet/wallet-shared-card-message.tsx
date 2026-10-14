@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { Lock } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { WalletCardFace } from "./wallet-card-face";
@@ -9,11 +10,13 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { OneLocationService } from "@/lib/one-location/service";
 import { openWalletCardShare, type SharedPaymentCard } from "@/lib/wallet/wallet-card-share";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { useSharedCardPrivacy } from "@/lib/wallet/use-shared-card-privacy";
 
 export function WalletSharedCardMessage({ content, peerPersonRef, senderIsViewer }: {
   content: string; peerPersonRef: string | null; senderIsViewer: boolean;
 }) {
   const { user } = useAuth();
+  const nativeViewerUnavailable = Capacitor.isNativePlatform();
   const { vaultKey, getVaultOwnerToken } = useVault();
   const [card, setCard] = useState<{ revision: number; value: SharedPaymentCard } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,14 +28,15 @@ export function WalletSharedCardMessage({ content, peerPersonRef, senderIsViewer
   }
   const tokenGetter = useRef(getVaultOwnerToken);
   tokenGetter.current = getVaultOwnerToken;
-  useEffect(() => {
-    const hide = () => { if (document.visibilityState === "hidden") { scope.current.revision += 1; setCard(null); setBusy(false); } };
-    document.addEventListener("visibilitychange", hide);
-    return () => { scope.current.revision += 1; document.removeEventListener("visibilitychange", hide); };
-  }, []);
+  useSharedCardPrivacy(boundary => {
+    if (boundary === "focus") return;
+    scope.current.revision += 1; setCard(null); setBusy(false); setUnlock(false);
+  });
+  useEffect(() => () => { scope.current.revision += 1; }, []);
   useEffect(() => { setCard(null); setBusy(false); }, [vaultKey, user?.uid, content, peerPersonRef, senderIsViewer]);
   const shown = card?.revision === scope.current.revision ? card.value : null;
   const view = async () => {
+    if (nativeViewerUnavailable) return;
     if (!vaultKey) { setUnlock(true); return; }
     const token = tokenGetter.current();
     const uid = user?.uid;
@@ -60,11 +64,12 @@ export function WalletSharedCardMessage({ content, peerPersonRef, senderIsViewer
     } catch { if (isCurrent()) morphyToast.error("Card unavailable. Ask the sender to share it again."); }
     finally { if (isCurrent()) setBusy(false); }
   };
-  return <section aria-label="Shared payment card" className="space-y-3 text-sm">
+  return <section aria-label="Shared payment card" className="space-y-3 text-sm select-none print:hidden" onCopy={event => event.preventDefault()} onCut={event => event.preventDefault()} onDragStart={event => event.preventDefault()} onContextMenu={event => event.preventDefault()}>
     <p className="flex items-center gap-2"><Lock aria-hidden="true" className="size-4" />Shared payment card</p>
-    {shown ? <>
+    {nativeViewerUnavailable ? <p className="text-xs">Open Messages in your browser to view this card.</p> : shown ? <>
       <WalletCardFace summary={{ cardId: "shared-card", nickname: "", brand: shown.brand, last4: shown.pan.slice(-4), expiryMonth: shown.expiryMonth, expiryYear: shown.expiryYear, issuingRegion: shown.issuingRegion, createdAt: "" }} revealed={{ pan: shown.pan, cardholderName: shown.cardholderName }} />
       <Button variant="secondary" size="compact" onClick={() => { scope.current.revision += 1; setCard(null); }}>Hide card</Button>
+      <p className="text-xs text-muted-foreground">For you only. Do not copy or share. This card closes when you leave this window. Browsers cannot block screenshots or photos.</p>
     </> : <Button variant="secondary" size="compact" disabled={busy} onClick={() => void view()}>{busy ? "Opening…" : vaultKey ? "View card details" : "Unlock to view card"}</Button>}
     {user ? <VaultUnlockDialog user={user} onSuccess={() => setUnlock(false)} open={unlock} onOpenChange={setUnlock} title="Unlock to view the card" description="Card details open only on your device." /> : null}
   </section>;

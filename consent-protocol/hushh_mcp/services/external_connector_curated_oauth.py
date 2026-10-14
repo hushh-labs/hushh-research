@@ -34,6 +34,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from os import getenv
@@ -238,9 +239,15 @@ class ExternalConnectorCuratedOAuth:
         if connector is None or not is_curated_oauth_connector(connector):
             raise CuratedConnectorOAuthError("connector_unavailable", status_code=503)
         manifest = get_manifest(connector.connector_id)
+        runtime_environment = os.getenv("ENVIRONMENT", "").strip().lower()
+        manifest_environment = (
+            "uat"
+            if runtime_environment in {"development", "local", "test"}
+            else runtime_environment
+        )
         # Check the raw row before `registered_redirect_uris()` adds the one
         # development-loopback callback. An operator may not widen callbacks;
-        # only a reviewed manifest environment can seed the shared row.
+        # only this runtime's reviewed manifest environment can seed the row.
         if (
             manifest is None
             or (
@@ -253,7 +260,7 @@ class ExternalConnectorCuratedOAuth:
             )
             != manifest.pin()
             or tuple(connector.registered_redirect_uris or ())
-            not in manifest.redirect_uris.values()
+            != manifest.redirect_uris.get(manifest_environment)
         ):
             raise CuratedConnectorOAuthError("connector_configuration_invalid", status_code=503)
         # A descriptor is checked on apply, but registry rows can predate that

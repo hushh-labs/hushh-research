@@ -77,6 +77,15 @@ def _production_owner_admitted(user_id: str) -> bool:
 
 
 def connector_feature_enabled(feature: str, user_id: str) -> bool:
+    if (
+        feature == "curated_mcp_connectors"
+        and os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+    ):
+        return bool(
+            user_id
+            and user_id.strip() == user_id
+            and os.getenv("CURATED_MCP_CONNECTORS", "").strip().lower() == "true"
+        )
     if feature in OWNER_AVAILABLE:
         return bool(user_id and user_id.strip() == user_id)
     environment = os.getenv("ENVIRONMENT", "").strip().lower()

@@ -202,8 +202,8 @@ describe("ReferralDashboardPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "How it works" }));
     expect(screen.queryByRole("button", { name: "View welcome screen" })).not.toBeInTheDocument();
     expect(await screen.findByText("123 coins")).toBeInTheDocument();
-    expect(screen.getByText("+17 coins")).toBeInTheDocument();
-    expect(screen.getByText("246 total")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Keep your streak" }).closest("article")).toHaveTextContent("+17 coins");
+    expect(screen.getByRole("heading", { name: "Flash boost" }).closest("article")).toHaveTextContent("246 coins");
     act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
     expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
     expect(screen.getByText("Weekly challenge ends in")).toBeInTheDocument();
@@ -277,6 +277,8 @@ describe("ReferralDashboardPage", () => {
     expect(rewards.queryByText("Apple Watch")).not.toBeInTheDocument();
     expect(rewards.getByRole("img", { name: "Apple AirPods" })).toHaveAttribute("src", "/referrals/product-airpods.svg");
     expect(rewards.getByText("3 of 4 unlocked")).toBeInTheDocument();
+    expect(rewards.getByRole("heading", { level: 4, name: "iPhone" }).closest("[data-reward]")).toHaveAttribute("data-reward-state", "next");
+    expect(rewards.getByRole("heading", { level: 4, name: "Apple AirPods" }).closest("[data-reward]")).toHaveAttribute("data-reward-state", "earned");
     expect(rewards.getByText("Your reward is being confirmed.")).toBeInTheDocument();
     expect(rewards.queryByText("All rewards unlocked")).not.toBeInTheDocument();
   });

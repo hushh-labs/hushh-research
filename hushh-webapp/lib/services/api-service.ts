@@ -580,6 +580,8 @@ export async function fetchWithWebTimeout(
 }
 
 export type ApiFetchOptions = RequestInit & {
+  /** Native HTTP returns binary bodies as base64; decode them before blob(). */
+  responseType?: "arraybuffer";
   /** Revalidate effect authority after async transport setup, including retries. */
   beforeDispatch?: () => Promise<void>;
   /** Synchronous final check: no await may separate authority from dispatch. */
@@ -590,7 +592,7 @@ async function apiFetch(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<Response> {
-  const { beforeDispatch, isEffectCurrent, ...fetchOptions } = options;
+  const { beforeDispatch, isEffectCurrent, responseType, ...fetchOptions } = options;
   const assertEffectCurrent = () => {
     if (isEffectCurrent && isEffectCurrent() !== true) {
       throw new DOMException("The effect session changed.", "AbortError");
@@ -927,6 +929,7 @@ async function apiFetch(
         data?: unknown;
         connectTimeout?: number;
         readTimeout?: number;
+        responseType?: "arraybuffer";
       } = {
         url,
         method,
@@ -936,6 +939,7 @@ async function apiFetch(
         // iOS; Android supports a separate connection timeout.
         connectTimeout: Capacitor.getPlatform() === "ios" ? readTimeoutMs : 15_000,
         readTimeout: readTimeoutMs,
+        ...(responseType ? { responseType } : {}),
       };
 
       if (
@@ -986,10 +990,10 @@ async function apiFetch(
             responseHeaders.set(key, String(value));
           }
         });
-        const responseBody =
-          typeof nativeResponse.data === "string"
-            ? nativeResponse.data
-            : JSON.stringify(nativeResponse.data ?? null);
+        // Both native adapters parse JSON error bodies before responseType.
+        const responseBody = responseType === "arraybuffer" && typeof nativeResponse.data === "string" && !responseHeaders.get("content-type")?.includes("json")
+          ? Uint8Array.from(atob(nativeResponse.data), char => char.charCodeAt(0))
+          : typeof nativeResponse.data === "string" ? nativeResponse.data : JSON.stringify(nativeResponse.data ?? null);
         return new Response(responseBody, {
           status: nativeResponse.status,
           headers: responseHeaders,
@@ -1792,7 +1796,7 @@ export class ApiService {
 
   static async refreshAccountIdentityShadow(
     idToken?: string,
-    options?: { force?: boolean },
+    options?: { force?: boolean; requireSuccess?: boolean },
   ): Promise<Response> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1805,7 +1809,9 @@ export class ApiService {
     }
 
     const force = options?.force ?? true;
-    const path = force
+    const path = options?.requireSuccess === true
+      ? "/api/account/identity/refresh?require_success=true"
+      : force
       ? "/api/account/identity/refresh"
       : "/api/account/identity/refresh?force=false";
 
@@ -1884,6 +1890,7 @@ export class ApiService {
   static async claimAccountPhone(
     phoneIdToken: string,
     idToken?: string,
+    expectedUserId?: string,
   ): Promise<AccountPhoneClaimResponse> {
     const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
     if (!normalizedPhoneIdToken) {
@@ -1902,6 +1909,7 @@ export class ApiService {
       },
       body: JSON.stringify({
         phone_id_token: normalizedPhoneIdToken,
+        expected_user_id: expectedUserId,
       }),
     });
 
@@ -1965,9 +1973,19 @@ export class ApiService {
       };
     }
 
+    if (
+      payload.success !== true ||
+      typeof payload.eligible !== "boolean" ||
+      (payload.eligible && (
+        typeof payload.verification_id !== "string" ||
+        !AuthService.isUatPhoneTestVerificationId(payload.verification_id)
+      ))
+    ) {
+      return { success: false, eligible: false, reason: "uat_phone_test_start_invalid_response" };
+    }
     return {
-      success: payload.success === true,
-      eligible: payload.eligible === true,
+      success: true,
+      eligible: payload.eligible,
       verification_id:
         typeof payload.verification_id === "string"
           ? payload.verification_id
@@ -1981,6 +1999,7 @@ export class ApiService {
     verificationCode: string,
     verificationId: string,
     idToken?: string,
+    expectedUserId?: string,
   ): Promise<AccountPhoneClaimResponse> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1996,6 +2015,7 @@ export class ApiService {
         phone_number: phoneNumber,
         verification_code: verificationCode,
         verification_id: verificationId,
+        expected_user_id: expectedUserId,
       }),
     });
 

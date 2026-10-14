@@ -45,6 +45,11 @@
       "registeredRedirectUris": [
         "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
       ]
+    },
+    "production": {
+      "registeredRedirectUris": [
+        "https://one.hushh.ai/one/profile/connectors/oauth/return"
+      ]
     }
   }
 }

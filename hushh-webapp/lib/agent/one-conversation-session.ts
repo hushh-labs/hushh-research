@@ -61,7 +61,6 @@ type OneConversationSessionState = {
   events: OneConversationMirrorEvent[];
   pendingHandoff: AgentChatHandoff | null;
   pendingEntryWelcome: OneEntryWelcomeMarker | null;
-  pendingProfileResearch: OneEntryWelcomeMarker | null;
   appendMirrorEvent: (event: Omit<OneConversationMirrorEvent, "id" | "createdAtMs"> & {
     id?: string;
     createdAtMs?: number;
@@ -73,8 +72,6 @@ type OneConversationSessionState = {
   consumeHandoff: (id: string) => void;
   queueEntryWelcome: (userId: string) => void;
   consumeEntryWelcome: (userId: string) => void;
-  queueProfileResearch: (userId: string) => void;
-  consumeProfileResearch: (userId: string) => void;
   clearSession: () => void;
 };
 
@@ -95,7 +92,6 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
   events: [],
   pendingHandoff: null,
   pendingEntryWelcome: null,
-  pendingProfileResearch: null,
   appendMirrorEvent: (event) => {
     const text = event.text.trim();
     if (!text) return;
@@ -135,19 +131,12 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
     if (get().pendingEntryWelcome?.userId !== userId) return;
     set({ pendingEntryWelcome: null });
   },
-  queueProfileResearch: (userId) => {
-    if (userId.trim()) set({ pendingProfileResearch: { userId, kind: "post_setup" } });
-  },
-  consumeProfileResearch: (userId) => {
-    if (get().pendingProfileResearch?.userId === userId) set({ pendingProfileResearch: null });
-  },
   clearSession: () => {
     set({
       sessionId: createSessionId(),
       events: [],
       pendingHandoff: null,
       pendingEntryWelcome: null,
-      pendingProfileResearch: null,
-    });
+        });
   },
 }));

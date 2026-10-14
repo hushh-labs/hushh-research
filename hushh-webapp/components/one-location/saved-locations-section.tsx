@@ -316,6 +316,7 @@ export function SavedLocationsSection() {
       // from the last few seconds says the same thing and costs nothing.
       const point = await OneLocationService.captureCurrentPosition({
         fresh: true,
+        requireMeasurement: true,
       });
       if (
         captureRequestIdRef.current !== captureRequestId ||
@@ -629,6 +630,7 @@ export function SavedLocationsSection() {
     try {
       const point = await OneLocationService.captureCurrentPosition({
         fresh: true,
+        requireMeasurement: true,
       });
       return { latitude: point.latitude, longitude: point.longitude };
     } catch {

@@ -374,7 +374,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. Magic Intelligence and public business cards start only after personality onboarding finishes, in a separate follow-up turn. After every selected business detail is confirmed saved, a permanent owner-scoped flag suppresses the automatic business card across sessions and devices; partial or failed saves stay retryable. Business website edits accept bare domains as HTTPS and reject unsafe URLs before preparing details. The public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
+          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
           "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1001,7 +1001,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "hidden",
-        "exemption_reason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes.",
+        "exemption_reason": "Compatibility entry redirects signed-out visitors to sign-in and signed-in people to One; it renders no application shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -1009,7 +1009,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.getting.started",
-          "purpose": "Help the person understand and use the getting started screen through its generated controls.",
+          "purpose": "Complete the compatibility entry handoff according to the current session; no carousel or local action controls are rendered.",
           "screen": "getting_started",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -1024,8 +1024,8 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/getting-started",
+          "completion_boundary": "The signed-out login destination or signed-in One destination has settled.",
+          "next_route": null,
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -2327,7 +2327,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
           "next_route": "/one",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3041,6 +3041,7 @@
         "profile.gmail.connect",
         "profile.gmail.disconnect",
         "profile.gmail.sync_now",
+        "profile.gmail.visit_merchant",
         "route.one_gmail_kyc",
         "route.profile_receipts"
       ],
@@ -4707,7 +4708,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
-          "purpose": "Memory opens on Soul.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the Soul.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
+          "purpose": "Memory opens on memory.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the memory.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
           "screen": "pkm",
           "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
           "proactivity": "on_entry",
@@ -5051,7 +5052,8 @@
         "route.profile_referrals_panel",
         "route.profile_request_pricing",
         "route.profile_security_panel",
-        "route.profile_support_panel"
+        "route.profile_support_panel",
+        "route.profile_world_model"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -7332,6 +7334,80 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/world-model",
+      "page_file": "app/one/profile/world-model/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/personal-world-model-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.world_model",
+          "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Explicit Build starts public research; the owner checks exact statements and sources before saving. Invitation claiming verifies a contact and grants no sharing.",
+          "screen": "profile_world_model",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Research is a draft. Say saved only after all exact approved mutation receipts commit. Claim success means contact-bound invitation accepted, not research, ownership of a public biography, or sharing.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/world-model",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fworld-model",
+        "expectedMarker": "native-route-profile-world-model",
+        "expectedRoute": "/one/profile/world-model",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loading",
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/profile/world-model/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "profile.world_model.build",
+        "profile.world_model.claim",
+        "profile.world_model.invite",
+        "profile.world_model.review"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/puppy",
       "page_file": "app/one/puppy/page.tsx",
       "physical_page_exists": true,
@@ -8192,25 +8268,25 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.location",
-          "purpose": "Request device location permission, then explicitly finish or skip Location setup.",
+          "purpose": "Introduce Location features and Circle invitations, then finish or skip the two-screen introduction.",
           "screen": "one_setup_location",
-          "entry_cue": "Allow Location when you are ready, or say skip Location setup.",
+          "entry_cue": "Explore Location features and invite your Circle, or say skip Location setup.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.skip_location",
           "happy_path_action_ids": [
             "setup.skip_location",
-            "setup.finish_location"
+            "setup.finish_location_intro"
           ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
             "cancelled": "Keep Location setup open and preserve the active goal.",
-            "failed": "Explain that permission is still needed before finishing.",
+            "failed": "Keep the introduction open and offer to retry finishing.",
             "timeout": "Retain the goal and offer a safe retry.",
             "callback_error": "Use the verified current route and its generated actions only.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Location setup finishes only after device permission is granted and the hub route settles.",
+          "completion_boundary": "The Location introduction finishes when its completion marker is saved and the setup hub settles. Device location access is requested later from the Location workspace.",
           "next_route": "/one/setup",
           "return_policy": "return_to_hub",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -8241,6 +8317,7 @@
       "voice_action_contract_ids": [
         "location.onboarding.choose_place",
         "setup.finish_location",
+        "setup.finish_location_intro",
         "setup.skip_location"
       ],
       "api_dependencies": [],
@@ -8551,7 +8628,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.people.person_profile",
-          "purpose": "Help the signed-in viewer understand relationship, requestable information, grants, and request history without exposing private values.",
+          "purpose": "Review a person, request information, browse permitted document packets, and manage existing access.",
           "screen": "one_person_profile",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -8561,7 +8638,8 @@
             "people.profile.review_information_request",
             "people.profile.cancel_connection_request",
             "people.profile.remove_connection",
-            "people.profile.manage_consent"
+            "people.profile.manage_consent",
+            "people.profile.browse_packets"
           ],
           "required_inputs": [],
           "recoveries": {
@@ -8601,6 +8679,7 @@
       },
       "voice_action_contract_file": "app/people/[personRef]/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "people.profile.browse_packets",
         "people.profile.cancel_connection_request",
         "people.profile.connect",
         "people.profile.manage_consent",
@@ -10124,5 +10203,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "eae2f4dbd2d98c70f7f289631a455e742e041800c43767f304d5e2f3dc2ea155"
+  "content_sha256": "d476488ab31996e09345da2ec783d09922d22f9b442cc43750efc5ece171cb94"
 }

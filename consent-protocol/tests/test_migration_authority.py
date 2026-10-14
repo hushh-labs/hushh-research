@@ -5,20 +5,27 @@ import hashlib
 import json
 import re
 import time
+import uuid
 from dataclasses import replace
 from pathlib import Path
 
+import psycopg2
 import pytest
+from sqlalchemy import create_engine
 
 from db.migration_authority import (
     MigrationAuthorityError,
     MigrationMode,
+    _replay_sql,
     _stable_hash,
     apply_manifest_entries,
     build_manifest_entries,
     establish_baseline,
     load_preservation_evidence,
     manifest_checksum,
+)
+from tests.services.test_external_connector_lifecycle_postgres import (
+    connector_postgres_url,  # noqa: F401 -- shared isolated PostgreSQL fixture
 )
 
 
@@ -218,6 +225,11 @@ async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
     "version,filename,checksum",
     [
         (
+            289,
+            "289_one_referral_program_settings_v2.sql",
+            "52a25acc61327f6b7f3b69c905fae9425844c934ac7a1000e040d7f5b2737c65",
+        ),
+        (
             295,
             "295_direct_message_attachments.sql",
             "f76a5e6e71d1979dbcd71d2e3c5ad390c1aa9f018742946bee2dcea3831d4edc",
@@ -269,6 +281,7 @@ async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
 @pytest.mark.parametrize(
     "filename",
     [
+        "289_one_referral_program_settings_v2.sql",
         "295_direct_message_attachments.sql",
         "288_drive_request_feed_stream.sql",
         "298_stripe_mode_isolation.sql",
@@ -807,3 +820,61 @@ async def test_a_broken_probe_never_changes_the_migration_outcome(
 
     assert "20260721_ABC_new.sql" in applied, "the retry still succeeds"
     assert "blocker probe unavailable [TimeoutError]" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("drift", [None, "missing", "inactive", "reward", "points", "historical"])
+def test_referral_catalogue_replay_preserves_history_and_rejects_drift(request, drift):
+    """A v3 rollout must not strand the next deployment at immutable migration 289."""
+    root = Path(__file__).resolve().parents[1] / "db/migrations"
+    v2 = build_manifest_entries(root, ("289_one_referral_program_settings_v2.sql",))[0]
+    v3 = (root / "337_one_referral_usd_catalogue.sql").read_text(encoding="utf-8")
+    engine = create_engine(request.getfixturevalue("connector_postgres_url"))
+    schema = "referral_replay_" + uuid.uuid4().hex
+    connection = engine.raw_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute(f'CREATE SCHEMA "{schema}"')
+        cursor.execute(f'SET search_path TO "{schema}"')
+        cursor.execute("CREATE TABLE one_referral_policies (version INTEGER PRIMARY KEY)")
+        cursor.execute("INSERT INTO one_referral_policies VALUES (1)")
+        connection.commit()
+        cursor.execute(
+            (root / "270_one_referral_gamification_settings.sql").read_text(encoding="utf-8")
+        )
+        cursor.execute(v2.sql)
+        cursor.execute(v3)
+        cursor.execute("SELECT to_jsonb(s) FROM one_referral_program_settings s ORDER BY version")
+        original = cursor.fetchall()
+        connection.commit()
+        # Negative control: the published SQL fails after the v3 transition.
+        with pytest.raises(psycopg2.Error, match="not the active settings version"):
+            cursor.execute(v2.sql)
+        connection.rollback()
+        mutations = {
+            "missing": "DELETE FROM one_referral_program_settings WHERE version=3",
+            "inactive": "UPDATE one_referral_program_settings SET retired_at=NOW() WHERE version=3",
+            "reward": "UPDATE one_referral_program_settings SET milestones='[]'::jsonb WHERE version=3",
+            "points": "UPDATE one_referral_program_settings SET points='{}'::jsonb WHERE version=3",
+            "historical": "UPDATE one_referral_program_settings SET points='{}'::jsonb WHERE version IN (2,3)",
+        }
+        if drift:
+            cursor.execute(mutations[drift])
+            connection.commit()
+            with pytest.raises(psycopg2.Error, match="migration 289"):
+                cursor.execute(_replay_sql(v2))
+            connection.rollback()
+        else:
+            for _ in range(2):
+                cursor.execute(_replay_sql(v2))
+                cursor.execute(v3)
+            cursor.execute(
+                "SELECT to_jsonb(s) FROM one_referral_program_settings s ORDER BY version"
+            )
+            assert cursor.fetchall() == original
+    finally:
+        connection.rollback()
+        cursor.execute(f'DROP SCHEMA "{schema}" CASCADE')
+        connection.commit()
+        cursor.close()
+        connection.close()
+        engine.dispose()

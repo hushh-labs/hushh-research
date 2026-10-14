@@ -8,8 +8,21 @@ const STREAM_PROXY_HEADER = "X-Hussh-Stream-Via";
 const STREAM_PROXY_VALUE = "next-proxy";
 const FEED_PROTOCOL_VERSIONS = new Set(["1", "2"]);
 
-function failure(status: number, error: string, headers: Record<string, string> = {}): Response {
-  return Response.json({ error }, { status, headers: { ...PRIVATE_HEADERS, ...headers } });
+function failure(status: number, error: string, headers: Record<string, string> = {}, errorCode?: string): Response {
+  return Response.json(
+    { error, ...(errorCode ? { detail: { error_code: errorCode } } : {}) },
+    { status, headers: { ...PRIVATE_HEADERS, ...headers } },
+  );
+}
+
+/**
+ * Only the discriminator, never the upstream message or body: a disabled-flag
+ * code like CONSENT_SSE_DISABLED is safe and deliberate, not a private error.
+ */
+function upstreamErrorCode(body: unknown): string | undefined {
+  const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined;
+  const code = detail && typeof detail === "object" ? (detail as { error_code?: unknown }).error_code : undefined;
+  return typeof code === "string" ? code : undefined;
 }
 
 /** Only these two authenticated backend streams may be reached by this proxy. */
@@ -24,14 +37,21 @@ export async function proxyConsentStream(
       /[\s/\\%?#\u0000-\u001f\u007f-\u009f]/u.test(userId)) {
     return failure(400, "Invalid userId");
   }
-  // Only the Feed stream negotiates frames, and only to a known version; no
-  // other query parameter ever reaches the backend.
+  // Forward only known protocol negotiation and capability discovery flags.
   let query = "";
+  let capabilities = false;
   if (stream === "document-feed") {
     const version = new URL(request.url).searchParams.get("v");
     if (version !== null) {
       if (!FEED_PROTOCOL_VERSIONS.has(version)) return failure(400, "Invalid stream version");
       query = `?v=${version}`;
+    }
+  } else {
+    const discovery = new URL(request.url).searchParams.get("capabilities");
+    if (discovery !== null) {
+      if (discovery !== "1") return failure(400, "Invalid capability discovery");
+      capabilities = true;
+      query = "?capabilities=1";
     }
   }
   const authorization = request.headers.get("authorization");
@@ -56,14 +76,31 @@ export async function proxyConsentStream(
       },
     );
     if (!upstream.ok) {
-      await upstream.body?.cancel().catch(() => {});
+      // The discriminator decides whether the client ever retries (e.g.
+      // CONSENT_SSE_DISABLED on a 410 is permanent), so it must survive this
+      // hop even though the rest of the upstream body never does.
+      let errorCode: string | undefined;
+      try {
+        const text = await upstream.text();
+        errorCode = text ? upstreamErrorCode(JSON.parse(text)) : undefined;
+      } catch {
+        errorCode = undefined;
+      }
       // A busy backend says when to come back; pass on only a plain delay.
       const retryAfter = upstream.status === 503 ? upstream.headers.get("retry-after") : null;
       return failure(
         upstream.status >= 400 ? upstream.status : 502,
         "Could not connect to consent events stream",
         retryAfter && /^\d{1,4}$/.test(retryAfter) ? { "Retry-After": retryAfter } : {},
+        errorCode,
       );
+    }
+    if (capabilities) {
+      const payload: unknown = await upstream.json();
+      const enabled = payload && typeof payload === "object"
+        ? (payload as { enabled?: unknown }).enabled : undefined;
+      if (typeof enabled !== "boolean") return failure(502, "Could not check consent delivery");
+      return Response.json({ enabled }, { headers: PRIVATE_HEADERS });
     }
     if (!upstream.body) return failure(502, "No stream body from backend");
     if (upstream.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "text/event-stream") {

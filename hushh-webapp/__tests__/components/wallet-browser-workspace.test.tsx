@@ -62,6 +62,11 @@ const serviceMock = vi.hoisted(() => ({
   addCard: vi.fn(),
 }));
 
+// Keep the real dropdown and limit its catalog to the regions used by this suite.
+vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [
+  { value: "US", label: "United States" }, { value: "IN", label: "India" },
+] }));
+
 vi.mock("@/lib/services/wallet-service", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/wallet-service")>(
     "@/lib/services/wallet-service",
@@ -71,6 +76,8 @@ vi.mock("@/lib/services/wallet-service", async () => {
     WalletService: {
       ...actual.WalletService,
       isEnabled: () => true,
+      supportedCardNetworks: vi.fn().mockResolvedValue(["visa", "mastercard", "amex", "discover", "jcb", "diners", "unionpay", "maestro", "rupay", "elo", "mir", "other"]),
+      resolveCardNetwork: vi.fn().mockResolvedValue({ network: "visa", source: "prefix", candidates: [] }),
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
@@ -117,7 +124,7 @@ describe("Wallet video browser workspace", () => {
   it("opens the full owner number and keeps security codes and financial placeholders hidden", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
-    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByRole("button", { name: "Reveal saved details" })).toBeNull();
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Card number");
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Name on card");
@@ -144,6 +151,21 @@ describe("Wallet video browser workspace", () => {
     view.rerender(<WalletWorkspace />);
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
     await waitFor(() => expect(serviceMock.deleteCard).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_1", cardId: "card_0", vaultOwnerToken: "renewed_owner_token" })));
+  });
+  it("returns to the overview after removal and opens the remaining card with working number access", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
+    fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
+    serviceMock.listCardSummaries.mockResolvedValue(makeCards(2).slice(1));
+    fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
+    await waitFor(() => expect(screen.queryByTestId("wallet-selected-card")).toBeNull());
+    const remaining = await screen.findByRole("button", { name: "Open Card 1, ending 1001" });
+    await waitFor(() => expect(remaining).not.toBeDisabled());
+    serviceMock.getCard.mockClear();
+    fireEvent.click(remaining);
+    await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: "card_1" })));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
   });
   it.each(["owner", "lock"])("cancels a pending removal after a %s change", async (change) => {
     const view = await open();
@@ -258,7 +280,7 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(result);
     await screen.findByTestId("wallet-selected-card");
     expect(screen.getByTestId("wallet-card-face")).toHaveTextContent("Card 1");
-    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByTestId("one-wallet-reveal-1001")).toBeNull();
     expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));

@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
     markPendingConsentOpened: vi.fn(),
     navigation: { pathname: "/one/setup", search: "" },
     apiFetchStream: vi.fn(),
+    apiFetch: vi.fn(),
     vault: { unlocked: true, token: "vault-owner-token" },
   };
 });
@@ -78,6 +79,7 @@ vi.mock("@/lib/services/api-service", () => ({
     }),
     markPendingConsentOpened: mocks.markPendingConsentOpened,
     apiFetchStream: mocks.apiFetchStream,
+    apiFetch: mocks.apiFetch,
   },
 }));
 
@@ -159,10 +161,23 @@ describe("consent SSE stops retrying a permanent refusal", () => {
     // browser user, and the one that puts the SSE fallback in the path.
     mocks.initializeFCM.mockResolvedValue({ status: "push_not_requested" });
     mocks.prepareFCMListeners.mockResolvedValue(undefined);
+    mocks.apiFetch.mockResolvedValue({ ok: true, json: async () => ({ enabled: true }) });
     mocks.getPendingConsents?.mockResolvedValue?.({
       ok: true,
       json: vi.fn().mockResolvedValue({ pending: [] }),
     });
+  });
+
+  it("uses inbox delivery without requesting a known disabled stream", async () => {
+    mocks.apiFetch.mockResolvedValue({ ok: true, json: async () => ({ enabled: false }) });
+    render(<ConsentNotificationProvider><div>Setup</div></ConsentNotificationProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.apiFetch).toHaveBeenCalledWith(
+      "/api/consent/events/recipient-user?capabilities=1",
+      expect.objectContaining({ headers: { Authorization: "Bearer firebase-token" }, cache: "no-store" }),
+    );
+    expect(mocks.apiFetchStream).not.toHaveBeenCalled();
   });
 
   it("gives up after one 410 instead of reconnecting forever", async () => {
@@ -196,6 +211,34 @@ describe("consent SSE stops retrying a permanent refusal", () => {
     });
 
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("cannot open a stream after sign-out while availability is being checked", async () => {
+    let resolveDiscovery!: (value: unknown) => void;
+    mocks.apiFetch.mockImplementationOnce(() => new Promise(resolve => { resolveDiscovery = resolve; }));
+    const view = render(<ConsentNotificationProvider><div>Setup</div></ConsentNotificationProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    const signal = mocks.apiFetch.mock.calls[0]![1].signal as AbortSignal;
+    mocks.auth.user = null;
+    view.rerender(<ConsentNotificationProvider><div>Signed out</div></ConsentNotificationProvider>);
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      resolveDiscovery({ ok: true, json: async () => ({ enabled: true }) });
+    });
+    expect(mocks.apiFetchStream).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("refreshes authentication and bounds recovery of an expired 410 stream", async () => {
+    mocks.apiFetchStream.mockResolvedValue(streamResponse(410, JSON.stringify({ detail: { error_code: "STREAM_EXPIRED" } })));
+    const view = render(<ConsentNotificationProvider><div>Feed</div></ConsentNotificationProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
+    expect(mocks.user.getIdToken).toHaveBeenCalledWith(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
+    view.unmount();
   });
 
   it("aborts the live stream and stops reconnecting when sign-out withdraws the user", async () => {

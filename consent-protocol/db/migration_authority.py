@@ -371,7 +371,52 @@ END $$;"""
     return entry.sql[:start] + repair + entry.sql[end:]
 
 
+def _replay_referral_settings_sql(entry: MigrationManifestEntryV2) -> str:
+    # 337 retires v2 in favor of the approved v3 catalogue. Keep 289 and its
+    # ledger checksum immutable; accept only that exact successor during replay.
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "52a25acc61327f6b7f3b69c905fae9425844c934ac7a1000e040d7f5b2737c65"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Legacy referral settings replay source checksum changed")
+    guard = "IF v2_row.activated_at IS NULL OR v2_row.retired_at IS NOT NULL THEN"
+    successor_guard = """IF v2_row.activated_at IS NULL OR (
+      v2_row.retired_at IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM one_referral_program_settings successor
+        WHERE successor.version = 3
+          AND successor.activated_at IS NOT NULL AND successor.retired_at IS NULL
+          AND successor.milestones = '[
+            {"milestone_key":"voucher_10","threshold":10,"reward":"$25 Amazon voucher"},
+            {"milestone_key":"earbuds_100","threshold":100,"reward":"Wireless earbuds"},
+            {"milestone_key":"airpods_500","threshold":500,"reward":"Apple Watch"},
+            {"milestone_key":"iphone_10000","threshold":10000,"reward":"iPhone"}
+          ]'::JSONB
+          AND (to_jsonb(successor) - ARRAY[
+            'version','created_at','activated_at','retired_at','milestones']) =
+              (to_jsonb(v2_row) - ARRAY[
+            'version','created_at','activated_at','retired_at','milestones'])
+      )
+    ) THEN"""
+    return (
+        entry.sql.replace(
+            "DO $migration_289$",
+            "LOCK TABLE one_referral_program_settings IN SHARE ROW EXCLUSIVE MODE;\n"
+            "DO $migration_289$",
+            1,
+        )
+        .replace(guard, successor_guard, 1)
+        .replace(
+            "version 2 already active with matching configuration; idempotent no-op",
+            "version 2 configuration verified, active or succeeded by approved v3; idempotent no-op",
+            1,
+        )
+    )
+
+
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    if entry.migration_id == "289" and entry.filename == "289_one_referral_program_settings_v2.sql":
+        return _replay_referral_settings_sql(entry)
     if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
         return _replay_drive_feed_sql(entry)
     pinned = _BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS.get((entry.migration_id, entry.filename))

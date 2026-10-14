@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SoulMemoryDocument } from "@/components/profile/soul-memory-document";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
+import { Input } from "@/components/ui/input";
+import { readLabelledSoulFacts, setLabelledSoulFact, ageFromDateOfBirth } from "@/lib/pkm/soul-labelled-facts";
 import { Textarea } from "@/components/ui/textarea";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -79,6 +81,11 @@ export function SoulMemoryPanel({ userId, vaultKey, vaultOwnerToken, tokenExpire
 
   const save = async () => {
     if (!current || saveInFlight.current) return;
+    const birth = readLabelledSoulFacts(current.draft).get("date of birth")?.value;
+    if (birth && ageFromDateOfBirth(birth) === null) {
+      morphyToast.error("Date of birth must be a real past date.");
+      return;
+    }
     const epoch = snapshotVaultSessionEpoch();
     const assertCurrent = async () => {
       if (!verified || currentSession.current !== session || !isVaultSessionEpochCurrent(epoch) ||
@@ -93,35 +100,35 @@ export function SoulMemoryPanel({ userId, vaultKey, vaultOwnerToken, tokenExpire
       await assertCurrent();
       if (!result.success) {
         setConflict(Boolean(result.conflict));
-        morphyToast.error(result.message || "Soul.md could not be saved. Your draft is still here.");
+        morphyToast.error(result.message || "memory.md could not be saved. Your draft is still here.");
         return;
       }
       clearAgentPkmContext(userId, { preserveMarkdown: true });
       const document = { markdown: result.markdown ?? "", persisted: true };
       setState({ session, document, draft: document.markdown, editing: false });
-      morphyToast.success("Soul.md saved");
+      morphyToast.success("memory.md saved");
     } catch {
-      if (currentSession.current === session && isVaultSessionEpochCurrent(epoch)) morphyToast.error("Soul.md could not be saved. Your draft is still here.");
+      if (currentSession.current === session && isVaultSessionEpochCurrent(epoch)) morphyToast.error("memory.md could not be saved. Your draft is still here.");
     } finally {
       saveInFlight.current = false;
       if (currentSession.current === session) setSavingSession(null);
     }
   };
 
-  if (!verified) return <p role="status" className="py-4 text-sm text-muted-foreground">Reconnect your account to open Soul.md.</p>;
+  if (!verified) return <p role="status" className="py-4 text-sm text-muted-foreground">Reconnect your account to open memory.md.</p>;
   if (failed && !editing) return <div role="status" className="space-y-3 py-4">
-    <p className="text-sm text-muted-foreground">Soul.md couldn’t be opened.</p>
+    <p className="text-sm text-muted-foreground">memory.md couldn’t be opened.</p>
     <Button variant="muted" onClick={() => setRetry(value => value + 1)}>Try again</Button>
   </div>;
-  if (!current) return <p role="status" className="py-4 text-sm text-muted-foreground">Opening Soul.md…</p>;
+  if (!current) return <p role="status" className="py-4 text-sm text-muted-foreground">Opening memory.md…</p>;
   const sync = peekMarkdownMemory(userId)?.syncStatus;
-  return <section aria-label="Soul.md" className="min-w-0 space-y-[var(--app-form-section-gap)] pb-6">
+  return <section aria-label="memory.md" className="min-w-0 space-y-[var(--app-form-section-gap)] pb-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-sm text-muted-foreground">The memory One uses in every conversation.</p>
       {editing ? <div className="flex gap-2">
         <Button variant="muted" disabled={saving} onClick={cancelEdit}>Cancel</Button>
         <Button disabled={saving || current.draft === current.document.markdown || current.draft.length > MAX_MARKDOWN_MEMORY_CHARS} onClick={() => void save()}>{saving ? "Saving…" : "Save changes"}</Button>
-      </div> : <Button variant="muted" disabled={loading} onClick={() => setState({ ...current, editing: true })}>Edit Soul.md</Button>}
+      </div> : <Button variant="muted" disabled={loading} onClick={() => setState({ ...current, editing: true })}>Edit memory.md</Button>}
     </div>
     {sync === "saving" ? <p role="status" className="text-xs text-muted-foreground">Syncing your latest memories…</p> : null}
     {sync === "retryable" ? <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
@@ -134,7 +141,18 @@ export function SoulMemoryPanel({ userId, vaultKey, vaultOwnerToken, tokenExpire
       }).catch(() => undefined)}>Retry sync</Button>
     </div> : null}
     {editing ? <div className="space-y-[var(--app-form-field-gap)]">
-      <Textarea aria-label="Soul.md Markdown" value={current.draft} disabled={saving}
+      <fieldset className="space-y-[var(--app-form-field-gap)]" disabled={saving}>
+        <legend className="text-sm font-medium">Identity details</legend>
+        <p className="text-xs text-muted-foreground">Optional. Edit or clear a field to remove it. Your account name and photo already work for approved questions; no KYC is needed.</p>
+        {[{ label: "Legal name", key: "legal name", type: "text" }, { label: "Date of birth", key: "date of birth", type: "date" }, { label: "Sex", key: "sex", type: "text" }].map(field => <label key={field.key} className="block space-y-2 text-sm">
+          <span>{field.label}</span>
+          <Input aria-label={field.label} type={field.type} autoComplete="off"
+            value={readLabelledSoulFacts(current.draft).get(field.key)?.value ?? ""}
+            onChange={event => setState({ ...current, draft: setLabelledSoulFact(current.draft, field.label, event.target.value) })} />
+        </label>)}
+        <p className="text-xs text-muted-foreground">Age is calculated from your birth date. Sharing age does not share that date. Sex is used only when you provide it.</p>
+      </fieldset>
+      <Textarea aria-label="memory.md Markdown" value={current.draft} disabled={saving}
         autoComplete="off" autoCorrect="off" spellCheck={false} rows={18}
         className="soul-memory-editor min-h-80"
         onChange={event => setState({ ...current, draft: event.target.value })} />

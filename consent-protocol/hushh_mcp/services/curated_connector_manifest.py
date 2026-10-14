@@ -51,7 +51,8 @@ _RESERVED_PREFIXES = ("custom_", "google_")
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _TOKEN_AUTH_METHODS = ("client_secret_post", "none")
-_ENVIRONMENTS = ("uat",)
+_ENVIRONMENTS = ("uat", "production")
+_PRODUCTION_WEB_RETURN = "https://one.hushh.ai/one/profile/connectors/oauth/return"
 _MAX_TOOLS = 200
 _TOP_LEVEL_KEYS = frozenset(
     {
@@ -327,9 +328,13 @@ def parse_manifest(raw: Any) -> CuratedConnectorManifest:
             raise CuratedConnectorManifestError(f"Unsupported environment {name!r}.")
         _exact_keys(block, frozenset({"registeredRedirectUris"}), f"environments.{name}")
         uris = block.get("registeredRedirectUris")
-        if not isinstance(uris, list) or not uris or len(uris) > 8:
+        if not isinstance(uris, list) or not uris or len(uris) > 9:
             raise CuratedConnectorManifestError(
-                f"environments.{name}.registeredRedirectUris must list 1-8 HTTPS addresses."
+                f"environments.{name}.registeredRedirectUris must list 1-9 HTTPS addresses."
+            )
+        if name == "production" and uris != [_PRODUCTION_WEB_RETURN]:
+            raise CuratedConnectorManifestError(
+                "environments.production.registeredRedirectUris must contain only the canonical production web return."
             )
         redirect_uris[name] = tuple(
             _https(uri, f"environments.{name}.registeredRedirectUris entry") for uri in uris

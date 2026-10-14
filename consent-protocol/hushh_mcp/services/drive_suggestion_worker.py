@@ -8,8 +8,15 @@ from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
 
 
 class DriveSuggestionWorker:
-    def __init__(self, service=None):
+    def __init__(self, service=None, *, packages=None):
         self.service = service or DriveSuggestionService()
+        # Keep injected legacy test/services isolated. Production drains run
+        # the resumable request-content evaluator alongside selected-file work.
+        if packages is None and service is None:
+            from hushh_mcp.services.drive_request_package_service import DriveRequestPackageService
+
+            packages = DriveRequestPackageService()
+        self.packages = packages
 
     async def _jobs(self, max_jobs):
         attempted = 0
@@ -36,6 +43,29 @@ class DriveSuggestionWorker:
         ):
             raise ValueError("invalid worker bounds")
         counts = Counter()
+        if self.packages is not None:
+            # A separate finite task prevents either legacy or package traffic
+            # from starving the other; neither branch can extend this deadline.
+            async with asyncio.TaskGroup() as group:
+                package_run = group.create_task(
+                    self.packages.run(max_jobs=max_jobs, deadline_seconds=deadline_seconds)
+                )
+                legacy_run = group.create_task(
+                    DriveSuggestionWorker(self.service).run(
+                        max_jobs=max_jobs, deadline_seconds=deadline_seconds
+                    )
+                )
+            counts.update(legacy_run.result()["outcomes"])
+            for status, count in package_run.result().items():
+                target = {
+                    "queued": "package_queued",
+                    "ready": "review_ready",
+                    "no_match": "no_ready_files",
+                    "not_claimed": "not_claimed",
+                    "deadline": "deadline",
+                }.get(status, "unavailable")
+                counts[target] += count
+            return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}
         try:
             async with asyncio.timeout(deadline_seconds):
                 # Durable inspection timestamps rotate even excluded or

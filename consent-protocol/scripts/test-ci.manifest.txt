@@ -74,6 +74,10 @@ tests/services/test_drive_live_query.py
 tests/services/test_drive_owner_share.py
 tests/services/test_drive_owner_search_postgres.py
 tests/services/test_drive_request_search_unit.py
+tests/services/test_drive_request_review_policy.py
+tests/services/test_drive_request_package_store_postgres.py
+tests/services/test_drive_agent_package_flow_postgres.py
+tests/services/test_drive_request_package_service.py
 tests/services/test_drive_bounded_search_unit.py
 tests/services/test_drive_search_performance_proof.py
 tests/services/test_drive_request_bulk_postgres.py
@@ -109,6 +113,8 @@ tests/test_email_agent_a2a.py
 tests/test_adk_specialist_chat_services.py
 tests/test_one_external_read_boundary.py
 tests/test_one_external_read_projection.py
+# Receipt functions use the native client continuation, owner binding and ephemeral history projection.
+tests/test_receipt_client_tools.py
 # Queued messages join a live turn only at a step boundary, exactly once, owner-bound.
 tests/test_one_queued_input.py
 tests/test_private_agent_telemetry.py
@@ -668,8 +674,11 @@ tests/routes/test_direct_messages_route.py
 # Direct-message attachment history, replay and authorization on isolated PostgreSQL.
 tests/test_direct_message_feed_projection_postgres.py
 tests/services/test_wallet_card_access_service.py
+tests/services/test_wallet_card_network.py
+tests/test_wallet_card_validation.py
 tests/routes/test_wallet_card_access_route.py
 tests/test_wallet_card_access_postgres.py
+tests/test_wallet_universal_sharing_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
 # send-time rules, and the schedule/list/cancel tools against the sealed ledger.
@@ -720,6 +729,7 @@ tests/services/test_pkm_answer_requests_postgres.py
 tests/services/test_pkm_answer_races_postgres.py
 tests/test_one_career_routes.py
 tests/services/test_pkm_answer_recovery_postgres.py
+tests/services/test_pkm_answer_signed_settlement_postgres.py
 tests/test_pkm_answer_config.py
 tests/test_pkm_answer_routes.py
 tests/test_sse_routes.py
@@ -738,3 +748,43 @@ tests/test_stripe_connect_balances_postgres.py
 tests/test_connect_bank_payout_snapshot_postgres.py
 tests/test_bank_payout_event_replay_postgres.py
 tests/test_drive_request_terms_migrations_postgres.py
+
+tests/test_pkm_answer_catalog.py
+tests/test_answer_center_surface_integration.py
+
+tests/test_world_model.py
+
+tests/test_world_model_invitations.py
+
+tests/test_one_chat_service_only_release.py
+
+tests/services/test_drive_packet_intelligence.py
+
+tests/services/test_drive_document_pages_postgres.py
+
+tests/services/test_drive_pipeline_evaluation.py
+
+tests/services/test_drive_reusable_packets_postgres.py
+
+tests/services/test_drive_packet_catalog_postgres.py
+
+tests/services/test_drive_packet_provider_schema.py
+
+tests/services/test_drive_request_index_reuse.py
+
+tests/services/test_drive_request_index_reuse_postgres.py
+
+tests/services/test_drive_packet_payment_postgres.py
+tests/services/test_drive_request_package_disclosure.py
+
+tests/services/test_drive_package_access_preflight.py
+
+tests/services/test_drive_package_existing_access_postgres.py
+
+tests/services/test_drive_collection_semantic_status_postgres.py
+
+tests/test_wallet_default_qr_revocation_postgres.py
+tests/test_one_wallet_card_service.py
+tests/test_one_wallet_card_routes.py
+tests/services/test_one_referral_service_summary.py
+tests/test_one_referral_dashboard_routes.py

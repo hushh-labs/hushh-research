@@ -13,12 +13,16 @@ method, authorises a charge, or implies a partnership with the network.
 
 `components/wallet/card-network-mark.tsx` renders in two tiers. When a network's
 official artwork is recorded in `CARD_MARK_ASSETS`, that artwork renders
-unmodified in a transparent cell. Until then the brand uses a generic card icon
-with its network name. The icon is not network artwork.
+unmodified in a transparent cell. Until then a known brand uses a readable network name in the fallback cell;
+only an unknown network uses the generic card icon. The icon is not network artwork.
 
-Nothing about the detection changes between the tiers: `detectBrand` in
-`hushh-webapp/lib/wallet/card-validation.ts` already classifies every card from
-its BIN, and the mark simply reflects what it found.
+The mark is presentation only. Owner-authorized `/api/one/wallet/card-access/networks/resolve`
+uses the existing backend Wallet validation module to classify a transient
+six-digit issuer prefix and card length. The frontend does not infer a network
+from the number. Unknown or overlapping ranges return a neutral Card result;
+the owner can still explicitly choose a supported network. A prefix match is
+not verification of issuance or ownership. Existing saved identifiers are
+normalized for display without rewriting encrypted records.
 
 ## Inventory
 

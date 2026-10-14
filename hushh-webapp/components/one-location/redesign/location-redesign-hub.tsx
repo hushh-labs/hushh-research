@@ -139,14 +139,10 @@ import { RequestCard, SharedWithMeCard, type GrantViewStatus } from "./cards";
 export type { GrantViewStatus } from "./cards";
 import {
   PersonShareLanes,
+  ActiveShareComparison,
   ShareLanesDisclosure,
   useExpandedShareLanes,
 } from "./share-lanes";
-import {
-  ACTIVE_SHARE_ACTIONS_CLASSNAME,
-  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
-  ACTIVE_SHARE_STOP_CLASSNAME,
-} from "./active-share-row-layout";
 import {
   ShareReplacementConfirmDialog,
   ShareReplacementNotice,
@@ -185,6 +181,7 @@ import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
+import { SavedPlacesBanner, type SavedPlacesBannerProps } from "@/components/one-location/saved-places-banner";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
@@ -371,6 +368,7 @@ function resolveLocationHubTab(value: string | null): LocationHubTab {
 }
 
 export type LocationHubViewModel = {
+  savedPlacesBanner?: SavedPlacesBannerProps & { visible: boolean };
   /* identity / gating */
   userId: string | null;
   canShare: boolean;
@@ -460,6 +458,8 @@ export type LocationHubViewModel = {
   onLoadMoreRecipients: () => void | Promise<void>;
   visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
+  /** Expiry-reconciled snapshot shared with the Now banner. */
+  manageSharingGrants?: OneLocationGrant[];
   /**
    * Your running shares, restored from the device before the server answers.
    * The Location screen has to keep showing the hour you chose after you leave
@@ -716,7 +716,7 @@ export type LocationHubViewModel = {
   sosStartedAtLabel: string | null;
   sosEmergency: EmergencyInfo | null;
   sosEmergencyStatus: EmergencyNumberLookupStatus;
-  onResolveSosLocation: () => void;
+  onResolveSosLocation: (options?: { allowPermissionPrompt?: boolean }) => void;
   // Promise-returning on purpose: SosPanel awaits it to tell a real send from
   // an early bail-out, so narrowing it back to `void` here would strip the
   // signal the panel needs to release its fired latch.
@@ -842,16 +842,22 @@ const SOS_FLOW_SOURCE = "sos";
  * document navigation. Writing the URL in the same turn as the local state
  * removes that stale-navigation window while preserving push/replace history
  * semantics and the memory-only vault session.
+ *
+ * The state argument must be `null`. Next's patched History API only syncs
+ * `useSearchParams` for calls that do NOT carry its own `__NA` marker, and
+ * `window.history.state` does. Passing it through left the shell's top bar on
+ * the stale URL, so Back from Share/Ask resolved as the Location hub and
+ * jumped to the One dashboard.
  */
-function commitLocationFlowHistory(
+export function commitLocationFlowHistory(
   href: string,
   navigation: "push" | "replace",
 ): boolean {
   if (typeof window === "undefined") return false;
   if (navigation === "replace") {
-    window.history.replaceState(window.history.state, "", href);
+    window.history.replaceState(null, "", href);
   } else {
-    window.history.pushState(window.history.state, "", href);
+    window.history.pushState(null, "", href);
   }
   return true;
 }
@@ -1880,6 +1886,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
       />
 
+      {tab === "now" && vm.savedPlacesBanner?.visible ? (
+        <SavedPlacesBanner {...vm.savedPlacesBanner} />
+      ) : null}
+
       {/*
         Directly under the header, above the tabs, because a blocked permission
         is not a detail of one tab — it is the reason every Location feature
@@ -2028,7 +2038,18 @@ function LiveShareDurationDialog({
           event.preventDefault();
           const trigger = triggerRef.current;
           triggerRef.current = null;
-          if (trigger?.isConnected) trigger.focus();
+          if (trigger?.isConnected) {
+            trigger.focus();
+          } else if (trigger?.dataset.shareDurationGrantId) {
+            // Rotation can replace the mobile categories with the desktop
+            // comparison while this dialog is open. Return to the same grant's
+            // newly mounted control rather than its disconnected old trigger.
+            const grantId = trigger.dataset.shareDurationGrantId;
+            const replacement = Array.from(document.querySelectorAll<HTMLButtonElement>(
+              "[data-share-duration-grant-id]",
+            )).find((control) => control.dataset.shareDurationGrantId === grantId && !control.disabled);
+            replacement?.focus();
+          }
         }}
         onEscapeKeyDown={(event) => {
           if (vm.liveShareDurationSaving) event.preventDefault();
@@ -2637,8 +2658,8 @@ function LocationDetailFlow({
   // list rendered the same person twice, each row offering a Stop that left the
   // other share running.
   const ownerGrantGroups = useMemo(
-    () => groupGrantsByCounterpart(vm.activeOwnerGrants, "owner"),
-    [vm.activeOwnerGrants],
+    () => groupGrantsByCounterpart(vm.manageSharingGrants ?? vm.activeOwnerGrants, "owner"),
+    [vm.activeOwnerGrants, vm.manageSharingGrants],
   );
   const receivedGrantGroups = useMemo(
     () => groupGrantsByCounterpart(vm.receivedGrants, "recipient"),
@@ -2808,71 +2829,16 @@ function LocationDetailFlow({
       />
       {kind === "active-shares" ? (
         ownerGrantGroups.length ? (
-          <SettingsGroup separatorInset>
-            {ownerGrantGroups.map((group) => {
-              const name = vm.grantRecipientLabel(group.primaryGrant);
-              const single =
-                group.grants.length === 1 ? group.primaryGrant : null;
-              return (
-                <SettingsRow
-                  key={group.counterpartUserId}
-                  leading={
-                    <ActiveShareAvatar
-                      name={name}
-                      photoUrl={group.primaryGrant.recipientPhotoUrl}
-                    />
-                  }
-                  title={name}
-                  description={
-                    single ? (
-                      <ActiveShareMetadata grant={single} />
-                    ) : (
-                      <>
-                        <span>{`${group.grants.length} active shares`}</span>
-                        <div className="pt-1.5">
-                          <PersonShareLanes
-                            group={group}
-                            counterpartName={name}
-                            onStopGrant={vm.onStopGrant}
-                            onChangeEndTime={onEditLiveShareDurationStart}
-                            revokingGrantId={vm.revokingGrantId}
-                          />
-                        </div>
-                      </>
-                    )
-                  }
-                  trailing={
-                    single ? (
-                      <div className={ACTIVE_SHARE_ACTIONS_CLASSNAME}>
-                        {!isSmsTriggeredGrant(single) ? (
-                          <button
-                            type="button"
-                            className={ACTIVE_SHARE_CHANGE_TIME_CLASSNAME}
-                            onClick={(event) =>
-                              onEditLiveShareDurationStart(
-                                single.id,
-                                event.currentTarget,
-                              )
-                            }
-                          >
-                            {single.durationMode === "until_stopped"
-                              ? "Set end time"
-                              : "Change time"}
-                          </button>
-                        ) : null}
-                        <StopGrantTextButton
-                          grantId={single.id}
-                          revokingGrantId={vm.revokingGrantId}
-                          onStopGrant={vm.onStopGrant}
-                        />
-                      </div>
-                    ) : null
-                  }
-                  stackTrailingOnMobile={Boolean(single)}
-                />
-              );
-            })}
-          </SettingsGroup>
+          <ActiveShareComparison
+            groups={ownerGrantGroups}
+            recipientName={vm.grantRecipientLabel}
+            renderAvatar={(group, name) => (
+              <ActiveShareAvatar name={name} photoUrl={group.primaryGrant.recipientPhotoUrl} />
+            )}
+            onStopGrant={vm.onStopGrant}
+            revokingGrantId={vm.revokingGrantId}
+            onChangeEndTime={onEditLiveShareDurationStart}
+          />
         ) : (
           <EmptyState
             title="No active shares"
@@ -3615,28 +3581,6 @@ function ActiveShareMetadata({
         <ShareCountdownText expiresAt={grant.expiresAt} className="truncate" />
       )}
     </span>
-  );
-}
-
-function StopGrantTextButton({
-  grantId,
-  revokingGrantId,
-  onStopGrant,
-}: {
-  grantId: string;
-  revokingGrantId: string | null;
-  onStopGrant: (grantId: string) => void;
-}) {
-  const stopping = revokingGrantId === grantId;
-  return (
-    <button
-      type="button"
-      className={ACTIVE_SHARE_STOP_CLASSNAME}
-      onClick={() => onStopGrant(grantId)}
-      disabled={stopping}
-    >
-      {stopping ? "Stopping…" : "Stop"}
-    </button>
   );
 }
 
@@ -4966,7 +4910,7 @@ function SosFlow({
   const onRefreshSmsContacts = vm.onRefreshSmsContacts;
   const [lookupStartedForMount, setLookupStartedForMount] = useState(false);
   useEffect(() => {
-    onResolveSosLocation();
+    onResolveSosLocation({ allowPermissionPrompt: false });
     void onRefreshSmsContacts();
     setLookupStartedForMount(true);
   }, [onRefreshSmsContacts, onResolveSosLocation]);

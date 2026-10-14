@@ -33,7 +33,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from db.db_client import get_db
 from hushh_mcp.services.direct_messages_service import (
@@ -62,8 +62,8 @@ POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807
 _FEED_SELECT_COLUMNS = (
     "id,source_domain,event_type,actor_label,metadata,source_row_id,read_at,created_at"
 )
-# Keep immutable events for audit/read watermarks. Group their presentation
-# before pagination, so an older page cannot repeat an already-listed chat.
+# Keep source event facts intact while read/dismissal are owner preferences.
+# Group presentation before pagination, so an older page cannot repeat a chat.
 _GROUPED_FEED_CTE = """
 WITH keyed AS (
   SELECT f.*,
@@ -82,12 +82,21 @@ WITH keyed AS (
     (c.participant_a_user_id = m.sender_user_id AND c.participant_b_user_id = :user_id)
     OR (c.participant_b_user_id = m.sender_user_id AND c.participant_a_user_id = :user_id))
   WHERE f.user_id = :user_id
-), ranked AS (
-  SELECT keyed.*, row_number() OVER (PARTITION BY thread_key ORDER BY id DESC) AS thread_rank,
-    count(*) OVER (PARTITION BY thread_key) AS thread_message_count,
-    count(*) FILTER (WHERE read_at IS NULL) OVER (PARTITION BY thread_key) AS thread_unread_count
+), bounded AS (
+  SELECT keyed.*,
+    max(id) FILTER (WHERE dismissed_at IS NOT NULL)
+      OVER (PARTITION BY thread_key) AS last_dismissed_id
   FROM keyed
-), grouped AS (SELECT * FROM ranked WHERE thread_rank = 1)
+), ranked AS (
+  SELECT bounded.*, row_number() OVER (PARTITION BY thread_key ORDER BY id DESC) AS thread_rank,
+    count(*) FILTER (WHERE dismissed_at IS NULL AND
+      (last_dismissed_id IS NULL OR id > last_dismissed_id))
+      OVER (PARTITION BY thread_key) AS thread_message_count,
+    count(*) FILTER (WHERE read_at IS NULL AND dismissed_at IS NULL AND
+      (last_dismissed_id IS NULL OR id > last_dismissed_id))
+      OVER (PARTITION BY thread_key) AS thread_unread_count
+  FROM bounded
+), grouped AS (SELECT * FROM ranked WHERE thread_rank = 1 AND dismissed_at IS NULL)
 """
 # These query fragments are fixed module constants. Recipient, cursor and page
 # size are supplied exclusively through execute_raw's bind-parameter mapping.
@@ -804,7 +813,24 @@ class FeedService:
         cte = (
             _WALLET_GROUPED_FEED_CTE if self._wallet_card_access_installed() else _GROUPED_FEED_CTE
         )
+        if cte == _WALLET_GROUPED_FEED_CTE and self._universal_wallet_installed():
+            cte = cte.replace("wallet_card_access_grants", "wallet_all_access_grants")
         return cte + (_GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT)
+
+    def _universal_wallet_installed(self):
+        try:
+            rows = (
+                self._get_db()
+                .execute_raw(
+                    "SELECT to_regclass('public.wallet_all_access_grants') IS NOT NULL AS available",
+                    {},
+                )
+                .data
+                or []
+            )
+            return bool(rows and rows[0].get("available") is True)
+        except Exception:
+            return False
 
     def _with_wallet_card_grants(self, user_id, rows):
         ids = [
@@ -815,18 +841,26 @@ class FeedService:
         ]
         if not ids or not self._wallet_card_access_installed():
             return rows
+        grants_table = (
+            "wallet_all_access_grants"
+            if self._universal_wallet_installed()
+            else "wallet_card_access_grants"
+        )
         try:
             links = (
                 self._get_db()
                 .execute_raw(
-                    """SELECT g.message_id::text AS source_row_id,g.id::text AS grant_id
- FROM wallet_card_access_grants g JOIN messages m ON m.id=g.message_id
- JOIN conversations c ON c.id=m.conversation_id
- WHERE g.recipient_user_id=:viewer AND g.owner_user_id=m.sender_user_id
- AND m.deleted_for_everyone_at IS NULL AND m.deleted_for_recipient_at IS NULL
- AND m.id=ANY(CAST(:ids AS uuid[]))
- AND ((c.participant_a_user_id=g.owner_user_id AND c.participant_b_user_id=:viewer)
- OR (c.participant_b_user_id=g.owner_user_id AND c.participant_a_user_id=:viewer))""",
+                    # Only fixed sharing-source identifiers/fragments; request values are bound.
+                    (
+                        f"SELECT g.message_id::text AS source_row_id,g.id::text AS grant_id\n"  # nosec B608
+                        f" FROM {grants_table} g JOIN messages m ON m.id=g.message_id\n"
+                        f" JOIN conversations c ON c.id=m.conversation_id\n"
+                        f" WHERE g.recipient_user_id=:viewer AND g.owner_user_id=m.sender_user_id\n"
+                        f" AND m.deleted_for_everyone_at IS NULL AND m.deleted_for_recipient_at IS NULL\n"
+                        f" AND m.id=ANY(CAST(:ids AS uuid[]))\n"
+                        f" AND ((c.participant_a_user_id=g.owner_user_id AND c.participant_b_user_id=:viewer)\n"
+                        f" OR (c.participant_b_user_id=g.owner_user_id AND c.participant_a_user_id=:viewer))"
+                    ),
                     {"viewer": user_id, "ids": ids},
                 )
                 .data
@@ -1154,6 +1188,118 @@ class FeedService:
         )
         query = query.lte("id", up_to_id)
         query.execute()
+        return {"status": "ok"}
+
+    def dismiss(self, user_id: str, *, item_id: int) -> dict[str, str | None]:
+        """Hide the owner's displayed row and older members of its visual group."""
+        token = str(uuid4())
+        rows = (
+            self._get_db()
+            .execute_raw(
+                """
+            WITH target AS (
+              SELECT source_domain, event_type,
+                     NULLIF(metadata->>'bundle_id', '') AS bundle_id,
+                     NULLIF(metadata->>'request_id', '') AS request_id
+                FROM feed_events
+               WHERE user_id = :user_id AND id = :item_id
+                 AND dismissed_at IS NULL
+            )
+            UPDATE feed_events AS item
+               SET dismissed_at = now(),
+                   dismissal_token = :dismissal_token,
+                   read_at = COALESCE(item.read_at, now())
+              FROM target
+             WHERE item.user_id = :user_id
+               AND item.dismissed_at IS NULL
+               AND (item.id = :item_id OR (
+                 target.source_domain = 'consent'
+                 AND target.event_type IN ('consent_requested', 'consent_granted', 'consent_revoked')
+                 AND target.bundle_id IS NOT NULL
+                 AND item.source_domain = 'consent'
+                 AND item.event_type = target.event_type
+                 AND item.metadata->>'bundle_id' = target.bundle_id
+                 AND item.id <= :item_id
+               ) OR (
+                 target.source_domain = 'connected_systems'
+                 AND target.event_type = 'document_share_outcome'
+                 AND target.request_id IS NOT NULL
+                 AND item.source_domain = 'connected_systems'
+                 AND item.event_type = 'document_share_outcome'
+                 AND item.metadata->>'request_id' = target.request_id
+                 AND item.id <= :item_id
+               ))
+            RETURNING id, dismissal_token
+            """,
+                {"user_id": user_id, "item_id": item_id, "dismissal_token": token},
+            )
+            .data
+            or []
+        )
+        return {
+            "status": "ok",
+            "dismissal_token": token if any(row.get("id") == item_id for row in rows) else None,
+        }
+
+    def restore(self, user_id: str, *, item_id: int, dismissal_token: str) -> dict[str, Any]:
+        """Undo only the exact dismissal; a later Clear supersedes its token."""
+        rows = (
+            self._get_db()
+            .execute_raw(
+                """
+            WITH target AS (
+              SELECT source_domain, event_type,
+                     NULLIF(metadata->>'bundle_id', '') AS bundle_id,
+                     NULLIF(metadata->>'request_id', '') AS request_id
+                FROM feed_events
+               WHERE user_id = :user_id AND id = :item_id
+                 AND dismissal_token = :dismissal_token
+                 AND dismissed_at IS NOT NULL
+            )
+            UPDATE feed_events AS item
+               SET dismissed_at = NULL, dismissal_token = NULL
+              FROM target
+             WHERE item.user_id = :user_id
+               AND item.dismissal_token = :dismissal_token
+               AND item.dismissed_at IS NOT NULL
+               AND (item.id = :item_id OR (
+                 target.source_domain = 'consent'
+                 AND target.event_type IN ('consent_requested', 'consent_granted', 'consent_revoked')
+                 AND target.bundle_id IS NOT NULL
+                 AND item.source_domain = 'consent'
+                 AND item.event_type = target.event_type
+                 AND item.metadata->>'bundle_id' = target.bundle_id
+                 AND item.id <= :item_id
+               ) OR (
+                 target.source_domain = 'connected_systems'
+                 AND target.event_type = 'document_share_outcome'
+                 AND target.request_id IS NOT NULL
+                 AND item.source_domain = 'connected_systems'
+                 AND item.event_type = 'document_share_outcome'
+                 AND item.metadata->>'request_id' = target.request_id
+                 AND item.id <= :item_id
+               ))
+            RETURNING id
+            """,
+                {"user_id": user_id, "item_id": item_id, "dismissal_token": dismissal_token},
+            )
+            .data
+            or []
+        )
+        return {"status": "ok", "restored": any(row.get("id") == item_id for row in rows)}
+
+    def clear(self, user_id: str, *, up_to_id: int) -> dict[str, str]:
+        """Dismiss only the owner's current snapshot, leaving later events live."""
+        self._get_db().execute_raw(
+            """
+            UPDATE feed_events
+               SET dismissed_at = now(),
+                   dismissal_token = :dismissal_token,
+                   read_at = COALESCE(read_at, now())
+             WHERE user_id = :user_id AND id <= :up_to_id
+            """,
+            {"user_id": user_id, "up_to_id": up_to_id, "dismissal_token": str(uuid4())},
+        )
         return {"status": "ok"}
 
     @staticmethod

@@ -11,11 +11,15 @@ import { maskSecretSpans, omitCredentialsFromMemory } from "@/lib/pkm/secret-spa
 import { emptySoulDocument, insertSoulFacts, isSoulFact, normalizeSoulDocument, soulFactText, type SoulFact, type SoulSection } from "@/lib/pkm/soul-document";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
+import { SecureDurableResourceService } from "@/lib/services/secure-durable-resource-service";
+import { assertLightweightReceiptFacts, assertReceiptMemoryBudget } from "@/lib/mail/receipt-lightweight-memory";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
+
+import { readLabelledSoulFacts } from "@/lib/pkm/soul-labelled-facts";
 
 export const MARKDOWN_MEMORY_DOMAIN = "one_memory";
 export const MARKDOWN_MEMORY_SCHEMA = "one.memory.md.v1";
@@ -33,10 +37,25 @@ type CachedMarkdownMemory = {
   kycIntakeCompletedAt?: string | null;
   /** Ownership of generated bullets, kept outside the document and prompts. */
   sourceSummaries?: SourceSummaries;
+  /** Owner deletions must not resurrect an older structured identity value. */
+  deletedFactLabels?: string[];
 };
 
 type SourceSummaries = Record<string, { observedAt: string; facts: string[] }>;
+type ReceiptSnapshotFence = { resourceKey: string; revision: number };
+class ReceiptWriteInvalidatedError extends Error {}
+type MemoryCheckpoint = { version: number; userId: string; facts: SoulFact[]; confirmation: PkmWriteAuthorization; completeKycIntake?: boolean; replaceSource?: ReplaceSource; stagingOrder?: number; receiptGeneration?: number; receiptSnapshotFence?: ReceiptSnapshotFence };
 type ReplaceSource = { key: string; observedAt: string };
+function isReceiptSnapshotFence(value: unknown): value is ReceiptSnapshotFence {
+  const v = record(value);
+  return Object.keys(v).length === 2 && typeof v.resourceKey === "string" && /^mail_receipts\.v1:[a-f0-9]{64}$/.test(v.resourceKey) && Number.isSafeInteger(v.revision) && Number(v.revision) > 0;
+}
+async function assertReceiptWriteFence(params: { userId: string; receiptGeneration?: number; receiptSnapshotFence?: ReceiptSnapshotFence }) {
+  if (params.receiptGeneration === undefined) return;
+  const current = await SecureDurableResourceService.version(params.userId, params.receiptSnapshotFence?.resourceKey ?? "mail_receipt_memory.v1");
+  if (current.generation !== params.receiptGeneration || (params.receiptSnapshotFence && current.revision !== params.receiptSnapshotFence.revision))
+    throw new ReceiptWriteInvalidatedError("Receipt memory was reset or its saved snapshot changed");
+}
 
 function isReplaceSource(value: unknown): value is ReplaceSource {
   const entry = record(value);
@@ -144,10 +163,10 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries } | null {
+function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[] } | null {
   const root = record(data);
   if (typeof root.markdown !== "string") {
-    if (Object.keys(root).length) throw new Error("Soul.md document is invalid.");
+    if (Object.keys(root).length) throw new Error("memory.md document is invalid.");
     return null;
   }
   const markdown = normalizeSoulDocument(omitCredentialsFromMemory(root.markdown));
@@ -156,6 +175,7 @@ function readStoredDocument(data: unknown): { markdown: string; updatedAt: strin
     updatedAt: typeof root.updated_at === "string" ? root.updated_at : null,
     kycIntakeCompletedAt: typeof root._kyc_intake_completed_at === "string" ? root._kyc_intake_completed_at : null,
     sourceSummaries: readSourceSummaries(root._source_summaries),
+    deletedFactLabels: Array.isArray(root._deleted_fact_labels) ? root._deleted_fact_labels.filter((label): label is string => typeof label === "string") : [],
   };
 }
 
@@ -273,9 +293,12 @@ function cacheDocument(params: {
   syncStatus?: CachedMarkdownMemory["syncStatus"];
   kycIntakeCompletedAt?: string | null;
   sourceSummaries?: SourceSummaries;
+  /** Owner deletions must not resurrect an older structured identity value. */
+  deletedFactLabels?: string[];
 }): CachedMarkdownMemory {
   const entry = {
     ...params,
+    deletedFactLabels: params.deletedFactLabels ?? cache.get(params.userId)?.deletedFactLabels ?? [],
     vaultEpoch: snapshotVaultSessionEpoch(),
   };
   cache.set(params.userId, entry);
@@ -329,7 +352,7 @@ async function readMarkdownMemory(params: {
     !isMarkdownMemoryGenerationCurrent(generation)
   ) return null;
   const stored = snapshot ? readStoredDocument(snapshot.data) : null;
-  if (snapshot && !stored) throw new Error("Soul.md document is invalid.");
+  if (snapshot && !stored) throw new Error("memory.md document is invalid.");
   // A local fact may have arrived while this cold/remote read was in flight.
   const pendingJobs = syncQueues.get(params.userId)?.jobs ?? [];
   const current = peekMarkdownMemory(params.userId);
@@ -339,6 +362,7 @@ async function readMarkdownMemory(params: {
     userId: params.userId,
     markdown: pending.markdown,
     sourceSummaries: pending.sourceSummaries,
+    deletedFactLabels: stored?.deletedFactLabels ?? [],
     updatedAt: stored?.updatedAt ?? null,
     dataVersion: snapshot?.key?.contentRevision ?? undefined,
     persisted: Boolean(stored),
@@ -400,6 +424,14 @@ export function markdownFactsFromCards(cards: readonly AgentPkmPreviewCard[], ca
     });
 }
 
+/** Explicit deletions suppress older structured facts until the owner supplies them again. */
+function deletedLabelsAfter(before: string, after: string, previous: readonly string[] = []): string[] {
+  const beforeFacts = readLabelledSoulFacts(before);
+  const afterFacts = readLabelledSoulFacts(after);
+  return [...new Set([...previous, ...[...beforeFacts.keys()].filter(key => !afterFacts.has(key))])]
+    .filter(key => !afterFacts.has(key));
+}
+
 export async function appendMarkdownMemoryFacts(params: {
   userId: string;
   vaultKey: string;
@@ -412,9 +444,12 @@ export async function appendMarkdownMemoryFacts(params: {
   completeKycIntake?: boolean;
   /** Update one generated receipt summary, never accumulate old scan versions. */
   replaceSource?: ReplaceSource;
+  receiptGeneration?: number;
+  receiptSnapshotFence?: ReceiptSnapshotFence;
 }): Promise<MarkdownMemoryAppendResult> {
+  if (params.replaceSource) assertLightweightReceiptFacts(params.facts);
   const facts = params.facts.map(fact => typeof fact === "string" ? normalizeFact(fact) : { ...fact, text: normalizeFact(fact) }).filter(fact => Boolean(soulFactText(fact)) || (typeof fact !== "string" && fact.mutation?.kind === "delete"));
-  if (facts.length === 0 && !params.completeKycIntake) {
+  if (facts.length === 0 && !params.completeKycIntake && !params.replaceSource) {
     return { success: true, saved: 0, markdown: peekMarkdownMemory(params.userId)?.markdown ?? null };
   }
   const seed = peekMarkdownMemory(params.userId)?.markdown ?? emptySoulDocument();
@@ -428,19 +463,22 @@ export async function appendMarkdownMemoryFacts(params: {
   let saved = 0;
   let kycIntakeCompletedAt: string | null = null;
   let sourceSummaries: SourceSummaries = {};
+  let deletedFactLabels = peekMarkdownMemory(params.userId)?.deletedFactLabels ?? [];
   const result = await PkmWriteCoordinator.savePreparedDomain({
     userId: params.userId,
     domain: MARKDOWN_MEMORY_DOMAIN,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
     confirmation: params.confirmation,
-    beforeEffect: params.beforeEffect,
+    beforeEffect: async () => { await params.beforeEffect?.(); await assertReceiptWriteFence(params); },
     idempotencyScope: params.idempotencyScope,
     mayPublish,
     build: (context) => {
       const stored = readStoredDocument(context.currentDomainData);
       const appended = applyMemoryFacts(stored?.markdown ?? seed, stored?.sourceSummaries ?? seedSourceSummaries, facts, params.replaceSource);
+      if (params.replaceSource) assertReceiptMemoryBudget(appended.sourceSummaries);
       sourceSummaries = appended.sourceSummaries;
+      deletedFactLabels = deletedLabelsAfter(stored?.markdown ?? seed, appended.markdown, stored?.deletedFactLabels ?? deletedFactLabels);
       writtenMarkdown = appended.markdown;
       saved = appended.saved;
       const updatedAt = new Date().toISOString();
@@ -450,6 +488,7 @@ export async function appendMarkdownMemoryFacts(params: {
           ...record(context.currentDomainData),
           schema_version: MARKDOWN_MEMORY_SCHEMA,
           markdown: appended.markdown,
+          _deleted_fact_labels: deletedFactLabels,
           updated_at: updatedAt,
           ...(kycIntakeCompletedAt ? { _kyc_intake_completed_at: kycIntakeCompletedAt } : {}),
           ...(Object.keys(sourceSummaries).length ? { _source_summaries: sourceSummaries } : {}),
@@ -473,6 +512,7 @@ export async function appendMarkdownMemoryFacts(params: {
       userId: params.userId,
       markdown: pending.markdown,
       sourceSummaries: pending.sourceSummaries,
+      deletedFactLabels: deletedLabelsAfter(writtenMarkdown, pending.markdown, deletedFactLabels),
       updatedAt: result.updatedAt ?? new Date().toISOString(),
       dataVersion: result.dataVersion,
       persisted: true,
@@ -507,6 +547,7 @@ async function flushMarkdownMemory(userId: string, queue: SyncQueue): Promise<vo
       const job = queue.jobs[0]!;
       let result: MarkdownMemoryAppendResult;
       try {
+        await assertReceiptWriteFence(job);
         await job.checkpoint;
         if (job.needsReceiptLookup && !job.committed && job.recoveryKey) {
           await job.beforeEffect?.();
@@ -515,12 +556,33 @@ async function flushMarkdownMemory(userId: string, queue: SyncQueue): Promise<vo
           if (job.committed) requestMemoryReconciliation(userId);
         }
         result = job.committed ? { success: true, saved: 0, markdown: null } : await appendMarkdownMemoryFacts(job);
+        if (!result.success) await assertReceiptWriteFence(job);
         if (result.success) {
           job.committed = true;
           if (job.recoveryKey) await SecureResourceCacheService.invalidateResourceRequired(userId, job.recoveryKey);
         }
       }
-      catch { result = { success: false, saved: 0, markdown: null }; }
+      catch (error) {
+        if (error instanceof ReceiptWriteInvalidatedError && syncQueues.get(userId) === queue && isVaultSessionEpochCurrent(queue.epoch)) {
+          // A superseded snapshot cannot become current through a retry. Retire
+          // only this job, then restore cloud facts plus the remaining overlay.
+          queue.jobs.shift(); queue.retries = 0;
+          if (job.recoveryKey) await SecureResourceCacheService.invalidateResource(job.userId, job.recoveryKey).catch(() => undefined);
+          requestMemoryReconciliation(userId);
+          await readMarkdownMemory({ ...job, forceRefresh: true }).catch(() => {
+            const current = peekMarkdownMemory(userId);
+            const source = job.replaceSource;
+            if (current && source && current.sourceSummaries?.[source.key]?.observedAt === source.observedAt) {
+              const cleared = applyMemoryFacts(current.markdown, current.sourceSummaries, [], { ...source, observedAt: new Date(Date.parse(source.observedAt) + 1).toISOString() });
+              const pending = applyPendingMemory(cleared.markdown, cleared.sourceSummaries, queue.jobs);
+              cacheDocument({ ...current, ...pending, syncStatus: syncStatus(userId) });
+            }
+          });
+          publishSyncStatus(userId);
+          continue;
+        }
+        result = { success: false, saved: 0, markdown: null };
+      }
       if (syncQueues.get(userId) !== queue || !isVaultSessionEpochCurrent(queue.epoch)) return;
       if (!result.success) {
         job.needsReceiptLookup = true;
@@ -542,12 +604,17 @@ async function flushMarkdownMemory(userId: string, queue: SyncQueue): Promise<vo
 /** Publish accepted facts immediately; encryption and CAS commits run in parallel with chat. */
 export async function stageMarkdownMemoryFacts(params: AppendParams & { recoveryKey?: string; stagingOrder?: number }): Promise<MarkdownMemoryAppendResult> {
   await params.beforeEffect?.();
+  const receiptGeneration = params.replaceSource ? params.receiptGeneration ?? (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation : undefined;
+  if (receiptGeneration !== undefined && (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation !== receiptGeneration)
+    throw new Error("Receipt memory was reset. Ask again.");
+  if (params.replaceSource) assertLightweightReceiptFacts(params.facts);
   const existing = peekMarkdownMemory(params.userId);
   if (!existing) return { success: false, saved: 0, markdown: null, message: "Open your memory before adding details." };
   // Retrying discovery must not delete an uncommitted live job's checkpoint.
   if (params.recoveryKey && syncQueues.get(params.userId)?.jobs.some(job => job.recoveryKey === params.recoveryKey))
     return { success: true, saved: 0, markdown: existing.markdown };
   const next = applyMemoryFacts(existing.markdown, existing.sourceSummaries ?? {}, params.facts, params.replaceSource);
+  if (params.replaceSource) assertReceiptMemoryBudget(next.sourceSummaries);
   if (!next.saved && !next.changed && (!params.completeKycIntake || existing.kycIntakeCompletedAt)) {
     if (params.recoveryKey) await SecureResourceCacheService.invalidateResource(params.userId, params.recoveryKey);
     return { success: true, saved: 0, markdown: existing.markdown };
@@ -560,7 +627,11 @@ export async function stageMarkdownMemoryFacts(params: AppendParams & { recovery
       !owner || owner.userId !== params.userId || !isValidatedAuthSessionOwnerCurrent(owner))
       throw new DOMException("Memory sync session changed", "AbortError");
   };
-  const assertCurrent = async () => checkCurrent();
+  const assertCurrent = async () => {
+    checkCurrent();
+    await assertReceiptWriteFence({ ...params, receiptGeneration });
+    checkCurrent();
+  };
   checkCurrent();
   const queue = syncQueues.get(params.userId) ?? { epoch, jobs: [], running: false, retries: 0 };
   const previousKeys = storedFactKeys(existing.markdown);
@@ -572,15 +643,17 @@ export async function stageMarkdownMemoryFacts(params: AppendParams & { recovery
   lastStagingOrder = Math.max(lastStagingOrder, stagingOrder);
   const checkpoint = SecureResourceCacheService.writeRequired({ userId: params.userId,
     resourceKey: recoveryKey, vaultKey: params.vaultKey, ttlMs: 7 * 24 * 60 * 60 * 1000,
+    ...(receiptGeneration === undefined ? {} : { ownerGeneration: receiptGeneration }),
     value: { version: 1, userId: params.userId, facts: newFacts, confirmation: params.confirmation, stagingOrder,
       ...(params.completeKycIntake ? { completeKycIntake: true } : {}),
-      ...(params.replaceSource ? { replaceSource: params.replaceSource } : {}) },
+      ...(params.replaceSource ? { replaceSource: params.replaceSource, receiptGeneration, ...(params.receiptSnapshotFence ? { receiptSnapshotFence: params.receiptSnapshotFence } : {}) } : {}) },
   }).catch(() => undefined); // Cloud saving still works when device storage is unavailable.
-  queue.jobs.push({ ...params, facts: newFacts, beforeEffect: assertCurrent, recoveryKey, checkpoint,
+  queue.jobs.push({ ...params, receiptGeneration, facts: newFacts, beforeEffect: assertCurrent, recoveryKey, checkpoint,
     idempotencyScope: recoveryKey });
   syncQueues.set(params.userId, queue);
   cacheDocument({ ...existing, markdown: next.markdown, updatedAt: new Date().toISOString(), syncStatus: "saving",
     sourceSummaries: next.sourceSummaries,
+    deletedFactLabels: deletedLabelsAfter(existing.markdown, next.markdown, existing.deletedFactLabels),
     kycIntakeCompletedAt: existing.kycIntakeCompletedAt ?? (params.completeKycIntake ? new Date().toISOString() : null) });
   void flushMarkdownMemory(params.userId, queue);
   return { success: true, saved: next.saved, markdown: next.markdown };
@@ -603,11 +676,11 @@ export function recoverMarkdownMemorySync(params: {
     let readFailed = false;
     try {
       await assertCurrent();
-      const recovered: { recoveryKey: string; pending: { version: number; userId: string; facts: SoulFact[]; confirmation: PkmWriteAuthorization; completeKycIntake?: boolean; replaceSource?: ReplaceSource; stagingOrder?: number } }[] = [];
+      const recovered: { recoveryKey: string; pending: MemoryCheckpoint }[] = [];
       for (const recoveryKey of await SecureResourceCacheService.listResourceKeys(params.userId, RECOVERY_PREFIX)) {
         await assertCurrent();
         if (syncQueues.get(params.userId)?.jobs.some(job => job.recoveryKey === recoveryKey)) continue;
-        const pending = await SecureResourceCacheService.readRequired<{ version: number; userId: string; facts: SoulFact[]; confirmation: PkmWriteAuthorization; completeKycIntake?: boolean; replaceSource?: ReplaceSource; stagingOrder?: number }>({
+        const pending = await SecureResourceCacheService.readRequired<MemoryCheckpoint>({
           ...params, resourceKey: recoveryKey,
         }).catch(() => { readFailed = true; return null; });
         await assertCurrent();
@@ -615,7 +688,13 @@ export function recoverMarkdownMemorySync(params: {
           pending.facts.some(fact => !isSoulFact(fact)) || !pending.confirmation ||
           (pending.stagingOrder !== undefined && (!Number.isSafeInteger(pending.stagingOrder) || pending.stagingOrder < 0)) ||
           (pending.completeKycIntake !== undefined && typeof pending.completeKycIntake !== "boolean") ||
-          (pending.replaceSource !== undefined && !isReplaceSource(pending.replaceSource))) continue;
+          (pending.replaceSource !== undefined && !isReplaceSource(pending.replaceSource)) ||
+          (pending.receiptSnapshotFence !== undefined && !isReceiptSnapshotFence(pending.receiptSnapshotFence))) continue;
+        if (pending.replaceSource) {
+          if (!pending.receiptSnapshotFence || pending.receiptGeneration === undefined || pending.receiptGeneration !== (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation) continue;
+          try { assertLightweightReceiptFacts(pending.facts); } catch { continue; }
+          try { await assertReceiptWriteFence({ ...pending, userId: params.userId }); } catch { continue; }
+        }
         recovered.push({ recoveryKey, pending });
       }
       // A missing earlier envelope could be a prerequisite for a later correction.
@@ -638,7 +717,7 @@ export function recoverMarkdownMemorySync(params: {
           continue;
         }
         await stageMarkdownMemoryFacts({ ...params, facts: pending.facts, confirmation: pending.confirmation,
-          completeKycIntake: pending.completeKycIntake, replaceSource: pending.replaceSource, stagingOrder: pending.stagingOrder, recoveryKey, beforeEffect: assertCurrent });
+          completeKycIntake: pending.completeKycIntake, replaceSource: pending.replaceSource, receiptGeneration: pending.receiptGeneration, receiptSnapshotFence: pending.receiptSnapshotFence, stagingOrder: pending.stagingOrder, recoveryKey, beforeEffect: assertCurrent });
       }
       if (readFailed || syncQueues.get(params.userId)?.running) recoveryLoads.delete(key);
     } catch { recoveryLoads.delete(key); /* Retry discovery after a transient storage failure. */ }
@@ -695,13 +774,13 @@ export async function replaceMarkdownMemoryDocument(params: {
   beforeEffect: () => Promise<void>;
 }): Promise<{ success: boolean; conflict?: boolean; markdown?: string; message?: string }> {
   const local = peekMarkdownMemory(params.userId);
-  if (local && local.markdown !== params.expectedMarkdown) return { success: false, conflict: true, message: "Soul.md changed while you were editing. Your draft is still here." };
+  if (local && local.markdown !== params.expectedMarkdown) return { success: false, conflict: true, message: "memory.md changed while you were editing. Your draft is still here." };
   const previousQueue = syncQueues.get(params.userId);
   if (previousQueue?.running || previousQueue?.jobs.length) return { success: false, message: "Your latest memories haven't finished syncing. Your draft is still here; retry sync before saving changes." };
   const cleaned = omitCredentialsFromMemory(params.markdown).trim();
   const markdown = cleaned ? `${cleaned}\n` : "";
   if (markdown.length > MAX_MARKDOWN_MEMORY_CHARS) {
-    return { success: false, message: "Soul.md is too long. Shorten it before saving." };
+    return { success: false, message: "memory.md is too long. Shorten it before saving." };
   }
   const epoch = snapshotVaultSessionEpoch();
   const seed = peekMarkdownMemory(params.userId)?.markdown ?? "";
@@ -719,6 +798,7 @@ export async function replaceMarkdownMemoryDocument(params: {
   let conflict = false;
   let kycIntakeCompletedAt = local?.kycIntakeCompletedAt ?? null;
   let sourceSummaries = local?.sourceSummaries ?? {};
+  let deletedFactLabels = local?.deletedFactLabels ?? [];
   const result = await PkmWriteCoordinator.savePreparedDomain({
     userId: params.userId,
     domain: MARKDOWN_MEMORY_DOMAIN,
@@ -731,28 +811,31 @@ export async function replaceMarkdownMemoryDocument(params: {
       const stored = readStoredDocument(context.currentDomainData);
       kycIntakeCompletedAt = stored?.kycIntakeCompletedAt ?? kycIntakeCompletedAt;
       sourceSummaries = stored?.sourceSummaries ?? sourceSummaries;
+      deletedFactLabels = stored?.deletedFactLabels ?? deletedFactLabels;
       const currentMarkdown = stored?.markdown ?? seed;
       if ((params.expectedPersisted && !stored) || currentMarkdown !== params.expectedMarkdown ||
         (peekMarkdownMemory(params.userId)?.markdown ?? params.expectedMarkdown) !== params.expectedMarkdown) {
         conflict = true;
         throw new Error("Markdown memory changed during editing.");
       }
+      deletedFactLabels = deletedLabelsAfter(currentMarkdown, markdown, deletedFactLabels);
       const updatedAt = new Date().toISOString();
       return {
-        domainData: { ...context.currentDomainData, schema_version: MARKDOWN_MEMORY_SCHEMA, markdown, updated_at: updatedAt },
+        domainData: { ...context.currentDomainData, schema_version: MARKDOWN_MEMORY_SCHEMA, markdown,
+          _deleted_fact_labels: deletedFactLabels, updated_at: updatedAt },
         summary: { schema_version: MARKDOWN_MEMORY_SCHEMA, storage_mode: "encrypted_markdown", character_count: markdown.length, updated_at: updatedAt },
       };
     },
   }).catch(error => { releaseQueue(); throw error; });
   if (conflict) {
     releaseQueue();
-    return { success: false, conflict: true, message: "Soul.md changed while you were editing. Your draft is still here. Copy your changes, then reload the latest version." };
+    return { success: false, conflict: true, message: "memory.md changed while you were editing. Your draft is still here. Copy your changes, then reload the latest version." };
   }
   if (!result.success) { releaseQueue(); return { success: false, message: result.message }; }
   try { await params.beforeEffect(); } catch (error) { releaseQueue(); throw error; }
-  if (!isVaultSessionEpochCurrent(epoch)) { releaseQueue(); return { success: false, message: "Unlock your vault to reopen Soul.md." }; }
+  if (!isVaultSessionEpochCurrent(epoch)) { releaseQueue(); return { success: false, message: "Unlock your vault to reopen memory.md." }; }
   const pending = applyPendingMemory(markdown, sourceSummaries, queue.jobs);
-  cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
+  cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, deletedFactLabels, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
     kycIntakeCompletedAt: queue.jobs.some(job => job.completeKycIntake)
       ? peekMarkdownMemory(params.userId)?.kycIntakeCompletedAt ?? kycIntakeCompletedAt : kycIntakeCompletedAt });
   releaseQueue();
@@ -762,10 +845,15 @@ export async function replaceMarkdownMemoryDocument(params: {
 export function markdownMemoryToAgentContext(
   memory: CachedMarkdownMemory,
 ): AgentPkmContext {
-  const bulletCount = memory.markdown.split("\n").filter((line) => /^\s*[-*]\s+/.test(line)).length;
-  const usedChars = memory.markdown.length;
+  const excluded = new Set<string>();
+  for (const source of Object.values(memory.sourceSummaries ?? {})) for (const fact of source.facts) {
+    try { assertLightweightReceiptFacts([fact]); } catch { excluded.add(fact); }
+  }
+  const markdown = memory.markdown.split("\n").filter(line => !excluded.has(line.trim().replace(/^[-*]\s+/, ""))).join("\n");
+  const bulletCount = markdown.split("\n").filter((line) => /^\s*[-*]\s+/.test(line)).length;
+  const usedChars = markdown.length;
   return {
-    text: memory.markdown,
+    text: markdown,
     domains: [MARKDOWN_MEMORY_DOMAIN],
     totalAttributes: bulletCount,
     updatedAt: memory.updatedAt,

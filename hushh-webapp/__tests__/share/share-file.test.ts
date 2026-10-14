@@ -20,6 +20,18 @@ function web(share = vi.fn(async () => undefined), supports = true) {
 afterEach(() => { vi.clearAllMocks(); vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false); });
 
 describe("card file delivery", () => {
+  it("keeps peer filenames inside one native cache leaf and fences a late share after owner loss", async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    const traversal = new File(["file"], "../../other\\file.pdf", { type: "application/pdf" });
+    let current = true;
+    vi.mocked(Filesystem.writeFile).mockImplementationOnce(async () => { current = false; return { uri: "file://fixture.pdf" }; });
+    await expect(shareFile({ file: traversal, title: "File", isEffectCurrent: () => current })).rejects.toMatchObject({ name: "AbortError" });
+    const path = vi.mocked(Filesystem.writeFile).mock.calls[0]![0].path;
+    expect(path.split("/")).toHaveLength(3);
+    expect(path.split("/").at(-1)).not.toMatch(/^[.]|[\\/]/);
+    expect(Share.share).not.toHaveBeenCalled();
+    expect(Filesystem.deleteFile).toHaveBeenCalledWith(expect.objectContaining({ path }));
+  });
   it("calls Web Share synchronously with the actual PNG file to retain click activation", async () => {
     const handler = web();
     const result = shareFile({ file, title: "Profile" });

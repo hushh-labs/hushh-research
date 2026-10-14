@@ -1,8 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Copy, Link2, Share2, Wallet } from "@/components/icons";
 import {
+  ProfilePaneCopyIcon,
+  ProfilePaneShareIcon,
   ProfilePaneDeleteIcon,
   ProfilePaneEditIcon,
   ProfilePanePauseIcon,
@@ -17,6 +18,7 @@ import {
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import { RowDescription } from "@/components/app-ui/typography";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
+import { ProfileInnerLinkIcon } from "@/components/profile/profile-inner-icons";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { WALLET_CARD_OWNER_COPY } from "@/components/wallet-card/wallet-card-copy";
@@ -97,7 +99,7 @@ export function WalletCardManage({
           iconTone="capability"
           density="compact"
           title={WALLET_CARD_OWNER_COPY.scanCountLabel}
-          trailing={<span>{card.scanCount.toLocaleString()}</span>}
+          trailing={<span data-testid="wallet-profile-scans">{card.scanCount.toLocaleString()}</span>}
         />
         {lastScanned ? (
           <SettingsRow
@@ -121,7 +123,7 @@ export function WalletCardManage({
               />
             </div>
             <div className="flex items-center gap-2 rounded-xl bg-muted/40 px-3 py-2">
-              <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <ProfileInnerLinkIcon className="h-4 w-4 shrink-0 text-foreground [&_.profile-pane-icon-accent]:stroke-[var(--app-accent)]" aria-hidden />
               <RowDescription as="span" compact className="min-w-0 flex-1 truncate">
                 {shareLink.shareUrl}
               </RowDescription>
@@ -135,35 +137,46 @@ export function WalletCardManage({
               <Button
                 type="button"
                 size="sm"
-                className="min-h-11"
+                className="min-h-11 text-[13px]"
                 loading={busyAction === "add-to-wallet"}
                 onClick={() => onAction("add-to-wallet")}
               >
-                <Wallet className="mr-2 h-4 w-4" aria-hidden />
+                <ProfilePaneWalletIcon className="mr-2 h-4 w-4" aria-hidden />
                 {WALLET_CARD_OWNER_COPY.addToWallet}
               </Button>
               {shareAction ?? <Button
                 type="button"
                 size="sm"
-                className="min-h-11"
+                className="min-h-11 text-[13px]"
                 variant="none"
                 effect="fade"
                 loading={busyAction === "share"}
                 onClick={() => onAction("share")}
               >
-                <Share2 className="mr-2 h-4 w-4" aria-hidden />
+                <ProfilePaneShareIcon className="mr-2 h-4 w-4" aria-hidden />
                 {WALLET_CARD_OWNER_COPY.shareLink}
               </Button>}
               <Button
                 type="button"
                 size="sm"
-                className="min-h-11"
+                className="min-h-11 text-[13px]"
                 variant="none"
                 effect="fade"
                 onClick={() => onAction("copy")}
               >
-                <Copy className="mr-2 h-4 w-4" aria-hidden />
+                <ProfilePaneCopyIcon className="mr-2 h-4 w-4" aria-hidden />
                 {WALLET_CARD_OWNER_COPY.copyLink}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="min-h-11 text-[13px]"
+                variant="none"
+                effect="fade"
+                disabled={busyAction !== null}
+                onClick={() => onAction("rotate")}
+              >
+                {WALLET_CARD_OWNER_COPY.revokeAccess}
               </Button>
             </div>
           </div>

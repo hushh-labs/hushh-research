@@ -44,6 +44,35 @@ def test_send_person_ref_threads_authenticated_sender_and_never_accepts_a_peer_u
     )
 
 
+def test_delivery_acknowledgment_binds_the_authenticated_recipient_and_bounds_private_input():
+    service = MagicMock()
+    service.acknowledge_delivery.return_value = {
+        "deliveredCount": 1,
+        "deliveredAt": "2026-10-13T10:00:00Z",
+    }
+    conversation = "11111111-1111-4111-8111-111111111111"
+    message = "22222222-2222-4222-8222-222222222222"
+    with patch("api.routes.one.messages._service", return_value=service):
+        client = _client()
+        response = client.post(
+            f"/api/one/messages/conversations/{conversation}/delivered",
+            json={"messageIds": [message], "viewerUserId": "forged-owner"},
+        )
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        service.acknowledge_delivery.assert_called_once_with(
+            "viewer-user", conversation, message_ids=[message]
+        )
+        for ids in ([], [message] * 101, ["private-invalid-id"]):
+            invalid = client.post(
+                f"/api/one/messages/conversations/{conversation}/delivered",
+                json={"messageIds": ids},
+            )
+            assert invalid.status_code == 422
+            assert invalid.json() == {"detail": "Invalid message request."}
+        assert service.acknowledge_delivery.call_count == 1
+
+
 def test_attachment_send_and_read_keep_authenticated_identity_and_private_bytes():
     service = MagicMock()
     service.send_message.return_value = {

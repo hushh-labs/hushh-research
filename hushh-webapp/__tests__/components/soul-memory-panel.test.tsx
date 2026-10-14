@@ -33,39 +33,40 @@ beforeEach(() => {
   mocks.replace.mockResolvedValue({ success: true, markdown: "# Updated\n" });
 });
 
-describe("Soul.md editor", () => {
+describe("memory.md editor", () => {
   it("renders the canonical Markdown and saves the edited document for subsequent chat context", async () => {
     render(<SoulMemoryPanel {...props} />);
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Preferences" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Edit Soul.md" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Soul.md Markdown" }), { target: { value: "# Updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Edit memory.md" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "memory.md Markdown" }), { target: { value: "# Updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({
       userId: "owner-a", expectedMarkdown: markdown, expectedPersisted: true, markdown: "# Updated",
     })));
     await waitFor(() => expect(mocks.clearContext).toHaveBeenCalledWith("owner-a", { preserveMarkdown: true }));
-    expect(mocks.toast.success).toHaveBeenCalledWith("Soul.md saved");
+    expect(mocks.toast.success).toHaveBeenCalledWith("memory.md saved");
   });
 
   it("preserves a dirty draft across automatic memory updates and conflict failures", async () => {
     const view = render(<SoulMemoryPanel {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Soul.md" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Soul.md Markdown" }), { target: { value: "My unsaved edit" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit memory.md" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "memory.md Markdown" }), { target: { value: "My unsaved edit" } });
     mocks.revision += 1;
     view.rerender(<SoulMemoryPanel {...props} />);
-    expect(screen.getByRole("textbox")).toHaveValue("My unsaved edit");
+    expect(screen.getByRole("textbox", { name: "memory.md Markdown" })).toHaveValue("My unsaved edit");
     mocks.replace.mockResolvedValueOnce({ success: false, conflict: true, message: "Memory changed" });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await screen.findByRole("button", { name: "Reload latest version" });
-    expect(screen.getByRole("textbox")).toHaveValue("My unsaved edit");
+    expect(screen.getByRole("textbox", { name: "memory.md Markdown" })).toHaveValue("My unsaved edit");
     expect(mocks.toast.success).not.toHaveBeenCalled();
   });
 
   it("cancels editor mode through the shared Back layer before leaving Memory", async () => {
     render(<SoulMemoryPanel {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Soul.md" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit memory.md" }));
     expect(mocks.back).not.toBeNull();
+    fireEvent.change(screen.getByLabelText("Legal name"), { target: { value: "Discard this identity edit" } });
     act(() => { expect(mocks.back!()).toBe(true); });
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(mocks.back).toBeNull();
@@ -75,8 +76,8 @@ describe("Soul.md editor", () => {
     let finish!: (result: { success: boolean; markdown: string }) => void;
     mocks.replace.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<SoulMemoryPanel {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Soul.md" }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Private owner A draft" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit memory.md" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "memory.md Markdown" }), { target: { value: "Private owner A draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(finish).toBeDefined());
     view.rerender(<SoulMemoryPanel {...props} verified={false} />);
@@ -94,13 +95,31 @@ describe("Soul.md editor", () => {
   it("fails closed on an unavailable read and never loads remote Markdown images or raw HTML", async () => {
     mocks.load.mockRejectedValueOnce(new Error("Unavailable"));
     const view = render(<SoulMemoryPanel {...props} />);
-    await screen.findByText("Soul.md couldn’t be opened.");
+    await screen.findByText("memory.md couldn’t be opened.");
     expect(mocks.loadContext).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Edit Soul.md" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit memory.md" })).toBeNull();
     mocks.load.mockResolvedValueOnce({ markdown: '# Safe\n![Photo](https://example.test/tracker)\n<script>alert(1)</script>', persisted: true });
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await screen.findByRole("heading", { name: "Safe" });
     expect(view.container.querySelector("img")).toBeNull();
     expect(view.container.querySelector("script")).toBeNull();
   });
+});
+
+
+it("adds, edits and clears identity facts for an existing owner without onboarding", async () => {
+  mocks.load.mockResolvedValue({ markdown: `${markdown}- Legal name: Old name\n- Sex: female\n`, persisted: true });
+  render(<SoulMemoryPanel {...props} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit memory.md" }));
+  fireEvent.change(screen.getByLabelText("Legal name"), { target: { value: "Current name" } });
+  fireEvent.change(screen.getByLabelText("Date of birth"), { target: { value: "1998-03-14" } });
+  fireEvent.change(screen.getByLabelText("Sex"), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(mocks.replace).toHaveBeenCalledTimes(1));
+  const draft = mocks.replace.mock.calls[0]![0].markdown;
+  expect(draft).toContain("Legal name: Current name");
+  expect(draft).toContain("Date of birth: 1998-03-14");
+  expect(draft).toContain("Concise answers");
+  expect(draft).not.toContain("Old name");
+  expect(draft).not.toContain("Sex:");
 });

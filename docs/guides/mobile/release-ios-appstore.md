@@ -140,6 +140,19 @@ make ios-prod-release ARGS="--sha 1a2b3c4d"
 ```
 
 ```bash
+# Repackage the deployed production source into a new App Store version train.
+make ios-prod-release ARGS="--sha <deployed-production-sha> --backend production --marketing-version 1.4.1"
+```
+
+`--marketing-version` changes packaging metadata only. The app source and the matching
+production-backend gate remain pinned to `--sha`. Empty input uses that source project's
+committed version. The workflow validates the version, applies it to the app and extensions,
+checks their archived plists before upload, and records it in both release receipts.
+Apple still controls whether a new App Store version can be created: an approved version in
+`PENDING_DEVELOPER_RELEASE` must be resolved before another version can be attached. Uploading
+a newer packaging version does not publish or withdraw that approved version.
+
+```bash
 # Set the App Store "What's New in This Version" text for this release.
 make ios-prod-release ARGS="--whats-new 'Faster onboarding and reliability fixes.'"
 ```
@@ -161,10 +174,12 @@ For a public submit it demands you type `submit`, not just `yes`.
 | Input | Meaning |
 | --- | --- |
 | `sha` (required) | Exact green `main` SHA to release. |
+| `marketing_version` | Optional packaging version such as `1.4.1`; empty uses the exact source project's committed version. |
 | `dry_run` | Archive + sign only; no upload, no ASC changes. |
 | `backend_target` | `uat` (default) or `production`; prove the matching deployed backend before dispatch. |
 | `whats_new` | "What's New in This Version" (defaults to a generic note). |
 | `submit_for_review` | **IRREVERSIBLE.** Upload, set What's New, attach, and **SUBMIT** for public review. Unchecked = stop after attaching the build. |
+| `release_after_approval` | Publish automatically after Apple approval; requires an explicitly authorized review submission. Default keeps manual release. |
 | `notes` | Free-text note for the run summary. |
 
 Checking `submit_for_review` and running is the true one-click straight-to-review path — no
@@ -350,7 +365,8 @@ build, set its release notes, and attach it for review.
 | `Missing GCP secret …` | Secret absent in `hushh-pda-uat`, or the `GCP_SA_KEY_UAT` SA lacks `secretAccessor`. See setup. |
 | `must ship the UAT backend, but … resolves to '<host>'` | `BACKEND_URL` in `hushh-pda-uat` points at a non-UAT host. Fix the secret. |
 | `Cloud signing permission error` / `No signing certificate "iOS Distribution"` | ASC API key role too low — regenerate as **Admin** (App Manager cannot mint cloud distribution assets). |
-| `Invalid Pre-Release Train … is closed` / `must contain a higher version` | The marketing version is approved/closed. Bump `MARKETING_VERSION` (App target Debug+Release), land on `main`, re-release. A `--dry-run` will NOT catch this. |
+| `Invalid Pre-Release Train … is closed` / `must contain a higher version` | Select a higher `--marketing-version` while preserving the deployed source SHA, or land a committed version bump and verify its matching deployment. A `--dry-run` will NOT catch this. |
+| `PENDING_DEVELOPER_RELEASE` / version is not editable | The approved version's build is locked. Resolve its Apple state before preparing a new App Store version; never publish the old build as an incidental step. |
 | `This field is required` on Add for Review | Empty "What's New". Re-run with `--whats-new "…"`; the pipeline now sets it automatically. |
 | Export/upload agreement error | Accept the Apple Program License Agreement in App Store Connect. |
 | Duplicate build number rejected | The ASC builds API lags a just-uploaded build; re-run so the resolver sees the sibling and picks N+1. |

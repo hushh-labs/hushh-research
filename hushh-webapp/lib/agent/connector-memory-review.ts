@@ -1,5 +1,5 @@
 import { addToPKM, clearAgentPkmContext, isReservedPkmCard, type AgentPkmPreviewCard, type AgentPkmSaveResult } from "@/lib/agent/agent-pkm-memory";
-import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { AgentPkmContextStore, type ProfileReviewInventory } from "@/lib/agent/agent-pkm-context-store";
 import { isUnresolvedSourceBlock, prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
@@ -27,7 +27,7 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
   source: ConnectorMemorySource;
   vaultKey: string;
   businessUid?: string;
-}): Promise<{ cards: AgentPkmPreviewCard[]; incomplete: boolean; alreadySaved: boolean }> {
+}): Promise<{ cards: AgentPkmPreviewCard[]; incomplete: boolean; alreadySaved: boolean; profileInventory?: ProfileReviewInventory }> {
   await input.assertCurrent();
   if (input.source === "business_profile_review" && !input.businessUid)
     throw new Error("Business identity is required for review.");
@@ -38,6 +38,8 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
     userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
     ...(["business_profile_review", "profile_research_review"].includes(input.source) ? { forceRefresh: true } : {}),
   });
+  const profileInventory = input.source === "profile_research_review"
+    ? AgentPkmContextStore.captureProfileReviewInventory(input.userId) : undefined;
   await input.assertCurrent();
   const businessCandidates = input.source === "business_profile_review"
     ? AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: input.userId, businessUid: input.businessUid! }) : [];
@@ -57,11 +59,16 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
     currentManifests: Object.values(context.manifests || {}).filter(Boolean),
     vaultOwnerToken: input.vaultOwnerToken,
     source: input.source,
-    memoryProfile: input.source === "business_profile_review" ? "business_directory_v1" : "general",
+    memoryProfile: input.source === "business_profile_review"
+      ? "business_directory_v1"
+      : input.source === "profile_research_review"
+        ? "profile_review_v1"
+        : "general",
     allowEmpty: true,
-    findDuplicate: candidate => AgentPkmContextStore.findLocalDuplicate({ userId: input.userId, candidate }),
+    findDuplicate: candidate => profileInventory ? profileInventory.findLocalDuplicate(candidate)
+      : AgentPkmContextStore.findLocalDuplicate({ userId: input.userId, candidate }),
     findReconciliationCandidates: input.source === "business_profile_review" ? () => businessCandidates
-      : input.source === "profile_research_review" ? passage => AgentPkmContextStore.findProfileReconciliationCandidates({ userId: input.userId, text: passage }) : undefined,
+      : profileInventory ? passage => profileInventory.findReconciliationCandidates(passage) : undefined,
     beforeEffect: input.assertCurrent,
     isEffectCurrent: input.isCurrent,
   });
@@ -91,7 +98,7 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
       : incomplete ? "coverage_incomplete" : "empty_preview";
     throw new BusinessReviewPreparationError(reason);
   }
-  return { cards, alreadySaved, incomplete };
+  return { cards, alreadySaved, incomplete, ...(profileInventory ? { profileInventory } : {}) };
 }
 
 export function connectorMemorySharingImpact(cards: AgentPkmPreviewCard[]): number {

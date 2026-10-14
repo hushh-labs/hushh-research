@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
@@ -17,6 +19,10 @@ class MarkReadBody(BaseModel):
     # A required snapshot watermark prevents a concurrent new row from being
     # marked read merely because it arrived before an unbounded update ran.
     up_to_id: int = Field(gt=0, le=POSTGRES_BIGINT_MAX)
+
+
+class RestoreBody(BaseModel):
+    dismissal_token: UUID
 
 
 def _handle_feed_error(exc: Exception) -> HTTPException:
@@ -71,5 +77,41 @@ def mark_feed_read(
 ):
     try:
         return _service().mark_read(firebase_uid, up_to_id=payload.up_to_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle_feed_error(exc) from exc
+
+
+@router.post("/feed/{item_id}/dismiss")
+def dismiss_feed_item(
+    item_id: int = Path(gt=0, le=POSTGRES_BIGINT_MAX),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return _service().dismiss(firebase_uid, item_id=item_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle_feed_error(exc) from exc
+
+
+@router.post("/feed/{item_id}/restore")
+def restore_feed_item(
+    payload: RestoreBody,
+    item_id: int = Path(gt=0, le=POSTGRES_BIGINT_MAX),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return _service().restore(
+            firebase_uid, item_id=item_id, dismissal_token=str(payload.dismissal_token)
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle_feed_error(exc) from exc
+
+
+@router.post("/feed/clear")
+def clear_feed(
+    payload: MarkReadBody,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return _service().clear(firebase_uid, up_to_id=payload.up_to_id)
     except Exception as exc:  # noqa: BLE001
         raise _handle_feed_error(exc) from exc

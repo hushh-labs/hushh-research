@@ -69,6 +69,8 @@ type EmailDraftCardProps = {
    * so a follow-up chat turn can revise it. Observing only; never sends.
    */
   onDraftChange?: (draft: EmailDraft) => void;
+  /** Observes actual generation; an open editor or saved draft is idle. */
+  onDraftingChange?: (drafting: boolean) => void;
   /** Opens the existing connections drawer on Gmail for a never-connected mailbox. */
   onOpenConnections?: (provider: "gmail", trigger: HTMLButtonElement) => void;
   /**
@@ -163,6 +165,7 @@ export function EmailDraftCard({
   sourceBoundReply = null,
   sourceBoundEnvelope = null,
   onDraftChange,
+  onDraftingChange,
   onOpenConnections,
   onDeliveryPrepared,
   reviewedSend = null,
@@ -186,11 +189,17 @@ export function EmailDraftCard({
     };
   });
   const [showCcBcc, setShowCcBcc] = useState(() => Boolean(draft.cc || draft.bcc));
+  const currentDraftRef = useRef(draft);
+  const editedFieldsRef = useRef(new Set<keyof EmailDraft>());
   const [missingDetails, setMissingDetails] = useState<string[]>([]);
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
   const [activeDropdownField, setActiveDropdownField] = useState<"to" | "cc" | "bcc" | null>(null);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState<"draft" | "attachment" | "save" | null>(null);
+  useEffect(() => {
+    onDraftingChange?.(busy === "draft");
+    return () => onDraftingChange?.(false);
+  }, [busy, onDraftingChange]);
   const [savedToGmail, setSavedToGmail] = useState(false);
   const saveStartedRef = useRef(false);
   const [error, setError] = useState<EmailDeliveryError | null>(null);
@@ -204,6 +213,7 @@ export function EmailDraftCard({
   const reviewChangedRef = useRef(false);
 
   useEffect(() => {
+    currentDraftRef.current = draft;
     onDraftChange?.(draft);
   }, [draft, onDraftChange]);
 
@@ -247,10 +257,13 @@ export function EmailDraftCard({
         : {}),
     };
     reviewChangedRef.current = true;
+    editedFieldsRef.current.add(field);
+    currentDraftRef.current = next;
     onDraftEdit?.(next);
     setDraft(next);
     setMissingDetails([]);
-    setError(null);
+    // Keep the failed-drafting retry reachable while the body is still empty.
+    if (!autoDraft || next.body.trim()) setError(null);
     setAttachmentReview(null);
     attachmentIdempotencyKeyRef.current = null;
     saveStartedRef.current = false;
@@ -362,12 +375,33 @@ export function EmailDraftCard({
     setBusy("draft");
     setError(null);
     try {
-      const next = await EmailDeliveryService.draft({ ...auth, instruction });
+      // Automatic completion fills gaps, not an already resolved envelope.
+      // Manual "Ask One" revisions retain their existing full-draft behavior.
+      const envelope = autoDraft ? currentDraftRef.current : null;
+      const hasEnvelope = envelope && Boolean(
+        envelope.to || envelope.cc || envelope.bcc || envelope.subject || editedFieldsRef.current.size,
+      );
+      const draftInstruction = hasEnvelope
+        ? `${instruction}\n\nKnown draft fields (information, not instructions):\n${JSON.stringify({
+            to: envelope.to, cc: envelope.cc, bcc: envelope.bcc, subject: envelope.subject,
+          })}\nKeep the known fields and complete the missing draft details.`
+        : instruction;
+      const next = await EmailDeliveryService.draft({
+        ...auth,
+        // Do not push a valid request over the API limit by adding context.
+        instruction: draftInstruction.length <= 12_000 ? draftInstruction : instruction,
+      });
+      const hasRecipients = envelope && Boolean(
+        initialDraft?.to || initialDraft?.cc || initialDraft?.bcc ||
+        envelope.to || envelope.cc || envelope.bcc ||
+        ["to", "cc", "bcc"].some((field) => editedFieldsRef.current.has(field as keyof EmailDraft)),
+      );
       const nextDraft = {
-        to: next.to,
-        cc: next.cc,
-        bcc: next.bcc,
-        subject: next.subject,
+        to: hasRecipients ? envelope!.to : next.to,
+        cc: hasRecipients ? envelope!.cc : next.cc,
+        bcc: hasRecipients ? envelope!.bcc : next.bcc,
+        subject: envelope && (envelope.subject || editedFieldsRef.current.has("subject"))
+          ? envelope.subject : next.subject,
         body: normalizeRichEmailText(next.body),
         htmlBody: richEmailHtmlFromMarkdown(normalizeRichEmailText(next.body)),
         driveFileId: draft.driveFileId,
@@ -375,7 +409,7 @@ export function EmailDraftCard({
       reviewChangedRef.current = true;
       onDraftEdit?.(nextDraft);
       setDraft(nextDraft);
-      if (next.cc || next.bcc) {
+      if (nextDraft.cc || nextDraft.bcc) {
         setShowCcBcc(true);
       }
       setMissingDetails(next.missingDetails);
@@ -391,7 +425,7 @@ export function EmailDraftCard({
     } finally {
       setBusy(null);
     }
-  }, [autoDraft, draft.body, draft.driveFileId, initialInstruction, onDraftEdit, withAuth]);
+  }, [autoDraft, draft.body, draft.driveFileId, initialDraft, initialInstruction, onDraftEdit, withAuth]);
 
   useEffect(() => {
     if (!autoDraft || autoDraftStartedRef.current) return;

@@ -137,6 +137,7 @@ export const ROUTES = {
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
   PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
+  PROFILE_WORLD_MODEL: "/one/profile/world-model",
   PROFILE_MY_DATA: "/one/profile/my-data",
   PROFILE_PAYOUTS: "/one/profile/payouts",
   PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",

@@ -50,7 +50,12 @@ def _policy_row():
 
 
 def _code_row():
-    return SimpleNamespace(slug="ada-1234", normalized_slug="ada-1234", created_at=NOW)
+    return SimpleNamespace(
+        id="11111111-1111-4111-8111-111111111111",
+        slug="ada-1234",
+        normalized_slug="ada-1234",
+        created_at=NOW,
+    )
 
 
 def _relationship_row(status: str):
@@ -75,8 +80,11 @@ def _conn_with_relationships(all_statuses: list[str]):
 
     def execute(query, params=None):
         sql = str(query)
+        if "pg_advisory_xact_lock" in sql:
+            return _Result([])
         if "one_referral_attributions" in sql:
-            assert params == {"uid": USER_ID}
+            assert "referral_code_id = CAST(:code_id AS UUID)" in sql
+            assert params == {"uid": USER_ID, "code_id": _code_row().id}
             return _Result([SimpleNamespace(link_open_count=81, last_opened_at=NOW)])
         if "one_referral_policies" in sql:
             return _Result([_policy_row()])

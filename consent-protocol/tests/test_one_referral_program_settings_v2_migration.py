@@ -42,7 +42,7 @@ EXPECTED_MILESTONES = (
 
 def test_usd_catalogue_preserves_milestone_identity_and_settings_history() -> None:
     """Currency rollout changes rewards, never earned totals or eligibility."""
-    filename = "322_one_referral_usd_catalogue.sql"
+    filename = "337_one_referral_usd_catalogue.sql"
     sql = _statements((MIGRATIONS_DIR / filename).read_text(encoding="utf-8"))
     rewards = _milestones_json(sql)
     assert [(r["milestone_key"], r["threshold"]) for r in rewards] == [
