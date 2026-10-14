@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -89,6 +88,9 @@ def revision_workers(
     container: dict[str, Any], settings: dict[str, Any], name: str
 ) -> int:
     """Count the actual launcher workers; conflicting declarations fail closed."""
+    command = container.get("command") or []
+    if command and Path(command[0]).name in {"sh", "bash", "dash", "zsh"}:
+        raise BudgetError(f"{name}: uninspectable explicit shell launcher")
     declarations: list[int] = []
     for item in container.get("env", []):
         if item.get("name") == "WEB_CONCURRENCY":
@@ -112,7 +114,7 @@ def revision_workers(
         ):
             declarations.append(positive_int(argument[2:], f"{name} workers"))
         elif isinstance(argument, str) and (
-            "--workers" in argument or re.search(r"(?:^|\s)-w(?:\s|[0-9]|$)", argument)
+            "--workers" in argument or "-w" in argument
         ):
             raise BudgetError(f"{name}: uninspectable shell worker override")
     if len(set(declarations)) > 1:

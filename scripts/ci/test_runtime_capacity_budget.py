@@ -82,6 +82,8 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             ["-w0"],
             ["gunicorn --workers 5"],
             ["exec gunicorn server:app -w 5"],
+            ["exec gunicorn server:app -w${OTHER_WORKERS}"],
+            ["exec gunicorn server:app '-w' 5"],
         ):
             with self.subTest(args=args):
                 container["args"] = args
