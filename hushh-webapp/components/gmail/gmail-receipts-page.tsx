@@ -26,11 +26,10 @@ import {
   GmailWorkspacePanels,
   type GmailWorkspace,
 } from "@/components/gmail/gmail-workspace-navigation";
-import { MailKycConnectEntry } from "@/components/gmail/mail-kyc-connect-entry";
+import { MailConnectionStatus } from "@/components/gmail/mail-kyc-connect-entry";
 import { MailOverview, MailConnectedAccount } from "@/components/gmail/mail-overview";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
@@ -1601,15 +1600,6 @@ export default function GmailReceiptsPage({
   const connectGmailHelper = Capacitor.isNativePlatform()
     ? "A secure Google account sheet opens next. Approve Mail access and return here automatically."
     : null;
-  // "loading" intentionally shares the neutral tone: it is a transient state
-  // between page load and a real status, and briefly painting it in the
-  // brand-accent colour before it resolves to success/error reads as a flash.
-  const statusToneClassName =
-    statusSummary.tone === "success"
-      ? "border-emerald-500/18 bg-emerald-500/[0.05]"
-      : statusSummary.tone === "error"
-        ? "border-rose-500/22 bg-rose-500/[0.06]"
-        : "border-border/60 bg-background/68";
   const receiptsVoiceSurfaceMetadata = useMemo(() => {
     const receiptsWorkspaceForVoice =
       journeyVariant === "onboarding" ||
@@ -1907,119 +1897,26 @@ export default function GmailReceiptsPage({
   // Workspace status belongs inside the pager too: a disconnected or loading
   // pane must follow the same gesture and inactive-action boundary.
   const mailStatusPanel = (
-    <SurfaceInset
-      className={`space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5 ${statusToneClassName}`}
-    >
-      {loadingStatus ? (
-        <div
-          aria-busy="true"
-          aria-label="Checking your Gmail status"
-          className="space-y-3"
-        >
-          <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Gmail
-            </p>
-            <h2 className="text-lg font-semibold tracking-tight text-foreground">
-              {oauthCompletionPending
-                ? "Finishing Gmail connection"
-                : "Checking your Gmail status"}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {oauthCompletionPending
-                ? "Your Mail connection is being verified."
-                : "Your Mail connection details will appear here when ready."}
-            </p>
-          </div>
-          <div aria-hidden="true" className="space-y-2 pt-1">
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-4 w-full max-w-md" />
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Status
-            </p>
-            <h2 className="text-lg font-semibold tracking-tight text-foreground">
-              {statusSummary.title}
-            </h2>
-            {statusSummary.detail &&
-            (!isConnected || !statusSummary.detail.startsWith("Connected to")) ? (
-              <p className="break-words text-sm text-muted-foreground">
-                {statusSummary.detail}
-              </p>
-            ) : null}
-            {statusSummary.helper ? (
-              <p className="break-words text-xs text-muted-foreground">
-                {statusSummary.helper}
-              </p>
-            ) : null}
-          </div>
-          {shouldShowReceiptCount ? (
-            <Badge variant="secondary" className="shrink-0">
-              {visibleTotal} receipt{visibleTotal === 1 ? "" : "s"}
-            </Badge>
-          ) : null}
-        </div>
-      )}
-
-      {receiptSyncInProgress && !isPassiveBackfillState ? (
-        <p className="text-xs text-muted-foreground">
-          Scanning Mail for receipts. Your list will refresh here when it
-          finishes.
-        </p>
-      ) : null}
-      {hasStaleBackgroundSync ? (
-        <p className="text-xs text-amber-600">
-          Mail is still running in the background. This status may lag behind for
-          a bit.
-        </p>
-      ) : null}
-      {!isConnected && !loadingStatus ? (
-        <div className="flex flex-col items-center justify-center gap-2 pt-2 sm:flex-row">
-          <Button
-            onClick={() => void handleConnectGmail()}
-            disabled={gmailActionBusy !== null}
-            className="h-12 w-full max-w-[244px] justify-center px-8 text-center text-base shadow-lg"
-            data-voice-control-id="open_gmail_connector"
-            data-voice-action-id={
-              journeyVariant === "onboarding" ? "setup.connect_gmail" : undefined
-            }
-            data-voice-label={primaryActionLabel}
-            data-voice-purpose="starts Mail connection or reconnection from this receipts page."
-          >
-            {primaryActionLabel}
-          </Button>
-          {gmail.statusError ? (
-            <Button
-              variant="none"
-              effect="fade"
-              onClick={() =>
-                void refreshGmailStatus({
-                  force: true,
-                  reconcile: false,
-                })
-              }
-              disabled={gmailActionBusy !== null || loadingStatus}
-              className="h-12 w-full max-w-[244px] justify-center px-8 text-center text-base"
-              data-voice-control-id="retry_gmail_status"
-              data-voice-label="Retry Mail status"
-              data-voice-purpose="rechecks the Mail connection without opening Google consent."
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Retry Mail status
-            </Button>
-          ) : null}
-          {connectGmailHelper ? (
-            <p className="w-full text-center text-xs text-muted-foreground sm:basis-full">
-              {connectGmailHelper}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-    </SurfaceInset>
+    <MailConnectionStatus
+      statusSummary={statusSummary}
+      primaryActionLabel={primaryActionLabel}
+      onConnect={() => void handleConnectGmail()}
+      loadingStatus={loadingStatus}
+      oauthCompletionPending={oauthCompletionPending}
+      isConnected={isConnected}
+      busy={gmailActionBusy !== null}
+      receiptCount={shouldShowReceiptCount ? visibleTotal : undefined}
+      receiptSyncInProgress={receiptSyncInProgress}
+      isPassiveBackfillState={isPassiveBackfillState}
+      hasStaleBackgroundSync={hasStaleBackgroundSync}
+      onRetry={
+        gmail.statusError
+          ? () => void refreshGmailStatus({ force: true, reconcile: false })
+          : undefined
+      }
+      connectGmailHelper={connectGmailHelper}
+      connectActionId={journeyVariant === "onboarding" ? "setup.connect_gmail" : undefined}
+    />
   );
 
   const receiptsPanel = (
@@ -2329,13 +2226,7 @@ export default function GmailReceiptsPage({
                 ),
                 kyc: (
                   <>
-                    {!isConnected && (loadingStatus || gmail.statusError) ? mailStatusPanel : null}
-                    {!isConnected && !loadingStatus && !gmail.statusError ? (
-                      <MailKycConnectEntry
-                        busy={gmailActionBusy !== null}
-                        onConnect={() => void handleConnectGmail()}
-                      />
-                    ) : null}
+                    {!isConnected ? mailStatusPanel : null}
 
                     {isConnected &&
                     (kycVisitedOwner === user?.uid || workspace === "kyc") ? (
