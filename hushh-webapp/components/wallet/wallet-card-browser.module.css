@@ -100,3 +100,8 @@
 @layer base {
   .browser [data-wallet-visitor-preview="true"] h3 { font-family: var(--font-app-body) !important; font-size: 13px !important; font-weight: 500 !important; line-height: 1.2 !important; }
 }
+
+/* Leave room for View details and both card edges above the dock in short windows. */
+@media (min-width: 640px) and (max-height: 640px) {
+  .browser[data-mode="all"] { padding-top: 8px; }
+}
