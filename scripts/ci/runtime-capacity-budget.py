@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -114,7 +115,7 @@ def revision_workers(
         ):
             declarations.append(positive_int(argument[2:], f"{name} workers"))
         elif isinstance(argument, str) and (
-            "--workers" in argument or "-w" in argument
+            re.search(r"(?:^|[\s\'\"])(?:--workers(?:=|\b)|-w)", argument)
         ):
             raise BudgetError(f"{name}: uninspectable shell worker override")
     if len(set(declarations)) > 1:

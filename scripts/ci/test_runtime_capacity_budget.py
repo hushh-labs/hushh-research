@@ -92,6 +92,11 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
                         row, "consent-protocol", SETTINGS, CONNECTION
                     )
         container["args"] = []
+        container["args"] = ["-w", "3", "--worker-tmp-dir", "/tmp"]
+        self.assertEqual(
+            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)["workers_per_instance"],
+            3,
+        )
         container["command"] = ["gunicorn", "--workers", "5"]
         with self.assertRaises(budget.BudgetError):
             budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)
