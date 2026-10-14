@@ -103,9 +103,9 @@ function JsonNode({
             </p>
           </div>
           {open ? (
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <ChevronDown  aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
           ) : (
-            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
         </CollapsibleTrigger>
         <CollapsibleContent className="px-3 pb-3">
@@ -172,9 +172,9 @@ function ManifestNode({
             </p>
           </div>
           {open ? (
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
           ) : (
-            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
         </CollapsibleTrigger>
         <CollapsibleContent className="px-3 pb-3">
