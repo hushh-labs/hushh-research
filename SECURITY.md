@@ -180,3 +180,9 @@ never mints a broad owner token. Vault lock/HCT revocation does not revoke these
 two provider reads; Calendar disconnect and Firebase invalidation do. Responses
 are private/no-store and event information remains in component memory. Legacy
 Calendar/chat reads and attendance mutations retain their existing HCT gates.
+
+Schedule results do not create a Live Memory source or PKM projection. Confirmed
+bookings and attendance responses remain in Google Calendar; the attendance
+review ledger is an operational idempotency record, not owner memory. The UI
+reports provider and Mail outcomes separately rather than persisting an inferred
+Calendar memory from an unsuccessful operation.
