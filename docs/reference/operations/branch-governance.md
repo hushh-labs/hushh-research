@@ -153,6 +153,8 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 - `.github/workflows/`
 - `.github/actions/`
 - `scripts/ci/`
+- `scripts/git/check-main-sync.sh` (the Base Freshness Gate's implementation; a PR
+  runs its own copy, so changing it needs the same review as the workflow)
 - `deploy/`
 - `config/ci-governance.json`
 - `config/protected-behaviors.json`
