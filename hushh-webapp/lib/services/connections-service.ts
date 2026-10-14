@@ -432,6 +432,8 @@ export class ConnectionsService {
     limit?: number;
     query?: string;
     audience?: ConnectionAudience;
+    /** A complete owner-memory scan must reject malformed 2xx pages, never normalize them to empty. */
+    sourceRead?: boolean;
   }): Promise<ConnectionPage> {
     const params = new URLSearchParams({
       page: String(opts.page ?? 1),
@@ -444,6 +446,13 @@ export class ConnectionsService {
       { method: "GET", headers: authHeaders(opts.idToken) },
     );
     const payload = await jsonOrThrow<Partial<ConnectionPage>>(response);
+    if (opts.sourceRead && (
+      !Array.isArray(payload.items) ||
+      !Number.isSafeInteger(payload.page) || Number(payload.page) < 1 ||
+      typeof payload.hasMore !== "boolean" ||
+      !Number.isSafeInteger(payload.totalCount) || Number(payload.totalCount) < 0 ||
+      payload.audience !== (opts.audience ?? "all")
+    )) throw new Error("Connection source page could not be verified");
     return {
       items: Array.isArray(payload.items) ? payload.items : [],
       page: Math.max(1, Number(payload.page) || opts.page || 1),
