@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-10-10",
-  "total_routes": 134,
-  "native_required_routes": 111,
+  "total_routes": 135,
+  "native_required_routes": 112,
   "excluded_routes": 23,
   "routes": [
     {
@@ -1550,6 +1550,20 @@
       "expectedRoute": "/one/welcome",
       "autoReviewerLogin": true,
       "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
+    },
+    {
+      "route": "/world-model/invite",
+      "classification": "native-required-functional",
+      "initialRoute": "/world-model/invite#claim=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedMarker": "native-route-pwm-invite",
+      "expectedRoute": "/world-model/invite",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ],
+      "reason": "Public PWM preview and verified-recipient handoff."
     },
     {
       "route": "/calendar/reschedule",

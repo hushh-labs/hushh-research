@@ -69,6 +69,7 @@ export const ROUTE_ID_VALUES = [
   "pkm_location_detail",
   "connected_systems",
   "profile_world_model",
+  "world_model_invite",
   "profile_pkm",
   "profile_pkm_agent_lab",
   "profile_receipts",
@@ -156,6 +157,7 @@ function normalizeRoutePathname(pathname: string): string {
 
 export function resolveRouteId(rawPathname: string): RouteId {
   const pathname = normalizeRoutePathname(rawPathname);
+  if (pathname === ROUTES.WORLD_MODEL_INVITE) return "world_model_invite";
   if (pathname === ROUTES.ONE_WELCOME) return "one_welcome";
   if (pathname === ROUTES.HOME) return "chat";
   if (pathname === ROUTES.ONE_HOME || pathname === ROUTES.WELCOME) {

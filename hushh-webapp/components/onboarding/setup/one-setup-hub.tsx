@@ -17,6 +17,8 @@ import { useInitialContacts } from "@/components/onboarding/initial-contacts-bri
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { WorldModelResearchService } from "@/lib/services/world-model-research-service";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -65,7 +67,16 @@ export function OneSetupHub() {
     (state) => state.queueEntryWelcome,
   );
   const [dismissing, setDismissing] = useState(false);
-  const [finalizationError, setFinalizationError] = useState<string | null>(null);
+  const [pwmConsent, setPwmConsent] = useState<{
+    owner: string;
+    enabled: boolean;
+    email: boolean;
+  } | null>(null);
+  const preparePwm = pwmConsent?.owner === user?.uid && pwmConsent?.enabled;
+  const emailPwm = pwmConsent?.owner === user?.uid && pwmConsent?.email;
+  const [finalizationError, setFinalizationError] = useState<string | null>(
+    null,
+  );
   const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const finalizationInFlightRef = useRef<Promise<string> | null>(null);
@@ -100,15 +111,23 @@ export function OneSetupHub() {
       if (!active || !saved) return;
       setRuntimeChoiceSnapshot({
         userId: user.uid,
-        state: PreVaultUserStateService.hasOneRuntimeChoice(saved) ? "complete" : "required",
+        state: PreVaultUserStateService.hasOneRuntimeChoice(saved)
+          ? "complete"
+          : "required",
       });
     };
     const unsubscribe = CacheService.getInstance().subscribe((event) => {
-      if (event.type === "set" && event.key === CACHE_KEYS.PRE_VAULT_BOOTSTRAP(user.uid)) {
+      if (
+        event.type === "set" &&
+        event.key === CACHE_KEYS.PRE_VAULT_BOOTSTRAP(user.uid)
+      ) {
         reconcileSavedChoice();
       }
     });
-    const cleanup = () => { active = false; unsubscribe(); };
+    const cleanup = () => {
+      active = false;
+      unsubscribe();
+    };
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
       setRuntimeChoiceSnapshot({
@@ -203,6 +222,13 @@ export function OneSetupHub() {
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
+      if (preparePwm) {
+        await WorldModelResearchService.updatePreferences(
+          { vaultKey, vaultOwnerToken },
+          { enabled: true, email_enabled: !!emailPwm },
+        );
+      }
+
       await acknowledgeOneSetupExit({
         userId: user.uid,
         skipped: false,
@@ -245,6 +271,8 @@ export function OneSetupHub() {
     }
   }, [
     completionTarget,
+    preparePwm,
+    emailPwm,
     returnTo,
     queueEntryWelcome,
     router,
@@ -361,7 +389,9 @@ export function OneSetupHub() {
 
   const summary = hubStateLoading
     ? "One moment…"
-    : runtimeChoiceComplete ? "Add more any time." : "Choose your AI first.";
+    : runtimeChoiceComplete
+      ? "Add more any time."
+      : "Choose your AI first.";
 
   return (
     <AppPageShell
@@ -377,14 +407,16 @@ export function OneSetupHub() {
       }}
     >
       <AppPageHeaderRegion>
-          <PageHeader
-            title={
-              !hubStateLoading && runtimeChoiceComplete ? "You're all set" : "Set up One"
-            }
-            description={summary}
-            accent="neutral"
-            className={styles.setupHeader}
-          />
+        <PageHeader
+          title={
+            !hubStateLoading && runtimeChoiceComplete
+              ? "You're all set"
+              : "Set up One"
+          }
+          description={summary}
+          accent="neutral"
+          className={styles.setupHeader}
+        />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className={styles.setupContent}>
@@ -397,7 +429,11 @@ export function OneSetupHub() {
                 <SetupNavigationTile
                   id="connections"
                   title="Choose your AI"
-                  description={runtimeChoiceComplete ? "Change this any time." : "Use ours, or bring your own."}
+                  description={
+                    runtimeChoiceComplete
+                      ? "Change this any time."
+                      : "Use ours, or bring your own."
+                  }
                   href={buildOneSetupConnectionsRoute(returnTo)}
                   voiceControlId="one_setup_tile_connections"
                   icon={lucideCapabilityIcon(PlugZap)}
@@ -420,6 +456,46 @@ export function OneSetupHub() {
                 </SettingsGroup>
               ) : null}
               <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
+                <div className="mb-4 space-y-2 text-xs text-muted-foreground">
+                  <label className="flex min-h-11 items-start gap-3 py-2">
+                    <Checkbox
+                      checked={!!preparePwm}
+                      disabled={dismissing}
+                      data-voice-control-id="one_setup_pwm_consent"
+                      onCheckedChange={(checked) =>
+                        user &&
+                        setPwmConsent({
+                          owner: user.uid,
+                          enabled: checked === true,
+                          email: !!emailPwm,
+                        })
+                      }
+                    />
+                    <span>
+                      Prepare my Personal World Model. Gemini may search public
+                      sources using my name and verified contact. I’ll review
+                      the results.
+                    </span>
+                  </label>
+                  {preparePwm && (
+                    <label className="flex min-h-11 items-center gap-3">
+                      <Checkbox
+                        checked={!!emailPwm}
+                        disabled={dismissing}
+                        data-voice-control-id="one_setup_pwm_email"
+                        onCheckedChange={(checked) =>
+                          user &&
+                          setPwmConsent({
+                            owner: user.uid,
+                            enabled: true,
+                            email: checked === true,
+                          })
+                        }
+                      />
+                      Email me when it is ready
+                    </label>
+                  )}
+                </div>
                 <Button
                   type="button"
                   variant="blue"

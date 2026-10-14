@@ -1667,7 +1667,7 @@
       "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence"
     },
     {
-      "data_class": "workflow_state",
+      "data_class": "personal_encrypted",
       "exact_tables": [
         "pwm_claim_invitations"
       ],
@@ -1684,7 +1684,18 @@
       "id": "pwm_provider_budget",
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
-      "primary_access_path": "Atomic monthly provider credit charge before dispatch."
+      "primary_access_path": "Legacy Tavily aggregate accounting retained for history; native PWM has no active writer to this table."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pwm_research_preferences",
+        "pwm_completion_events"
+      ],
+      "id": "pwm_research_lifecycle",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner consent and generation fences; checkpoint CAS creates metadata outbox and transactional Feed projection. Dedicated notification worker claims email leases."
     },
     {
       "data_class": "workflow_state",
@@ -6357,33 +6368,56 @@
         "delegate_agent_ids": [],
         "playbook_id": "route.welcome"
       }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pwm-invite",
+      "page_file": "app/world-model/invite/page.tsx",
+      "pathname": "/world-model/invite",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.world_model.invite"
+      }
     }
   ],
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
-    "action_gateway": "8b3aba3024ee630e40a020a20364089e1a3cbd769c3a81151dcd6a904b7e16a3",
-    "agent_registry": "c7f857e2dbec4b6c9e7b88bdb6da3de66f1ed6eead0ae3e80ba3a4b2c206ce98",
-    "cache_manifest": "afb1b2fe05e404ddcaf5e108ed2f2f897a16df1238b9e4d49767c6360ccccba5",
-    "data_plane": "ac06d30f5c49eff8745e39c52678253d1f8f1cf1ee2eaaefaae6377b5209397c",
+    "action_gateway": "87ff1cf21a1797371d7916e1d28265a62027a3afd2c084e9d50fca52b13280f8",
+    "agent_registry": "89c1ee738effeaa899f0d1467104bf075dc53cbb0ff7c06ce66ecde1fece2c28",
+    "cache_manifest": "5d9690804dbb56234b716f40dc17d639f91363aee846ce28280cdfb63648f229",
+    "data_plane": "5f449bea7560644aee95b76e83d80877de0a51386d1b9a86e09b2619f6831d97",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
-    "route_index": "bee17f56a0ad77e1ccbdcd0079b8bd275909b3e449d97d00739a8b54317c2073",
-    "route_layout": "785b746061eb7077d0829875f6c09c3191189a2f52f8b5bd2ea4c14ee8ca911c",
-    "surface_map": "e1b7685cca60fb26713e5dcd7b7fa761641516d8e0cac111eb44ee65f1390388",
+    "route_index": "4c8a414f085c7e134cd16c4dcee755413094ad437da96bb816ffd061d22ea7c4",
+    "route_layout": "80c2227052ff4c4c3314b8fc9edf5c0e1b753b05c73a52b6d1b60b6e94fccb76",
+    "surface_map": "f734282b2edd25d2ee654178b8f97a4c8035dde4c0f20eec564717c9a03040f8",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 246,
+    "actions": 256,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 153,
+    "physical_routes": 154,
     "semantic_routes": 14,
-    "table_families": 103
+    "table_families": 104
   }
 }

@@ -1082,9 +1082,6 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CLOUD_RUN_MEMORY=6Gi"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}##_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
-          if gcloud secrets describe PWM_TAVILY_API_KEY --project="${{ env.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
-            SUBSTITUTIONS="${SUBSTITUTIONS}##_PWM_TAVILY_API_KEY_SECRET=PWM_TAVILY_API_KEY"
-          fi
           # The packaged profile owns every managed AI surface.
           SUBSTITUTIONS="${SUBSTITUTIONS}##$(python3 scripts/ops/managed_ai_config.py --environment uat --format substitutions)"
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
@@ -2611,6 +2608,25 @@ jobs:
               raise SystemExit('Scheduled mail drain scheduler configuration drifted')
           PY
 
+      - name: Activate PWM completion notifications
+        id: activate-pwm-notifications
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.activate-account-deletion.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'true' }}
+        run: |
+          set -euo pipefail
+          bash deploy/pwm/setup_notification_scheduler.sh | tee /tmp/uat-pwm-notifications-setup.log
+
+      - name: Upload PWM scheduler verification
+        if: always() && steps.scope.outputs.deploy_backend == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-pwm-notification-scheduler
+          path: /tmp/uat-pwm-notifications-setup.log
+          if-no-files-found: warn
+
       - name: Activate personal Gmail monitor
         id: activate-personal-gmail-monitor
         if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
@@ -2801,6 +2817,7 @@ jobs:
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
+                 || [ "${{ steps.activate-pwm-notifications.outcome }}" != "success" ] \
                  || [ "${{ steps.deploy-drive-worker.outcome }}" != "success" ]; }; then
               STATUS="blocked"
             else
@@ -2879,6 +2896,7 @@ jobs:
                   "semantic_success": "${{ steps.classify-uat-release.outputs.semantic_success }}",
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
                   "reviewer_byok": "${{ steps.verify-reviewer-byok.outcome }}",
+                  "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",

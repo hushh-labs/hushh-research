@@ -382,7 +382,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
           "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -697,7 +697,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "hidden",
-        "exemption_reason": "Public three-screen Circle invitation preview owns its navigation; account-based joining continues through the protected Connect flow.",
+        "exemption_reason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -2388,7 +2388,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
           "next_route": "/one",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -7460,8 +7460,16 @@
       "voice_action_contract_ids": [
         "profile.world_model.build",
         "profile.world_model.claim",
+        "profile.world_model.discard",
+        "profile.world_model.email",
         "profile.world_model.invite",
-        "profile.world_model.review"
+        "profile.world_model.pause",
+        "profile.world_model.preview",
+        "profile.world_model.refresh",
+        "profile.world_model.reject",
+        "profile.world_model.retry",
+        "profile.world_model.review",
+        "profile.world_model.sources"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -10323,7 +10331,69 @@
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
+    },
+    {
+      "route": "/world-model/invite",
+      "page_file": "app/world-model/invite/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public invitation preview preserves its token through authentication and vault setup.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.world_model.invite",
+          "purpose": "Review an inviter-prepared public professional preview and continue through verified claiming.",
+          "screen": "app",
+          "entry_cue": "Review your starting profile, then continue when ready.",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Navigation only. Claim requires explicit action by the verified recipient.",
+          "next_route": "/one/profile/world-model",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/world-model/invite",
+        "classification": "native-required-functional",
+        "initialRoute": "/world-model/invite#claim=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expectedMarker": "native-route-pwm-invite",
+        "expectedRoute": "/world-model/invite",
+        "autoReviewerLogin": false,
+        "expectedAuth": "anonymous",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ],
+        "reason": "Public PWM preview and verified-recipient handoff."
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "ef4d36080e9c86e434cecd1540c558b84fcc5247399c109f676c9c72f033551a"
+  "content_sha256": "9517f63bd5e660dda558468c4e9bde028bb5bd68e855edc4ceeebcd5e5c67328"
 }

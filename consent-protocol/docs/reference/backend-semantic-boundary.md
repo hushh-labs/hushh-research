@@ -855,7 +855,7 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
 ### Declared: explicit Personal World Model research
 
 - Owning agent: One's `one_personal_world_model` manifest specialist, entered by
-  the owner from Profile. It chooses source queries, identity pivots, evidence
+  owner consent in setup or Profile. It chooses source queries, identity pivots, evidence
   interpretation, fact support, coverage gaps and plain-English summaries.
 - Host contract: verified owner/setup/vault authority; exact contact matching for
   invitation claims; bounded durable attempts, timeouts, response schemas and
@@ -871,5 +871,13 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   state and attempt charges without logging identity or query contents.
 - Evidence: checkpoint/revocation/completion tests and invitation authority tests
   exercise production services. Live precision, preference attribution and
-  latency require consented evaluation after the optional search key is configured.
+  latency require consented live evaluation through managed Vertex.
+- Native Google responses stay view-only. Independently supplied permitted URL Context
+  sources produce a separate `ProfileReport` review draft. Successful requested-URL
+  receipts, purpose bounds and exact selection protect that save path. The same
+  manifest owns both modes; the host never turns grounded links into crawl inputs.
+- Structured intelligence contracts: `QueryPlan`, `IdentityAssessment`, and
+  `WorldModelReport` in `one_adk/world_model_contracts.py`. Evidence existence,
+  candidate membership, conflict conditions and topic receipt checks validate
+  model output; they do not choose queries or generate replacement interpretations.
 - Scope and exact prompt: [Personal World Model KT](../../../docs/reference/one/personal-world-model.md).
