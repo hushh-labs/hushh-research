@@ -657,7 +657,7 @@ a.referral-bubble-action { border: 0; background: transparent; box-shadow: none;
 .referral-overview .referral-stat-icon svg,
 .referral-overview .referral-streak-card [role="img"] svg { width: 18px; height: 18px; }
 .referral-overview .referral-stat-icon-0 { background: #fff1d4 !important; color: #a66b00; }
-.referral-overview .referral-stat-icon-1 { background: #e2edff !important; color: #007aff; }
+.referral-overview .referral-stat-icon-1 { background: var(--app-accent-surface) !important; color: var(--app-accent-deep); }
 .referral-overview .referral-stat-icon-2 { background: #def3ea !important; color: #008765; }
 .referral-overview .referral-streak-card [role="img"] { background: #ffecdD !important; }
 .referral-overview .referral-stat:first-child .referral-type-value { color: #1d1d1f; }

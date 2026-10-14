@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { GiftIcon } from "@phosphor-icons/react";
 import { ShellActionSurface, SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowRightIcon, MoreHorizontal } from "@/components/icons";
+import { ArrowRightIcon, GiftIcon, MoreHorizontal } from "@/components/icons";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
