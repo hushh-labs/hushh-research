@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import os
 import subprocess
 import sys
@@ -39,6 +40,8 @@ MAX_SOURCE_BYTES = 32 * 1024 * 1024
 MAX_BATCH_PAGES = 4
 MAX_PAGE_TEXT_BYTES = 64 * 1024
 MAX_RENDER_PIXELS = 12_000_000
+MIN_RENDER_DPI = 150
+RENDER_POLICY_VERSION = "bounded-adaptive-dpi-v1"
 OCR_SECONDS = 12
 TESSERACT_BINARY = "/usr/bin/tesseract"
 TESSDATA_FILE = "/usr/share/tesseract-ocr/5/tessdata/eng.traineddata"
@@ -60,6 +63,7 @@ def engine_versions() -> dict:
         tesseract = "unavailable"
     data = Path(TESSDATA_FILE)
     return {
+        "render_policy": RENDER_POLICY_VERSION,
         "pdfplumber": version("pdfplumber"),
         "pypdfium2": version("pypdfium2"),
         "tesseract": tesseract,
@@ -143,11 +147,23 @@ def _ocr_page(pdf, number: int) -> tuple[str, dict]:
     bitmap = None
     try:
         width, height = page.get_size()
-        scale = 200 / 72
-        if width <= 0 or height <= 0 or width * height * scale * scale > MAX_RENDER_PIXELS:
+        if not all(math.isfinite(value) and value > 0 for value in (width, height)):
             raise ParseError("page_render_budget_exceeded")
-        bitmap = page.render(scale=scale)
+        # Tall exported pages can narrowly exceed the pixel budget at 200 DPI.
+        # Bound the allocation before rendering, including PDFium's rounding,
+        # and preserve a gap instead of silently reducing below readable size.
+        dpi = min(200, math.floor(72 * math.sqrt(MAX_RENDER_PIXELS / (width * height))))
+        while dpi >= MIN_RENDER_DPI:
+            scale = dpi / 72
+            if math.ceil(width * scale) * math.ceil(height * scale) <= MAX_RENDER_PIXELS:
+                break
+            dpi -= 1
+        if dpi < MIN_RENDER_DPI:
+            raise ParseError("page_render_budget_exceeded")
+        bitmap = page.render(scale=dpi / 72)
         image = bitmap.to_pil()
+        if image.width * image.height > MAX_RENDER_PIXELS:
+            raise ParseError("page_render_budget_exceeded")
         payload = io.BytesIO()
         image.save(payload, format="PNG")
         result = subprocess.run(  # noqa: S603 - fixed local OCR, private stdin, no shell
@@ -178,7 +194,9 @@ def _ocr_page(pdf, number: int) -> tuple[str, dict]:
             if confidences
             else None,
             "confidence_kind": "ocr_engine_score_not_probability",
-            "render_dpi": 200,
+            "render_dpi": dpi,
+            "render_policy": "bounded-adaptive-dpi-v1",
+            "render_pixels": image.width * image.height,
         }
     except FileNotFoundError:
         raise ParseError("ocr_unavailable") from None

@@ -195,10 +195,10 @@ for (const theme of ["light", "dark"] as const)
           return filter && filter !== "none";
         }).length);
       expect(blurred, `${label} glass`).toBe(0);
-      // Bare duotone glyphs on transparent wells; never a sparkle; no em dash.
+      // Bare outline glyphs on transparent wells; never a sparkle; no em dash.
       for (const well of await page.locator("[data-slot='settings-row-icon']").all()) {
         expect(await well.getAttribute("data-icon-tone")).toBe("capability");
-        expect(await well.locator("svg [opacity='0.2']").count()).toBeGreaterThan(0);
+        expect(await well.locator("svg [opacity='0.2']").count()).toBe(0);
       }
       const text = (await page.getByTestId("style-settings").textContent()) ?? "";
       expect(text).not.toMatch(/[—–]/);

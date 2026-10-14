@@ -40,6 +40,35 @@ EXPECTED_MILESTONES = (
 )
 
 
+def test_usd_catalogue_preserves_milestone_identity_and_settings_history() -> None:
+    """Currency rollout changes rewards, never earned totals or eligibility."""
+    filename = "338_one_referral_usd_catalogue.sql"
+    sql = _statements((MIGRATIONS_DIR / filename).read_text(encoding="utf-8"))
+    rewards = _milestones_json(sql)
+    assert [(r["milestone_key"], r["threshold"]) for r in rewards] == [
+        (key, threshold) for key, threshold, _ in EXPECTED_MILESTONES
+    ]
+    assert [r["reward"] for r in rewards] == [
+        "$25 Amazon voucher",
+        "Wireless earbuds",
+        "Apple Watch",
+        "iPhone",
+    ]
+    assert "LOCK TABLE one_referral_program_settings" in sql
+    assert "IS DISTINCT FROM expected" in sql
+    assert "prior.points" in sql and "prior.feature_active" in sql
+    assert "DELETE" not in sql
+    assert "one_referral_milestone_entitlements" not in sql
+    manifest = _manifest()
+    assert filename in manifest["ordered_migrations"]
+    rollback = _statements(
+        (MIGRATIONS_DIR / manifest["rollback_migrations"][filename]).read_text(encoding="utf-8")
+    )
+    assert "SET retired_at = NULL WHERE version = 2" in rollback
+    assert "SET retired_at = NOW() WHERE version = 3" in rollback
+    assert "DELETE" not in rollback
+
+
 def _migration() -> str:
     return (MIGRATIONS_DIR / MIGRATION).read_text(encoding="utf-8")
 

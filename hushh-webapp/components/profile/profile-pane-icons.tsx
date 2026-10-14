@@ -1,4 +1,5 @@
 import type { ReactNode, SVGProps } from "react";
+import { AccentedKeyIcon } from "@/components/icons/ui/accented-key-icon";
 
 type ProfilePaneIconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
@@ -181,13 +182,7 @@ export function ProfilePaneCalendarIcon(props: ProfilePaneIconProps) {
 }
 
 export function ProfilePaneKeyIcon(props: ProfilePaneIconProps) {
-  return (
-    <PaneIcon {...props}>
-      <circle cx="15.5" cy="8.5" r="5.5" />
-      <path d="m11.6 12.4-8.6 8.6v-4l7.3-7.3" />
-      <path className="profile-pane-icon-accent" d="M16 7h.01M6 18v-3h3" />
-    </PaneIcon>
-  );
+  return <AccentedKeyIcon size={24} {...props} />;
 }
 
 export function ProfilePaneGlobeIcon(props: ProfilePaneIconProps) {

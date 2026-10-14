@@ -183,9 +183,9 @@ def _sdk_connection(state):
     )
 
 
-def _real_adapter(orgs, connection_states):
+def _real_adapter(orgs, connection_states, api_key="sk_test_x"):
     adapter = WorkOSSdkAdapter(
-        WorkOSConfig(api_key="sk_test_x", client_id="client_x", redirect_uri="https://a.example/b")
+        WorkOSConfig(api_key=api_key, client_id="client_x", redirect_uri="https://a.example/b")
     )
     connections = [_sdk_connection(state) for state in connection_states]
     adapter._client = SimpleNamespace(
@@ -296,6 +296,7 @@ class FakeWorkOS:
         self.profile = SsoProfile(id="prof_1", organization_id="org_01", email="Ada@Acme.example")
         self.orgs = {"org_01": _acme()}
         self.urls = []
+        self.redirects = []
 
     def find_organization_by_domain(self, domain):
         for org in self.orgs.values():
@@ -306,8 +307,9 @@ class FakeWorkOS:
     def get_organization(self, organization_id):
         return self.orgs.get(organization_id)
 
-    def authorization_url(self, *, organization_id, state, login_hint):
+    def authorization_url(self, *, organization_id, state, login_hint, redirect_uri=None):
         self.urls.append((organization_id, login_hint))
+        self.redirects.append(redirect_uri)
         return f"https://workos.example/authorize?organization={organization_id}&state={state}"
 
     def exchange_code(self, code):
@@ -661,12 +663,13 @@ def test_deploy_binds_exactly_the_variables_the_runtime_reads(monkeypatch):
     for name in [n for n in os.environ if n.startswith("WORKOS_")]:
         monkeypatch.delenv(name)
     for name in bound:
-        monkeypatch.setenv(name, "https://app.example/login" if name.endswith("_URI") else "true")
+        value = {"_URI": "https://app.example/login", "_ORIGINS": "https://app.example"}
+        monkeypatch.setenv(name, next((v for k, v in value.items() if name.endswith(k)), "true"))
 
     config = WorkOSConfig.from_env()
 
     assert workos_sso_enabled()
-    assert config.sign_in_ready and config.webhook_secret
+    assert config.sign_in_ready and config.webhook_secret and config.redirect_origins
 
 
 async def test_sign_in_is_unavailable_without_the_webhook_secret():
@@ -684,3 +687,64 @@ async def test_sign_in_is_unavailable_without_the_webhook_secret():
 
     assert refused.value.code == "sso_unavailable"
     assert refused.value.status_code == 503
+
+
+@pytest.mark.parametrize(
+    ("connection_states", "disabled"),
+    [([], True), (["active"], False), (["inactive"], True)],
+)
+def test_production_reads_an_empty_connection_list_as_no_sso(connection_states, disabled):
+    # Production has no hidden test provider, so an organization with no connection must not
+    # be sent to WorkOS (the person would land on a failed sign-in).
+    org = _sdk_org([("acme.example", "verified")])
+    adapter = _real_adapter([org], connection_states, api_key="sk_live_x")
+    assert adapter.get_organization("org_01").sso_disabled is disabled
+
+
+_DEFAULT_REDIRECT = "https://uat.one.hushh.ai/login"
+_ORIGINS = ("https://uat.one.hushh.ai", "https://uat.one.hussh.ai", "https://uat.one.hussh.si")
+
+
+@pytest.mark.parametrize(
+    ("origin", "expected"),
+    [
+        ("https://uat.one.hussh.ai", "https://uat.one.hussh.ai/login"),
+        ("https://UAT.one.hussh.si/", "https://uat.one.hussh.si/login"),
+        ("https://evil.example", _DEFAULT_REDIRECT),  # not a host we serve
+        ("http://uat.one.hussh.ai", _DEFAULT_REDIRECT),  # plain http is never honoured
+        (None, _DEFAULT_REDIRECT),
+    ],
+)
+def test_sso_returns_only_to_an_origin_we_serve(origin, expected):
+    config = replace(CONFIG, redirect_uri=_DEFAULT_REDIRECT, redirect_origins=_ORIGINS)
+    assert config.redirect_uri_for(origin) == expected
+
+
+def test_a_misconfigured_insecure_origin_is_still_never_honoured_except_localhost():
+    config = replace(
+        CONFIG,
+        redirect_uri=_DEFAULT_REDIRECT,
+        redirect_origins=("http://insecure.example", "http://localhost:3000"),
+    )
+    assert config.redirect_uri_for("http://insecure.example") == _DEFAULT_REDIRECT
+    assert config.redirect_uri_for("http://localhost:3000") == "http://localhost:3000/login"
+
+
+async def test_start_sends_workos_the_redirect_for_the_origin_the_person_started_on():
+    workos = FakeWorkOS()
+    service = EnterpriseSsoService(
+        workos=workos,
+        config=replace(CONFIG, redirect_origins=("https://alt.example",)),
+        firebase=FakeFirebase(),
+        consent=FakeConsent(),
+        is_tombstoned=lambda uid: False,
+    )
+
+    await service.start(
+        email="someone@acme.example", organization_id=None, origin="https://alt.example"
+    )
+    await service.start(
+        email="someone@acme.example", organization_id=None, origin="https://evil.example"
+    )
+
+    assert workos.redirects == ["https://alt.example/cb", "https://app.example/cb"]

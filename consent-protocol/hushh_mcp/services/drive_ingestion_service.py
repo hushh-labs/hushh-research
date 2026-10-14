@@ -11,6 +11,7 @@ from dataclasses import asdict, replace
 from typing import Protocol
 
 from hushh_mcp.services.document_index_service import PreparedIndex, index_version
+from hushh_mcp.services.drive_document_targets import document_targets
 from hushh_mcp.services.drive_ingestion_store import DriveIngestionStore
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
@@ -97,11 +98,16 @@ class DriveIngestionService:
             require_current=lambda: self.store.current(job),
         )
 
-    async def run_one(self, *, user_id: str) -> dict[str, str]:
+    async def run_one(self, *, user_id: str, document_ids=None) -> dict[str, str]:
+        targets = document_targets(document_ids)
         row = await self.oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if not row:
             return {"status": "unavailable"}
-        job = await self.store.claim(user_id=user_id, generation=row["connection_generation"])
+        job = await self.store.claim(
+            user_id=user_id,
+            generation=row["connection_generation"],
+            **({"document_ids": targets} if targets is not None else {}),
+        )
         if not job:
             return {"status": "idle"}
         try:

@@ -13,6 +13,23 @@ from hushh_mcp.services.gmail_delivery_service import GmailDeliveryService
 _TEST_CONSENT_TOKEN = "owner-token"
 
 
+async def test_receipt_caller_can_own_its_retry_budget(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    run = AsyncMock(side_effect=ValueError("single-turn response does not match output schema"))
+    monkeypatch.setattr(runtime, "build_single_turn_agent", lambda *args, **kwargs: object())
+    monkeypatch.setattr(runtime, "run_single_turn", run)
+    with pytest.raises(ValueError):
+        await runtime.run_email_gene(
+            gene_id="agent_email_receipt_extractor",
+            prompt="synthetic receipt",
+            user_id="owner",
+            consent_token=_TEST_CONSENT_TOKEN,
+            retry_on_failure=False,
+        )
+    run.assert_awaited_once()
+
+
 @pytest.mark.parametrize(
     ("gene_id", "output_schema"),
     [

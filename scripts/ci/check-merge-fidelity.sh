@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # scripts/ci/check-merge-fidelity.sh
 #
-# CI orchestrator for the merge-fidelity checks. The Base Freshness Gate
-# proves a PR CONTAINS main's commits as ancestors. It says nothing about
+# CI orchestrator for the merge-fidelity checks. In block mode (merge queue,
+# integration/pr-train) the Base Freshness Gate proves a PR CONTAINS main's
+# commits as ancestors; on PRs into main it is bounded and only proves the
+# tested merge is recent with no overlapping main changes. Either way it says
+# nothing about
 # whether the PR's content still HAS what those commits landed. Three
 # different ways to lose landed work, three passes:
 #
@@ -126,18 +129,22 @@ run_pass "A · conflict resolutions in this PR's sync merges" \
 # On a branch that is merely BEHIND, every commit the base gained since the
 # fork point answers "missing" and the check turns into pure noise — a branch
 # forked an hour ago flags every file main touched in that hour. Being behind
-# is the Base Freshness Gate's job, and that gate BLOCKS, so it is the
-# authority on it; there is nothing for this advisory check to add. Skip.
+# is the Base Freshness Gate's job, so it is the authority on it; there is
+# nothing for this advisory check to add. Skip. That gate blocks any lag on
+# integration/pr-train and the merge queue, but on PRs into main it is bounded
+# (2026-10-15): it blocks a stale merge-base or a file main changed after the
+# base the PR's checks tested. A behind PR can pass it, and then these two
+# passes do not run on it.
 if git merge-base --is-ancestor "$BASE_SHA" HEAD 2>/dev/null; then
   BASE_IN_HEAD=1
 else
   BASE_IN_HEAD=0
   echo ""
   echo "[merge-fidelity] PASSES B and C skipped — HEAD does not contain $BASE_REF's tip"
-  echo "                 (${BASE_SHA:0:9}). This branch is behind its base, which the Base"
-  echo "                 Freshness Gate already blocks on. Sync the branch and re-run;"
-  echo "                 asking whether the base's content survived into a branch that"
-  echo "                 never received it only produces false findings."
+  echo "                 (${BASE_SHA:0:9}). This branch is behind its base; whether that"
+  echo "                 blocks is the Base Freshness Gate's call. Sync and re-run to get"
+  echo "                 these passes; asking whether the base's content survived into a"
+  echo "                 branch that never received it only produces false findings."
 fi
 
 # ---- Pass B: fork point -> base tip, did it survive into HEAD? -------------

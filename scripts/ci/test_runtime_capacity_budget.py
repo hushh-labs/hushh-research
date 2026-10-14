@@ -254,15 +254,23 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             revision("app-older-drain"),
         ]
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
-        for environment in ("uat", "production"):
+        # Production reserves every retained revision until it is deleted: its
+        # 1-vCPU instance had 8 connections of deploy headroom (292/300) on
+        # 2026-10-14. UAT counts only revisions that can still take requests
+        # (serving, tagged, latest and the rollback allowance). Its retired
+        # revisions run at min-instances 0, and measured UAT peak was 256 of
+        # 1000 connections while full-cap accounting refused 19 of 49 failed
+        # UAT deploys in a week.
+        for environment, total in (("production", 210), ("uat", 140)):
             for configured in profile["environments"][environment]["services"].values():
                 with self.subTest(environment=environment, container=configured["container"]):
                     settings = {**SETTINGS, "count_retained_revisions": configured.get("count_retained_revisions")}
                     rows = budget.service_budget("app", settings, service, revisions, CONNECTION)
-                    self.assertEqual(
-                        {row["name"] for row in rows}, {r["metadata"]["name"] for r in revisions}
-                    )
-                    self.assertEqual(sum(row["connections"] for row in rows), 210)
+                    if environment == "production":
+                        self.assertEqual(
+                            {row["name"] for row in rows}, {r["metadata"]["name"] for r in revisions}
+                        )
+                    self.assertEqual(sum(row["connections"] for row in rows), total)
         # Negative control: the legacy policy reserves only one unreferenced revision.
         legacy = budget.service_budget("app", SETTINGS, service, revisions, CONNECTION)
         self.assertEqual(sum(row["connections"] for row in legacy), 140)

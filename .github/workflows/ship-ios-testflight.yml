@@ -18,11 +18,6 @@ on:
         required: false
         default: false
         type: boolean
-      initial_contacts_onboarding:
-        description: Build the optional initial Contacts welcome for UAT testing.
-        required: false
-        default: false
-        type: boolean
       require_hardware:
         description: Run the optional attached-iPhone capture p95 gate (recommended for voice/device changes).
         required: false
@@ -56,7 +51,6 @@ env:
   XCODE_SCHEME: App
   PBXPROJ: hushh-webapp/ios/App/App.xcodeproj/project.pbxproj
   NODE_OPTIONS: --max-old-space-size=8192
-  NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED: ${{ inputs.initial_contacts_onboarding && 'true' || 'false' }}
 
 jobs:
   preflight:

@@ -239,7 +239,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       </div>)}
     </div> : null}
     <ul className="divide-y rounded-2xl bg-foreground/10">{items.map(item => <li key={item.connectorId} className="px-4 py-3">
-      <p className="text-sm font-medium">{item.displayName}</p>
+      <p className="text-sm font-normal">{item.displayName}</p>
       <p className="text-xs text-muted-foreground">{!item.enabled ? "Blocked for new turns"
         : authRequired[item.connectorId] ? item.authenticationKind === "api_key"
           ? "Saved credential rejected · remove and add again"

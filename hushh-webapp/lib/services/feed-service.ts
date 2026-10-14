@@ -8,9 +8,16 @@ import {
 } from "@/lib/services/cache-service";
 
 export type FeedSourceDomain =
-  "consent" | "location" | "kai" | "kyc" | "connected_systems" | "connections";
+  | "consent"
+  | "location"
+  | "kai"
+  | "kyc"
+  | "connected_systems"
+  | "connections"
+  | "pwm";
 
 export type FeedEventType =
+  | "pwm_research"
   | "consent_requested"
   | "consent_granted"
   | "consent_revoked"
@@ -159,7 +166,8 @@ export class FeedService {
       },
       ...(options.body ? { body: JSON.stringify(options.body) } : {}),
     });
-    const payload = (await response.json().catch(() => ({}))) as T & ErrorPayload;
+    const payload = (await response.json().catch(() => ({}))) as T &
+      ErrorPayload;
     if (!response.ok) {
       throw feedRequestError(payload, response.status);
     }
@@ -178,7 +186,9 @@ export class FeedService {
       ...options,
       path: `/api/one/feed/${encodeURIComponent(options.itemId)}/dismiss`,
     });
-    return typeof result.dismissal_token === "string" ? result.dismissal_token : null;
+    return typeof result.dismissal_token === "string"
+      ? result.dismissal_token
+      : null;
   }
 
   static async restore(options: {
@@ -228,7 +238,9 @@ export class FeedService {
       ? CACHE_KEYS.FEED_LIST(firstPageUserId)
       : null;
     const cache = CacheService.getInstance();
-    const epoch = firstPageUserId ? currentFeedInvalidationEpoch(firstPageUserId) : null;
+    const epoch = firstPageUserId
+      ? currentFeedInvalidationEpoch(firstPageUserId)
+      : null;
     if (cacheKey && !options.force) {
       const cached = cache.get<FeedListResponse>(cacheKey);
       if (cached) return cached;
@@ -251,7 +263,11 @@ export class FeedService {
     if (!response.ok) {
       throw feedRequestError(payload, response.status);
     }
-    if (cacheKey && firstPageUserId && epoch === currentFeedInvalidationEpoch(firstPageUserId)) {
+    if (
+      cacheKey &&
+      firstPageUserId &&
+      epoch === currentFeedInvalidationEpoch(firstPageUserId)
+    ) {
       cache.set(cacheKey, payload, CACHE_TTL.SHORT);
       // The list response and bottom-nav badge describe the same snapshot.
       // Seed both keyed projections together so opening Feed does not launch a
@@ -288,7 +304,8 @@ export class FeedService {
       throw feedRequestError(payload, response.status);
     }
     const count = payload.unread_count ?? 0;
-    if (epoch === currentFeedInvalidationEpoch(options.userId)) cache.set(cacheKey, count, CACHE_TTL.SHORT);
+    if (epoch === currentFeedInvalidationEpoch(options.userId))
+      cache.set(cacheKey, count, CACHE_TTL.SHORT);
     return count;
   }
 

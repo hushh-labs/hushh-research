@@ -41,6 +41,15 @@ export type WebHistoryBackCorrection = {
 
 type NavigateTopShellBack = typeof navigateTopShellBack;
 
+// Optional browser API: older engines retain the popstate fallback below.
+type BrowserNavigation = EventTarget & {
+  currentEntry: { index: number } | null;
+};
+type BrowserNavigateEvent = Event & {
+  navigationType: string;
+  destination: { index: number; sameDocument: boolean };
+};
+
 function pathnameOf(href: string): string {
   const path = href.split("#")[0]?.split("?")[0] ?? href;
   return path || href;
@@ -58,9 +67,9 @@ function searchOf(href: string): string {
  * to resync Next's router after each direct write. A real native pop while
  * the pane is open already reveals the authored parent -- this mechanism
  * must do nothing there,
- * for two independent reasons: (1) the primary guard below ignores untrusted
- * (synthetic) events entirely, since profile-pane.ts's own popstate is never
- * user-trusted; (2) belt-and-suspenders, skip explicitly whenever either side
+ * for two independent reasons: (1) untrusted (synthetic) events below only
+ * refresh the owner's snapshot and never navigate; (2) belt-and-suspenders,
+ * skip explicitly whenever either side
  * of a transition is Profile-Pane-governed, independent of isTrusted fidelity.
  */
 function isProfilePaneGoverned(location: RouteLocation): boolean {
@@ -133,6 +142,21 @@ export function decideWebHistoryBackCorrection(
 let lastSettled: RouteLocation | null = null;
 let lastSettledHistoryState: unknown = null;
 
+function isTopmostConfirmationOpen(doc: Document): boolean {
+  const overlays = doc.querySelectorAll<HTMLElement>(
+    '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+  );
+  return overlays[overlays.length - 1]?.getAttribute("role") === "alertdialog";
+}
+
+function recordCurrentBrowserHistory(): void {
+  // A router can commit the popped parent before this shell's listener runs.
+  // Keep the confirmation's underlying entry until Back consumes the overlay.
+  if (lastSettled && isProfilePaneGoverned(lastSettled) && isTopmostConfirmationOpen(document)) return;
+  lastSettled = { pathname: window.location.pathname, search: window.location.search };
+  lastSettledHistoryState = window.history.state;
+}
+
 /** A confirmation above Profile consumes Back before the pane stack does. */
 export function dismissProfileConfirmationOnBack(params: {
   previous: RouteLocation | null;
@@ -146,12 +170,9 @@ export function dismissProfileConfirmationOnBack(params: {
     profilePaneHistoryDepth(params.revealedHistoryState)
   ) return false;
   const doc = params.doc ?? document;
-  const overlays = doc.querySelectorAll<HTMLElement>(
-    '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
-  );
   // Profile is itself a dialog. Only a confirmation layered above it consumes
   // this entry; ordinary pane Back and Forward retain their authored history.
-  if (overlays[overlays.length - 1]?.getAttribute("role") !== "alertdialog") return false;
+  if (!isTopmostConfirmationOpen(doc)) return false;
   return dismissTopmostOverlay(doc);
 }
 
@@ -162,41 +183,61 @@ export function dismissProfileConfirmationOnBack(params: {
  * handlers: gated to exactly the platforms those two don't cover.
  */
 export function useWebHistoryBack(pathname: string, search: string): void {
-  // useLayoutEffect, not useEffect: the popstate listener below reads
-  // `lastSettled` and must see the location current as of the last *render*,
-  // before any later effect queues a navigation -- same reasoning as
-  // back-layers.ts's useBackLayer keeping its callback ref current via
-  // useLayoutEffect.
+  // Pair the browser URL with its history state before passive navigation
+  // effects run. Profile can write its entry before Next's query render
+  // settles, so delayed router props must not replace the owner's snapshot.
   useLayoutEffect(() => {
-    // Normalize to window.location.search's own shape (a leading `?`, or
-    // empty) regardless of what the caller passed -- AppShellFrame's own
-    // `searchParams?.toString()` omits the leading `?`, but `revealed.search`
-    // (read from window.location.search inside the popstate handler below)
-    // always includes it, and the two are compared directly.
-    const normalizedSearch = search ? (search.startsWith("?") ? search : `?${search}`) : "";
-    lastSettled = { pathname, search: normalizedSearch };
-    lastSettledHistoryState = window.history.state;
+    recordCurrentBrowserHistory();
   }, [pathname, search]);
 
-  // Register before passive router/store subscriptions: popstate targets
-  // Window itself, so capture alone cannot outrank an earlier target listener.
+  // Register before this shell's passive subscriptions. Next may already
+  // listen on Window, so pre-navigation cancellation prevents the parent flash.
   useLayoutEffect(() => {
     if (Capacitor.isNativePlatform()) return;
     if (typeof window === "undefined") return;
 
+    // WebKit cancellation skips the next parent in the traversal regression.
+    // Keep its popstate restoration until that engine can preserve the cursor.
+    const navigation = /(?:Chrome|Chromium)\//.test(navigator.userAgent)
+      ? (window as Window & { navigation?: BrowserNavigation }).navigation
+      : undefined;
+    const onNavigate = (event: Event) => {
+      const traversal = event as BrowserNavigateEvent;
+      const currentIndex = navigation?.currentEntry?.index;
+      if (
+        !event.isTrusted || traversal.navigationType !== "traverse" ||
+        !traversal.destination.sameDocument ||
+        !event.cancelable || event.defaultPrevented ||
+        currentIndex == null || currentIndex < 0 ||
+        traversal.destination.index < 0 ||
+        traversal.destination.index >= currentIndex ||
+        !isProfilePaneGoverned({ pathname: window.location.pathname, search: window.location.search }) ||
+        !isTopmostConfirmationOpen(document)
+      ) return;
+      // Consume Back before the URL changes, so Next cannot animate the pane
+      // underneath the confirmation. Escape keeps dismissal/refusal owned by it.
+      event.preventDefault();
+      dismissTopmostOverlay(document);
+    };
+
     const onPopState = (event: PopStateEvent) => {
-      // Ignore synthetic/programmatic popstate (profile-pane.ts's own
-      // emitHistoryUpdate, or anything else dispatching one by hand) -- only
-      // a real OS/browser back gesture is trusted.
-      if (!event.isTrusted) return;
+      // Profile writes its history synchronously, while Next's query render
+      // can settle later. Keep the snapshot at the owner's actual entry so
+      // the first browser Back sees Account even before that render commits.
+      // Synthetic notifications refresh evidence only; they never navigate.
+      if (!event.isTrusted) {
+        recordCurrentBrowserHistory();
+        return;
+      }
       const previous = lastSettled;
+      const previousHistoryState = lastSettledHistoryState;
       const revealed: RouteLocation = {
         pathname: window.location.pathname,
         search: window.location.search,
       };
       if (dismissProfileConfirmationOnBack({
         previous,
-        previousHistoryState: lastSettledHistoryState,
+        previousHistoryState,
         revealedHistoryState: event.state,
       })) {
         // Run before Next observes the popped parent. Return to the original
@@ -204,12 +245,16 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         // The returning pop has equal depth and follows normal pane handling.
         event.stopImmediatePropagation();
         window.history.go(
-          profilePaneHistoryDepth(lastSettledHistoryState) -
+          profilePaneHistoryDepth(previousHistoryState) -
           profilePaneHistoryDepth(event.state),
         );
         return;
       }
       const correction = decideWebHistoryBackCorrection(previous, revealed);
+      // Permitted traversal (including Forward with a confirmation open)
+      // establishes the next starting entry even while render snapshots freeze.
+      lastSettled = revealed;
+      lastSettledHistoryState = event.state;
       if (!correction) return;
       // Always push, never replace: the browser already consumed a real
       // history entry to get here, so the correction must add a new one --
@@ -225,7 +270,11 @@ export function useWebHistoryBack(pathname: string, search: string): void {
       });
     };
 
+    navigation?.addEventListener("navigate", onNavigate);
     window.addEventListener("popstate", onPopState, true);
-    return () => window.removeEventListener("popstate", onPopState, true);
+    return () => {
+      navigation?.removeEventListener("navigate", onNavigate);
+      window.removeEventListener("popstate", onPopState, true);
+    };
   }, []);
 }

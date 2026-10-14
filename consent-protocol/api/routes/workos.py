@@ -79,13 +79,14 @@ async def sso_start(
     response: Response,
     email: str | None = None,
     organization_id: str | None = None,
+    origin: str | None = None,
 ):
     _require_enabled()
     response.headers.update(_NO_STORE)
     if not (email or organization_id):
         raise HTTPException(status_code=422, detail="email or organization_id is required")
     try:
-        return await _service().start(email=email, organization_id=organization_id)
+        return await _service().start(email=email, organization_id=organization_id, origin=origin)
     except EnterpriseSsoError as error:
         raise _http(error) from None
 

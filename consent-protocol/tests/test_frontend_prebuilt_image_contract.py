@@ -86,6 +86,10 @@ def _run(script: str, *, env: dict[str, str] | None = None, cwd: Path = ROOT):
 
 
 def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
+    assert (
+        "!scripts/deploy/resolve-google-sign-in-client.sh"
+        in (ROOT / ".gcloudignore").read_text().splitlines()
+    )
     combined = _steps(FRONTEND_BUILD)
     image_only = _steps(FRONTEND_IMAGE_BUILD)
     assert list(image_only) == ["resolve-google-contacts-client-config", "build-frontend-image"]
@@ -147,6 +151,91 @@ def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert (tmp_path / ".receipt-logo-url-template").read_text() == ""
+    assert (tmp_path / ".google-sign-in-client-id").read_text() == ""
+
+
+@pytest.mark.parametrize(
+    "status,expected_code",
+    [("present", 0), ("missing", 0), ("denied", 1), ("invalid", 1), ("empty", 1)],
+)
+def test_optional_google_sign_in_client_build_boundary(tmp_path, status, expected_code):
+    client_id = "123456789-synthetic.apps.googleusercontent.com"
+    config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text())
+    values = {name: str(value) for name, value in config["substitutions"].items()}
+    values["_DEPLOY_ENV"] = "uat"
+    script = (
+        _substitute(
+            _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
+        )
+        .replace("$$", "$")
+        .replace("/workspace/", str(tmp_path) + "/")
+    )
+    guards = """gcloud() {
+      case "$*" in
+        *--secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID*)
+          printf '%s' 'synthetic.apps.googleusercontent.com' ;;
+        *--secret=NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID*)
+          case "$TEST_SIGN_IN_STATUS" in
+            present) printf '%s\\r\\n' "$TEST_SIGN_IN_CLIENT" ;;
+            missing) echo 'NOT_FOUND: synthetic absence' >&2; return 1 ;;
+            denied) echo 'PERMISSION_DENIED: synthetic-private-payload' >&2; return 1 ;;
+            invalid) printf '%s' 'synthetic-private-payload' ;;
+            empty) return 0 ;;
+          esac ;;
+        *--secret=NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE*)
+          echo 'NOT_FOUND: synthetic absence' >&2; return 1 ;;
+        *) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;;
+      esac
+    };
+    export -f gcloud;
+"""
+    guards += f"python3() {{ '{Path(sys.executable).as_posix()}' \"$@\"; }};\n"
+    result = _run(
+        guards + script,
+        env={
+            "APP_FRONTEND_ORIGIN_VAL": "https://uat.one.hussh.ai",
+            "PROJECT_ID": "synthetic-project",
+            "TEST_SIGN_IN_STATUS": status,
+            "TEST_SIGN_IN_CLIENT": client_id,
+        },
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == expected_code, output
+    assert client_id not in output
+    assert "synthetic-private-payload" not in output
+    assert "UNEXPECTED_" not in output
+    expected = client_id if status == "present" else ""
+    artifact = tmp_path / ".google-sign-in-client-id"
+    assert artifact.read_text() == expected
+    if expected_code:
+        assert "Google sign-in OAuth client configuration" in output
+        return
+
+    build = _substitute(_body(_steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]), values)
+    build = build.replace("$$", "$").replace("/workspace/", str(tmp_path) + "/")
+    capture = tmp_path / "google-sign-in-docker-args.txt"
+    build_guards = (
+        "gcloud() { return 0; };\n"
+        "docker() { "
+        f'if [ "$1 $2" = "buildx build" ]; then printf "%s\\n" "$@" > "{capture}"; fi; '
+        "return 0; };\n"
+    )
+    build_env = {
+        name: "synthetic"
+        for name in _steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]["secretEnv"]
+    }
+    build_env["PROJECT_ID"] = "synthetic-project"
+    built = _run(build_guards + build, env=build_env)
+    assert built.returncode == 0, built.stdout + built.stderr
+    assert f"NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID={expected}" in capture.read_text().splitlines()
+    assert client_id not in built.stdout + built.stderr
+    assert not artifact.exists()
+    dockerfile = (ROOT / "hushh-webapp" / "Dockerfile").read_text()
+    assert "ARG NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID\n" in dockerfile
+    assert (
+        "ENV NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID\n"
+        in dockerfile
+    )
 
 
 @pytest.mark.parametrize(
@@ -181,6 +270,8 @@ def test_receipt_logo_build_boundary(
       case "$*" in
         *--secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID*)
           printf '%s' 'synthetic.apps.googleusercontent.com' ;;
+        *--secret=NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID*)
+          echo 'NOT_FOUND: synthetic absence' >&2; return 1 ;;
         *--secret=NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE*)
           case "$TEST_RECEIPT_STATUS" in
             present) printf '%s' "$TEST_RECEIPT_TEMPLATE" ;;
@@ -190,6 +281,7 @@ def test_receipt_logo_build_boundary(
         *) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;;
       esac
     };
+    export -f gcloud;
 """
     guards += f"python3() {{ '{Path(sys.executable).as_posix()}' \"$@\"; }};\n"
     origin = "one.hussh.si" if environment == "production" else f"{environment}.one.hussh.si"

@@ -61,6 +61,7 @@ const DOMAIN_ICON: Record<FeedSourceDomain, FeedItemPresentation["icon"]> = {
   kyc: ShieldCheck,
   connected_systems: Database,
   connections: Users,
+  pwm: UserRound,
 };
 
 const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
@@ -70,6 +71,7 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   kyc: "KYC",
   connected_systems: "Connected systems",
   connections: "Connections",
+  pwm: "Personal World Model",
 };
 
 // Incoming history targets the received-share list without forcing a grant.
@@ -359,13 +361,19 @@ function paymentConfirmedLine(metadata: Record<string, unknown>): string {
       : "after the request closed";
   const cents = metadata.current_refund_amount_cents;
   const amount =
-    Number.isSafeInteger(cents) && (cents as number) > 0 && (cents as number) <= 50_000
+    Number.isSafeInteger(cents) &&
+    (cents as number) > 0 &&
+    (cents as number) <= 50_000
       ? formatPaymentMoney(cents as number)
       : null;
   const refund =
     state === "refunded"
-      ? amount ? `Refunded ${amount}` : "Refunded"
-      : amount ? `Refund of ${amount} pending` : "Refund pending";
+      ? amount
+        ? `Refunded ${amount}`
+        : "Refunded"
+      : amount
+        ? `Refund of ${amount} pending`
+        : "Refund pending";
   return `Payment received ${when} · ${refund}`;
 }
 
@@ -697,6 +705,31 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   }
 
   switch (item.event_type) {
+    case "pwm_research": {
+      const draftId = metadataString(item.metadata, "draft_id");
+      const outcome = metadataString(item.metadata, "pwm_outcome");
+      const validDraft =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          draftId,
+        );
+      return {
+        icon,
+        domainLabel,
+        label:
+          outcome === "ready"
+            ? "Your Personal World Model is ready"
+            : outcome === "partial"
+              ? "Your research needs a review"
+              : "Your research needs attention",
+        description:
+          outcome === "attention"
+            ? "Open your model to check the next step."
+            : "Review the findings and what belongs to you.",
+        href: validDraft
+          ? `${ROUTES.PROFILE_WORLD_MODEL}?draft_id=${encodeURIComponent(draftId)}`
+          : ROUTES.PROFILE_WORLD_MODEL,
+      };
+    }
     case "connector_connected":
     case "connector_reconnect_required":
     case "connector_disconnected":
@@ -797,13 +830,14 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         "Question",
         "",
       ];
-      const description = item.event_type === "answer_request_payment_ready" && state === "staged"
-        ? "Their answer is prepared. Open the request to review the price and pay."
-        : terminal
-        ? `Request ${state}. Open its current status.`
-        : state === "answering"
-          ? "Payment verified. Open the request to continue."
-          : originalDescription;
+      const description =
+        item.event_type === "answer_request_payment_ready" && state === "staged"
+          ? "Their answer is prepared. Open the request to review the price and pay."
+          : terminal
+            ? `Request ${state}. Open its current status.`
+            : state === "answering"
+              ? "Payment verified. Open the request to continue."
+              : originalDescription;
       return {
         icon,
         domainLabel,

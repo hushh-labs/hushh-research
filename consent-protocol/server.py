@@ -157,6 +157,7 @@ from api.routes import (  # noqa: E402
     health,
     hushh_tech,
     notifications,
+    pwm_notification_drain,
     referral_scoring_drain,
     session,
     sse,
@@ -341,6 +342,7 @@ app.include_router(drive_work_drain.router)
 # durable referral-scoring queue (one_referral_scoring_jobs). It has no
 # startup/background execution path.
 app.include_router(referral_scoring_drain.router)
+app.include_router(pwm_notification_drain.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)
@@ -940,6 +942,9 @@ async def shutdown_magic_discovery():
     from hushh_mcp.services.world_model_service import world_model_jobs
 
     await world_model_jobs.shutdown()
+    from hushh_mcp.services.world_model_notifications import world_model_notification_worker
+
+    await world_model_notification_worker.stop()
 
 
 @app.on_event("startup")
@@ -950,6 +955,9 @@ async def startup_magic_discovery_retention():
     from hushh_mcp.services.world_model_service import world_model_jobs
 
     world_model_jobs.start_retention()
+    from hushh_mcp.services.world_model_notifications import world_model_notification_worker
+
+    world_model_notification_worker.start()
 
 
 # ============================================================================

@@ -530,6 +530,9 @@ class HushhAuthPlugin : Plugin() {
             ),
             Scope("https://www.googleapis.com/auth/calendar.freebusy")
         )
+        if (call.getBoolean("includeCalendarList", false) == true) {
+            calendarScopes.add(Scope("https://www.googleapis.com/auth/calendar.calendarlist.readonly"))
+        }
         val calendarOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestServerAuthCode(serverClientId, true)
             .requestEmail()

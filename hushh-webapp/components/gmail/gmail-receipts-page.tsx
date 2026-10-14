@@ -16,7 +16,7 @@ import GmailInformationRequestsSection from "@/components/gmail/gmail-informatio
 import { GmailRecentReceipts } from "@/components/gmail/gmail-recent-receipts";
 import { GmailReceiptMemorySave } from "@/components/gmail/gmail-receipt-memory-save";
 import { DurableResourceError, durableResourceError } from "@/lib/services/durable-resource-error";
-import { captureReceiptSnapshot, receiptSnapshotRows, type ReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
+import { captureReceiptSnapshot, receiptAccountBinding, receiptSnapshotRows, type ReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
 import { resolveSavedReceiptMerchantBrand } from "@/lib/mail/receipt-merchant-registry";
 import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
 import { loadReceiptSnapshot, receiptStoreVersion, writeReceiptSnapshot } from "@/lib/mail/receipt-store";
@@ -75,6 +75,7 @@ import {
   GmailReceiptsService,
   isReceiptConnectionLostError,
   isReceiptScanInProgressError,
+  isReceiptScanContinuationExpiredError,
   isRetryableReceiptScanPageError,
   type ReceiptListItem,
 } from "@/lib/services/gmail-receipts-service";
@@ -486,14 +487,14 @@ export default function GmailReceiptsPage({
           const shouldContinueScan =
             nextHasMore &&
             nextLoadedPage < response.coverage.max_pages;
-          if (!shouldContinueScan) previousItems = null;
-          const nextItems = previousItems
+          const displayItems = previousItems
             ? mergeCachedReceiptItems({
                 existing: previousItems,
                 incoming: passItems,
                 mode: "prepend_refresh",
               })
             : passItems;
+          const nextItems = shouldContinueScan ? displayItems : passItems;
           const nextTotal = nextItems.length;
 
           // Only Reset may discard good rows when a provider returns an empty pass.
@@ -506,9 +507,17 @@ export default function GmailReceiptsPage({
           // Keep a restored projection and its counts coherent until replacement is verified.
           // An empty scan must also keep currently visible live rows on failure.
           const deferReplacement = Boolean(savedReceiptSnapshotRef.current) || (!nextItems.length && receiptsRef.current.length > 0);
-          if (!deferReplacement) {
-            receiptsRef.current = nextItems;
-            setReceipts(nextItems);
+          if (displayItems.length || !deferReplacement) {
+            const aliases = Object.fromEntries(await Promise.all(displayItems.map(async item => {
+              const key = item.source_id || item.receipt_key || String(item.id);
+              return [await receiptAccountBinding(`event:${key}`), key] as const;
+            })));
+            if (!isCurrentLoad()) return null;
+            setReceiptSourceAliases(previous => ({ ...previous, ...aliases }));
+            receiptsRef.current = displayItems;
+            setReceipts(displayItems);
+          }
+          if (!deferReplacement && shouldContinueScan) {
             setPage(nextLoadedPage);
             setHasMore(nextHasMore);
             setTotal(nextTotal);
@@ -559,15 +568,13 @@ export default function GmailReceiptsPage({
             if (!isCurrentLoad()) return null;
             if (!durableVersion) return false;
             const committedRevision = durableVersion.revision;
-            if (deferReplacement) {
-              receiptsRef.current = nextItems;
-              setReceipts(nextItems);
-              setPage(nextLoadedPage);
-              setHasMore(nextHasMore);
-              setTotal(nextTotal);
-              setReceiptScanReachedLimit(response.coverage?.reached_limit === true);
-              primeCachedGmailReceipts({ userId: loadOwnerId, accountKey: loadAccountKey, response: { ...response, items: passItems, total: passItems.length }, scanStartedAt });
-            }
+            receiptsRef.current = nextItems;
+            setReceipts(nextItems);
+            setPage(nextLoadedPage);
+            setHasMore(nextHasMore);
+            setTotal(nextTotal);
+            setReceiptScanReachedLimit(response.coverage?.reached_limit === true);
+            primeCachedGmailReceipts({ userId: loadOwnerId, accountKey: loadAccountKey, response: { ...response, items: passItems, total: passItems.length }, scanStartedAt });
             setSavedReceiptSnapshot(null);
             setReceiptCompletion(previous => ({ scope: `${loadOwnerId}\u0000${String(loadAccountKey || "")}`, count: (previous?.count ?? 0) + 1, generation: scanOwnerGeneration, revision: committedRevision }));
             return true;
@@ -587,7 +594,20 @@ export default function GmailReceiptsPage({
           void refreshGmailStatusRef.current?.({ force: true });
           return false;
         }
-        setReceiptListRetryPage(requestedPage);
+        if (isReceiptScanContinuationExpiredError(error)) {
+          receiptScanCursorsRef.current.clear();
+          setHasMore(false);
+          const cached = getCachedGmailReceipts(loadOwnerId, loadAccountKey);
+          if (cached) primeCachedGmailReceipts({
+            userId: loadOwnerId,
+            accountKey: loadAccountKey,
+            response: { ...cached, has_more: false, next_cursor: null },
+            previousItems: cached.previous_items,
+          });
+          setReceiptListRetryPage(1);
+        } else {
+          setReceiptListRetryPage(requestedPage);
+        }
         setReceiptListError(
           sanitizeGmailUserMessage(error, {
             fallback:
@@ -664,9 +684,30 @@ export default function GmailReceiptsPage({
   // receipt projection during the first render of a different owner/account.
   const receiptDisplayScopeCurrent =
     displayedReceiptScopeRef.current === receiptDisplayScope;
-  const visibleReceipts = receiptDisplayScopeCurrent ? receipts : [];
-  const visibleSavedRows = useMemo(() => savedReceiptSnapshot?.scope === receiptDisplayScope && hasSealedReceiptAccess
-    ? receiptSnapshotRows(savedReceiptSnapshot.value) : undefined, [savedReceiptSnapshot, receiptDisplayScope, hasSealedReceiptAccess]);
+  const visibleReceipts = useMemo(() => receiptDisplayScopeCurrent ? receipts : [], [receiptDisplayScopeCurrent, receipts]);
+  const visibleSavedRows = useMemo(() => {
+    if (!savedReceiptSnapshot || savedReceiptSnapshot.scope !== receiptDisplayScope || !hasSealedReceiptAccess) return undefined;
+    const savedRows = receiptSnapshotRows(savedReceiptSnapshot.value);
+    const savedIds = new Set(savedRows.map(row => row.id));
+    const savedSources = new Set(savedRows.flatMap(row => row.sourceReceiptKeys.map(key => receiptSourceAliases[key]).filter(Boolean)));
+    const normalizedIdentifier = (value: string) => value.trim().toUpperCase().replace(/\s+/g, " ");
+    // Preserve already-decided saved groups until the complete pass is verified.
+    // Source hashes also catch a single event whose display group ID later changes.
+    const freshRows = buildRecentReceiptRows(visibleReceipts, receiptAccountKey).filter(row =>
+      !savedIds.has(row.id) && !row.sourceReceiptKeys.some(key => savedSources.has(key)) &&
+      // Defer a possible new event for a saved transaction until the complete
+      // pass can use the unchanged canonical grouping rules.
+      (row.eventTimeline.some(event => event.eventKind === "refund" || event.eventKind === "cancellation") ||
+        savedRows.filter(saved => saved.displayKind === "merchant" && row.displayKind === "merchant" &&
+          (saved.brandKey ? saved.brandKey === row.brandKey : saved.merchantName === row.merchantName && saved.logoDomain === row.logoDomain) &&
+          !saved.eventTimeline.some(event => event.eventKind === "refund" || event.eventKind === "cancellation") &&
+          row.identifiers.some(identifier => ["order", "invoice", "receipt", "pnr"].includes(identifier.kind) &&
+            saved.identifiers.some(other => other.kind === identifier.kind && normalizedIdentifier(other.value) === normalizedIdentifier(identifier.value))) &&
+          !row.identifiers.some(identifier => saved.identifiers.some(other => other.kind === identifier.kind &&
+            normalizedIdentifier(other.value) !== normalizedIdentifier(identifier.value))))
+          .length !== 1));
+    return [...freshRows, ...savedRows];
+  }, [savedReceiptSnapshot, receiptDisplayScope, hasSealedReceiptAccess, visibleReceipts, receiptAccountKey, receiptSourceAliases]);
   const visibleTotal = receiptDisplayScopeCurrent ? total : 0;
   const visibleHasMore = receiptDisplayScopeCurrent && hasMore;
   const hasStoredReceipts = visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length);
@@ -785,7 +826,7 @@ export default function GmailReceiptsPage({
       });
       receiptsRef.current = nextReceipts;
       setReceipts(nextReceipts);
-      upsertCachedGmailReceipt({
+      if (!savedReceiptSnapshotRef.current) upsertCachedGmailReceipt({
         userId: ownerId,
         accountKey: receiptAccountKey,
         item,

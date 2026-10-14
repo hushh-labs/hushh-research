@@ -8,7 +8,7 @@ import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
 import { AuthService } from "@/lib/services/auth-service";
 import { InitialContactsOnboardingService } from "@/lib/services/initial-contacts-onboarding-service";
-import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
+import { preloadGoogleSignupAuth } from "@/lib/auth/google-signup-token";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiService } from "@/lib/services/api-service";
 import { LegalAcceptanceService } from "@/lib/services/legal-acceptance-service";
@@ -59,9 +59,9 @@ const AUTH_CANCEL_CODES = new Set([
 ]);
 
 const APPLE_BTN_CLASS =
-  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-[650] whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-[650] whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
@@ -82,6 +82,7 @@ type ProviderAttempt = {
 };
 
 function isAuthCancel(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
   const code =
     error && typeof error === "object" && "code" in error
       ? String((error as { code?: unknown }).code ?? "")
@@ -130,7 +131,7 @@ export function AuthStep({
   const [hydrated, setHydrated] = useState(false);
   const [returningSignIn, setReturningSignIn] = useState(false);
   const [findInitialContacts, setFindInitialContacts] = useState(true);
-  const initialContactsEnabled = initialContactOnboardingEnabled() && !returningSignIn;
+  const initialContactsEnabled = !returningSignIn && AuthService.canRequestInitialGoogleContacts();
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
   const {
@@ -158,11 +159,13 @@ export function AuthStep({
   const [nativeErrorCode, setNativeErrorCode] = useState<string | null>(null);
   const providerAttemptRef = useRef<ProviderAttempt | null>(null);
   const providerAttemptSequenceRef = useRef(0);
+  const providerAbortRef = useRef<AbortController | null>(null);
   const attentionResolversRef = useRef(
     new Map<string, (result: { status: "started"; summary: string }) => void>(),
   );
   const [providerAttempt, setProviderAttempt] =
     useState<ProviderAttempt | null>(null);
+  const [providerRecovery, setProviderRecovery] = useState<string | null>(null);
   const providerBusy = Boolean(
     providerAttempt && providerAttempt.phase !== "attention_required",
   );
@@ -191,6 +194,14 @@ export function AuthStep({
   useEffect(() => {
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (isWeb()) {
+      void preloadGoogleSignupAuth().catch(() => undefined);
+    }
+  }, []);
+
+  useEffect(() => () => providerAbortRef.current?.abort(), []);
 
   const publishProviderAttempt = useCallback(
     (attempt: ProviderAttempt | null) => {
@@ -591,6 +602,10 @@ export function AuthStep({
       }
 
       providerAttemptSequenceRef.current += 1;
+      providerAbortRef.current?.abort();
+      const controller = new AbortController();
+      providerAbortRef.current = controller;
+      setProviderRecovery(null);
       const attempt: ProviderAttempt = {
         id: `provider_${Date.now().toString(36)}_${providerAttemptSequenceRef.current}`,
         provider,
@@ -605,8 +620,12 @@ export function AuthStep({
 
       const providerPromise =
         provider === "google"
-          ? AuthService.signInWithGoogle(initialContactsEnabled && findInitialContacts
-              ? { purpose: "initial_contacts" } : undefined)
+          ? AuthService.signInWithGoogle({
+              purpose: initialContactsEnabled && findInitialContacts ? "initial_contacts" : "authentication",
+              includeContacts: initialContactsEnabled && findInitialContacts,
+              signal: controller.signal,
+              onCredentialExchange: () => updateProviderAttemptPhase(attempt.id, "settling"),
+            })
           : AuthService.signInWithApple();
       updateProviderAttemptPhase(attempt.id, "provider_open");
 
@@ -625,7 +644,7 @@ export function AuthStep({
               summary: "A newer sign-in attempt replaced this one.",
             };
           }
-          updateProviderAttemptPhase(attempt.id, "settling");
+          if (!controller.signal.aborted) updateProviderAttemptPhase(attempt.id, "settling");
           const authenticatedUser = authResult.user;
           if (!authenticatedUser) {
             trackEvent("auth_failed", {
@@ -642,11 +661,20 @@ export function AuthStep({
               summary: `${provider === "apple" ? "Apple" : "Google"} did not return a user session.`,
             };
           }
+          if (provider === "google" && isWeb() &&
+              AuthService.getCurrentUser()?.uid !== authenticatedUser.uid) {
+            return {
+              status: "blocked" as const,
+              summary: "The signed-in account changed before sign-in finished.",
+            };
+          }
           const settlementId = beginPostAuthSettlement(authenticatedUser);
           try {
             const idToken =
               authResult.idToken || (await authenticatedUser.getIdToken());
-            if (providerAttemptRef.current?.id !== attempt.id) {
+            if (providerAttemptRef.current?.id !== attempt.id ||
+                (provider === "google" && isWeb() &&
+                 AuthService.getCurrentUser()?.uid !== authenticatedUser.uid)) {
               return {
                 status: "blocked" as const,
                 summary: "A newer sign-in attempt replaced this one.",
@@ -659,11 +687,14 @@ export function AuthStep({
             void ApiService.notifyFirstWelcome({ idToken });
             // The sign-in screen states "By continuing you agree"; record it.
             void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser);
-            if (initialContactsEnabled) {
-              // Optional acquisition must not hold up phone verification.
-              void InitialContactsOnboardingService.begin(authResult, provider, attempt.id, findInitialContacts)
-                .catch(() => undefined);
-            }
+            // Actual account newness decides enrollment, including accounts
+            // created from the returning sign-in entry. Acquisition stays optional.
+            void InitialContactsOnboardingService.begin(
+              authResult,
+              provider,
+              attempt.id,
+              initialContactsEnabled && findInitialContacts,
+            ).catch(() => undefined);
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
                 journey: growthJourney,
@@ -673,6 +704,14 @@ export function AuthStep({
                 dedupeKey: `growth:${growthJourney}:auth_completed:${provider}`,
                 dedupeWindowMs: 5_000,
               });
+            }
+            // Finish committed authentication above even after leaving this
+            // screen, but keep the person's chosen destination in that case.
+            if (controller.signal.aborted) {
+              return {
+                status: "succeeded" as const,
+                summary: `${provider === "apple" ? "Apple" : "Google"} sign-in completed.`,
+              };
             }
             const routeAfter = await resolveAndNavigate(
               authenticatedUser.uid,
@@ -690,13 +729,17 @@ export function AuthStep({
           }
         })
         .catch((error: unknown) => {
-          if (providerAttemptRef.current?.id !== attempt.id) {
+          if (controller.signal.aborted || providerAttemptRef.current?.id !== attempt.id) {
             return {
               status: "blocked" as const,
               summary: "A newer sign-in attempt replaced this one.",
             };
           }
           const cancelled = isAuthCancel(error);
+          if (error && typeof error === "object" && "code" in error &&
+              error.code === "auth/popup-closed-by-user") {
+            setProviderRecovery("Sign-in didn’t finish. Please try again.");
+          }
           if (!cancelled) {
             debugError(`[AuthStep] ${provider} login failed`, error);
           }
@@ -722,6 +765,7 @@ export function AuthStep({
           };
         })
         .finally(() => {
+          if (providerAbortRef.current === controller) providerAbortRef.current = null;
           attentionResolversRef.current.delete(attempt.id);
           if (providerAttemptRef.current?.id === attempt.id) {
             publishProviderAttempt(null);
@@ -1007,7 +1051,7 @@ export function AuthStep({
           <div className={cn("relative mx-auto w-full max-w-[344px] space-y-3.5", lightStyles.actions)}>
             {initialContactsEnabled ? (
               <div className="space-y-2 text-start text-sm text-muted-foreground">
-                <label className="flex min-h-11 items-center gap-3">
+                <label className="flex min-h-11 items-center gap-3 font-semibold">
                   <Checkbox checked={findInitialContacts} disabled={providerBusy}
                     onCheckedChange={(checked) => setFindInitialContacts(checked === true)} />
                   <span>Find people I know</span>
@@ -1016,6 +1060,11 @@ export function AuthStep({
               </div>
             ) : null}
             <div className="space-y-3" data-auth-provider-actions>
+              {providerRecovery && !providerAttempt ? (
+                <p role="status" className="text-center text-sm text-muted-foreground">
+                  {providerRecovery}
+                </p>
+              ) : null}
               {providerAttempt?.phase === "attention_required" ? (
                 <p
                   role="status"
@@ -1045,13 +1094,11 @@ export function AuthStep({
                   )}
                 />
               ))}
-              {initialContactOnboardingEnabled() ? (
-                <button type="button" disabled={providerBusy}
-                  className="min-h-11 w-full text-sm text-muted-foreground hover:text-foreground"
-                  onClick={() => setReturningSignIn((value) => !value)}>
-                  {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
-                </button>
-              ) : null}
+              <button type="button" disabled={providerBusy}
+                className="min-h-11 w-full text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => setReturningSignIn((value) => !value)}>
+                {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
+              </button>
 
               <EnterpriseSsoSection
                 redirectPath={redirectPath}
