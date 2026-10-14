@@ -739,7 +739,7 @@ for (const width of [320, 390, 1440]) {
     await expect(received.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await expect(sharing.getByRole("button", { name: /^(Sent|Received) cards$/ })).toHaveCount(0);
     await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toBeVisible();
-    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true })).toBeVisible();
     await expect(history.getByText(/15 minutes/)).toBeHidden();
     await expect(history.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await received.getByRole("button", { name: "View Everyday •••• 4242 from Example Sender", exact: true }).click();
@@ -791,11 +791,11 @@ for (const width of [320, 390, 1440]) {
     await expect(revoke).toHaveCount(0);
     await detail.getByRole("button", { name: "Back to sharing history" }).click();
     await expect(detail).toBeHidden();
-    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true })).toBeVisible();
     // Terminal settle must remove fractional interpolation so the Sharing
     // pane remains fully inside the viewport; live drag keeps its own transform.
     await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
-    const recipientBounds = (await sharing.getByText("Sample recipient", { exact: true }).boundingBox())!;
+    const recipientBounds = (await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true }).boundingBox())!;
     expect(recipientBounds.x).toBeGreaterThanOrEqual(0);
     expect(recipientBounds.x + recipientBounds.width).toBeLessThanOrEqual(width);
     await page.locator('[data-app-scroll-root="true"]').evaluate((el) => { el.scrollTop = 0; });

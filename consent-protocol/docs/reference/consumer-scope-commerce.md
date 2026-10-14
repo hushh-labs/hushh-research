@@ -29,6 +29,36 @@ or payout.
 
 ### Current Dev evidence — 2026-10-14 UTC
 
+At `2026-10-14T23:23:44Z`, source-bound database and provider reads confirmed
+both reviewers' document/answer payout accounts have submitted details, an
+eligible USD bank and enabled payouts. These are distinct from information-access
+accounts and use automatic scheduling. The primary information-access account
+still requires individual name, bank and terms; the counterpart is eligible with
+manual scheduling. A completed document-bank setup must not be reported as scope
+payout eligibility or adopted across settlement authorities.
+
+Full CI at `9275686586fc` passed protocol, MCP, web-core, all three web unit
+shards, iOS and Android, but browser contracts blocked release. Browser shard 1
+stopped during dependency installation with `ECONNRESET`. Wallet Sharing's
+recipient locator ambiguously matched two legitimate sections; the correction
+selects the exact outgoing history row and passes all three viewport cases.
+History's WebKit sampling raced initial painting and residual touch-cancel
+overrides. The fixture now requires a painted closed baseline and released inline
+motion before sampling. Chromium and WebKit pass; forcing zero-duration motion
+still fails the intermediate-frame guard. Latency, final geometry, unchanged
+Chat position and revocation assertions remain intact. These changes require a
+new exact-candidate core and full CI before Dev promotion.
+
+New main `493a66762d61` was fetched and assessed separately from this frozen
+payment release. Its 340 additional commits expose a migration identity collision:
+historical `335_pwm_provider_budget` is byte-identical to incoming
+`340_pwm_provider_budget`, while incoming Drive SQL reuses 335. An uncommitted
+trial merge was aborted; the existing branch and all ten protected workspace
+hashes remain unchanged. Future normal integration requires explicit execution
+and rollback mapping, preservation of head 348 and the 57 manual Dev entries,
+plus review of changed placement and retained-revision capacity policies. No
+combined-release qualification is claimed.
+
 Reviewer roles below refer to the canonical environment-wired subjects. A
 Firebase identity read on 2026-10-14 corrected reversed email labels in the
 operator's earlier browser helpers; funding and account records were not
