@@ -89,6 +89,17 @@ describe("initial signup contacts", () => {
     expect(service.getSnapshot().ownerId).toBeNull();
   });
 
+  it("enrolls a new account created from sign-in without acquiring unrequested contacts", async () => {
+    await service.begin({ user: user(), idToken: "token-owner", isNewUser: true }, "google", "signin-attempt", false);
+    expect(service.getSnapshot()).toMatchObject({ ownerId: "owner", source: "google", status: "deferred" });
+    expect(ports.update).toHaveBeenCalledWith("owner", { initialContactsSource: "google" }, { idToken: "token-owner" });
+    expect(ports.people).not.toHaveBeenCalled();
+    expect(ports.gis).not.toHaveBeenCalled();
+    expect(ports.google).not.toHaveBeenCalled();
+    expect(ports.permission).not.toHaveBeenCalled();
+    expect(ports.phone).not.toHaveBeenCalled();
+  });
+
   it("enrolls fresh signup after completed deletion clears the former account state", async () => {
     await begin();
     await service.acknowledge();

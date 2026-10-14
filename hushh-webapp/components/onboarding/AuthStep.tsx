@@ -658,11 +658,14 @@ export function AuthStep({
             void ApiService.notifyFirstWelcome({ idToken });
             // The sign-in screen states "By continuing you agree"; record it.
             void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser);
-            if (initialContactsEnabled) {
-              // Optional acquisition must not hold up phone verification.
-              void InitialContactsOnboardingService.begin(authResult, provider, attempt.id, findInitialContacts)
-                .catch(() => undefined);
-            }
+            // Actual account newness decides enrollment, including accounts
+            // created from the returning sign-in entry. Acquisition stays optional.
+            void InitialContactsOnboardingService.begin(
+              authResult,
+              provider,
+              attempt.id,
+              initialContactsEnabled && findInitialContacts,
+            ).catch(() => undefined);
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
                 journey: growthJourney,
